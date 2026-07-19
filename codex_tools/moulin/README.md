@@ -7,8 +7,7 @@ typing the full `act` command. The script builds or reuses the local
 Example:
 
 ```sh
-~/Projects/new_dev/codex_tools/moulin/run-act-build.sh \
-  ~/Projects/new_dev/moulin-svlad-90
+./codex_tools/moulin/run-act-build.sh ./moulin-svlad-90
 ```
 
 Use `--rebuild-image` after changing `act/Dockerfile`.
