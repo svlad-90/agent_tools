@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-import re
 import subprocess
 from pathlib import Path
 
+from .diff_parse import file_from_diff_header
 from .models import DiffReportError, DiffSource, DiffStats
 
 
@@ -151,10 +151,3 @@ def commit_message_from_patch(diff_text: str) -> tuple[str | None, str | None, s
     message = "\n".join(message_lines)
     subject = next((line for line in message_lines if line), None)
     return commit_id, subject, message
-
-
-def file_from_diff_header(line: str) -> str:
-    match = re.match(r"diff --git a/(.*?) b/(.*)", line)
-    if not match:
-        return line
-    return match.group(2)
