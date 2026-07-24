@@ -166,6 +166,11 @@ existing behavior with regression tests.
 - Story navigation flash now draws one absolute overlay around the union of the
   target rows and the related review comment instead of animating individual
   table cells.
+- When a comment immediately follows its target range, the target range no
+  longer draws a bottom border between the code block and the comment card, and
+  the comment card no longer draws its old connector pseudo-element.
+- Jumps to review comments now scroll to the first line of the related target
+  range rather than to the comment card itself.
 - Active-file navigation auto-scroll is now limited to fixed-position nav
   layouts; when the tree is part of the page flow on narrow screens it only
   updates the active item and does not call `scrollIntoView()`.
@@ -394,6 +399,10 @@ copied report keeps the same relative layout.
   passed with 38 unittest cases.
 - After including intermediate deleted rows in comment target ranges and moving
   story flash to a single external overlay,
+  `codex-tools-diff-report-enhancements/scripts/run-ci.sh` passed with 38
+  unittest cases.
+- After removing the code/comment separator lines and changing comment jumps to
+  land at the beginning of the target block,
   `codex-tools-diff-report-enhancements/scripts/run-ci.sh` passed with 38
   unittest cases.
 - Headless Chrome screenshot check at 1280x720 confirmed the report brand is

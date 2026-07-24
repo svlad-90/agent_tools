@@ -315,12 +315,13 @@ def html_header(title: str) -> str:
     tr.comment-target .num:first-child {{ box-shadow: inset 4px 0 0 var(--comment-border); }}
     tr.comment-target-start .num, tr.comment-target-start .code {{ box-shadow: inset 0 2px 0 var(--comment-border); }}
     tr.comment-target-end .num, tr.comment-target-end .code {{ box-shadow: inset 0 -2px 0 var(--comment-border); }}
+    tr.comment-target-end:has(+ tr.comment-row) .num, tr.comment-target-end:has(+ tr.comment-row) .code {{ box-shadow: none; }}
     tr.comment-target-start .num:first-child {{ box-shadow: inset 4px 0 0 var(--comment-border), inset 0 2px 0 var(--comment-border); }}
     tr.comment-target-end .num:first-child {{ box-shadow: inset 4px 0 0 var(--comment-border), inset 0 -2px 0 var(--comment-border); }}
+    tr.comment-target-end:has(+ tr.comment-row) .num:first-child {{ box-shadow: inset 4px 0 0 var(--comment-border); }}
     tr.comment-target-single .num:first-child {{ box-shadow: inset 4px 0 0 var(--comment-border), inset 0 2px 0 var(--comment-border), inset 0 -2px 0 var(--comment-border); }}
     tr.comment-row td {{ background: linear-gradient(to right, var(--comment-row-bg) 0 112px, transparent 112px); padding: 0 !important; box-shadow: inset 4px 0 0 var(--comment-border); }}
     .review-comment {{ position: relative; margin: 6px 18px 14px 112px; border: 1px solid var(--comment-panel-border); border-left-width: 4px; background: var(--comment-bg); border-radius: 6px; box-shadow: 0 1px 2px rgba(31,35,40,.08); overflow: hidden; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }}
-    .review-comment::before {{ content: ""; position: absolute; top: -7px; left: -4px; width: 4px; height: 7px; background: var(--comment-border); }}
     .review-comment .title {{ padding: 8px 10px; font-weight: 700; border-bottom: 1px solid var(--comment-title-border); background: var(--comment-title-bg); }}
     .review-comment .body {{ min-width: 0; max-width: 100%; padding: 9px 10px; overflow-wrap: anywhere; }}
     .diagram-list {{ display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: flex-start; gap: 12px; }}
@@ -472,7 +473,7 @@ def html_header(title: str) -> str:
       header, section {{ padding: 16px; }}
       .story-steps {{ grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); }}
       .num {{ width: 56px; padding: 0 8px !important; }}
-      tr.comment-row td {{ background: linear-gradient(to right, var(--comment-row-bg) 0 96px, transparent 96px); }}
+      tr.comment-row td {{ background: linear-gradient(to right, var(--comment-row-bg) 0 96px, transparent 96px); box-shadow: inset 4px 0 0 var(--comment-border); }}
       .review-comment {{ margin-left: 96px; }}
     }}
     @media (max-width: 1280px) {{

@@ -121,6 +121,9 @@ class Pr139ReportRegressionTests(unittest.TestCase):
             "function createCodeTargetFlashOverlay(targets)",
             "function rowsWithIntermediateDeletes(rows)",
             "tr.comment-row td { background: linear-gradient(to right, var(--comment-row-bg) 0 112px, transparent 112px); padding: 0 !important; box-shadow: inset 4px 0 0 var(--comment-border); }",
+            "tr.comment-target-end:has(+ tr.comment-row) .num, tr.comment-target-end:has(+ tr.comment-row) .code { box-shadow: none; }",
+            'tr[data-file="\' + cssEscape(file) + \'"][data-new-line="\' + String(rangeStart) + \'"]',
+            "function cssEscape(value)",
             "@media (min-width: 1800px)",
             "@media (max-width: 1500px)",
             "@media (max-width: 1280px)",
@@ -164,6 +167,7 @@ class Pr139ReportRegressionTests(unittest.TestCase):
         self.assertNotIn("story-settings-launcher", html)
         self.assertNotIn('id="story-counter"', html)
         self.assertNotIn("story-top-inline", html)
+        self.assertNotIn(".review-comment::before", html)
         self.assertRegex(
             html,
             r'<tr class="del comment-target" data-diff-kind="del">'
