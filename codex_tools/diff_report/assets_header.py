@@ -62,7 +62,6 @@ def html_header(title: str) -> str:
       --comment-target-add-bg: #d6eedc;
       --comment-target-del-bg: #f8d5da;
       --comment-target-overlay: rgba(202,80,16,.045);
-      --comment-row-bg: var(--comment-target-ctx-bg);
       --comment-title-bg: rgba(255,255,255,.44);
       --comment-title-border: rgba(202,80,16,.34);
       --comment-panel-border: rgba(202,80,16,.55);
@@ -151,7 +150,6 @@ def html_header(title: str) -> str:
       --comment-target-add-bg: #14351f;
       --comment-target-del-bg: #421f24;
       --comment-target-overlay: rgba(204,167,0,.08);
-      --comment-row-bg: var(--comment-target-ctx-bg);
       --comment-title-bg: rgba(255,255,255,.06);
       --comment-title-border: rgba(204,167,0,.34);
       --comment-panel-border: rgba(204,167,0,.55);
@@ -327,7 +325,7 @@ def html_header(title: str) -> str:
     tr.comment-target-end .num:first-child {{ box-shadow: inset 4px 0 0 var(--comment-border), inset 0 -2px 0 var(--comment-border); }}
     tr.comment-target-end:has(+ tr.comment-row) .num:first-child {{ box-shadow: inset 4px 0 0 var(--comment-border); }}
     tr.comment-target-single .num:first-child {{ box-shadow: inset 4px 0 0 var(--comment-border), inset 0 2px 0 var(--comment-border), inset 0 -2px 0 var(--comment-border); }}
-    tr.comment-row td {{ background: linear-gradient(to right, transparent calc(var(--diff-num-width) - 1px), var(--border) calc(var(--diff-num-width) - 1px) var(--diff-num-width), transparent var(--diff-num-width)), linear-gradient(to right, transparent calc(var(--comment-gutter-width) - 1px), var(--border) calc(var(--comment-gutter-width) - 1px) var(--comment-gutter-width), transparent var(--comment-gutter-width)), linear-gradient(to right, var(--comment-row-bg) 0 var(--comment-gutter-width), transparent var(--comment-gutter-width)); padding: 0 !important; box-shadow: inset 4px 0 0 var(--comment-border); }}
+    tr.comment-row td {{ background: linear-gradient(to right, transparent calc(var(--diff-num-width) - 1px), var(--border) calc(var(--diff-num-width) - 1px) var(--diff-num-width), transparent var(--diff-num-width)), linear-gradient(to right, transparent calc(var(--comment-gutter-width) - 1px), var(--border) calc(var(--comment-gutter-width) - 1px) var(--comment-gutter-width), transparent var(--comment-gutter-width)), linear-gradient(to right, var(--comment-target-overlay) 0 var(--comment-gutter-width), transparent var(--comment-gutter-width)), linear-gradient(to right, var(--comment-target-ctx-bg) 0 var(--comment-gutter-width), transparent var(--comment-gutter-width)); padding: 0 !important; box-shadow: inset 4px 0 0 var(--comment-border); }}
     .review-comment {{ position: relative; margin: 6px 18px 14px 112px; border: 1px solid var(--comment-panel-border); border-left-width: 4px; background: var(--comment-bg); border-radius: 6px; box-shadow: 0 1px 2px rgba(31,35,40,.08); overflow: hidden; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }}
     .review-comment .title {{ padding: 8px 10px; font-weight: 700; border-bottom: 1px solid var(--comment-title-border); background: var(--comment-title-bg); }}
     .review-comment .body {{ min-width: 0; max-width: 100%; padding: 9px 10px; overflow-wrap: anywhere; }}
