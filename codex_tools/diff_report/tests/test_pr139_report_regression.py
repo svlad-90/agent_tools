@@ -106,14 +106,15 @@ class Pr139ReportRegressionTests(unittest.TestCase):
             "header, section, .file { width: min(100%, var(--content-width));",
             "svg .asset-search-match { fill: #cf222e !important; stroke: none !important; }",
             "svg .asset-search-current { fill: #cf222e !important; stroke: none !important; filter: none; }",
+            "svg text.asset-search-current, svg tspan.asset-search-current",
             "@media (min-width: 1800px)",
             "@media (max-width: 1500px)",
             "@media (max-width: 1280px)",
             ".story-steps { grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); }",
-            "body.has-left-top:not(.has-pinned-story) .settings-launcher",
-            "body.has-pinned-story .settings-launcher { position: fixed; top: 8px; right: 24px;",
+            ".story-settings-launcher { position: static; left: auto; top: auto;",
+            ".story-settings-launcher .settings-toggle { height: 28px; font-size: var(--screen-code-font); }",
             "header, section, .file, .asset-inventory { width: 100%; margin-left: 0; margin-right: 0; }",
-            'document.body.classList.toggle("has-pinned-story", storyPinned)',
+            'child.classList.add("asset-search-current")',
         ]
         for fragment in expected_fragments:
             with self.subTest(fragment=fragment):

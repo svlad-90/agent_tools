@@ -55,6 +55,8 @@ def render_html_report(
         parts.append(_render_logs_section(comments))
     if comments.story:
         parts.append(_render_story_section(comments))
+    else:
+        parts.append(_render_settings_launcher(" report-settings-launcher"))
     if comment_count:
         parts.append(_render_comments_index(comments, diff_files(source.diff_text)))
     parts.append(_render_diff(source.diff_text, comments))
@@ -232,6 +234,7 @@ def _render_story_section(comments: ReviewComments) -> str:
     parts.append('      <button type="button" data-story-nav="prev">Prev</button>\n')
     parts.append('      <span id="story-counter">1 / 1</span>\n')
     parts.append('      <button type="button" data-story-nav="next">Next</button>\n')
+    parts.append(_render_settings_launcher(" story-settings-launcher"))
     parts.append("    </div>\n")
     parts.append('    <ol class="story-steps">\n')
     for index, step in enumerate(comments.story):
@@ -248,6 +251,15 @@ def _render_story_section(comments: ReviewComments) -> str:
     parts.append("    </div>\n")
     parts.append("  </section>\n")
     return "".join(parts)
+
+
+def _render_settings_launcher(extra_class: str = "") -> str:
+    return (
+        f'<div class="settings-launcher{extra_class}">\n'
+        '  <button type="button" class="settings-toggle" data-settings-toggle '
+        'aria-haspopup="dialog" aria-expanded="false">Settings</button>\n'
+        "</div>\n"
+    )
 
 
 def _render_to_top_button() -> str:
