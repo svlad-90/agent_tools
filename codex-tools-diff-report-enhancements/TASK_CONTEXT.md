@@ -131,9 +131,9 @@ existing behavior with regression tests.
 - SVG search now adds red overlay rectangles for every found substring inside a
   matched SVG text node, keeping the whole matched line red and making the
   exact substring stand out without splitting PlantUML text nodes.
-- SVG substring highlighting now uses a solid red pill under the matched
-  substring and a white duplicate of the exact substring above the original SVG
-  text, improving contrast on dark diagrams.
+- SVG substring highlighting was simplified to a red outline around the exact
+  matched substring. The duplicate text overlay was removed because it made
+  dense PlantUML labels harder to read.
 - Floating Settings and top-arrow controls now render as a vertical stack on
   the right side of the report, outside the main content column.
 - Opening a diagram now places keyboard focus into the diagram search field.
@@ -153,6 +153,13 @@ existing behavior with regression tests.
 - Text scale keeps an internal JS value and applies the expensive CSS-variable
   update in `requestAnimationFrame`, while the displayed percentage updates
   immediately.
+- Floating Settings is now always visible at the bottom of the right-side
+  control stack, while the top-arrow appears above it only after scrolling.
+- Story/code target flash now applies as a single block-style animation using
+  first/last target row boundaries instead of drawing a separate animated edge
+  on every target row.
+- Comment target rows now render as a consistent highlighted block across
+  added, deleted, and context rows, with shared top/bottom block borders.
 - Active-file navigation auto-scroll is now limited to fixed-position nav
   layouts; when the tree is part of the page flow on narrow screens it only
   updates the active item and does not call `scrollIntoView()`.
@@ -375,6 +382,10 @@ copied report keeps the same relative layout.
   rendering work to animation frames,
   `codex-tools-diff-report-enhancements/scripts/run-ci.sh` passed with 38
   unittest cases.
+- After simplifying SVG substring highlighting, swapping the right-side
+  controls, keeping Settings visible, and making comment target ranges render
+  as one block, `codex-tools-diff-report-enhancements/scripts/run-ci.sh`
+  passed with 38 unittest cases.
 - Headless Chrome screenshot check at 1280x720 confirmed the report brand is
   centered and uses more of the available card area.
 - After expanding baseline behavior coverage,
