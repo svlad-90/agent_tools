@@ -227,7 +227,13 @@ def story_script() -> str:
     }
     topStateRaf = window.requestAnimationFrame(function () {
       topStateRaf = 0;
-      document.body.classList.toggle("has-left-top", window.scrollY > 24);
+      const hasLeftTop = window.scrollY > 24;
+      const story = document.getElementById("story");
+      const storyPinned = Boolean(
+        hasLeftTop && story && story.getBoundingClientRect().top <= 0
+      );
+      document.body.classList.toggle("has-left-top", hasLeftTop);
+      document.body.classList.toggle("has-pinned-story", storyPinned);
     });
   }
 
@@ -329,6 +335,7 @@ def story_script() -> str:
       nav.scrollLeft = 0;
     }
     document.body.classList.remove("has-left-top");
+    document.body.classList.remove("has-pinned-story");
   }
 
   function animateWindowScrollToElement(element, durationMs) {

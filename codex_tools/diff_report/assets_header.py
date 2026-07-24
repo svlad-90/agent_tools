@@ -427,7 +427,7 @@ def html_header(title: str) -> str:
     svg .asset-focus-related-hover {{ stroke: var(--diagram-focus) !important; fill: var(--diagram-focus) !important; opacity: 1 !important; filter: drop-shadow(0 0 2px rgba(255,255,255,.95)); }}
     svg text.asset-focus-related-hover, svg tspan.asset-focus-related-hover {{ fill: var(--diagram-focus) !important; stroke: none !important; }}
     svg .asset-search-match {{ fill: #cf222e !important; stroke: none !important; }}
-    svg .asset-search-current {{ fill: #cf222e !important; stroke: none !important; filter: drop-shadow(0 0 3px #fb8500); }}
+    svg .asset-search-current {{ fill: #cf222e !important; stroke: none !important; filter: none; }}
     @keyframes focus-dash-flow {{ from {{ stroke-dashoffset: 0; }} to {{ stroke-dashoffset: -17; }} }}
     @keyframes focus-dash-flow-reverse {{ from {{ stroke-dashoffset: 0; }} to {{ stroke-dashoffset: 17; }} }}
     @keyframes focus-arrow-pulse {{ 0%, 100% {{ opacity: .55; }} 50% {{ opacity: .9; }} }}
@@ -499,7 +499,9 @@ def html_header(title: str) -> str:
       main {{ width: calc(100% - 16px); max-width: calc(100vw - 16px); margin: 8px auto 16px; }}
       header, section, .file, .asset-inventory {{ width: 100%; margin-left: 0; margin-right: 0; }}
       .report-brand {{ display: none; }}
-      .settings-launcher {{ position: sticky; left: auto; right: auto; top: 8px; z-index: 40; width: calc(100% - 16px); margin: 8px auto; }}
+      .settings-launcher {{ position: static; left: auto; right: auto; top: auto; z-index: 40; width: calc(100% - 16px); margin: 8px auto; transition: opacity .12s ease, visibility .12s ease; }}
+      body.has-left-top:not(.has-pinned-story) .settings-launcher {{ opacity: 0; visibility: hidden; pointer-events: none; }}
+      body.has-pinned-story .settings-launcher {{ position: fixed; top: 8px; right: 24px; width: min(180px, calc(100vw - 48px)); margin: 0; opacity: 1; visibility: visible; pointer-events: auto; }}
       .review-nav {{ position: static; width: calc(100% - 16px); max-height: 38vh; margin: 8px auto 16px; }}
       .review-nav-resizer {{ display: none; }}
       .story {{ top: 0; }}

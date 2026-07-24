@@ -105,12 +105,15 @@ class Pr139ReportRegressionTests(unittest.TestCase):
             "main { width: calc(100% - var(--nav-width) - (var(--page-gutter) * 3))",
             "header, section, .file { width: min(100%, var(--content-width));",
             "svg .asset-search-match { fill: #cf222e !important; stroke: none !important; }",
+            "svg .asset-search-current { fill: #cf222e !important; stroke: none !important; filter: none; }",
             "@media (min-width: 1800px)",
             "@media (max-width: 1500px)",
             "@media (max-width: 1280px)",
             ".story-steps { grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); }",
-            ".settings-launcher { position: sticky; left: auto; right: auto; top: 8px;",
+            "body.has-left-top:not(.has-pinned-story) .settings-launcher",
+            "body.has-pinned-story .settings-launcher { position: fixed; top: 8px; right: 24px;",
             "header, section, .file, .asset-inventory { width: 100%; margin-left: 0; margin-right: 0; }",
+            'document.body.classList.toggle("has-pinned-story", storyPinned)',
         ]
         for fragment in expected_fragments:
             with self.subTest(fragment=fragment):
