@@ -107,7 +107,7 @@ def _render_summary_section(comments: ReviewComments) -> str:
     if comments.summary_blocks:
         for block in comments.summary_blocks:
             if block.kind == "text":
-                parts.append(f'    <p class="review-summary">{_esc(block.text or "")}</p>\n')
+                parts.append(f'    <p class="review-summary">{_format_text(block.text or "")}</p>\n')
             elif block.kind == "diagram":
                 parts.append(
                     '    <div class="summary-artifact-preview">'
@@ -121,7 +121,7 @@ def _render_summary_section(comments: ReviewComments) -> str:
                     "</div>\n"
                 )
     elif comments.summary:
-        parts.append(f'    <p class="review-summary">{_esc(comments.summary)}</p>\n')
+        parts.append(f'    <p class="review-summary">{_format_text(comments.summary)}</p>\n')
     parts.append("  </div></section>\n")
     return "".join(parts)
 
@@ -324,7 +324,7 @@ def _render_diff(diff_text: str, comments: ReviewComments) -> str:
             if current_file in comments.file_comments:
                 parts.append(
                     f'    <div class="file-comment"><strong>File review note:</strong> '
-                    f'{_esc(comments.file_comments[current_file])}'
+                    f'{_format_text(comments.file_comments[current_file])}'
                     f'{_render_comment_assets(comments, comments.file_diagrams.get(current_file), comments.file_logs.get(current_file), comments.file_diagram_focus.get(current_file, ()), comments.file_log_focus.get(current_file, ()), comments.file_diagram_notes.get(current_file, ()))}'
                     "</div>\n"
                 )
@@ -446,7 +446,7 @@ def _render_inline_comments(
             f' data-comment-file="{_esc(file_path)}" data-comment-range-start="{start}"'
             f' data-comment-range-end="{end}">'
             f'<div class="title">{_esc(comment.title)} on {_esc(location)}</div>'
-            f'<div class="body">{_esc(comment.body)}'
+            f'<div class="body">{_format_text(comment.body)}'
             f'{_render_comment_assets(comments, comment.diagram, comment.log, comment.diagram_focus, comment.log_focus, comment.diagram_notes)}</div>'
             "</div></td></tr>\n"
         )
@@ -678,3 +678,28 @@ def _line_anchor(file_path: str, line: int) -> str:
 
 def _esc(value: object) -> str:
     return html.escape(str(value), quote=True)
+
+
+def _format_text(value: object) -> str:
+    text = str(value)
+    url_re = re.compile(r"https?://[^\s<>'\"`]+")
+    parts: list[str] = []
+    last = 0
+
+    def repl(match: re.Match[str]) -> str:
+        nonlocal last
+        parts.append(_esc(text[last:match.start()]))
+        raw_url = match.group(0)
+        url = raw_url.rstrip(".,);")
+        suffix = raw_url[len(url):]
+        safe_url = html.escape(url, quote=True)
+        parts.append(
+            f'<a href="{safe_url}" target="_blank" rel="noopener noreferrer">{safe_url}</a>'
+        )
+        parts.append(_esc(suffix))
+        last = match.end()
+        return ""
+
+    url_re.sub(repl, text)
+    parts.append(_esc(text[last:]))
+    return "".join(parts)

@@ -278,6 +278,14 @@ copied report keeps the same relative layout.
   `codex_tools/environments/codex-tools-act/scripts/validate.sh` passed through
   local `act`; the workflow ran the shared script with twenty-six unittest
   cases.
+- Review pass found that comment text URL linkification could split normal URLs
+  after HTML escaping. The renderer now linkifies against raw text segments,
+  escapes non-link text separately, and escapes generated href/text values.
+- Added behavior coverage for complete URL linkification in summary, file-level,
+  and inline review text.
+- After fixing the review finding,
+  `codex-tools-diff-report-enhancements/scripts/run-ci.sh` passed with
+  twenty-seven unittest cases.
 
 ## Remaining Work
 
