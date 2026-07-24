@@ -352,6 +352,19 @@ copied report keeps the same relative layout.
   `codex_tools/environments/codex-tools-act/scripts/validate.sh` passed through
   local `act`; the workflow ran the shared script with thirty-eight unittest
   cases.
+- Added in-report artifact export controls to the diagram/log modal. Opening a
+  diagram shows `Save as SVG`, which downloads the currently opened SVG with
+  embedded focus/note styling and animations while removing code-link badges and
+  code-link data. Opening a log shows `Save as HTML`, which downloads a
+  standalone HTML page containing the full log text.
+- Regression coverage now checks the export button markup and JavaScript export
+  hooks in the PR139 generated report. After adding artifact export,
+  `codex-tools-diff-report-enhancements/scripts/run-ci.sh` passed with
+  thirty-eight unittest cases.
+- After adding artifact export,
+  `codex_tools/environments/codex-tools-act/scripts/validate.sh` passed through
+  local `act`; the workflow ran the shared script with thirty-eight unittest
+  cases.
 
 ## Remaining Work
 

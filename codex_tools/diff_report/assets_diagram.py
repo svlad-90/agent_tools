@@ -13,6 +13,7 @@ def diagram_script() -> str:
   const searchInput = document.getElementById("diagram-search");
   const searchCount = document.getElementById("diagram-search-count");
   const generalViewButton = document.getElementById("diagram-general-view");
+  const exportButton = document.getElementById("diagram-export");
   const storyContext = document.getElementById("diagram-story-context");
   const storyTitle = document.getElementById("diagram-story-title");
   const storyBody = document.getElementById("diagram-story-body");
@@ -32,6 +33,7 @@ def diagram_script() -> str:
   let panStartY = 0;
   let panStartLeft = 0;
   let panStartTop = 0;
+  let activeExportName = "asset";
 
   function setScale(nextScale) {
     scale = Math.max(0.25, Math.min(4, nextScale));
@@ -93,6 +95,134 @@ def diagram_script() -> str:
     for (const tool of zoomTools) {
       tool.hidden = mode !== "diagram";
     }
+    if (exportButton) {
+      exportButton.hidden = mode !== "diagram" && mode !== "log";
+      exportButton.textContent = mode === "diagram" ? "Save as SVG" : "Save as HTML";
+    }
+  }
+
+  function safeFileName(text, extension) {
+    const base = String(text || "asset")
+      .trim()
+      .replace(/[^A-Za-z0-9._-]+/g, "-")
+      .replace(/^-+|-+$/g, "")
+      .slice(0, 80) || "asset";
+    return base + "." + extension;
+  }
+
+  function downloadBlob(filename, type, text) {
+    const blob = new Blob([text], { type: type });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    window.setTimeout(function () {
+      URL.revokeObjectURL(url);
+    }, 0);
+  }
+
+  function escapeHtml(text) {
+    return String(text).replace(/[&<>"']/g, function (char) {
+      return {
+        "&": "&amp;",
+        "<": "&lt;",
+        ">": "&gt;",
+        '"': "&quot;",
+        "'": "&#39;",
+      }[char];
+    });
+  }
+
+  function cssVariable(name, fallback) {
+    const value = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+    return value || fallback;
+  }
+
+  function standaloneDiagramStyle() {
+    const focus = cssVariable("--diagram-focus", "#1d4ed8");
+    const noteBg = cssVariable("--diagram-note-bg", "#dbeafe");
+    const noteHoverBg = cssVariable("--diagram-note-hover-bg", "#bfdbfe");
+    const noteText = cssVariable("--diagram-note-text", "#111827");
+    const noteLink = cssVariable("--diagram-note-link", "#2563eb");
+    const noteMarkerBg = cssVariable("--diagram-note-marker-bg", "#eff6ff");
+    return [
+      "svg .asset-focus-connector { stroke: " + focus + " !important; stroke-width: 3px !important; opacity: .95; }",
+      "svg line.asset-focus-connector, svg path.asset-focus-connector, svg polyline.asset-focus-connector { stroke-dasharray: 10 7; animation: focus-dash-flow 1.1s linear infinite; }",
+      "svg line.asset-focus-connector-reverse, svg path.asset-focus-connector-reverse, svg polyline.asset-focus-connector-reverse { animation-name: focus-dash-flow-reverse; }",
+      "svg polygon.asset-focus-connector { fill: " + focus + " !important; opacity: .95; animation: focus-arrow-pulse 1.1s ease-in-out infinite; }",
+      "svg .asset-focus-match { fill: " + focus + " !important; stroke: none !important; }",
+      "svg .asset-focus-related-hover { stroke: " + focus + " !important; fill: " + focus + " !important; opacity: 1 !important; }",
+      "svg text.asset-focus-related-hover, svg tspan.asset-focus-related-hover { fill: " + focus + " !important; stroke: none !important; }",
+      "svg .diagram-note-panel { opacity: 0; pointer-events: none; transition: opacity .12s ease; }",
+      "svg .diagram-note-hover .diagram-note-panel, svg .diagram-note-hotspot:hover .diagram-note-panel { opacity: 1; pointer-events: auto; }",
+      "svg .diagram-note-box { fill: " + noteBg + "; stroke: " + noteLink + "; stroke-width: 1.8px; rx: 6px; ry: 6px; }",
+      "svg .diagram-note-text, svg .diagram-note-text tspan { fill: " + noteText + " !important; font: 12px -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; pointer-events: none; }",
+      "svg .diagram-note-link { fill: none; stroke: " + noteLink + "; stroke-width: 1.8px; opacity: .95; }",
+      "svg .diagram-note-marker { fill: " + noteMarkerBg + "; stroke: " + noteLink + "; stroke-width: 1.8px; }",
+      "svg .diagram-note-marker-text { fill: " + noteLink + "; font: 700 13px -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; text-anchor: middle; dominant-baseline: central; pointer-events: none; }",
+      "svg .diagram-note-hotspot { cursor: pointer; }",
+      "svg .diagram-note-hover .diagram-note-box, svg .diagram-note-hotspot:hover .diagram-note-box { fill: " + noteHoverBg + "; stroke: " + noteLink + "; stroke-width: 2.4px; }",
+      "svg .diagram-note-hover .diagram-note-marker, svg .diagram-note-hotspot:hover .diagram-note-marker { fill: " + noteHoverBg + "; stroke: " + noteLink + "; stroke-width: 2.4px; }",
+      "svg .diagram-note-hover .diagram-note-link, svg .diagram-note-hotspot:hover .diagram-note-link { stroke: " + noteLink + "; stroke-width: 2.1px; opacity: 1; }",
+      "@keyframes focus-dash-flow { from { stroke-dashoffset: 0; } to { stroke-dashoffset: -17; } }",
+      "@keyframes focus-dash-flow-reverse { from { stroke-dashoffset: 0; } to { stroke-dashoffset: 17; } }",
+      "@keyframes focus-arrow-pulse { 0%, 100% { opacity: .95; } 50% { opacity: .62; } }",
+      "@media (prefers-reduced-motion: reduce) { svg line.asset-focus-connector, svg path.asset-focus-connector, svg polyline.asset-focus-connector, svg polygon.asset-focus-connector { animation: none; } }",
+    ].join("\\n");
+  }
+
+  function removeCodeLinkState(svg) {
+    for (const node of svg.querySelectorAll(".diagram-code-link-badge")) {
+      node.remove();
+    }
+    for (const node of svg.querySelectorAll("[data-code-link-instance], [data-code-link-target]")) {
+      node.classList.remove(
+        "diagram-code-link-target",
+        "diagram-code-link-connector",
+        "diagram-code-link-hover",
+        "diagram-code-link-active"
+      );
+      node.removeAttribute("data-code-link-instance");
+      node.removeAttribute("data-code-link-target");
+    }
+  }
+
+  function exportOpenedDiagram() {
+    const svg = content.querySelector(".diagram-zoom-stage svg");
+    if (!svg) {
+      return;
+    }
+    const clone = svg.cloneNode(true);
+    removeCodeLinkState(clone);
+    if (!clone.getAttribute("xmlns")) {
+      clone.setAttribute("xmlns", "http://www.w3.org/2000/svg");
+    }
+    const style = document.createElementNS("http://www.w3.org/2000/svg", "style");
+    style.textContent = standaloneDiagramStyle();
+    clone.insertBefore(style, clone.firstChild);
+    const source = new XMLSerializer().serializeToString(clone);
+    downloadBlob(safeFileName(activeExportName, "svg"), "image/svg+xml;charset=utf-8", source);
+  }
+
+  function exportOpenedLog() {
+    const pre = content.querySelector(".log-view-text");
+    if (!pre) {
+      return;
+    }
+    const sourceText = pre.dataset.sourceText || pre.textContent || "";
+    const safeTitle = escapeHtml(title ? title.textContent : activeExportName);
+    const html = "<!doctype html>\\n"
+      + "<html lang=\\"en\\">\\n<head>\\n<meta charset=\\"utf-8\\">\\n"
+      + "<meta name=\\"viewport\\" content=\\"width=device-width, initial-scale=1\\">\\n"
+      + "<title>" + safeTitle + "</title>\\n"
+      + "<style>body{margin:0;background:#0d1117;color:#e6edf3;}main{padding:24px;}h1{font:700 18px -apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;margin:0 0 16px;}pre{margin:0;white-space:pre-wrap;overflow-wrap:anywhere;word-break:break-word;font:14px/1.45 ui-monospace,SFMono-Regular,Consolas,monospace;}</style>\\n"
+      + "</head>\\n<body><main><h1>" + safeTitle + "</h1><pre>"
+      + escapeHtml(sourceText)
+      + "</pre></main></body>\\n</html>\\n";
+    downloadBlob(safeFileName(activeExportName, "html"), "text/html;charset=utf-8", html);
   }
 
   function clearSearch() {
@@ -1266,6 +1396,7 @@ def diagram_script() -> str:
       return;
     }
     title.textContent = template.dataset.title || "Diagram";
+    activeExportName = template.dataset.title || id || nextMode || "asset";
     setStoryContext(nextStoryContext || null);
     content.innerHTML = "";
     const stage = document.createElement("div");
@@ -1324,6 +1455,7 @@ def diagram_script() -> str:
     activeFocusTerms = [];
     activeNotes = [];
     activeCodeLinks = [];
+    activeExportName = "asset";
     setStoryContext(null);
     closeCodePopover();
     clearSearch();
@@ -1373,6 +1505,14 @@ def diagram_script() -> str:
     if (event.target.closest("[data-diagram-general]")) {
       closeCodePopover();
       applyFocusTerms([], []);
+      return;
+    }
+    if (event.target.closest("[data-asset-export]")) {
+      if (mode === "diagram") {
+        exportOpenedDiagram();
+      } else if (mode === "log") {
+        exportOpenedLog();
+      }
       return;
     }
     if (event.target.closest(".diagram-code-popover")) {
