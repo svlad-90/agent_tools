@@ -146,10 +146,9 @@ def story_script() -> str:
         }
         parent = parent.parentElement ? parent.parentElement.closest(".review-nav-dir") : null;
       }
-      const navRect = nav.getBoundingClientRect();
+      const navStyle = window.getComputedStyle(nav);
       const hasOwnScroll = nav.scrollHeight > nav.clientHeight + 2 || nav.scrollWidth > nav.clientWidth + 2;
-      const isViewportFlow = navRect.height >= window.innerHeight * 0.8;
-      if (hasOwnScroll && !isViewportFlow) {
+      if (hasOwnScroll && navStyle.position === "fixed") {
         item.scrollIntoView({ block: "nearest", inline: "nearest" });
       }
     }

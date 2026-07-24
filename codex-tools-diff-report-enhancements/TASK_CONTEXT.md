@@ -115,6 +115,17 @@ existing behavior with regression tests.
   painted red over PlantUML/manual fills.
 - The left report brand is reduced on medium desktop widths so it fits the
   navigation column without dominating the available vertical space.
+- Story controls now place the hamburger Settings button before the story
+  counter and an inline top arrow after it.
+- SVG search highlighting now uses a temporary inline `fill: #cf222e
+  !important` overlay with restoration of the previous inline style so matches
+  remain visible even when SVG text is colored directly by PlantUML/manual
+  styles.
+- Active-file navigation auto-scroll is now limited to fixed-position nav
+  layouts; when the tree is part of the page flow on narrow screens it only
+  updates the active item and does not call `scrollIntoView()`.
+- Medium-width report brand content is centered in its card and scaled up to
+  use the available brand area.
 
 ## Baseline Fixture
 
@@ -302,6 +313,14 @@ copied report keeps the same relative layout.
   passed with 38 unittest cases.
 - Headless Chrome screenshot check at 1280x720 confirmed the medium-width brand
   card is compact and aligned with the navigation column.
+- After repositioning story controls, changing SVG search highlighting to an
+  inline overlay, limiting nav auto-scroll to fixed layouts, and centering the
+  medium-width brand, `codex-tools-diff-report-enhancements/scripts/run-ci.sh`
+  passed with 38 unittest cases.
+- The regenerated target report contains the story row in the order Settings,
+  story counter, top arrow, and no story Prev/Next buttons.
+- Headless Chrome screenshot check at 1280x720 confirmed the report brand is
+  centered and uses more of the available card area.
 - After expanding baseline behavior coverage,
   `codex_tools/environments/codex-tools-act/scripts/validate.sh` passed through
   local `act`; the workflow ran the shared script with six unittest cases.
