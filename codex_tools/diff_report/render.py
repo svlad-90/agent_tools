@@ -577,6 +577,7 @@ def _render_diagram_modal(comments: ReviewComments) -> str:
     parts.append('        <button type="button" id="diagram-general-view" data-diagram-general hidden>General view</button>\n')
     parts.append('        <button type="button" data-diagram-search="prev" aria-label="Previous search match">Prev</button>\n')
     parts.append('        <button type="button" data-diagram-search="next" aria-label="Next search match">Next</button>\n')
+    parts.append('        <button type="button" id="diagram-export" data-asset-export hidden>Export</button>\n')
     parts.append('        <button type="button" data-diagram-zoom="out" data-diagram-zoom-tool aria-label="Zoom out">-</button>\n')
     parts.append(
         '        <button type="button" data-diagram-zoom="reset" data-diagram-zoom-tool aria-label="Reset zoom">'

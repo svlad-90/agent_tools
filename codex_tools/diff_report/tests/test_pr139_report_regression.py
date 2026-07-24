@@ -58,6 +58,8 @@ class Pr139ReportRegressionTests(unittest.TestCase):
             'data-log-id="fdt-api-runtime"',
             'id="story"',
             'id="diagram-modal"',
+            'id="diagram-export"',
+            'data-asset-export',
             'id="diagram-template-fdt-review-fix-api-flow"',
             'data-code-links=',
             'id="log-template-fdt-api-runtime"',
@@ -72,6 +74,12 @@ class Pr139ReportRegressionTests(unittest.TestCase):
             "function codeOverlayRoot()",
             "codeOverlayRoot().appendChild(overlay)",
             "positionCodePopover(popover)",
+            "function exportOpenedDiagram()",
+            "function exportOpenedLog()",
+            "standaloneDiagramStyle()",
+            "removeCodeLinkState(clone)",
+            "Save as SVG",
+            "Save as HTML",
         ]
         for fragment in expected_fragments:
             with self.subTest(fragment=fragment):
