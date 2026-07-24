@@ -8,13 +8,16 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from codex_tools.diff_report.comments_compose import compose_comments_payload
 from codex_tools.diff_report.core import generate_report
 
 
 WORKSPACE_ROOT = Path(__file__).resolve().parents[3]
 TASK_REPORT_ROOT = WORKSPACE_ROOT / "codex-tools-diff-report-enhancements" / "report"
+TASK_DEV_ROOT = WORKSPACE_ROOT / "codex-tools-diff-report-enhancements" / "dev"
 FIXTURE_DIFF_DIR = TASK_REPORT_ROOT / "diff"
 FIXTURE_BASENAME = "pr139-to-local-working-tree"
+PR139_COMPOSE_FINDINGS = TASK_DEV_ROOT / "pr139-compose-smoke-findings.json"
 
 
 class Pr139ReportRegressionTests(unittest.TestCase):
@@ -26,6 +29,7 @@ class Pr139ReportRegressionTests(unittest.TestCase):
                 FIXTURE_DIFF_DIR / f"{FIXTURE_BASENAME}.json",
                 TASK_REPORT_ROOT / "puml" / "fdt-review-fix-api-flow.svg",
                 TASK_REPORT_ROOT / "runtime" / "pr139-fdt-final-runtime-xen419.log",
+                PR139_COMPOSE_FINDINGS,
             )
             if not path.exists()
         ]
@@ -147,6 +151,36 @@ class Pr139ReportRegressionTests(unittest.TestCase):
                 self.assertIn(target["kind"], {"add", "context"})
                 self.assertGreaterEqual(target["line"], item["range"]["start"])
                 self.assertLessEqual(target["line"], item["range"]["end"])
+
+    def test_pr139_findings_compose_into_renderable_comments(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            report_root = self._copy_fixture_report(Path(temp_dir))
+            diff_path = report_root / "diff" / f"{FIXTURE_BASENAME}.patch"
+            comments_path = report_root / "diff" / "compose-smoke.json"
+            output_path = report_root / "diff" / "compose-smoke.html"
+            diff_text = diff_path.read_text(encoding="utf-8")
+            findings = json.loads(PR139_COMPOSE_FINDINGS.read_text(encoding="utf-8"))
+            comments = compose_comments_payload(diff_text, findings)
+            comments_path.write_text(
+                json.dumps(comments, indent=2, ensure_ascii=False) + "\n",
+                encoding="utf-8",
+            )
+
+            generate_report(
+                output_path=output_path,
+                title="PR139 Compose Smoke",
+                diff_file=diff_path,
+                comments_file=comments_path,
+            )
+
+            html = output_path.read_text(encoding="utf-8")
+
+        self.assertEqual(2, len(comments["inline"]))
+        self.assertEqual(["found", "found"], [item["target"]["status"] for item in comments["inline"]])
+        self.assertIn("Review: preserve raw FDT address handoff", html)
+        self.assertIn("Review: publish copied FDT size", html)
+        self.assertIn('id="comment-arch-arm64-core-reset.S-127"', html)
+        self.assertIn('id="comment-arch-arm64-core-xen-fdt.c-56"', html)
 
     def _copy_fixture_report(self, temp_root: Path) -> Path:
         report_root = temp_root / "report"

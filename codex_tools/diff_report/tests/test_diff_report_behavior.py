@@ -183,10 +183,27 @@ class DiffReportBehaviorTests(unittest.TestCase):
             "PASS artifact",
             'data-story-index="4"',
             'data-story-target="line-src-app.py-2"',
+            'data-diff-kind="add"',
+            'data-settings-toggle',
+            'data-settings-modal',
+            'role="dialog" aria-modal="true" aria-labelledby="settings-title"',
+            'data-copy-markdown-menu',
+            'data-copy-plain-action',
+            'data-copy-markdown-action',
+            ">Copy</button>",
+            "Copy as Markdown",
+            "copyPlainSelection",
+            "contextmenu",
+            "selectedTextWithin",
+            "```diff",
+            "navigator.clipboard.writeText",
         ]
         for fragment in expected_fragments:
             with self.subTest(fragment=fragment):
                 self._assert_contains(html, fragment)
+        self.assertNotIn("data-theme-toggle", html)
+        self.assertNotIn("data-copy-mode-value", html)
+        self.assertNotIn("codex-diff-report-copy-mode", html)
 
     def test_review_text_linkifies_complete_urls(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
