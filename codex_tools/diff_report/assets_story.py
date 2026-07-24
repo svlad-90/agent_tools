@@ -368,6 +368,16 @@ def story_script() -> str:
     if (!row) {
       return element;
     }
+    const file = element.dataset.commentFile || "";
+    const rangeStart = Number(element.dataset.commentRangeStart || element.dataset.commentLine || 0);
+    if (file && Number.isFinite(rangeStart)) {
+      const target = document.querySelector(
+        'tr[data-file="' + cssEscape(file) + '"][data-new-line="' + String(rangeStart) + '"]'
+      );
+      if (target) {
+        return target;
+      }
+    }
     let context = row;
     let visibleLines = 0;
     let cursor = row.previousElementSibling;
@@ -379,6 +389,13 @@ def story_script() -> str:
       cursor = cursor.previousElementSibling;
     }
     return context;
+  }
+
+  function cssEscape(value) {
+    if (window.CSS && typeof window.CSS.escape === "function") {
+      return window.CSS.escape(value);
+    }
+    return String(value).replace(/["\\\\]/g, "\\\\$&");
   }
 
   function flashTargets(element, contextElement) {
