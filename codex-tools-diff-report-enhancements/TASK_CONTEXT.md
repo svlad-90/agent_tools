@@ -370,6 +370,75 @@ copied report keeps the same relative layout.
   export controls. `--refresh-targets` reported `attention=0`; static checks
   confirmed `data-asset-export`, `Save as SVG`, `Save as HTML`, and the export
   JavaScript hooks are embedded.
+- Updated diagram SVG export to collect relevant CSS rules and current CSS
+  variables from the report stylesheet, so exported standalone SVGs preserve
+  the same report styling and animations while still removing code-link badges
+  and code-link data. Updated story offset calculation to use the sticky story
+  panel's actual viewport top plus the maximum story/details height across
+  review-history steps, preventing file headers from sliding under or away from
+  the story panel when switching between steps with different detail heights.
+- Regenerated `report/diff/pr139-to-local-working-tree.html` after the SVG
+  export and story-offset fixes. `--refresh-targets` reported `attention=0`;
+  static checks confirmed stylesheet-based SVG export and story-offset hooks
+  are embedded. `codex-tools-diff-report-enhancements/scripts/run-ci.sh` and
+  `codex_tools/environments/codex-tools-act/scripts/validate.sh` both passed
+  with thirty-eight unittest cases.
+- Reworked standalone SVG export again after visual inspection showed broad
+  computed-style inlining damaged PlantUML SVG content in standalone viewers.
+  The exporter now preserves the original SVG elements, embeds report CSS
+  variables and theme-aware SVG rules, inlines computed styles only for
+  report-added overlay nodes such as focus markers and notes, removes code-link
+  state, and inserts an explicit export background rectangle so image viewers
+  do not show a transparent checkerboard. Regenerated
+  `report/diff/pr139-to-local-working-tree.html`; `--refresh-targets` reported
+  `attention=0`, static checks confirmed the new export hooks are embedded, and
+  both `codex-tools-diff-report-enhancements/scripts/run-ci.sh` and
+  `codex_tools/environments/codex-tools-act/scripts/validate.sh` passed with
+  thirty-eight unittest cases.
+- Tightened standalone SVG export for non-browser Linux SVG viewers. Exported
+  CSS rules now resolve report CSS variables to literal colors before download,
+  because image viewers do not consistently support browser CSS custom
+  properties inside SVG. Note panel opacity is no longer inlined, so browser
+  `:hover` rules can reveal diagram info blocks. The left review tree is no
+  longer tied to `--story-offset`; that offset is reserved for sticky file
+  headers in the main content, so tall review-story details do not push the
+  left navigation down. Regenerated
+  `report/diff/pr139-to-local-working-tree.html`; `--refresh-targets` reported
+  `attention=0`, static checks confirmed the new export hooks and fixed nav
+  offset, and both local CI and local `act` workflow validation passed with
+  thirty-eight unittest cases.
+- Kept browser-oriented SVG export behavior after review: diagram note panels
+  remain hover-only, exported SVGs no longer override PlantUML
+  `preserveAspectRatio`, and modal initial auto-zoom again uses the previous
+  up-to-3x fit behavior. The downloaded SVG copy still removes PlantUML
+  `textLength` and `lengthAdjust` text fitting attributes to avoid stretched
+  lettering when opened outside the report. Regenerated
+  `report/diff/pr139-to-local-working-tree.html`; `--refresh-targets` reported
+  `attention=0`, static checks confirmed the restored zoom behavior and absent
+  forced `preserveAspectRatio`/visible-note hooks, and both local CI and local
+  `act` workflow validation passed with thirty-eight unittest cases.
+- Adjusted standalone SVG browser export so the saved file behaves like a large
+  fixed-size document when opened directly in a browser. Export CSS no longer
+  replays report-container bare `svg` fitting rules such as `max-width: 100%`,
+  and the downloaded root SVG gets explicit `width`/`height` and `maxWidth`/
+  `maxHeight: none` from its viewBox. The downloaded copy then removes
+  `viewBox`, matching manual browser testing where page zoom enlarged the
+  diagram uniformly and exposed normal horizontal and vertical scrollbars
+  instead of fitting the diagram back into the viewport. Regenerated
+  `report/diff/pr139-to-local-working-tree.html`; `--refresh-targets` reported
+  `attention=0`, static checks confirmed the export sizing hooks, and both
+  local CI and local `act` workflow validation passed with thirty-eight
+  unittest cases.
+- Adjusted story/file-header positioning to follow the currently visible
+  details block. The story script now clears any previously reserved
+  `minHeight`, measures the active story panel height, and sets
+  `--story-offset` to the current lower edge of the details area. File headers
+  can move slightly between story steps, but they stay attached to the visible
+  bottom of the active details panel. Regenerated
+  `report/diff/pr139-to-local-working-tree.html`; `--refresh-targets` reported
+  `attention=0`, static checks confirmed the current-height story offset hook,
+  and both local CI and local `act` workflow validation passed with
+  thirty-eight unittest cases.
 
 ## Remaining Work
 
