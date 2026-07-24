@@ -48,7 +48,8 @@ existing behavior with regression tests.
 - Workspace `.gitignore` now has explicit allowlist entries for
   `.github/workflows/diff-report.yml` and this task directory so the CI
   workflow, shared script, context, and copied fixture artifacts can be tracked.
-- No dedicated reusable environment is currently required.
+- Reusable local GitHub Actions validation lives under
+  `/home/vladyslav_goncharuk/Projects/new_dev/codex_tools/environments/codex-tools-act/`.
 - Workspace-local skills were checked; only `commit-message-format` is present
   and it does not apply to task setup.
 
@@ -71,6 +72,8 @@ copied report keeps the same relative layout.
 
 - Added
   `/home/vladyslav_goncharuk/Projects/new_dev/codex_tools/diff_report/tests/test_pr139_report_regression.py`.
+- Added
+  `/home/vladyslav_goncharuk/Projects/new_dev/codex_tools/diff_report/tests/test_diff_report_behavior.py`.
 - The tests copy the task-owned baseline fixture into a temporary directory and
   regenerate the report there.
 - Covered behavior:
@@ -85,7 +88,14 @@ copied report keeps the same relative layout.
   - reports without `story` still render the shared story script and top
     button without rendering the story section;
   - `--refresh-targets` preserving all ten PR139 inline anchors with
-    `attention=0`.
+    `attention=0`;
+  - repository range rendering includes commit metadata, commit body, diff
+    statistics, and generated diff rows;
+  - comments JSON artifact variants render summary blocks, file comments,
+    inline range comments, inline SVG diagrams, code links, log files, focus
+    metadata, diagram notes, log templates, and current story targets;
+  - `--refresh-targets` records current `moved`, `ambiguous`, and `not_found`
+    JSON statuses and reports `attention=2` for unresolved targets.
 
 ## CI Workflow
 
@@ -124,7 +134,11 @@ copied report keeps the same relative layout.
   succeeded before inspecting the package entry point.
 - `python -m codex_tools.code_map parse-check codex_tools/diff_report/tests/test_pr139_report_regression.py`
   passed.
+- `python -m codex_tools.code_map parse-check codex_tools/diff_report/tests/test_diff_report_behavior.py`
+  passed.
 - `python -m unittest codex_tools.diff_report.tests.test_pr139_report_regression`
+  passed.
+- `python -m unittest codex_tools.diff_report.tests.test_diff_report_behavior`
   passed.
 - `codex-tools-diff-report-enhancements/scripts/run-ci.sh` passed.
 - `codex_tools/environments/codex-tools-act/scripts/build.sh` passed and built
@@ -134,6 +148,12 @@ copied report keeps the same relative layout.
 - `codex_tools/environments/codex-tools-act/scripts/validate.sh` passed through
   local `act`; the `diff-report-tests` GitHub Actions job succeeded and ran
   the shared `run-ci.sh` script inside the workflow.
+- After expanding baseline behavior coverage,
+  `codex-tools-diff-report-enhancements/scripts/run-ci.sh` passed with six
+  unittest cases.
+- After expanding baseline behavior coverage,
+  `codex_tools/environments/codex-tools-act/scripts/validate.sh` passed through
+  local `act`; the workflow ran the shared script with six unittest cases.
 
 ## Remaining Work
 
