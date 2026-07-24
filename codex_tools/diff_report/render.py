@@ -374,6 +374,7 @@ def _render_diff(diff_text: str, comments: ReviewComments) -> str:
                     comments,
                     current_file,
                     line_no,
+                    "add" if target_range is not None else "ctx",
                 )
             )
         elif line.kind == "delete" and line.old_line is not None:
@@ -400,6 +401,7 @@ def _render_diff(diff_text: str, comments: ReviewComments) -> str:
                     comments,
                     current_file,
                     line_no,
+                    "ctx" if target_range is not None else "ctx",
                 )
             )
 
@@ -467,13 +469,15 @@ def _render_inline_comments(
     comments: ReviewComments,
     file_path: str,
     line: int,
+    target_kind: str = "ctx",
 ) -> str:
     rendered: list[str] = []
+    row_kind = target_kind if target_kind in {"add", "del", "ctx"} else "ctx"
     for comment in grouped_comments.get((file_path, line), ()):
         location = _comment_location(comment)
         start, end = comment.line_range or (comment.line, comment.line)
         rendered.append(
-            '      <tr class="comment-row"><td colspan="3">'
+            f'      <tr class="comment-row comment-row-{row_kind}"><td colspan="3">'
             f'<div class="review-comment" id="{_comment_anchor(file_path, comment.line)}"'
             f' data-comment-file="{_esc(file_path)}" data-comment-range-start="{start}"'
             f' data-comment-range-end="{end}">'
