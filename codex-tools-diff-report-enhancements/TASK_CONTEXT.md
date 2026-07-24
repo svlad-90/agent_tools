@@ -109,6 +109,10 @@ copied report keeps the same relative layout.
   `/home/vladyslav_goncharuk/Projects/new_dev/codex_tools/diff_report/tests/test_diff_parse.py`.
 - Added
   `/home/vladyslav_goncharuk/Projects/new_dev/codex_tools/diff_report/tests/test_public_api.py`.
+- Added
+  `/home/vladyslav_goncharuk/Projects/new_dev/codex_tools/diff_report/tests/test_comments.py`.
+- Added
+  `/home/vladyslav_goncharuk/Projects/new_dev/codex_tools/diff_report/tests/test_refresh.py`.
 - The tests copy the task-owned baseline fixture into a temporary directory and
   regenerate the report there.
 - Covered behavior:
@@ -191,6 +195,10 @@ copied report keeps the same relative layout.
   passed.
 - `python -m codex_tools.code_map parse-check codex_tools/diff_report/tests/test_public_api.py`
   passed.
+- `python -m codex_tools.code_map parse-check codex_tools/diff_report/tests/test_comments.py`
+  passed.
+- `python -m codex_tools.code_map parse-check codex_tools/diff_report/tests/test_refresh.py`
+  passed.
 - `python -m unittest codex_tools.diff_report.tests.test_pr139_report_regression`
   passed.
 - `python -m unittest codex_tools.diff_report.tests.test_diff_report_behavior`
@@ -249,6 +257,17 @@ copied report keeps the same relative layout.
   API unit tests, `codex_tools/environments/codex-tools-act/scripts/validate.sh`
   passed through local `act`; the workflow ran the shared script with twelve
   unittest cases.
+- After adding direct `comments.py` and `refresh.py` unit tests,
+  `codex-tools-diff-report-enhancements/scripts/run-ci.sh` passed with
+  twenty-one unittest cases.
+- After adding direct `comments.py` and `refresh.py` unit tests,
+  `codex_tools/environments/codex-tools-act/scripts/validate.sh` passed through
+  local `act`; the workflow ran the shared script with twenty-one unittest
+  cases.
+- After adding explicit parse-check lines for all diff report test modules,
+  `codex_tools/environments/codex-tools-act/scripts/validate.sh` passed through
+  local `act`; the workflow ran the shared script with twenty-one unittest
+  cases.
 
 ## Remaining Work
 
