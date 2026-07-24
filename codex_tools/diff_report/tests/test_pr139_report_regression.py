@@ -104,10 +104,12 @@ class Pr139ReportRegressionTests(unittest.TestCase):
             "--review-nav-top: calc(var(--page-gutter) + var(--brand-height) + 12px)",
             "main { width: calc(100% - var(--nav-width) - (var(--page-gutter) * 3))",
             "header, section, .file { width: min(100%, var(--content-width));",
+            "svg .asset-search-match { fill: #cf222e !important; stroke: none !important; }",
             "@media (min-width: 1800px)",
             "@media (max-width: 1500px)",
             "@media (max-width: 1280px)",
             ".story-steps { grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); }",
+            ".settings-launcher { position: sticky; left: auto; right: auto; top: 8px;",
             "header, section, .file, .asset-inventory { width: 100%; margin-left: 0; margin-right: 0; }",
         ]
         for fragment in expected_fragments:
@@ -118,6 +120,8 @@ class Pr139ReportRegressionTests(unittest.TestCase):
         self.assertGreaterEqual(html.count('class="review-comment"'), 10)
         self.assertNotIn("../puml/fdt-review-fix-api-flow.svg", html)
         self.assertNotIn("../runtime/pr139-fdt-final-runtime-xen419.log", html)
+        self.assertNotIn("General view", html)
+        self.assertNotIn("data-diagram-general", html)
 
     def test_report_without_story_keeps_top_button_and_shared_story_script(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

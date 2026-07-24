@@ -80,6 +80,16 @@ existing behavior with regression tests.
   the navigation becomes an in-flow block below 1100px.
 - Report font sizes use explicit breakpoint values instead of viewport-width
   scaling so text remains stable while resizing.
+- The review navigation tree now includes every file from the rendered diff,
+  not only files that have review comments. This fixes reports where changed
+  files such as `CMakeLists.txt` were visible in the diff but absent from the
+  tree.
+- The diagram modal no longer exposes the `General view` button. Search
+  navigation remains grouped directly next to the diagram/log search input.
+- SVG search highlighting now overrides manually assigned diagram text colors
+  so search matches remain red even on focused or code-linked labels.
+- On narrow layouts the Settings launcher participates in document flow as a
+  sticky full-width control instead of overlaying the report content.
 
 ## Baseline Fixture
 
@@ -235,6 +245,16 @@ copied report keeps the same relative layout.
 - Headless Chrome screenshot checks passed at 1366x768 and 1920x1080 after
   fixing a viewport-width calculation that caused page-level horizontal
   overflow.
+- After fixing diagram toolbar/search, full-file navigation, and narrow
+  Settings placement, `codex-tools-diff-report-enhancements/scripts/run-ci.sh`
+  passed with 38 unittest cases.
+- The current generator was checked against
+  `~/Projects/new_dev/zephyr-xenstore-client/report/diff/pr103-strict-review.patch`
+  and its JSON comments by rendering `/tmp/pr103-strict-review-regenerated.html`;
+  the regenerated tree includes both `CMakeLists.txt` and
+  `xenstore-cli/CMakeLists.txt`.
+- Headless Chrome screenshot check at 760x640 confirmed Settings no longer
+  overlays report content on a narrow desktop window.
 - After expanding baseline behavior coverage,
   `codex_tools/environments/codex-tools-act/scripts/validate.sh` passed through
   local `act`; the workflow ran the shared script with six unittest cases.
