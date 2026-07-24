@@ -649,6 +649,13 @@ copied report keeps the same relative layout.
   `report/diff/pr139-to-local-working-tree.html`;
   `codex-tools-diff-report-enhancements/scripts/run-ci.sh` passed with
   thirty-eight unittest cases.
+- The attached-comment gutter now uses the exact same layered color recipe as
+  neutral comment-target rows: the comment-target overlay is drawn over the
+  neutral target background, so the gutter no longer has a visible shade break
+  from the target block above it. Regenerated
+  `report/diff/pr139-to-local-working-tree.html`;
+  `codex-tools-diff-report-enhancements/scripts/run-ci.sh` passed with
+  thirty-eight unittest cases.
 
 ## Remaining Work
 
