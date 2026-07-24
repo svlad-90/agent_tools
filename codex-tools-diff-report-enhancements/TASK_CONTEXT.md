@@ -628,6 +628,12 @@ copied report keeps the same relative layout.
   `attention=0`, static checks confirmed the current-height story offset hook,
   and both local CI and local `act` workflow validation passed with
   thirty-eight unittest cases.
+- Comment target blocks now keep diff semantics visible inside the grouped
+  block: added rows use a green target tint, deleted rows use a red target
+  tint, and unchanged context rows stay neutral with only a light comment-block
+  overlay. Regenerated `report/diff/pr139-to-local-working-tree.html`;
+  `codex-tools-diff-report-enhancements/scripts/run-ci.sh` passed with
+  thirty-eight unittest cases.
 
 ## Remaining Work
 
