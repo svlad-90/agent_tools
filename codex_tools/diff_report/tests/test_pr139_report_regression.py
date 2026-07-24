@@ -101,6 +101,7 @@ class Pr139ReportRegressionTests(unittest.TestCase):
             "const currentHeight = Math.ceil(story.getBoundingClientRect().height)",
             "scheduleStoryOffsetUpdate()",
             "--page-gutter: 8px",
+            "--floating-content-gutter: max(24px, calc((100vw - var(--nav-width) - var(--content-width)) / 2))",
             "--review-nav-top: calc(var(--page-gutter) + var(--brand-height) + 12px)",
             "main { width: calc(100% - var(--nav-width) - (var(--page-gutter) * 3))",
             "header, section, .file { width: min(100%, var(--content-width));",
@@ -111,9 +112,10 @@ class Pr139ReportRegressionTests(unittest.TestCase):
             "@media (max-width: 1500px)",
             "@media (max-width: 1280px)",
             ".story-steps { grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); }",
-            ".story-settings-launcher { position: static; left: auto; top: auto;",
-            ".story-settings-launcher .settings-toggle { width: 30px; height: 28px; }",
-            "class=\"story-top-inline\" data-story-top",
+            ".settings-launcher { position: fixed; left: calc(var(--nav-width) + var(--floating-content-gutter)); bottom: 24px;",
+            ".to-top-button { position: fixed; right: var(--floating-content-gutter); bottom: 24px;",
+            "body.has-left-top .to-top-button, body.has-left-top .report-settings-launcher",
+            "class=\"settings-launcher report-settings-launcher\"",
             ".settings-toggle span, .settings-toggle::before, .settings-toggle::after",
             "header, section, .file, .asset-inventory { width: 100%; margin-left: 0; margin-right: 0; }",
             'setSvgSearchClass(node, "asset-search-match", true)',
@@ -135,6 +137,10 @@ class Pr139ReportRegressionTests(unittest.TestCase):
         self.assertNotIn("data-diagram-general", html)
         self.assertNotIn('data-story-nav="prev"', html)
         self.assertNotIn('data-story-nav="next"', html)
+        self.assertNotIn("story-controls", html)
+        self.assertNotIn("story-settings-launcher", html)
+        self.assertNotIn('id="story-counter"', html)
+        self.assertNotIn("story-top-inline", html)
 
     def test_report_without_story_keeps_top_button_and_shared_story_script(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

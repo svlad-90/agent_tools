@@ -4,7 +4,6 @@ def story_script() -> str:
     return """<script>
 (function () {
   const steps = Array.from(document.querySelectorAll("[data-story-index]"));
-  const counter = document.getElementById("story-counter");
   const detailsTitle = document.getElementById("story-details-title");
   const detailsBody = document.getElementById("story-details-body");
   const jumpDurationMs = 0;
@@ -249,9 +248,6 @@ def story_script() -> str:
     steps.forEach(function (step, stepIndex) {
       step.classList.toggle("is-active", stepIndex === activeIndex);
     });
-    if (counter) {
-      counter.textContent = (activeIndex + 1) + " / " + steps.length;
-    }
     const step = steps[activeIndex];
     document.body.dataset.activeStoryTitle = step.dataset.storyTitle || "";
     document.body.dataset.activeStoryBody = step.dataset.storyBody || "";

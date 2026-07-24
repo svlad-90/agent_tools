@@ -105,6 +105,7 @@ def html_header(title: str) -> str:
       --screen-body-font: 18px;
       --screen-code-font: 15px;
       --content-width: 1260px;
+      --floating-content-gutter: max(24px, calc((100vw - var(--nav-width) - var(--content-width)) / 2));
     }}
     :root[data-theme="dark"] {{
       color-scheme: dark;
@@ -178,7 +179,7 @@ def html_header(title: str) -> str:
     .report-brand-text {{ display: grid; gap: 2px; min-width: 0; line-height: 1.05; }}
     .report-brand-title {{ font-size: var(--brand-title-size); white-space: nowrap; }}
     .report-brand-subtitle {{ color: var(--muted); font-size: var(--brand-subtitle-size); white-space: nowrap; }}
-    .settings-launcher {{ position: fixed; left: calc(var(--page-gutter) + 16px); top: var(--settings-top); z-index: 40; width: calc(var(--nav-width) - 32px); }}
+    .settings-launcher {{ position: fixed; left: calc(var(--nav-width) + var(--floating-content-gutter)); bottom: 24px; z-index: 32; width: auto; opacity: 0; visibility: hidden; pointer-events: none; transform: translateY(10px) scale(.96); transition: opacity .18s ease, transform .18s ease, visibility 0s linear .18s, border-color .12s ease, box-shadow .12s ease; }}
     .settings-toggle {{ display: inline-flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; width: 34px; height: 34px; padding: 0; border: 1px solid var(--border); border-radius: 8px; background: var(--button-bg); color: var(--link); box-shadow: none; cursor: pointer; font: 800 18px/1 ui-monospace, SFMono-Regular, Consolas, monospace; }}
     .settings-toggle span, .settings-toggle::before, .settings-toggle::after {{ content: ""; display: block; width: 16px; height: 2px; border-radius: 99px; background: currentColor; }}
     .settings-toggle:hover {{ border-color: var(--link); box-shadow: 0 12px 32px rgba(9,105,218,.22); }}
@@ -260,17 +261,10 @@ def html_header(title: str) -> str:
     body.is-resizing-review-nav {{ cursor: ew-resize; user-select: none; }}
     .story {{ position: sticky; top: 0; z-index: 12; padding: 10px 12px; margin-bottom: 0; border-bottom: 0; border-bottom-left-radius: 0; border-bottom-right-radius: 0; box-shadow: 0 8px 22px rgba(31,35,40,.08); }}
     .story h2 {{ margin: 0; font-size: var(--screen-code-font); }}
-    .story-controls {{ display: flex; align-items: center; justify-content: flex-end; gap: 6px; margin: -22px 0 8px; }}
-    .story-controls button {{ display: inline-flex; align-items: center; justify-content: center; min-width: 54px; height: 28px; padding: 0 10px; border: 1px solid var(--border); border-radius: 6px; background: var(--button-bg); color: var(--text); cursor: pointer; font: inherit; line-height: 1; }}
-    .story-controls button:hover {{ border-color: var(--link); color: var(--link); }}
-    .story-settings-launcher {{ position: static; left: auto; top: auto; width: auto; margin-left: auto; }}
-    .story-settings-launcher .settings-toggle {{ width: 30px; height: 28px; }}
-    .story-top-inline {{ min-width: 34px !important; width: 34px; padding: 0 !important; font-size: 18px !important; }}
-    .to-top-button {{ position: fixed; right: 24px; bottom: 24px; z-index: 32; display: inline-flex; align-items: center; justify-content: center; width: 58px; height: 58px; border: 1px solid var(--border); border-radius: 999px; background: var(--button-bg); color: var(--link); box-shadow: 0 10px 28px var(--shadow); cursor: pointer; opacity: 0; visibility: hidden; pointer-events: none; transform: translateY(10px) scale(.96); transition: opacity .18s ease, transform .18s ease, visibility 0s linear .18s, border-color .12s ease, box-shadow .12s ease; font-size: 0; }}
+    .to-top-button {{ position: fixed; right: var(--floating-content-gutter); bottom: 24px; z-index: 32; display: inline-flex; align-items: center; justify-content: center; width: 58px; height: 58px; border: 1px solid var(--border); border-radius: 999px; background: var(--button-bg); color: var(--link); box-shadow: 0 10px 28px var(--shadow); cursor: pointer; opacity: 0; visibility: hidden; pointer-events: none; transform: translateY(10px) scale(.96); transition: opacity .18s ease, transform .18s ease, visibility 0s linear .18s, border-color .12s ease, box-shadow .12s ease; font-size: 0; }}
     .to-top-button::before {{ content: ""; width: 15px; height: 15px; border-left: 4px solid currentColor; border-top: 4px solid currentColor; transform: translateY(4px) rotate(45deg); border-radius: 2px; }}
     .to-top-button:hover {{ border-color: var(--link); box-shadow: 0 12px 32px rgba(9,105,218,.22); transform: translateY(0) scale(1.03); }}
-    body.has-left-top .to-top-button {{ opacity: 1; visibility: visible; pointer-events: auto; transform: translateY(0) scale(1); transition-delay: 0s; }}
-    #story-counter {{ color: var(--muted); min-width: 44px; text-align: center; font-size: var(--screen-code-font); }}
+    body.has-left-top .to-top-button, body.has-left-top .report-settings-launcher {{ opacity: 1; visibility: visible; pointer-events: auto; transform: translateY(0) scale(1); transition-delay: 0s; }}
     .story-steps {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); align-items: stretch; gap: 6px; margin: 0; padding: 0; list-style: none; }}
     .story-steps li {{ min-width: 0; }}
     .story-step {{ display: grid; grid-template-columns: 34px minmax(0, 1fr); gap: 7px; align-items: center; width: 100%; height: 100%; min-height: 44px; padding: 8px 10px; border: 1px solid var(--story-step-border); border-radius: 6px; background: var(--story-step-bg); color: var(--text); text-align: left; cursor: pointer; font: inherit; box-shadow: 0 1px 0 rgba(31,35,40,.08); transition: background .12s ease, border-color .12s ease, box-shadow .12s ease, transform .12s ease; }}
@@ -504,12 +498,10 @@ def html_header(title: str) -> str:
       main {{ width: calc(100% - 16px); max-width: calc(100vw - 16px); margin: 8px auto 16px; }}
       header, section, .file, .asset-inventory {{ width: 100%; margin-left: 0; margin-right: 0; }}
       .report-brand {{ display: none; }}
-      .report-settings-launcher {{ position: static; left: auto; right: auto; top: auto; z-index: 40; width: calc(100% - 16px); margin: 8px auto; }}
-      .story-settings-launcher {{ position: static; left: auto; top: auto; right: auto; width: auto; margin-left: auto; }}
+      .report-settings-launcher {{ left: var(--floating-content-gutter); bottom: 24px; }}
       .review-nav {{ position: static; width: calc(100% - 16px); max-height: 38vh; margin: 8px auto 16px; }}
       .review-nav-resizer {{ display: none; }}
       .story {{ top: 0; }}
-      .story-controls {{ margin-top: 0; justify-content: flex-start; }}
       .story-steps {{ grid-template-columns: repeat(auto-fit, minmax(148px, 1fr)); }}
       .diagram-dialog {{ inset: 12px; }}
       .diagram-toolbar {{ align-items: flex-start; flex-wrap: wrap; }}

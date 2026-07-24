@@ -55,11 +55,10 @@ def render_html_report(
         parts.append(_render_logs_section(comments))
     if comments.story:
         parts.append(_render_story_section(comments))
-    else:
-        parts.append(_render_settings_launcher(" report-settings-launcher"))
     if comment_count:
         parts.append(_render_comments_index(comments, diff_files(source.diff_text)))
     parts.append(_render_diff(source.diff_text, comments))
+    parts.append(_render_settings_launcher(" report-settings-launcher"))
     parts.append(_render_to_top_button())
     if comments.diagrams or comments.logs:
         parts.append(_render_diagram_modal(comments))
@@ -230,11 +229,6 @@ def _render_comments_index(comments: ReviewComments, diff_file_order: list[str])
 
 def _render_story_section(comments: ReviewComments) -> str:
     parts = ['  <section class="story" id="story"><h2>Review Story</h2>\n']
-    parts.append('    <div class="story-controls" aria-label="Story navigation">\n')
-    parts.append(_render_settings_launcher(" story-settings-launcher"))
-    parts.append('      <span id="story-counter">1 / 1</span>\n')
-    parts.append('      <button type="button" class="story-top-inline" data-story-top aria-label="To top">↑</button>\n')
-    parts.append("    </div>\n")
     parts.append('    <ol class="story-steps">\n')
     for index, step in enumerate(comments.story):
         attrs = _story_step_attrs(step, index)
