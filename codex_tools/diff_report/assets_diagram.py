@@ -694,9 +694,12 @@ def diagram_script() -> str:
       return;
     }
     const namespace = svg.namespaceURI || "http://www.w3.org/2000/svg";
-    const layer = document.createElementNS(namespace, "g");
-    layer.classList.add("asset-search-submatch-layer");
-    layer.setAttribute("pointer-events", "none");
+    const underlay = document.createElementNS(namespace, "g");
+    underlay.classList.add("asset-search-submatch-layer");
+    underlay.setAttribute("pointer-events", "none");
+    const overlay = document.createElementNS(namespace, "g");
+    overlay.classList.add("asset-search-submatch-layer");
+    overlay.setAttribute("pointer-events", "none");
     const candidates = svgSearchTextCandidates(textNode, query);
     for (const candidate of candidates) {
       const lowerText = candidate.textContent.toLowerCase();
@@ -713,13 +716,20 @@ def diagram_script() -> str:
           rect.setAttribute("height", String(Math.max(2, box.height + 2)));
           rect.setAttribute("rx", "2");
           rect.setAttribute("ry", "2");
-          layer.appendChild(rect);
+          underlay.appendChild(rect);
+          const overlayText = svgSearchSubmatchText(candidate, index, query.length, query);
+          if (overlayText) {
+            overlay.appendChild(overlayText);
+          }
         }
         index = lowerText.indexOf(lowerQuery, index + Math.max(1, query.length));
       }
     }
-    if (layer.childNodes.length) {
-      parent.insertBefore(layer, textNode);
+    if (underlay.childNodes.length) {
+      parent.insertBefore(underlay, textNode);
+    }
+    if (overlay.childNodes.length) {
+      parent.insertBefore(overlay, textNode.nextSibling);
     }
   }
 
@@ -728,6 +738,41 @@ def diagram_script() -> str:
       return node.textContent.toLowerCase().includes(query.toLowerCase());
     });
     return children.length ? children : [textNode];
+  }
+
+  function svgSearchSubmatchText(node, start, length, query) {
+    const position = svgTextRangeStart(node, start);
+    if (!position) {
+      return null;
+    }
+    const svg = node.ownerSVGElement;
+    const namespace = svg.namespaceURI || "http://www.w3.org/2000/svg";
+    const text = document.createElementNS(namespace, "text");
+    const style = window.getComputedStyle(node);
+    text.classList.add("asset-search-submatch-text");
+    text.setAttribute("x", String(position.x));
+    text.setAttribute("y", String(position.y));
+    text.setAttribute("text-anchor", "start");
+    text.setAttribute("dominant-baseline", "auto");
+    text.style.setProperty("font-family", style.fontFamily);
+    text.style.setProperty("font-size", style.fontSize);
+    text.style.setProperty("font-style", style.fontStyle);
+    text.style.setProperty("font-variant", style.fontVariant);
+    text.textContent = node.textContent.slice(start, start + length) || query;
+    return text;
+  }
+
+  function svgTextRangeStart(node, start) {
+    if (typeof node.getStartPositionOfChar !== "function") {
+      const box = safeBBox(node);
+      return box ? { x: box.x, y: box.y + box.height } : null;
+    }
+    try {
+      return node.getStartPositionOfChar(start);
+    } catch (error) {
+      const box = safeBBox(node);
+      return box ? { x: box.x, y: box.y + box.height } : null;
+    }
   }
 
   function svgTextRangeBox(node, start, length) {

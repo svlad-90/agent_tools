@@ -56,11 +56,11 @@ def html_header(title: str) -> str:
       --add-bg: #dff2e6;
       --del-bg: #f9d9de;
       --hunk-bg: #dbeafe;
-      --comment-bg: #fff4ce;
+      --comment-bg: #fff3c4;
       --comment-border: #ca5010;
-      --comment-target-bg: #fff8dc;
-      --comment-target-mix: rgba(255,244,206,.58);
-      --comment-row-bg: rgba(255,248,220,.82);
+      --comment-target-bg: #e9f5ec;
+      --comment-target-mix: rgba(26,127,55,.16);
+      --comment-row-bg: rgba(233,245,236,.86);
       --comment-title-bg: rgba(255,255,255,.44);
       --comment-title-border: rgba(202,80,16,.34);
       --comment-panel-border: rgba(202,80,16,.55);
@@ -191,7 +191,7 @@ def html_header(title: str) -> str:
     .settings-modal[hidden] {{ display: none; }}
     .settings-modal {{ position: fixed; inset: 0; z-index: 1100; }}
     .settings-backdrop {{ position: absolute; inset: 0; background: var(--overlay-bg); }}
-    .settings-dialog {{ position: absolute; left: 50%; top: 50%; display: grid; gap: 18px; width: min(460px, calc(100vw - 40px)); max-height: calc(100vh - 40px); overflow: auto; transform: translate(-50%, -50%); padding: 20px; border: 1px solid var(--border); border-radius: 8px; background: var(--panel); color: var(--text); box-shadow: 0 18px 58px rgba(0,0,0,.42); }}
+    .settings-dialog {{ position: absolute; left: 50%; top: 50%; display: grid; gap: 18px; width: min(460px, calc(100vw - 40px)); max-height: calc(100vh - 40px); overflow: auto; transform: translate(-50%, -50%); padding: 20px; border: 1px solid var(--border); border-radius: 8px; background: var(--panel); color: var(--text); box-shadow: 0 18px 58px rgba(0,0,0,.42); font-size: var(--screen-body-font); }}
     .settings-dialog-head {{ display: flex; align-items: center; justify-content: space-between; gap: 12px; }}
     .settings-dialog h2 {{ margin: 0; color: var(--text); font-size: 20px; }}
     .settings-close {{ display: inline-flex; align-items: center; justify-content: center; width: 32px; height: 32px; padding: 0; border: 1px solid var(--border); border-radius: 6px; background: var(--button-bg); color: var(--text); cursor: pointer; font: 22px/1 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }}
@@ -436,6 +436,7 @@ def html_header(title: str) -> str:
     svg text.asset-focus-related-hover, svg tspan.asset-focus-related-hover {{ fill: var(--diagram-focus) !important; stroke: none !important; }}
     svg .asset-search-match {{ fill: #cf222e !important; stroke: none !important; }}
     svg .asset-search-submatch {{ fill: rgba(255,42,61,.26); stroke: #ff2a3d; stroke-width: 2px; vector-effect: non-scaling-stroke; opacity: .98; }}
+    svg .asset-search-submatch-text {{ fill: #ff2a3d !important; stroke: rgba(255,255,255,.74); stroke-width: 2px; paint-order: stroke fill; font-weight: 900 !important; text-decoration: underline; text-decoration-thickness: 2px; text-underline-offset: 3px; pointer-events: none; }}
     svg .asset-search-current {{ fill: #ff2a3d !important; stroke: none !important; filter: none; font-weight: 800 !important; text-decoration: underline; text-decoration-thickness: 2px; text-underline-offset: 3px; }}
     svg text.asset-search-current, svg tspan.asset-search-current {{ fill: #ff2a3d !important; stroke: none !important; filter: none; font-weight: 800 !important; text-decoration: underline; text-decoration-thickness: 2px; text-underline-offset: 3px; }}
     @keyframes focus-dash-flow {{ from {{ stroke-dashoffset: 0; }} to {{ stroke-dashoffset: -17; }} }}

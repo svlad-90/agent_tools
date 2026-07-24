@@ -131,6 +131,9 @@ existing behavior with regression tests.
 - SVG search now adds red overlay rectangles for every found substring inside a
   matched SVG text node, keeping the whole matched line red and making the
   exact substring stand out without splitting PlantUML text nodes.
+- SVG substring highlighting now also draws a bright red duplicate of the exact
+  matched substring above the original SVG text, while keeping the rectangle as
+  a subtle underlay below the original text.
 - Floating Settings and top-arrow controls now render as a vertical stack on
   the right side of the report, outside the main content column.
 - Opening a diagram now places keyboard focus into the diagram search field.
@@ -139,6 +142,12 @@ existing behavior with regression tests.
   popover text through shared CSS variables.
 - The light theme uses less pure-white panel/code/diff colors and stronger
   borders so light-on-light areas have more contrast.
+- Comment-attached diff target rows use a green-tinted highlight in the light
+  theme while the review comment cards remain warm/yellow, reducing the
+  yellow-on-yellow ambiguity.
+- The Settings dialog keeps its own fixed text size while Text scale changes
+  the report content, preventing the scale controls from visually resizing the
+  modal while the value is being changed.
 - Active-file navigation auto-scroll is now limited to fixed-position nav
   layouts; when the tree is part of the page flow on narrow screens it only
   updates the active item and does not call `scrollIntoView()`.
@@ -351,6 +360,10 @@ copied report keeps the same relative layout.
   unittest cases.
 - After stacking controls on the right, adding diagram-search autofocus,
   adding Text scale, and softening the light theme contrast,
+  `codex-tools-diff-report-enhancements/scripts/run-ci.sh` passed with 38
+  unittest cases.
+- After adding SVG substring text overlays, separating light-theme comment and
+  target colors, and freezing Settings dialog text size,
   `codex-tools-diff-report-enhancements/scripts/run-ci.sh` passed with 38
   unittest cases.
 - Headless Chrome screenshot check at 1280x720 confirmed the report brand is
