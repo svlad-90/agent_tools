@@ -45,6 +45,8 @@ def html_header(title: str) -> str:
       --link: #007acc;
       --button-bg: #ffffff;
       --button-hover-bg: #e5f1fb;
+      --settings-active-bg: #e5f1fb;
+      --settings-active-text: #0969da;
       --row-bg: #ffffff;
       --header-bg: #f3f3f3;
       --add-bg: #e6f4ea;
@@ -113,6 +115,8 @@ def html_header(title: str) -> str:
       --link: #3794ff;
       --button-bg: #2d2d30;
       --button-hover-bg: #094771;
+      --settings-active-bg: #0e639c;
+      --settings-active-text: #ffffff;
       --row-bg: #1e1e1e;
       --header-bg: #252526;
       --add-bg: #113311;
@@ -178,7 +182,7 @@ def html_header(title: str) -> str:
     .settings-options {{ display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }}
     .settings-option {{ display: inline-flex; align-items: center; justify-content: center; min-width: 0; height: 34px; padding: 0 10px; border: 1px solid var(--border); border-radius: 6px; background: var(--button-bg); color: var(--text); cursor: pointer; font: 700 15px/1 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }}
     .settings-option:hover {{ border-color: var(--link); color: var(--link); }}
-    .settings-option.is-active {{ border-color: var(--link); background: var(--button-hover-bg); color: var(--link); box-shadow: inset 3px 0 0 var(--link); }}
+    .settings-option.is-active {{ border-color: var(--link); background: var(--settings-active-bg); color: var(--settings-active-text); box-shadow: inset 3px 0 0 var(--link); }}
     .copy-context-menu[hidden] {{ display: none; }}
     .copy-context-menu {{ position: fixed; z-index: 1200; min-width: 178px; padding: 6px; border: 1px solid var(--border); border-radius: 8px; background: var(--panel); box-shadow: 0 12px 32px var(--shadow); }}
     .copy-context-menu button {{ display: flex; align-items: center; justify-content: flex-start; width: 100%; min-height: 32px; padding: 0 10px; border: 0; border-radius: 6px; background: transparent; color: var(--text); cursor: pointer; font: 700 14px/1.2 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; text-align: left; }}
