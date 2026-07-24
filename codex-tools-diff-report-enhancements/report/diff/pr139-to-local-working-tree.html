@@ -425,8 +425,8 @@
     svg .asset-focus-related-hover { stroke: var(--diagram-focus) !important; fill: var(--diagram-focus) !important; opacity: 1 !important; filter: drop-shadow(0 0 2px rgba(255,255,255,.95)); }
     svg text.asset-focus-related-hover, svg tspan.asset-focus-related-hover { fill: var(--diagram-focus) !important; stroke: none !important; }
     svg .asset-search-match { fill: #cf222e !important; stroke: none !important; }
-    svg .asset-search-submatch { fill: rgba(255,42,61,.26); stroke: #ff2a3d; stroke-width: 2px; vector-effect: non-scaling-stroke; opacity: .98; }
-    svg .asset-search-submatch-text { fill: #ff2a3d !important; stroke: rgba(255,255,255,.74); stroke-width: 2px; paint-order: stroke fill; font-weight: 900 !important; text-decoration: underline; text-decoration-thickness: 2px; text-underline-offset: 3px; pointer-events: none; }
+    svg .asset-search-submatch { fill: #cf222e; stroke: #ff8a96; stroke-width: 1.4px; vector-effect: non-scaling-stroke; opacity: .96; }
+    svg .asset-search-submatch-text { fill: #ffffff !important; stroke: none !important; font-weight: 900 !important; pointer-events: none; }
     svg .asset-search-current { fill: #ff2a3d !important; stroke: none !important; filter: none; font-weight: 800 !important; text-decoration: underline; text-decoration-thickness: 2px; text-underline-offset: 3px; }
     svg text.asset-search-current, svg tspan.asset-search-current { fill: #ff2a3d !important; stroke: none !important; filter: none; font-weight: 800 !important; text-decoration: underline; text-decoration-thickness: 2px; text-underline-offset: 3px; }
     @keyframes focus-dash-flow { from { stroke-dashoffset: 0; } to { stroke-dashoffset: -17; } }
@@ -1509,6 +1509,7 @@ qemu-system-aarch64: terminating on signal 15 from pid 8 (timeout)
   let activeCodeLinkHoverTarget = "";
   let searchMatches = [];
   let searchIndex = -1;
+  let searchRaf = 0;
   let isPanning = false;
   let panStartX = 0;
   let panStartY = 0;
@@ -2157,6 +2158,16 @@ qemu-system-aarch64: terminating on signal 15 from pid 8 (timeout)
     showSearchMatch();
   }
 
+  function scheduleSearch(resetIndex) {
+    if (searchRaf) {
+      window.cancelAnimationFrame(searchRaf);
+    }
+    searchRaf = window.requestAnimationFrame(function () {
+      searchRaf = 0;
+      updateSearch(resetIndex);
+    });
+  }
+
   function searchDiagram(query) {
     const lowerQuery = query.toLowerCase();
     const textNodes = content.querySelectorAll("svg text");
@@ -2192,10 +2203,10 @@ qemu-system-aarch64: terminating on signal 15 from pid 8 (timeout)
         if (box) {
           const rect = document.createElementNS(namespace, "rect");
           rect.classList.add("asset-search-submatch");
-          rect.setAttribute("x", String(box.x - 1.5));
-          rect.setAttribute("y", String(box.y - 1));
-          rect.setAttribute("width", String(Math.max(2, box.width + 3)));
-          rect.setAttribute("height", String(Math.max(2, box.height + 2)));
+          rect.setAttribute("x", String(box.x - 2.5));
+          rect.setAttribute("y", String(box.y - 2));
+          rect.setAttribute("width", String(Math.max(2, box.width + 5)));
+          rect.setAttribute("height", String(Math.max(2, box.height + 4)));
           rect.setAttribute("rx", "2");
           rect.setAttribute("ry", "2");
           underlay.appendChild(rect);
@@ -3431,7 +3442,7 @@ qemu-system-aarch64: terminating on signal 15 from pid 8 (timeout)
 
   if (searchInput) {
     searchInput.addEventListener("input", function () {
-      updateSearch(true);
+      scheduleSearch(true);
     });
   }
 
@@ -4333,6 +4344,8 @@ qemu-system-aarch64: terminating on signal 15 from pid 8 (timeout)
   const textScaleReset = document.querySelector("[data-text-scale-reset]");
   const minTextScale = 0.9;
   const maxTextScale = 1.3;
+  let activeTextScale = 1;
+  let textScaleRaf = 0;
 
   function currentTheme() {
     return root.dataset.theme === "dark" ? "dark" : "light";
@@ -4373,7 +4386,7 @@ qemu-system-aarch64: terminating on signal 15 from pid 8 (timeout)
 
   function applyTextScale(scale, persist) {
     const nextScale = normalizeTextScale(scale);
-    root.style.setProperty("--text-scale", String(nextScale));
+    activeTextScale = nextScale;
     if (textScaleReset) {
       textScaleReset.textContent = Math.round(nextScale * 100) + "%";
     }
@@ -4383,6 +4396,13 @@ qemu-system-aarch64: terminating on signal 15 from pid 8 (timeout)
       button.disabled = disabled;
       button.setAttribute("aria-disabled", disabled ? "true" : "false");
     }
+    if (textScaleRaf) {
+      window.cancelAnimationFrame(textScaleRaf);
+    }
+    textScaleRaf = window.requestAnimationFrame(function () {
+      textScaleRaf = 0;
+      root.style.setProperty("--text-scale", String(nextScale));
+    });
     if (persist) {
       try {
         localStorage.setItem(textScaleKey, String(nextScale));
@@ -4429,8 +4449,7 @@ qemu-system-aarch64: terminating on signal 15 from pid 8 (timeout)
   }
   for (const button of textScaleButtons) {
     button.addEventListener("click", function () {
-      const currentScale = Number(root.style.getPropertyValue("--text-scale")) || 1;
-      applyTextScale(currentScale + Number(button.dataset.textScaleStep || 0), true);
+      applyTextScale(activeTextScale + Number(button.dataset.textScaleStep || 0), true);
     });
   }
   if (textScaleReset) {
