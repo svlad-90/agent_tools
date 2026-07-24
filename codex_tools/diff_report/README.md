@@ -55,6 +55,39 @@ adds `_template.files` plus `_template.added_lines` as a non-rendered target
 catalog. Copy useful entries from `_template.added_lines` into `inline`, fill
 `title` and `body`, then render or refresh the report normally.
 
+For a lower-friction path, write draft findings and let the tool compose the
+canonical comments JSON with target anchors:
+
+```json
+{
+  "summary": "Short review summary.",
+  "files": {
+    "path/to/file.py": "File-level note."
+  },
+  "inline": [
+    {
+      "file": "path/to/file.py",
+      "contains": "new_code_call(",
+      "kind": "add",
+      "title": "Review comment",
+      "body": "Line-specific note."
+    }
+  ]
+}
+```
+
+```sh
+python -m codex_tools.diff_report \
+  --diff-file change.patch \
+  --findings findings.json \
+  --output-comments comments.json
+```
+
+Inline findings may use `line`, exact `content`, or substring `contains`.
+Content-based matches must resolve to exactly one rendered new-file line in the
+selected file. The generated `comments.json` can then be passed to normal
+rendering or `--refresh-targets`.
+
 Target refresh records a status for each inline comment:
 
 - `found`: the existing `file` and `line` still point at a rendered diff line.
