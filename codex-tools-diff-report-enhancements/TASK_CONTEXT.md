@@ -286,6 +286,29 @@ copied report keeps the same relative layout.
 - After fixing the review finding,
   `codex-tools-diff-report-enhancements/scripts/run-ci.sh` passed with
   twenty-seven unittest cases.
+- Added a report UI feature for copying selected diff fragments as Markdown.
+  Selecting diff rows or review comments and opening the context menu now shows
+  `Copy` and `Copy as Markdown`. `Copy` uses normal browser selection copying;
+  `Copy as Markdown` exports the selected report fragment as Markdown.
+- The Markdown export groups selected rows by file, preserves the raw rendered
+  diff text in fenced `diff` blocks, and includes selected file-level or inline
+  review comment text as blockquotes. Partial text selections inside comments
+  are copied as partial comment text instead of expanding to the whole comment.
+- The old standalone theme toggle was replaced by a global Settings modal with
+  Theme options. The theme setting is persisted in `localStorage` and
+  synchronizes across open report tabs through browser storage events.
+- The Settings modal is centered with an opaque report-styled dialog and
+  backdrop instead of a dropdown panel.
+- Regenerated
+  `report/diff/pr139-to-local-working-tree.html` from the canonical patch and
+  comments JSON after adding the selection-copy UI; `--refresh-targets`
+  reported `attention=0`.
+- After adding Markdown selection copy,
+  `codex-tools-diff-report-enhancements/scripts/run-ci.sh` passed with
+  twenty-seven unittest cases.
+- Browser automation was not run because Playwright is not installed in the
+  workspace Python environment; static HTML checks confirmed the generated
+  report contains the copy button, diff row metadata, and clipboard handler.
 
 ## Remaining Work
 
