@@ -152,7 +152,7 @@
     * { box-sizing: border-box; }
     body { margin: 0; background: var(--bg); color: var(--text); font: var(--screen-body-font)/1.52 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
     main { width: calc(100% - var(--nav-width) - 24px); max-width: calc(100vw - var(--nav-width) - 24px); min-width: 0; margin: 8px 8px 16px calc(var(--nav-width) + 16px); }
-    .report-brand { position: fixed; left: 8px; top: 8px; z-index: 4; display: flex; align-items: flex-start; justify-content: center; width: var(--nav-width); height: max(250px, calc(var(--story-offset) - 16px)); padding-top: 16px; pointer-events: none; color: var(--brand-text); }
+    .report-brand { position: fixed; left: 8px; top: 8px; z-index: 4; display: flex; align-items: flex-start; justify-content: center; width: var(--nav-width); height: 250px; padding-top: 16px; pointer-events: none; color: var(--brand-text); }
     .report-brand::before { content: ""; position: absolute; inset: 0; height: 250px; border-radius: 10px; background: var(--brand-panel); box-shadow: 0 10px 24px var(--shadow); }
     .report-brand-inner { position: relative; display: grid; grid-template-columns: 144px minmax(0, 1fr); align-items: center; gap: 24px; width: 100%; height: 176px; padding: 16px 28px; font-weight: 800; letter-spacing: 0; }
     .report-brand-mark { display: flex; align-items: center; justify-content: center; width: 144px; height: 144px; border-radius: 10px; background: #0969da; color: #fff; font: 800 92px/1 ui-monospace, SFMono-Regular, Consolas, monospace; }
@@ -208,7 +208,7 @@
     .label { display: block; color: var(--meta-label); font-size: .72rem; text-transform: uppercase; letter-spacing: .04em; margin-bottom: 3px; }
     .toc a { display: inline-block; margin: 0 8px 8px 0; color: var(--link); text-decoration: none; }
     .toc a:hover { text-decoration: underline; }
-    .review-nav { position: fixed; left: 8px; top: max(270px, var(--story-offset)); bottom: 8px; z-index: 8; width: var(--nav-width); margin: 0; padding: 10px 14px 10px 10px; overflow: auto; box-shadow: 0 8px 22px rgba(31,35,40,.10); }
+    .review-nav { position: fixed; left: 8px; top: 270px; bottom: 8px; z-index: 8; width: var(--nav-width); margin: 0; padding: 10px 14px 10px 10px; overflow: auto; box-shadow: 0 8px 22px rgba(31,35,40,.10); }
     .review-nav-head { position: sticky; top: -10px; z-index: 2; display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: -10px -14px 8px -10px; padding: 10px 14px 8px 10px; background: var(--panel); border-bottom: 1px solid var(--border); box-shadow: 0 2px 0 var(--panel); }
     .review-nav h2 { margin: 0; font-size: .86em; }
     .review-nav-head button { display: inline-flex; align-items: center; justify-content: center; min-width: 102px; height: 28px; padding: 0 10px; border: 1px solid var(--border); border-radius: 6px; background: var(--button-bg); color: var(--text); cursor: pointer; font: var(--screen-code-font)/1 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
@@ -234,7 +234,7 @@
     .review-nav-comments a { display: grid; grid-template-columns: 3.2em minmax(0, 1fr); gap: 6px; align-items: baseline; padding: 4px 4px; border-radius: 4px; font-size: .78em; line-height: 1.25; overflow-wrap: anywhere; }
     .review-nav-comments a:hover { background: var(--button-hover-bg); text-decoration: none; }
     .review-nav-line { color: var(--muted); font-family: ui-monospace, SFMono-Regular, Consolas, monospace; }
-    .review-nav-resizer { position: fixed; left: calc(var(--nav-width) + 5px); top: max(270px, var(--story-offset)); bottom: 8px; width: 10px; cursor: ew-resize; z-index: 20; }
+    .review-nav-resizer { position: fixed; left: calc(var(--nav-width) + 5px); top: 270px; bottom: 8px; width: 10px; cursor: ew-resize; z-index: 20; }
     .review-nav-resizer::before { content: ""; position: absolute; inset: 0 3px; border-radius: 99px; background: transparent; }
     .review-nav-resizer:hover::before, body.is-resizing-review-nav .review-nav-resizer::before { background: rgba(9,105,218,.38); }
     body.is-resizing-review-nav { cursor: ew-resize; user-select: none; }
@@ -1534,42 +1534,231 @@ qemu-system-aarch64: terminating on signal 15 from pid 8 (timeout)
     });
   }
 
-  function cssVariable(name, fallback) {
-    const value = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
-    return value || fallback;
+  function standaloneDiagramStyle() {
+    const parts = [standaloneDiagramVariablesStyle()];
+    const includeDarkRules = document.documentElement.dataset.theme === "dark";
+    for (const sheet of Array.from(document.styleSheets)) {
+      let rules;
+      try {
+        rules = sheet.cssRules;
+      } catch (error) {
+        continue;
+      }
+      parts.push(...standaloneCssRules(rules, includeDarkRules));
+    }
+    return parts.filter(Boolean).join("\n");
   }
 
-  function standaloneDiagramStyle() {
-    const focus = cssVariable("--diagram-focus", "#1d4ed8");
-    const noteBg = cssVariable("--diagram-note-bg", "#dbeafe");
-    const noteHoverBg = cssVariable("--diagram-note-hover-bg", "#bfdbfe");
-    const noteText = cssVariable("--diagram-note-text", "#111827");
-    const noteLink = cssVariable("--diagram-note-link", "#2563eb");
-    const noteMarkerBg = cssVariable("--diagram-note-marker-bg", "#eff6ff");
-    return [
-      "svg .asset-focus-connector { stroke: " + focus + " !important; stroke-width: 3px !important; opacity: .95; }",
-      "svg line.asset-focus-connector, svg path.asset-focus-connector, svg polyline.asset-focus-connector { stroke-dasharray: 10 7; animation: focus-dash-flow 1.1s linear infinite; }",
-      "svg line.asset-focus-connector-reverse, svg path.asset-focus-connector-reverse, svg polyline.asset-focus-connector-reverse { animation-name: focus-dash-flow-reverse; }",
-      "svg polygon.asset-focus-connector { fill: " + focus + " !important; opacity: .95; animation: focus-arrow-pulse 1.1s ease-in-out infinite; }",
-      "svg .asset-focus-match { fill: " + focus + " !important; stroke: none !important; }",
-      "svg .asset-focus-related-hover { stroke: " + focus + " !important; fill: " + focus + " !important; opacity: 1 !important; }",
-      "svg text.asset-focus-related-hover, svg tspan.asset-focus-related-hover { fill: " + focus + " !important; stroke: none !important; }",
-      "svg .diagram-note-panel { opacity: 0; pointer-events: none; transition: opacity .12s ease; }",
-      "svg .diagram-note-hover .diagram-note-panel, svg .diagram-note-hotspot:hover .diagram-note-panel { opacity: 1; pointer-events: auto; }",
-      "svg .diagram-note-box { fill: " + noteBg + "; stroke: " + noteLink + "; stroke-width: 1.8px; rx: 6px; ry: 6px; }",
-      "svg .diagram-note-text, svg .diagram-note-text tspan { fill: " + noteText + " !important; font: 12px -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; pointer-events: none; }",
-      "svg .diagram-note-link { fill: none; stroke: " + noteLink + "; stroke-width: 1.8px; opacity: .95; }",
-      "svg .diagram-note-marker { fill: " + noteMarkerBg + "; stroke: " + noteLink + "; stroke-width: 1.8px; }",
-      "svg .diagram-note-marker-text { fill: " + noteLink + "; font: 700 13px -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; text-anchor: middle; dominant-baseline: central; pointer-events: none; }",
-      "svg .diagram-note-hotspot { cursor: pointer; }",
-      "svg .diagram-note-hover .diagram-note-box, svg .diagram-note-hotspot:hover .diagram-note-box { fill: " + noteHoverBg + "; stroke: " + noteLink + "; stroke-width: 2.4px; }",
-      "svg .diagram-note-hover .diagram-note-marker, svg .diagram-note-hotspot:hover .diagram-note-marker { fill: " + noteHoverBg + "; stroke: " + noteLink + "; stroke-width: 2.4px; }",
-      "svg .diagram-note-hover .diagram-note-link, svg .diagram-note-hotspot:hover .diagram-note-link { stroke: " + noteLink + "; stroke-width: 2.1px; opacity: 1; }",
-      "@keyframes focus-dash-flow { from { stroke-dashoffset: 0; } to { stroke-dashoffset: -17; } }",
-      "@keyframes focus-dash-flow-reverse { from { stroke-dashoffset: 0; } to { stroke-dashoffset: 17; } }",
-      "@keyframes focus-arrow-pulse { 0%, 100% { opacity: .95; } 50% { opacity: .62; } }",
-      "@media (prefers-reduced-motion: reduce) { svg line.asset-focus-connector, svg path.asset-focus-connector, svg polyline.asset-focus-connector, svg polygon.asset-focus-connector { animation: none; } }",
-    ].join("\n");
+  function standaloneDiagramVariablesStyle() {
+    const rootStyle = getComputedStyle(document.documentElement);
+    const declarations = Array.from(standaloneDiagramVariableMap(rootStyle), function (entry) {
+      return entry[0] + ": " + entry[1] + ";";
+    });
+    return declarations.length ? "svg { " + declarations.join(" ") + " }" : "";
+  }
+
+  function standaloneDiagramVariableMap(rootStyle) {
+    const fallback = new Map([
+      ["--diagram-bg", "#ffffff"],
+      ["--diagram-svg-text", "#111827"],
+      ["--diagram-svg-line", "#475569"],
+      ["--diagram-svg-box-bg", "#ffffff"],
+      ["--diagram-svg-note-bg", "#fff8c5"],
+      ["--diagram-focus", "#1d4ed8"],
+      ["--diagram-note-bg", "#dbeafe"],
+      ["--diagram-note-hover-bg", "#bfdbfe"],
+      ["--diagram-note-text", "#111827"],
+      ["--diagram-note-link", "#2563eb"],
+      ["--diagram-note-marker-bg", "#eff6ff"],
+      ["--diagram-link", "#107c10"],
+      ["--diagram-link-bg", "#e9f5e9"],
+      ["--diagram-link-hover-bg", "#deecf9"],
+    ]);
+    for (const name of Array.from(fallback.keys())) {
+      const value = rootStyle.getPropertyValue(name).trim();
+      if (value) {
+        fallback.set(name, value);
+      }
+    }
+    return fallback;
+  }
+
+  function standaloneCssRules(rules, includeDarkRules) {
+    const output = [];
+    for (const rule of Array.from(rules)) {
+      if (rule.type === CSSRule.STYLE_RULE) {
+        const selector = standaloneSelector(rule.selectorText, includeDarkRules);
+        if (selector) {
+          output.push(selector + " { " + resolveCssVariables(rule.style.cssText) + " }");
+        }
+      } else if (rule.type === CSSRule.KEYFRAMES_RULE) {
+        output.push(rule.cssText);
+      } else if (rule.type === CSSRule.MEDIA_RULE) {
+        const nested = standaloneCssRules(rule.cssRules, includeDarkRules);
+        if (nested.length) {
+          output.push("@media " + rule.conditionText + " { " + nested.join("\n") + " }");
+        }
+      }
+    }
+    return output;
+  }
+
+  function standaloneSelector(selectorText, includeDarkRules) {
+    const selectors = selectorText.split(",").map(function (selector) {
+      let next = selector.trim();
+      const isDarkRule = next.startsWith(':root[data-theme="dark"]');
+      if (isDarkRule && !includeDarkRules) {
+        return "";
+      }
+      if (
+        !/animation|keyframes|asset-focus-|diagram-note|diagram-code-link/.test(next)
+        && !/\.diagram-preview-canvas\s+svg|\.diagram-zoom-stage\s+svg/.test(next)
+      ) {
+        return "";
+      }
+      next = next.replace(/^:root\[data-theme="dark"\]\s+/, "");
+      next = next.replace(/^:root\s+/, "");
+      next = next.replace(/\.diagram-preview-canvas\s+svg/g, "svg");
+      next = next.replace(/\.diagram-zoom-stage\s+svg/g, "svg");
+      if (next === "svg") {
+        return "";
+      }
+      return next.includes("svg") ? next : "";
+    }).filter(Boolean);
+    return selectors.join(", ");
+  }
+
+  function resolveCssVariables(text) {
+    const values = standaloneDiagramVariableMap(getComputedStyle(document.documentElement));
+    return text.replace(/var\((--[A-Za-z0-9_-]+)(?:,[^)]+)?\)/g, function (match, name) {
+      return values.get(name) || match;
+    });
+  }
+
+  function inlineReportOverlayStyles(sourceSvg, cloneSvg) {
+    const sourceNodes = [sourceSvg].concat(Array.from(sourceSvg.querySelectorAll("*")));
+    const cloneNodes = [cloneSvg].concat(Array.from(cloneSvg.querySelectorAll("*")));
+    const properties = [
+      "fill",
+      "stroke",
+      "stroke-width",
+      "stroke-dasharray",
+      "stroke-dashoffset",
+      "stroke-linecap",
+      "stroke-linejoin",
+      "opacity",
+      "font",
+      "font-family",
+      "font-size",
+      "font-weight",
+      "text-anchor",
+      "dominant-baseline",
+      "paint-order",
+      "filter",
+    ];
+    sourceNodes.forEach(function (sourceNode, index) {
+      const cloneNode = cloneNodes[index];
+      if (!cloneNode || !sourceNode.ownerDocument.defaultView) {
+        return;
+      }
+      if (!isReportOverlayNode(sourceNode)) {
+        return;
+      }
+      const computed = sourceNode.ownerDocument.defaultView.getComputedStyle(sourceNode);
+      const declarations = [];
+      for (const property of properties) {
+        if (!canInlineOverlayProperty(sourceNode, property)) {
+          continue;
+        }
+        const value = computed.getPropertyValue(property);
+        if (value) {
+          declarations.push(property + ": " + value + ";");
+        }
+      }
+      if (declarations.length) {
+        const existing = cloneNode.getAttribute("style") || "";
+        cloneNode.setAttribute("style", (existing ? existing + "; " : "") + declarations.join(" "));
+      }
+    });
+  }
+
+  function canInlineOverlayProperty(node, property) {
+    if (
+      property === "opacity"
+      && node.classList
+      && (node.classList.contains("diagram-note-panel") || node.classList.contains("diagram-note-hotspot"))
+    ) {
+      return false;
+    }
+    return true;
+  }
+
+  function isReportOverlayNode(node) {
+    if (!node || !node.classList) {
+      return false;
+    }
+    for (const className of Array.from(node.classList)) {
+      if (
+        className.startsWith("asset-focus-")
+        || className.startsWith("diagram-note-")
+        || className.startsWith("diagram-code-link-")
+      ) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  function insertSvgBackground(svg) {
+    const box = svgViewBox(svg);
+    if (!box || box.width <= 0 || box.height <= 0) {
+      return;
+    }
+    const background = document.createElementNS("http://www.w3.org/2000/svg", "rect");
+    background.setAttribute("class", "diagram-export-background");
+    background.setAttribute("x", String(box.x));
+    background.setAttribute("y", String(box.y));
+    background.setAttribute("width", String(box.width));
+    background.setAttribute("height", String(box.height));
+    background.setAttribute("fill", diagramBackgroundColor());
+    svg.insertBefore(background, firstDrawableSvgChild(svg));
+  }
+
+  function firstDrawableSvgChild(svg) {
+    for (const child of Array.from(svg.childNodes)) {
+      if (child.nodeType === Node.ELEMENT_NODE && child.tagName.toLowerCase() !== "style") {
+        return child;
+      }
+    }
+    return null;
+  }
+
+  function svgViewBox(svg) {
+    const viewBox = (svg.getAttribute("viewBox") || "").trim().split(/[\s,]+/).map(Number);
+    if (viewBox.length === 4 && viewBox.every(Number.isFinite)) {
+      return { x: viewBox[0], y: viewBox[1], width: viewBox[2], height: viewBox[3] };
+    }
+    const width = parseSvgLength(svg.getAttribute("width"));
+    const height = parseSvgLength(svg.getAttribute("height"));
+    if (width > 0 && height > 0) {
+      return { x: 0, y: 0, width, height };
+    }
+    const size = svgNaturalSize(svg);
+    return size ? { x: 0, y: 0, width: size.width, height: size.height } : null;
+  }
+
+  function parseSvgLength(value) {
+    const parsed = Number.parseFloat(String(value || ""));
+    return Number.isFinite(parsed) ? parsed : 0;
+  }
+
+  function diagramBackgroundColor() {
+    const contentBackground = getComputedStyle(content).backgroundColor;
+    if (contentBackground && contentBackground !== "rgba(0, 0, 0, 0)") {
+      return contentBackground;
+    }
+    const rootBackground = getComputedStyle(document.documentElement).getPropertyValue("--diagram-bg").trim();
+    return rootBackground || "#ffffff";
   }
 
   function removeCodeLinkState(svg) {
@@ -1588,19 +1777,48 @@ qemu-system-aarch64: terminating on signal 15 from pid 8 (timeout)
     }
   }
 
+  function prepareExportedSvgForViewers(svg) {
+    fixExportedSvgViewportSize(svg);
+    for (const node of svg.querySelectorAll("text, tspan")) {
+      node.removeAttribute("textLength");
+      node.removeAttribute("lengthAdjust");
+    }
+  }
+
+  function fixExportedSvgViewportSize(svg) {
+    const box = svgViewBox(svg);
+    if (!box || box.width <= 0 || box.height <= 0) {
+      return;
+    }
+    const width = Math.round(box.width * 1000) / 1000;
+    const height = Math.round(box.height * 1000) / 1000;
+    svg.setAttribute("width", width + "px");
+    svg.setAttribute("height", height + "px");
+    svg.style.width = width + "px";
+    svg.style.height = height + "px";
+    svg.style.maxWidth = "none";
+    svg.style.maxHeight = "none";
+    svg.removeAttribute("viewBox");
+  }
+
   function exportOpenedDiagram() {
     const svg = content.querySelector(".diagram-zoom-stage svg");
     if (!svg) {
       return;
     }
     const clone = svg.cloneNode(true);
+    inlineReportOverlayStyles(svg, clone);
     removeCodeLinkState(clone);
+    prepareExportedSvgForViewers(clone);
     if (!clone.getAttribute("xmlns")) {
       clone.setAttribute("xmlns", "http://www.w3.org/2000/svg");
     }
     const style = document.createElementNS("http://www.w3.org/2000/svg", "style");
     style.textContent = standaloneDiagramStyle();
-    clone.insertBefore(style, clone.firstChild);
+    if (style.textContent) {
+      clone.insertBefore(style, clone.firstChild);
+    }
+    insertSvgBackground(clone);
     const source = new XMLSerializer().serializeToString(clone);
     downloadBlob(safeFileName(activeExportName, "svg"), "image/svg+xml;charset=utf-8", source);
   }
@@ -3284,6 +3502,7 @@ qemu-system-aarch64: terminating on signal 15 from pid 8 (timeout)
   let activeFlashClearTimer = 0;
   let navigationToken = 0;
   let topStateRaf = 0;
+  let storyOffsetRaf = 0;
   if ("scrollRestoration" in history) {
     history.scrollRestoration = "manual";
   }
@@ -3469,8 +3688,24 @@ qemu-system-aarch64: terminating on signal 15 from pid 8 (timeout)
 
   function updateStoryOffset() {
     const story = document.getElementById("story");
-    const offset = story ? Math.ceil(story.getBoundingClientRect().height) : 0;
-    document.documentElement.style.setProperty("--story-offset", offset + "px");
+    if (!story) {
+      document.documentElement.style.setProperty("--story-offset", "0px");
+      return;
+    }
+    story.style.minHeight = "";
+    const storyTop = Math.max(0, Math.ceil(story.getBoundingClientRect().top));
+    const currentHeight = Math.ceil(story.getBoundingClientRect().height);
+    document.documentElement.style.setProperty("--story-offset", (storyTop + currentHeight) + "px");
+  }
+
+  function scheduleStoryOffsetUpdate() {
+    if (storyOffsetRaf) {
+      return;
+    }
+    storyOffsetRaf = window.requestAnimationFrame(function () {
+      storyOffsetRaf = 0;
+      updateStoryOffset();
+    });
   }
 
   function updateTopButtonState() {
@@ -3503,6 +3738,7 @@ qemu-system-aarch64: terminating on signal 15 from pid 8 (timeout)
     if (detailsBody) {
       detailsBody.textContent = step.dataset.storyBody || "";
     }
+    updateStoryOffset();
   }
 
   function clearTargetHighlight() {
@@ -3808,8 +4044,11 @@ qemu-system-aarch64: terminating on signal 15 from pid 8 (timeout)
   if (location.hash && history.replaceState) {
     history.replaceState(null, "", location.pathname + location.search);
   }
-  window.addEventListener("scroll", updateTopButtonState, { passive: true });
-  window.addEventListener("resize", updateStoryOffset);
+  window.addEventListener("scroll", function () {
+    updateTopButtonState();
+    scheduleStoryOffsetUpdate();
+  }, { passive: true });
+  window.addEventListener("resize", scheduleStoryOffsetUpdate);
   window.addEventListener("pageshow", function () {
     updateStoryOffset();
     updateTopButtonState();

@@ -15,6 +15,7 @@ def story_script() -> str:
   let activeFlashClearTimer = 0;
   let navigationToken = 0;
   let topStateRaf = 0;
+  let storyOffsetRaf = 0;
   if ("scrollRestoration" in history) {
     history.scrollRestoration = "manual";
   }
@@ -200,8 +201,24 @@ def story_script() -> str:
 
   function updateStoryOffset() {
     const story = document.getElementById("story");
-    const offset = story ? Math.ceil(story.getBoundingClientRect().height) : 0;
-    document.documentElement.style.setProperty("--story-offset", offset + "px");
+    if (!story) {
+      document.documentElement.style.setProperty("--story-offset", "0px");
+      return;
+    }
+    story.style.minHeight = "";
+    const storyTop = Math.max(0, Math.ceil(story.getBoundingClientRect().top));
+    const currentHeight = Math.ceil(story.getBoundingClientRect().height);
+    document.documentElement.style.setProperty("--story-offset", (storyTop + currentHeight) + "px");
+  }
+
+  function scheduleStoryOffsetUpdate() {
+    if (storyOffsetRaf) {
+      return;
+    }
+    storyOffsetRaf = window.requestAnimationFrame(function () {
+      storyOffsetRaf = 0;
+      updateStoryOffset();
+    });
   }
 
   function updateTopButtonState() {
@@ -234,6 +251,7 @@ def story_script() -> str:
     if (detailsBody) {
       detailsBody.textContent = step.dataset.storyBody || "";
     }
+    updateStoryOffset();
   }
 
   function clearTargetHighlight() {
@@ -539,8 +557,11 @@ def story_script() -> str:
   if (location.hash && history.replaceState) {
     history.replaceState(null, "", location.pathname + location.search);
   }
-  window.addEventListener("scroll", updateTopButtonState, { passive: true });
-  window.addEventListener("resize", updateStoryOffset);
+  window.addEventListener("scroll", function () {
+    updateTopButtonState();
+    scheduleStoryOffsetUpdate();
+  }, { passive: true });
+  window.addEventListener("resize", scheduleStoryOffsetUpdate);
   window.addEventListener("pageshow", function () {
     updateStoryOffset();
     updateTopButtonState();
