@@ -131,6 +131,14 @@ existing behavior with regression tests.
 - SVG search now adds red overlay rectangles for every found substring inside a
   matched SVG text node, keeping the whole matched line red and making the
   exact substring stand out without splitting PlantUML text nodes.
+- Floating Settings and top-arrow controls now render as a vertical stack on
+  the right side of the report, outside the main content column.
+- Opening a diagram now places keyboard focus into the diagram search field.
+- Settings includes a persisted `Text scale` control with minus, reset, and
+  plus actions. The scale adjusts the report body, diff/code, story, and code
+  popover text through shared CSS variables.
+- The light theme uses less pure-white panel/code/diff colors and stronger
+  borders so light-on-light areas have more contrast.
 - Active-file navigation auto-scroll is now limited to fixed-position nav
   layouts; when the tree is part of the page flow on narrow screens it only
   updates the active item and does not call `scrollIntoView()`.
@@ -339,6 +347,10 @@ copied report keeps the same relative layout.
   `codex-tools-diff-report-enhancements/scripts/run-ci.sh` passed with 38
   unittest cases.
 - After widening the floating-control gap and adding SVG substring overlays,
+  `codex-tools-diff-report-enhancements/scripts/run-ci.sh` passed with 38
+  unittest cases.
+- After stacking controls on the right, adding diagram-search autofocus,
+  adding Text scale, and softening the light theme contrast,
   `codex-tools-diff-report-enhancements/scripts/run-ci.sh` passed with 38
   unittest cases.
 - Headless Chrome screenshot check at 1280x720 confirmed the report brand is

@@ -30,10 +30,10 @@ def html_header(title: str) -> str:
     :root {{
       color-scheme: light;
       --bg: #f3f3f3;
-      --panel: #ffffff;
-      --panel-subtle: #f8f8f8;
-      --meta-panel: #ffffff;
-      --meta-border: #d0d0d0;
+      --panel: #fbfbfc;
+      --panel-subtle: #f1f3f6;
+      --meta-panel: #f7f8fa;
+      --meta-border: #b8c0ca;
       --meta-label: #57606a;
       --meta-text: #1f1f1f;
       --story-step-bg: #f6f8fa;
@@ -43,7 +43,7 @@ def html_header(title: str) -> str:
       --story-step-active-border: #0969da;
       --stat-add: #1a7f37;
       --stat-del: #cf222e;
-      --border: #d0d0d0;
+      --border: #b8c0ca;
       --text: #1f1f1f;
       --muted: #616161;
       --link: #007acc;
@@ -51,11 +51,11 @@ def html_header(title: str) -> str:
       --button-hover-bg: #e5f1fb;
       --settings-active-bg: #e5f1fb;
       --settings-active-text: #0969da;
-      --row-bg: #ffffff;
-      --header-bg: #f3f3f3;
-      --add-bg: #e6f4ea;
-      --del-bg: #fde7e9;
-      --hunk-bg: #e5f1fb;
+      --row-bg: #fbfbfc;
+      --header-bg: #e9edf2;
+      --add-bg: #dff2e6;
+      --del-bg: #f9d9de;
+      --hunk-bg: #dbeafe;
       --comment-bg: #fff4ce;
       --comment-border: #ca5010;
       --comment-target-bg: #fff8dc;
@@ -64,8 +64,8 @@ def html_header(title: str) -> str:
       --comment-title-bg: rgba(255,255,255,.44);
       --comment-title-border: rgba(202,80,16,.34);
       --comment-panel-border: rgba(202,80,16,.55);
-      --code-bg: #f8f8f8;
-      --brand-panel: rgba(255,255,255,.9);
+      --code-bg: #eef2f6;
+      --brand-panel: rgba(251,251,252,.94);
       --brand-text: #1f1f1f;
       --shadow: rgba(0,0,0,.16);
       --diagram-bg: #ffffff;
@@ -102,8 +102,11 @@ def html_header(title: str) -> str:
       --left-chrome-x: calc(var(--page-gutter) + 34px);
       --left-chrome-width: calc(var(--nav-width) - 68px);
       --story-offset: 0px;
+      --text-scale: 1;
       --screen-body-font: 18px;
       --screen-code-font: 15px;
+      --scaled-body-font: calc(var(--screen-body-font) * var(--text-scale));
+      --scaled-code-font: calc(var(--screen-code-font) * var(--text-scale));
       --content-width: 1260px;
       --floating-control-size: 44px;
       --floating-control-gap: 18px;
@@ -172,7 +175,7 @@ def html_header(title: str) -> str:
       --overlay-bg: rgba(0,0,0,.68);
     }}
     * {{ box-sizing: border-box; }}
-    body {{ margin: 0; background: var(--bg); color: var(--text); font: var(--screen-body-font)/1.52 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }}
+    body {{ margin: 0; background: var(--bg); color: var(--text); font: var(--scaled-body-font)/1.52 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }}
     main {{ width: calc(100% - var(--nav-width) - (var(--page-gutter) * 3)); max-width: calc(100% - var(--nav-width) - (var(--page-gutter) * 3)); min-width: 0; margin: var(--page-gutter) var(--page-gutter) 16px calc(var(--nav-width) + (var(--page-gutter) * 2)); }}
     .report-brand {{ position: fixed; left: var(--page-gutter); top: var(--page-gutter); z-index: 4; display: flex; align-items: center; justify-content: center; width: var(--nav-width); height: var(--brand-height); padding-top: 0; pointer-events: none; color: var(--brand-text); }}
     .report-brand::before {{ content: ""; position: absolute; inset: 0; height: var(--brand-height); border-radius: 10px; background: var(--brand-panel); box-shadow: 0 10px 24px var(--shadow); }}
@@ -181,7 +184,7 @@ def html_header(title: str) -> str:
     .report-brand-text {{ display: grid; gap: 2px; min-width: 0; line-height: 1.05; }}
     .report-brand-title {{ font-size: var(--brand-title-size); white-space: nowrap; }}
     .report-brand-subtitle {{ color: var(--muted); font-size: var(--brand-subtitle-size); white-space: nowrap; }}
-    .settings-launcher {{ position: fixed; left: max(8px, calc(var(--nav-width) + var(--floating-content-gutter) - var(--floating-control-size) - var(--floating-control-gap))); bottom: 24px; z-index: 32; width: auto; opacity: 0; visibility: hidden; pointer-events: none; transform: translateY(10px) scale(.96); transition: opacity .18s ease, transform .18s ease, visibility 0s linear .18s, border-color .12s ease, box-shadow .12s ease; }}
+    .settings-launcher {{ position: fixed; right: max(8px, calc(var(--floating-content-gutter) - var(--floating-control-size) - var(--floating-control-gap))); bottom: calc(24px + var(--floating-control-size) + 10px); z-index: 32; width: auto; opacity: 0; visibility: hidden; pointer-events: none; transform: translateY(10px) scale(.96); transition: opacity .18s ease, transform .18s ease, visibility 0s linear .18s, border-color .12s ease, box-shadow .12s ease; }}
     .settings-toggle {{ display: inline-flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; width: var(--floating-control-size); height: var(--floating-control-size); padding: 0; border: 1px solid var(--border); border-radius: 999px; background: var(--button-bg); color: var(--link); box-shadow: 0 10px 28px var(--shadow); cursor: pointer; font: 800 18px/1 ui-monospace, SFMono-Regular, Consolas, monospace; }}
     .settings-toggle span, .settings-toggle::before, .settings-toggle::after {{ content: ""; display: block; width: 18px; height: 2px; border-radius: 99px; background: currentColor; }}
     .settings-toggle:hover {{ border-color: var(--link); box-shadow: 0 12px 32px rgba(9,105,218,.22); }}
@@ -200,6 +203,11 @@ def html_header(title: str) -> str:
     .settings-option {{ display: inline-flex; align-items: center; justify-content: center; min-width: 0; height: 34px; padding: 0 10px; border: 1px solid var(--border); border-radius: 6px; background: var(--button-bg); color: var(--text); cursor: pointer; font: 700 15px/1 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }}
     .settings-option:hover {{ border-color: var(--link); color: var(--link); }}
     .settings-option.is-active {{ border-color: var(--link); background: var(--settings-active-bg); color: var(--settings-active-text); box-shadow: inset 3px 0 0 var(--link); }}
+    .settings-scale-controls {{ display: grid; grid-template-columns: 40px minmax(0, 1fr) 40px; gap: 8px; align-items: center; }}
+    .settings-scale-value {{ display: inline-flex; align-items: center; justify-content: center; min-width: 0; height: 34px; border: 1px solid var(--border); border-radius: 6px; background: var(--button-bg); color: var(--text); font: 700 14px/1 ui-monospace, SFMono-Regular, Consolas, monospace; }}
+    .settings-scale-button {{ display: inline-flex; align-items: center; justify-content: center; width: 40px; height: 34px; padding: 0; border: 1px solid var(--border); border-radius: 6px; background: var(--button-bg); color: var(--link); cursor: pointer; font: 800 18px/1 ui-monospace, SFMono-Regular, Consolas, monospace; }}
+    .settings-scale-button:hover {{ border-color: var(--link); background: var(--button-hover-bg); }}
+    .settings-scale-button:disabled {{ cursor: default; opacity: .45; border-color: var(--border); background: var(--button-bg); color: var(--muted); }}
     .copy-context-menu[hidden] {{ display: none; }}
     .copy-context-menu {{ position: fixed; z-index: 1200; min-width: 178px; padding: 6px; border: 1px solid var(--border); border-radius: 8px; background: var(--panel); box-shadow: 0 12px 32px var(--shadow); }}
     .copy-context-menu button {{ display: flex; align-items: center; justify-content: flex-start; width: 100%; min-height: 32px; padding: 0 10px; border: 0; border-radius: 6px; background: transparent; color: var(--text); cursor: pointer; font: 700 14px/1.2 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; text-align: left; }}
@@ -223,7 +231,7 @@ def html_header(title: str) -> str:
     .diff-stats-files {{ grid-template-columns: repeat(4, minmax(0, 1fr)); }}
     .diff-stats-row div {{ min-width: 0; max-width: 100%; padding: 12px; border: 1px solid var(--meta-border); border-radius: 6px; background: var(--meta-panel); color: var(--meta-text); overflow-wrap: anywhere; }}
     .diff-stats .label {{ font-size: .86rem; }}
-    .diff-stats strong {{ display: block; margin-top: 4px; font: 800 calc(var(--screen-code-font) * 1.08)/1.2 ui-monospace, SFMono-Regular, Consolas, monospace; }}
+    .diff-stats strong {{ display: block; margin-top: 4px; font: 800 calc(var(--scaled-code-font) * 1.08)/1.2 ui-monospace, SFMono-Regular, Consolas, monospace; }}
     .diff-stat-add {{ color: var(--stat-add); }}
     .diff-stat-del {{ color: var(--stat-del); }}
     code {{ background: rgba(175,184,193,.2); border-radius: 4px; padding: 1px 5px; font-family: ui-monospace, SFMono-Regular, Consolas, monospace; }}
@@ -234,7 +242,7 @@ def html_header(title: str) -> str:
     .review-nav {{ position: fixed; left: var(--page-gutter); top: var(--review-nav-top); bottom: var(--page-gutter); z-index: 8; width: var(--nav-width); margin: 0; padding: 10px 14px 10px 10px; overflow: auto; box-shadow: 0 8px 22px rgba(31,35,40,.10); }}
     .review-nav-head {{ position: sticky; top: -10px; z-index: 2; display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: -10px -14px 8px -10px; padding: 10px 14px 8px 10px; background: var(--panel); border-bottom: 1px solid var(--border); box-shadow: 0 2px 0 var(--panel); }}
     .review-nav h2 {{ margin: 0; font-size: .86em; }}
-    .review-nav-head button {{ display: inline-flex; align-items: center; justify-content: center; min-width: 102px; height: 28px; padding: 0 10px; border: 1px solid var(--border); border-radius: 6px; background: var(--button-bg); color: var(--text); cursor: pointer; font: var(--screen-code-font)/1 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }}
+    .review-nav-head button {{ display: inline-flex; align-items: center; justify-content: center; min-width: 102px; height: 28px; padding: 0 10px; border: 1px solid var(--border); border-radius: 6px; background: var(--button-bg); color: var(--text); cursor: pointer; font: var(--scaled-code-font)/1 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }}
     .review-nav-head button:hover {{ border-color: var(--link); color: var(--link); }}
     .review-nav-tree {{ display: block; }}
     .review-nav [hidden] {{ display: none !important; }}
@@ -262,7 +270,7 @@ def html_header(title: str) -> str:
     .review-nav-resizer:hover::before, body.is-resizing-review-nav .review-nav-resizer::before {{ background: rgba(9,105,218,.38); }}
     body.is-resizing-review-nav {{ cursor: ew-resize; user-select: none; }}
     .story {{ position: sticky; top: 0; z-index: 12; padding: 10px 12px; margin-bottom: 0; border-bottom: 0; border-bottom-left-radius: 0; border-bottom-right-radius: 0; box-shadow: 0 8px 22px rgba(31,35,40,.08); }}
-    .story h2 {{ margin: 0; font-size: var(--screen-code-font); }}
+    .story h2 {{ margin: 0; font-size: var(--scaled-code-font); }}
     .to-top-button {{ position: fixed; right: max(8px, calc(var(--floating-content-gutter) - var(--floating-control-size) - var(--floating-control-gap))); bottom: 24px; z-index: 32; display: inline-flex; align-items: center; justify-content: center; width: var(--floating-control-size); height: var(--floating-control-size); border: 1px solid var(--border); border-radius: 999px; background: var(--button-bg); color: var(--link); box-shadow: 0 10px 28px var(--shadow); cursor: pointer; opacity: 0; visibility: hidden; pointer-events: none; transform: translateY(10px) scale(.96); transition: opacity .18s ease, transform .18s ease, visibility 0s linear .18s, border-color .12s ease, box-shadow .12s ease; font-size: 0; }}
     .to-top-button::before {{ content: ""; width: 13px; height: 13px; border-left: 4px solid currentColor; border-top: 4px solid currentColor; transform: translateY(4px) rotate(45deg); border-radius: 2px; }}
     .to-top-button:hover {{ border-color: var(--link); box-shadow: 0 12px 32px rgba(9,105,218,.22); transform: translateY(0) scale(1.03); }}
@@ -273,17 +281,17 @@ def html_header(title: str) -> str:
     .story-step:hover {{ border-color: var(--story-step-active-border); background: var(--story-step-hover-bg); box-shadow: 0 0 0 2px rgba(9,105,218,.18); transform: translateY(-1px); }}
     .story-step:focus-visible {{ outline: 2px solid var(--story-step-active-border); outline-offset: 2px; }}
     .story-step.is-active {{ border-color: var(--story-step-active-border); background: var(--story-step-active-bg); box-shadow: inset 4px 0 0 var(--story-step-active-border), 0 0 0 1px color-mix(in srgb, var(--story-step-active-border) 34%, transparent); }}
-    .story-step-index {{ color: var(--story-step-active-border); font: 800 var(--screen-code-font)/1.35 ui-monospace, SFMono-Regular, Consolas, monospace; }}
+    .story-step-index {{ color: var(--story-step-active-border); font: 800 var(--scaled-code-font)/1.35 ui-monospace, SFMono-Regular, Consolas, monospace; }}
     .story-step-text {{ display: grid; gap: 3px; min-width: 0; }}
-    .story-step-text strong {{ display: -webkit-box; overflow: hidden; overflow-wrap: anywhere; -webkit-box-orient: vertical; -webkit-line-clamp: 2; font-size: var(--screen-code-font); line-height: 1.25; }}
+    .story-step-text strong {{ display: -webkit-box; overflow: hidden; overflow-wrap: anywhere; -webkit-box-orient: vertical; -webkit-line-clamp: 2; font-size: var(--scaled-code-font); line-height: 1.25; }}
     .story-details {{ min-width: 0; max-width: 100%; margin-top: 7px; border: 1px solid var(--border); border-radius: 6px; background: var(--panel-subtle); }}
-    .story-details-title {{ padding: 7px 8px; font-size: var(--screen-code-font); font-weight: 700; }}
-    .story-details div:not(.story-details-title) {{ padding: 0 8px 8px; color: var(--muted); font-size: var(--screen-code-font); line-height: 1.35; white-space: pre-line; overflow-wrap: anywhere; }}
+    .story-details-title {{ padding: 7px 8px; font-size: var(--scaled-code-font); font-weight: 700; }}
+    .story-details div:not(.story-details-title) {{ padding: 0 8px 8px; color: var(--muted); font-size: var(--scaled-code-font); line-height: 1.35; white-space: pre-line; overflow-wrap: anywhere; }}
     .asset-inventory {{ width: min(100%, var(--content-width)); max-width: 100%; min-width: 0; margin-right: auto; margin-left: auto; background: var(--panel); border: 1px solid var(--border); border-radius: 8px; margin-bottom: 16px; }}
     .asset-inventory summary {{ display: flex; align-items: center; gap: 10px; padding: 14px 20px; font-size: 20px; font-weight: 700; line-height: 1.2; cursor: pointer; user-select: none; }}
     .asset-inventory summary:hover {{ color: var(--link); background: var(--button-hover-bg); }}
     .asset-inventory summary:focus-visible {{ outline: 2px solid var(--link); outline-offset: 2px; }}
-    .asset-inventory summary::before {{ content: ">"; color: var(--link); font: 800 var(--screen-code-font)/1 ui-monospace, SFMono-Regular, Consolas, monospace; }}
+    .asset-inventory summary::before {{ content: ">"; color: var(--link); font: 800 var(--scaled-code-font)/1 ui-monospace, SFMono-Regular, Consolas, monospace; }}
     .asset-inventory[open] summary {{ border-bottom: 1px solid var(--border); }}
     .asset-inventory[open] summary::before {{ content: "v"; }}
     .asset-inventory .diagram-list {{ padding: 14px 20px 20px; }}
@@ -297,7 +305,7 @@ def html_header(title: str) -> str:
     .file, .file-comment, .review-comment, tr[id] {{ scroll-margin-top: calc(var(--story-offset) + 72px); }}
     .file-header {{ margin: -1px -1px 0; padding: 10px 13px; border-bottom: 1px solid var(--border); background: var(--header-bg); font-weight: 700; position: sticky; top: calc(var(--story-offset) - 2px); z-index: 6; box-shadow: 0 1px 0 var(--border); }}
     .file-comment {{ min-width: 0; max-width: calc(100% - 24px); margin: 6px 12px 6px; padding: 8px 12px; border-left: 4px solid var(--comment-border); background: var(--comment-bg); border-radius: 6px; overflow-wrap: anywhere; }}
-    table.diff {{ width: 100%; border-collapse: collapse; table-layout: fixed; font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: var(--screen-code-font); line-height: 1.5; }}
+    table.diff {{ width: 100%; border-collapse: collapse; table-layout: fixed; font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: var(--scaled-code-font); line-height: 1.5; }}
     .diff td {{ vertical-align: top; border: 0; padding: 0; }}
     .num {{ width: 64px; padding: 0 10px !important; color: var(--muted); text-align: right; user-select: none; border-right: 1px solid var(--border) !important; }}
     .code {{ white-space: pre-wrap; overflow-wrap: anywhere; padding: 0 10px !important; }}
@@ -360,7 +368,7 @@ def html_header(title: str) -> str:
     .diagram-code-link-item {{ display: block; margin: 0 0 10px; padding: 9px; border: 1px solid var(--border); border-radius: 6px; background: var(--button-bg); color: inherit; }}
     .diagram-code-link-title {{ display: block; font-weight: 700; margin-bottom: 4px; }}
     .diagram-code-link-location {{ display: block; color: var(--muted); font: 13px/1.35 ui-monospace, SFMono-Regular, Consolas, monospace; margin-bottom: 6px; }}
-    .diagram-code-link-code {{ display: block; max-height: none; overflow: visible; padding: 8px; border-radius: 4px; background: var(--code-bg); font: var(--screen-code-font)/1.45 ui-monospace, SFMono-Regular, Consolas, monospace; white-space: pre-wrap; overflow-wrap: anywhere; }}
+    .diagram-code-link-code {{ display: block; max-height: none; overflow: visible; padding: 8px; border-radius: 4px; background: var(--code-bg); font: var(--scaled-code-font)/1.45 ui-monospace, SFMono-Regular, Consolas, monospace; white-space: pre-wrap; overflow-wrap: anywhere; }}
     .diagram-code-line {{ display: block; min-width: 0; padding: 0 4px; white-space: pre-wrap; overflow-wrap: anywhere; }}
     .diagram-code-context-line {{ background: var(--diagram-code-context-bg); }}
     .diagram-code-target-line {{ background: var(--diagram-code-target-bg); border-left: 3px solid var(--diagram-code-target-border); padding-left: 1px; font-weight: 700; }}
@@ -427,7 +435,7 @@ def html_header(title: str) -> str:
     svg .asset-focus-related-hover {{ stroke: var(--diagram-focus) !important; fill: var(--diagram-focus) !important; opacity: 1 !important; filter: drop-shadow(0 0 2px rgba(255,255,255,.95)); }}
     svg text.asset-focus-related-hover, svg tspan.asset-focus-related-hover {{ fill: var(--diagram-focus) !important; stroke: none !important; }}
     svg .asset-search-match {{ fill: #cf222e !important; stroke: none !important; }}
-    svg .asset-search-submatch {{ fill: rgba(255,42,61,.16); stroke: #ff2a3d; stroke-width: 1.8px; vector-effect: non-scaling-stroke; opacity: .98; }}
+    svg .asset-search-submatch {{ fill: rgba(255,42,61,.26); stroke: #ff2a3d; stroke-width: 2px; vector-effect: non-scaling-stroke; opacity: .98; }}
     svg .asset-search-current {{ fill: #ff2a3d !important; stroke: none !important; filter: none; font-weight: 800 !important; text-decoration: underline; text-decoration-thickness: 2px; text-underline-offset: 3px; }}
     svg text.asset-search-current, svg tspan.asset-search-current {{ fill: #ff2a3d !important; stroke: none !important; filter: none; font-weight: 800 !important; text-decoration: underline; text-decoration-thickness: 2px; text-underline-offset: 3px; }}
     @keyframes focus-dash-flow {{ from {{ stroke-dashoffset: 0; }} to {{ stroke-dashoffset: -17; }} }}
@@ -496,11 +504,11 @@ def html_header(title: str) -> str:
         --screen-code-font: 13px;
         --content-width: 100%;
       }}
-      body {{ font-size: var(--screen-body-font); }}
+      body {{ font-size: var(--scaled-body-font); }}
       main {{ width: calc(100% - 16px); max-width: calc(100vw - 16px); margin: 8px auto 16px; }}
       header, section, .file, .asset-inventory {{ width: 100%; margin-left: 0; margin-right: 0; }}
       .report-brand {{ display: none; }}
-      .report-settings-launcher {{ left: var(--floating-content-gutter); bottom: 24px; }}
+      .report-settings-launcher {{ right: 24px; bottom: calc(24px + var(--floating-control-size) + 10px); }}
       .review-nav {{ position: static; width: calc(100% - 16px); max-height: 38vh; margin: 8px auto 16px; }}
       .review-nav-resizer {{ display: none; }}
       .story {{ top: 0; }}
@@ -527,6 +535,14 @@ def html_header(title: str) -> str:
         <div class="settings-options">
           <button type="button" class="settings-option" data-theme-value="light">Light</button>
           <button type="button" class="settings-option" data-theme-value="dark">Dark</button>
+        </div>
+      </div>
+      <div class="settings-group">
+        <div class="settings-label">Text scale</div>
+        <div class="settings-scale-controls">
+          <button type="button" class="settings-scale-button" data-text-scale-step="-0.1" aria-label="Decrease text scale">-</button>
+          <button type="button" class="settings-scale-value" data-text-scale-reset aria-label="Reset text scale">100%</button>
+          <button type="button" class="settings-scale-button" data-text-scale-step="0.1" aria-label="Increase text scale">+</button>
         </div>
       </div>
     </div>
