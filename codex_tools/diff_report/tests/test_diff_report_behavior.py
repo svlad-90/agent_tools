@@ -188,6 +188,61 @@ class DiffReportBehaviorTests(unittest.TestCase):
             with self.subTest(fragment=fragment):
                 self._assert_contains(html, fragment)
 
+    def test_review_text_linkifies_complete_urls(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            diff_path = root / "change.patch"
+            comments_path = root / "comments.json"
+            output = root / "report.html"
+            url = "https://example.test/path?a=1&b=2"
+            link = (
+                '<a href="https://example.test/path?a=1&amp;b=2" '
+                'target="_blank" rel="noopener noreferrer">'
+                "https://example.test/path?a=1&amp;b=2</a>"
+            )
+            diff_path.write_text(
+                textwrap.dedent(
+                    """\
+                    diff --git a/src/app.py b/src/app.py
+                    index 1111111..2222222 100644
+                    --- a/src/app.py
+                    +++ b/src/app.py
+                    @@ -1 +1,2 @@
+                     keep()
+                    +added()
+                    """
+                ),
+                encoding="utf-8",
+            )
+            comments_path.write_text(
+                json.dumps(
+                    {
+                        "summary": f"Summary link: {url}.",
+                        "files": {"src/app.py": f"File link: {url})"},
+                        "inline": [
+                            {
+                                "file": "src/app.py",
+                                "line": 2,
+                                "body": f"Inline link: {url};",
+                            }
+                        ],
+                    },
+                    indent=2,
+                ),
+                encoding="utf-8",
+            )
+
+            generate_report(
+                output_path=output,
+                title="URL report",
+                diff_file=diff_path,
+                comments_file=comments_path,
+            )
+            html = output.read_text(encoding="utf-8")
+
+        self.assertEqual(3, html.count(link))
+        self.assertNotIn('href="https://example"', html)
+
     def test_refresh_targets_records_moved_ambiguous_and_not_found(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
