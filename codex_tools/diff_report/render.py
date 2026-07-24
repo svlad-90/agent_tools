@@ -134,7 +134,7 @@ def _render_comments_index(comments: ReviewComments, diff_file_order: list[str])
         '<button type="button" data-review-nav-reset>Reset tree</button></div>\n'
     ]
     comment_file_paths = set(comments.file_comments) | {key[0] for key in comments.inline_comments}
-    file_paths = [file_path for file_path in diff_file_order if file_path in comment_file_paths]
+    file_paths = list(diff_file_order)
     file_paths.extend(sorted(comment_file_paths - set(file_paths)))
     comments_by_file = {
         file_path: [
@@ -574,7 +574,6 @@ def _render_diagram_modal(comments: ReviewComments) -> str:
     parts.append('      <div class="diagram-tools">\n')
     parts.append('        <input id="diagram-search" type="search" placeholder="Search" aria-label="Search opened asset">\n')
     parts.append('        <span id="diagram-search-count" class="diagram-search-count"></span>\n')
-    parts.append('        <button type="button" id="diagram-general-view" data-diagram-general hidden>General view</button>\n')
     parts.append('        <button type="button" data-diagram-search="prev" aria-label="Previous search match">Prev</button>\n')
     parts.append('        <button type="button" data-diagram-search="next" aria-label="Next search match">Next</button>\n')
     parts.append('        <button type="button" id="diagram-export" data-asset-export hidden>Export</button>\n')

@@ -12,7 +12,6 @@ def diagram_script() -> str:
   const zoomLabel = document.getElementById("diagram-zoom-label");
   const searchInput = document.getElementById("diagram-search");
   const searchCount = document.getElementById("diagram-search-count");
-  const generalViewButton = document.getElementById("diagram-general-view");
   const exportButton = document.getElementById("diagram-export");
   const storyContext = document.getElementById("diagram-story-context");
   const storyTitle = document.getElementById("diagram-story-title");
@@ -481,9 +480,6 @@ def diagram_script() -> str:
     if (mode === "log") {
       renderLogView(searchInput ? searchInput.value : "", activeFocusTerms);
     }
-    if (generalViewButton) {
-      generalViewButton.hidden = true;
-    }
   }
 
   function parseFocus(value) {
@@ -765,9 +761,6 @@ def diagram_script() -> str:
     clearFocus();
     activeFocusTerms = terms;
     activeNotes = notes || [];
-    if (generalViewButton) {
-      generalViewButton.hidden = !(activeFocusTerms.length || activeNotes.length);
-    }
     if (mode === "diagram") {
       const focused = [];
       const textNodes = content.querySelectorAll("svg text, svg tspan");
@@ -1718,11 +1711,6 @@ def diagram_script() -> str:
     const search = event.target.closest("[data-diagram-search]");
     if (search) {
       moveSearch(search.dataset.diagramSearch === "prev" ? -1 : 1);
-      return;
-    }
-    if (event.target.closest("[data-diagram-general]")) {
-      closeCodePopover();
-      applyFocusTerms([], []);
       return;
     }
     if (event.target.closest("[data-asset-export]")) {

@@ -66,6 +66,13 @@ class DiffReportBehaviorTests(unittest.TestCase):
                      def run():
                     +    call()
                          return 1
+                    diff --git a/docs/CMakeLists.txt b/docs/CMakeLists.txt
+                    new file mode 100644
+                    index 0000000..3333333
+                    --- /dev/null
+                    +++ b/docs/CMakeLists.txt
+                    @@ -0,0 +1 @@
+                    +add_subdirectory(app)
                     """
                 ),
                 encoding="utf-8",
@@ -197,13 +204,21 @@ class DiffReportBehaviorTests(unittest.TestCase):
             "selectedTextWithin",
             "```diff",
             "navigator.clipboard.writeText",
+            'href="#docs-CMakeLists.txt">CMakeLists.txt</a>',
+            'id="docs-CMakeLists.txt"',
         ]
         for fragment in expected_fragments:
             with self.subTest(fragment=fragment):
                 self._assert_contains(html, fragment)
+        self.assertRegex(
+            html,
+            r'(?s)id="diagram-search".*data-diagram-search="prev".*data-diagram-search="next"',
+        )
         self.assertNotIn("data-theme-toggle", html)
         self.assertNotIn("data-copy-mode-value", html)
         self.assertNotIn("codex-diff-report-copy-mode", html)
+        self.assertNotIn("General view", html)
+        self.assertNotIn("data-diagram-general", html)
 
     def test_review_text_linkifies_complete_urls(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

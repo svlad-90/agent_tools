@@ -426,8 +426,8 @@ def html_header(title: str) -> str:
     svg text.asset-focus-match.diagram-code-link-target, svg tspan.asset-focus-match.diagram-code-link-target {{ fill: var(--diagram-focus) !important; stroke: none !important; }}
     svg .asset-focus-related-hover {{ stroke: var(--diagram-focus) !important; fill: var(--diagram-focus) !important; opacity: 1 !important; filter: drop-shadow(0 0 2px rgba(255,255,255,.95)); }}
     svg text.asset-focus-related-hover, svg tspan.asset-focus-related-hover {{ fill: var(--diagram-focus) !important; stroke: none !important; }}
-    svg .asset-search-match {{ fill: #cf222e; stroke: #cf222e; }}
-    svg .asset-search-current {{ filter: drop-shadow(0 0 3px #fb8500); }}
+    svg .asset-search-match {{ fill: #cf222e !important; stroke: none !important; }}
+    svg .asset-search-current {{ fill: #cf222e !important; stroke: none !important; filter: drop-shadow(0 0 3px #fb8500); }}
     @keyframes focus-dash-flow {{ from {{ stroke-dashoffset: 0; }} to {{ stroke-dashoffset: -17; }} }}
     @keyframes focus-dash-flow-reverse {{ from {{ stroke-dashoffset: 0; }} to {{ stroke-dashoffset: 17; }} }}
     @keyframes focus-arrow-pulse {{ 0%, 100% {{ opacity: .55; }} 50% {{ opacity: .9; }} }}
@@ -499,7 +499,7 @@ def html_header(title: str) -> str:
       main {{ width: calc(100% - 16px); max-width: calc(100vw - 16px); margin: 8px auto 16px; }}
       header, section, .file, .asset-inventory {{ width: 100%; margin-left: 0; margin-right: 0; }}
       .report-brand {{ display: none; }}
-      .settings-launcher {{ left: auto; right: 16px; top: 16px; z-index: 40; width: min(280px, calc(100vw - 32px)); }}
+      .settings-launcher {{ position: sticky; left: auto; right: auto; top: 8px; z-index: 40; width: calc(100% - 16px); margin: 8px auto; }}
       .review-nav {{ position: static; width: calc(100% - 16px); max-height: 38vh; margin: 8px auto 16px; }}
       .review-nav-resizer {{ display: none; }}
       .story {{ top: 0; }}

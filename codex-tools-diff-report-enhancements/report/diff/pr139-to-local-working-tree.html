@@ -416,8 +416,8 @@
     svg text.asset-focus-match.diagram-code-link-target, svg tspan.asset-focus-match.diagram-code-link-target { fill: var(--diagram-focus) !important; stroke: none !important; }
     svg .asset-focus-related-hover { stroke: var(--diagram-focus) !important; fill: var(--diagram-focus) !important; opacity: 1 !important; filter: drop-shadow(0 0 2px rgba(255,255,255,.95)); }
     svg text.asset-focus-related-hover, svg tspan.asset-focus-related-hover { fill: var(--diagram-focus) !important; stroke: none !important; }
-    svg .asset-search-match { fill: #cf222e; stroke: #cf222e; }
-    svg .asset-search-current { filter: drop-shadow(0 0 3px #fb8500); }
+    svg .asset-search-match { fill: #cf222e !important; stroke: none !important; }
+    svg .asset-search-current { fill: #cf222e !important; stroke: none !important; filter: drop-shadow(0 0 3px #fb8500); }
     @keyframes focus-dash-flow { from { stroke-dashoffset: 0; } to { stroke-dashoffset: -17; } }
     @keyframes focus-dash-flow-reverse { from { stroke-dashoffset: 0; } to { stroke-dashoffset: 17; } }
     @keyframes focus-arrow-pulse { 0%, 100% { opacity: .55; } 50% { opacity: .9; } }
@@ -489,7 +489,7 @@
       main { width: calc(100% - 16px); max-width: calc(100vw - 16px); margin: 8px auto 16px; }
       header, section, .file, .asset-inventory { width: 100%; margin-left: 0; margin-right: 0; }
       .report-brand { display: none; }
-      .settings-launcher { left: auto; right: 16px; top: 16px; z-index: 40; width: min(280px, calc(100vw - 32px)); }
+      .settings-launcher { position: sticky; left: auto; right: auto; top: 8px; z-index: 40; width: calc(100% - 16px); margin: 8px auto; }
       .review-nav { position: static; width: calc(100% - 16px); max-height: 38vh; margin: 8px auto 16px; }
       .review-nav-resizer { display: none; }
       .story { top: 0; }
@@ -1140,7 +1140,6 @@ Signed-off-by: Vladyslav Goncharuk &lt;vladyslav_goncharuk@epam.com&gt;</pre></s
       <div class="diagram-tools">
         <input id="diagram-search" type="search" placeholder="Search" aria-label="Search opened asset">
         <span id="diagram-search-count" class="diagram-search-count"></span>
-        <button type="button" id="diagram-general-view" data-diagram-general hidden>General view</button>
         <button type="button" data-diagram-search="prev" aria-label="Previous search match">Prev</button>
         <button type="button" data-diagram-search="next" aria-label="Next search match">Next</button>
         <button type="button" id="diagram-export" data-asset-export hidden>Export</button>
@@ -1483,7 +1482,6 @@ qemu-system-aarch64: terminating on signal 15 from pid 8 (timeout)
   const zoomLabel = document.getElementById("diagram-zoom-label");
   const searchInput = document.getElementById("diagram-search");
   const searchCount = document.getElementById("diagram-search-count");
-  const generalViewButton = document.getElementById("diagram-general-view");
   const exportButton = document.getElementById("diagram-export");
   const storyContext = document.getElementById("diagram-story-context");
   const storyTitle = document.getElementById("diagram-story-title");
@@ -1952,9 +1950,6 @@ qemu-system-aarch64: terminating on signal 15 from pid 8 (timeout)
     if (mode === "log") {
       renderLogView(searchInput ? searchInput.value : "", activeFocusTerms);
     }
-    if (generalViewButton) {
-      generalViewButton.hidden = true;
-    }
   }
 
   function parseFocus(value) {
@@ -2236,9 +2231,6 @@ qemu-system-aarch64: terminating on signal 15 from pid 8 (timeout)
     clearFocus();
     activeFocusTerms = terms;
     activeNotes = notes || [];
-    if (generalViewButton) {
-      generalViewButton.hidden = !(activeFocusTerms.length || activeNotes.length);
-    }
     if (mode === "diagram") {
       const focused = [];
       const textNodes = content.querySelectorAll("svg text, svg tspan");
@@ -3189,11 +3181,6 @@ qemu-system-aarch64: terminating on signal 15 from pid 8 (timeout)
     const search = event.target.closest("[data-diagram-search]");
     if (search) {
       moveSearch(search.dataset.diagramSearch === "prev" ? -1 : 1);
-      return;
-    }
-    if (event.target.closest("[data-diagram-general]")) {
-      closeCodePopover();
-      applyFocusTerms([], []);
       return;
     }
     if (event.target.closest("[data-asset-export]")) {
