@@ -308,7 +308,17 @@ copied report keeps the same relative layout.
   twenty-seven unittest cases.
 - Browser automation was not run because Playwright is not installed in the
   workspace Python environment; static HTML checks confirmed the generated
-  report contains the copy button, diff row metadata, and clipboard handler.
+  report contains the selection context menu, diff row metadata, and clipboard
+  handler.
+- Added comments-filling scaffolding through
+  `python -m codex_tools.diff_report --diff-file change.patch --init-comments comments.json`.
+  The generated starter JSON keeps renderable comments empty and stores changed
+  files plus added-line entries under `_template`, with ready `target` anchors
+  for copying into real review comments.
+- Verified the scaffolding with the PR139 patch and a generated
+  `/tmp/pr139-init-comments.json` template. The full
+  `codex-tools-diff-report-enhancements/scripts/run-ci.sh` suite passed with
+  twenty-nine unittest cases.
 
 ## Remaining Work
 

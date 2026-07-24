@@ -41,6 +41,20 @@ statically into the page, and the browser does not load JSON at runtime.
 Use the same-basename JSON as the editable source for the next regeneration.
 For example, `review.html` should be paired with `review.json`.
 
+To reduce manual anchor lookup before writing review notes, initialize a starter
+comments JSON from the diff:
+
+```sh
+python -m codex_tools.diff_report \
+  --diff-file change.patch \
+  --init-comments comments.json
+```
+
+The generated JSON keeps renderable `files` and `inline` comments empty and
+adds `_template.files` plus `_template.added_lines` as a non-rendered target
+catalog. Copy useful entries from `_template.added_lines` into `inline`, fill
+`title` and `body`, then render or refresh the report normally.
+
 Target refresh records a status for each inline comment:
 
 - `found`: the existing `file` and `line` still point at a rendered diff line.

@@ -8,6 +8,7 @@ python -m codex_tools.code_map parse-check codex_tools/diff_report/core.py
 python -m codex_tools.code_map parse-check codex_tools/diff_report/assets.py
 python -m codex_tools.code_map parse-check codex_tools/diff_report/cli.py
 python -m codex_tools.code_map parse-check codex_tools/diff_report/comments.py
+python -m codex_tools.code_map parse-check codex_tools/diff_report/comments_template.py
 python -m codex_tools.code_map parse-check codex_tools/diff_report/diff_parse.py
 python -m codex_tools.code_map parse-check codex_tools/diff_report/diff_source.py
 python -m codex_tools.code_map parse-check codex_tools/diff_report/models.py
@@ -17,6 +18,7 @@ python -m codex_tools.code_map parse-check codex_tools/diff_report/__init__.py
 python -m codex_tools.code_map parse-check codex_tools/diff_report/__main__.py
 python -m codex_tools.code_map parse-check codex_tools/diff_report/tests/test_cli.py
 python -m codex_tools.code_map parse-check codex_tools/diff_report/tests/test_comments.py
+python -m codex_tools.code_map parse-check codex_tools/diff_report/tests/test_comments_template.py
 python -m codex_tools.code_map parse-check codex_tools/diff_report/tests/test_diff_parse.py
 python -m codex_tools.code_map parse-check codex_tools/diff_report/tests/test_diff_report_behavior.py
 python -m codex_tools.code_map parse-check codex_tools/diff_report/tests/test_public_api.py
