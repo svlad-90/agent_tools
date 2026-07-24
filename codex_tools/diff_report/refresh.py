@@ -1,14 +1,12 @@
 from __future__ import annotations
 
-import re
 from pathlib import Path
 from typing import Any
 
 from .comments import comment_line_range, required
+from .diff_parse import iter_diff_lines
 from .models import DiffReportError
 
-
-_HUNK_RE = re.compile(r"^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@")
 
 _TARGET_STATUS_ORDER = {
     "found": 0,
@@ -193,80 +191,20 @@ def inline_item_line_ranges(comments_json: str) -> list[tuple[int, int]]:
 
 def diff_line_targets(diff_text: str) -> dict[tuple[str, int], dict[str, Any]]:
     targets: dict[tuple[str, int], dict[str, Any]] = {}
-    current_file: str | None = None
-    old_no: int | None = None
-    new_no: int | None = None
-
-    for raw_line in diff_text.splitlines():
-        if raw_line.startswith("diff --git "):
-            current_file = file_from_diff_header(raw_line)
-            old_no = None
-            new_no = None
+    for line in iter_diff_lines(diff_text):
+        if line.file_path is None or line.new_line is None:
             continue
-
-        if current_file is None:
+        if line.kind not in {"add", "context"}:
             continue
-
-        hunk_match = _HUNK_RE.match(raw_line)
-        if hunk_match:
-            old_no = int(hunk_match.group(1))
-            new_no = int(hunk_match.group(3))
-            continue
-
-        if is_diff_metadata(raw_line):
-            continue
-
-        if old_no is None or new_no is None:
-            continue
-
-        if raw_line.startswith("+") and not raw_line.startswith("+++"):
-            targets[(current_file, new_no)] = {
-                "file": current_file,
-                "line": new_no,
-                "old_line": None,
-                "new_line": new_no,
-                "kind": "add",
-                "content": raw_line[1:],
-                "diff_line": raw_line,
-                "found": True,
-            }
-            new_no += 1
-        elif raw_line.startswith("-") and not raw_line.startswith("---"):
-            old_no += 1
-        else:
-            targets[(current_file, new_no)] = {
-                "file": current_file,
-                "line": new_no,
-                "old_line": old_no,
-                "new_line": new_no,
-                "kind": "context",
-                "content": raw_line[1:] if raw_line.startswith(" ") else raw_line,
-                "diff_line": raw_line,
-                "found": True,
-            }
-            old_no += 1
-            new_no += 1
+        targets[(line.file_path, line.new_line)] = {
+            "file": line.file_path,
+            "line": line.new_line,
+            "old_line": line.old_line,
+            "new_line": line.new_line,
+            "kind": line.kind,
+            "content": line.content,
+            "diff_line": line.raw,
+            "found": True,
+        }
 
     return targets
-
-
-def file_from_diff_header(line: str) -> str:
-    match = re.match(r"diff --git a/(.*?) b/(.*)", line)
-    if not match:
-        return line
-    return match.group(2)
-
-
-def is_diff_metadata(line: str) -> bool:
-    prefixes = (
-        "--- ",
-        "+++ ",
-        "index ",
-        "new file",
-        "deleted file",
-        "similarity ",
-        "rename ",
-        "old mode",
-        "new mode",
-    )
-    return line.startswith(prefixes)

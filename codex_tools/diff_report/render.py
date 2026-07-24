@@ -7,6 +7,7 @@ import re
 from typing import Any
 
 from .assets import diagram_script, html_header, story_script, theme_script
+from .diff_parse import iter_diff_lines
 from .diff_source import diff_files, diff_stats
 from .models import (
     Diagram,
@@ -17,10 +18,6 @@ from .models import (
     ReviewComments,
     StoryStep,
 )
-
-
-_HUNK_RE = re.compile(r"^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@")
-
 
 def render_html_report(
     title: str,
@@ -301,8 +298,6 @@ def _render_logs_section(comments: ReviewComments) -> str:
 def _render_diff(diff_text: str, comments: ReviewComments) -> str:
     parts: list[str] = []
     current_file: str | None = None
-    old_no: int | None = None
-    new_no: int | None = None
     table_open = False
     comment_ranges = _comment_line_ranges(comments)
     inline_comments_by_render_line = _inline_comments_by_render_line(comments)
@@ -315,12 +310,12 @@ def _render_diff(diff_text: str, comments: ReviewComments) -> str:
         if current_file is not None:
             parts.append("  </article>\n")
 
-    for raw_line in diff_text.splitlines():
-        if raw_line.startswith("diff --git "):
+    for line in iter_diff_lines(diff_text):
+        if line.kind == "file":
             close_file()
-            current_file = _file_from_diff_header(raw_line)
-            old_no = None
-            new_no = None
+            current_file = line.file_path
+            if current_file is None:
+                continue
             parts.append(
                 f'  <article class="file" id="{_anchor(current_file)}" '
                 f'data-file="{_esc(current_file)}">\n'
@@ -335,35 +330,28 @@ def _render_diff(diff_text: str, comments: ReviewComments) -> str:
                 )
             parts.append('    <table class="diff"><tbody>\n')
             table_open = True
-            parts.append(_diff_row("header", "", "", raw_line))
+            parts.append(_diff_row("header", "", "", line.raw))
             continue
 
         if current_file is None:
             continue
 
-        hunk_match = _HUNK_RE.match(raw_line)
-        if hunk_match:
-            old_no = int(hunk_match.group(1))
-            new_no = int(hunk_match.group(3))
-            parts.append(_diff_row("hunk", "...", "...", raw_line))
+        if line.kind == "hunk":
+            parts.append(_diff_row("hunk", "...", "...", line.raw))
             continue
 
-        if _is_diff_metadata(raw_line):
-            parts.append(_diff_row("header", "", "", raw_line))
+        if line.kind in {"metadata", "header"}:
+            parts.append(_diff_row("header", "", "", line.raw))
             continue
 
-        if old_no is None or new_no is None:
-            parts.append(_diff_row("header", "", "", raw_line))
-            continue
-
-        if raw_line.startswith("+") and not raw_line.startswith("+++"):
-            line_no = new_no
+        if line.kind == "add" and line.new_line is not None:
+            line_no = line.new_line
             parts.append(
                 _diff_row(
                     "add",
                     "",
-                    str(new_no),
-                    raw_line,
+                    str(line_no),
+                    line.raw,
                     current_file,
                     line_no,
                     _comment_target_classes(comment_ranges, current_file, line_no),
@@ -377,18 +365,16 @@ def _render_diff(diff_text: str, comments: ReviewComments) -> str:
                     line_no,
                 )
             )
-            new_no += 1
-        elif raw_line.startswith("-") and not raw_line.startswith("---"):
-            parts.append(_diff_row("del", str(old_no), "", raw_line))
-            old_no += 1
-        else:
-            line_no = new_no
+        elif line.kind == "delete" and line.old_line is not None:
+            parts.append(_diff_row("del", str(line.old_line), "", line.raw))
+        elif line.kind == "context" and line.old_line is not None and line.new_line is not None:
+            line_no = line.new_line
             parts.append(
                 _diff_row(
                     "ctx",
-                    str(old_no),
-                    str(new_no),
-                    raw_line,
+                    str(line.old_line),
+                    str(line.new_line),
+                    line.raw,
                     current_file,
                     line_no,
                     _comment_target_classes(comment_ranges, current_file, line_no),
@@ -402,8 +388,6 @@ def _render_diff(diff_text: str, comments: ReviewComments) -> str:
                     line_no,
                 )
             )
-            old_no += 1
-            new_no += 1
 
     close_file()
     return "".join(parts)
@@ -649,28 +633,6 @@ def _diff_row(
         f'      <tr class="{class_name}"{attrs}><td class="num">{_esc(old_no)}</td>'
         f'<td class="num">{_esc(new_no)}</td><td class="code">{_esc(text)}</td></tr>\n'
     )
-
-
-def _file_from_diff_header(line: str) -> str:
-    match = re.match(r"diff --git a/(.*?) b/(.*)", line)
-    if not match:
-        return line
-    return match.group(2)
-
-
-def _is_diff_metadata(line: str) -> bool:
-    prefixes = (
-        "--- ",
-        "+++ ",
-        "index ",
-        "new file",
-        "deleted file",
-        "similarity ",
-        "rename ",
-        "old mode",
-        "new mode",
-    )
-    return line.startswith(prefixes)
 
 
 def _maybe_code(value: str | None) -> str:

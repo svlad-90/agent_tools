@@ -67,6 +67,8 @@ existing behavior with regression tests.
   `codex_tools.diff_report.render` and moves large static document/header,
   theme, story, and diagram JavaScript/CSS asset builders into
   `codex_tools.diff_report.assets`.
+- The duplicate diff line parsing used by `render.py`, `refresh.py`, and
+  `diff_source.py` now lives in `codex_tools.diff_report.diff_parse`.
 - Workspace-local skills were checked; only `commit-message-format` is present
   and it does not apply to task setup.
 
@@ -98,6 +100,7 @@ copied report keeps the same relative layout.
   - `~/Projects/new_dev/codex_tools/diff_report/refresh.py`
   - `~/Projects/new_dev/codex_tools/diff_report/render.py`
   - `~/Projects/new_dev/codex_tools/diff_report/assets.py`
+  - `~/Projects/new_dev/codex_tools/diff_report/diff_parse.py`
 - The tests copy the task-owned baseline fixture into a temporary directory and
   regenerate the report there.
 - Covered behavior:
@@ -172,6 +175,8 @@ copied report keeps the same relative layout.
   passed.
 - `python -m codex_tools.code_map parse-check codex_tools/diff_report/assets.py`
   passed.
+- `python -m codex_tools.code_map parse-check codex_tools/diff_report/diff_parse.py`
+  passed.
 - `python -m unittest codex_tools.diff_report.tests.test_pr139_report_regression`
   passed.
 - `python -m unittest codex_tools.diff_report.tests.test_diff_report_behavior`
@@ -214,15 +219,20 @@ copied report keeps the same relative layout.
 - After extracting `render.py` and `assets.py`,
   `codex_tools/environments/codex-tools-act/scripts/validate.sh` passed through
   local `act`; the workflow ran the shared script with six unittest cases.
+- After extracting `diff_parse.py`,
+  `codex-tools-diff-report-enhancements/scripts/run-ci.sh` passed with six
+  unittest cases.
+- After extracting `diff_parse.py`,
+  `codex_tools/environments/codex-tools-act/scripts/validate.sh` passed through
+  local `act`; the workflow ran the shared script with six unittest cases.
 
 ## Remaining Work
 
 - Continue the conservative module split for
   `codex_tools/diff_report/core.py`.
 - `core.py` is now limited to CLI-facing help and report orchestration.
-- Remaining split candidates are smaller and optional: factor reusable diff
-  parsing helpers shared by `render.py` and `refresh.py`, or split renderer
-  subareas further if a specific change needs it.
+- Remaining split candidates are smaller and optional: split renderer subareas
+  further if a specific change needs it.
 - Resolve exact symbol spans with `python -m codex_tools.code_map symbol-get`
   before moving or editing existing functions.
 - Run `codex-tools-diff-report-enhancements/scripts/run-ci.sh` after each

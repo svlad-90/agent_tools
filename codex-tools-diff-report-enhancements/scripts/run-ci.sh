@@ -7,6 +7,7 @@ cd "${ROOT_DIR}"
 python -m codex_tools.code_map parse-check codex_tools/diff_report/core.py
 python -m codex_tools.code_map parse-check codex_tools/diff_report/assets.py
 python -m codex_tools.code_map parse-check codex_tools/diff_report/comments.py
+python -m codex_tools.code_map parse-check codex_tools/diff_report/diff_parse.py
 python -m codex_tools.code_map parse-check codex_tools/diff_report/diff_source.py
 python -m codex_tools.code_map parse-check codex_tools/diff_report/models.py
 python -m codex_tools.code_map parse-check codex_tools/diff_report/refresh.py
