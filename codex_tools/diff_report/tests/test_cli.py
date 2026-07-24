@@ -31,6 +31,48 @@ class CliTests(unittest.TestCase):
         self.assertEqual(2, raised.exception.code)
         self.assertIn("--output is required", stderr.getvalue())
 
+    def test_init_comments_writes_template_without_output(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            diff_path = root / "change.patch"
+            comments_path = root / "comments.json"
+            diff_path.write_text(
+                textwrap.dedent(
+                    """\
+                    diff --git a/app.py b/app.py
+                    index 1111111..2222222 100644
+                    --- a/app.py
+                    +++ b/app.py
+                    @@ -1 +1,2 @@
+                     keep()
+                    +added()
+                    """
+                ),
+                encoding="utf-8",
+            )
+            stdout = io.StringIO()
+
+            with contextlib.redirect_stdout(stdout):
+                status = main(
+                    [
+                        "--diff-file",
+                        str(diff_path),
+                        "--init-comments",
+                        str(comments_path),
+                    ]
+                )
+
+            payload = json.loads(comments_path.read_text(encoding="utf-8"))
+
+        self.assertEqual(0, status)
+        self.assertEqual(f"{comments_path}\n", stdout.getvalue())
+        self.assertEqual({}, payload["files"])
+        self.assertEqual([], payload["inline"])
+        self.assertEqual(["app.py"], payload["_template"]["files"])
+        self.assertEqual("app.py", payload["_template"]["added_lines"][0]["file"])
+        self.assertEqual(2, payload["_template"]["added_lines"][0]["line"])
+        self.assertEqual("found", payload["_template"]["added_lines"][0]["target"]["status"])
+
     def test_generates_report_from_diff_file_and_comments(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)

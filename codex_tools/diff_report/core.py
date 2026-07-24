@@ -16,6 +16,7 @@ def compact_help() -> str:
             "diff_report --repo <git_repo> --range HEAD^..HEAD --output report.html [--comments comments.json]",
             "diff_report --diff-file diff.patch --output report.html [--comments comments.json]",
             "diff_report --diff-file diff.patch --output report.html --comments comments.json --refresh-targets",
+            "diff_report --diff-file diff.patch --init-comments comments.json",
             "",
             "comments.json schema:",
             "{",
