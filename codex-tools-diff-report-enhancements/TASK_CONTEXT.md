@@ -96,17 +96,12 @@ existing behavior with regression tests.
   as the sticky header.
 - SVG search current-match styling uses the same red text color as other
   matches and no longer adds a glow/drop-shadow effect.
-- Settings for story reports now renders inside the `Review Story` control row
-  instead of as a separate launcher before the report or a fixed overlay. A
-  fallback launcher is still rendered for reports without a story section.
 - Diagram SVG search now also applies the current-match class to child `tspan`
   nodes so the active match remains red when PlantUML or manual diagram styling
   colors the actual `tspan` rather than the parent `text` node.
 - Review Story no longer renders Prev/Next buttons; story selection happens
   through the numbered story cards and keyboard navigation remains handled by
   the shared script.
-- The Settings control is now a compact hamburger button in the Review Story
-  control row instead of a full-width text button.
 - Review navigation active-file syncing no longer calls `scrollIntoView()` when
   the navigation tree is in normal page flow, preventing narrow layouts from
   snapping back to the tree while scrolling between files.
@@ -115,8 +110,10 @@ existing behavior with regression tests.
   painted red over PlantUML/manual fills.
 - The left report brand is reduced on medium desktop widths so it fits the
   navigation column without dominating the available vertical space.
-- Story controls now place the hamburger Settings button before the story
-  counter and an inline top arrow after it.
+- Review Story no longer owns the hamburger Settings button, counter, or inline
+  top arrow. Settings and top navigation are rendered as external floating
+  controls aligned symmetrically to the left and right edges of the main content
+  column.
 - SVG search highlighting now uses a temporary inline `fill: #cf222e
   !important` overlay with restoration of the previous inline style so matches
   remain visible even when SVG text is colored directly by PlantUML/manual
@@ -317,8 +314,13 @@ copied report keeps the same relative layout.
   inline overlay, limiting nav auto-scroll to fixed layouts, and centering the
   medium-width brand, `codex-tools-diff-report-enhancements/scripts/run-ci.sh`
   passed with 38 unittest cases.
-- The regenerated target report contains the story row in the order Settings,
-  story counter, top arrow, and no story Prev/Next buttons.
+- After removing Settings, the story counter, and the inline top arrow from
+  Review Story, the regenerated target report contains the Settings hamburger
+  as a floating left-side control and the top arrow as a matching floating
+  right-side control around the main content column.
+- After that control placement change,
+  `codex-tools-diff-report-enhancements/scripts/run-ci.sh` passed with 38
+  unittest cases.
 - Headless Chrome screenshot check at 1280x720 confirmed the report brand is
   centered and uses more of the available card area.
 - After expanding baseline behavior coverage,
