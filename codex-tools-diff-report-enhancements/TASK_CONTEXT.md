@@ -634,6 +634,15 @@ copied report keeps the same relative layout.
   overlay. Regenerated `report/diff/pr139-to-local-working-tree.html`;
   `codex-tools-diff-report-enhancements/scripts/run-ci.sh` passed with
   thirty-eight unittest cases.
+- Comment rows now continue the diff gutter grid through the empty area beside
+  attached review comments: the old/new line-number separators are drawn in
+  the comment row background, and the light-theme comment gutter uses the same
+  warm family as the comment card instead of reading as target-code green.
+  Narrow layouts now keep the Settings and top controls as a right-side
+  vertical stack with a fixed gap so they do not overlap when the report is
+  collapsed. Regenerated `report/diff/pr139-to-local-working-tree.html`;
+  `codex-tools-diff-report-enhancements/scripts/run-ci.sh` passed with
+  thirty-eight unittest cases.
 
 ## Remaining Work
 
