@@ -1,0 +1,158 @@
+from __future__ import annotations
+
+import contextlib
+import io
+import json
+import shutil
+import tempfile
+import unittest
+from pathlib import Path
+
+from codex_tools.diff_report.core import generate_report
+
+
+WORKSPACE_ROOT = Path(__file__).resolve().parents[3]
+TASK_REPORT_ROOT = WORKSPACE_ROOT / "codex-tools-diff-report-enhancements" / "report"
+FIXTURE_DIFF_DIR = TASK_REPORT_ROOT / "diff"
+FIXTURE_BASENAME = "pr139-to-local-working-tree"
+
+
+class Pr139ReportRegressionTests(unittest.TestCase):
+    def setUp(self) -> None:
+        missing = [
+            path
+            for path in (
+                FIXTURE_DIFF_DIR / f"{FIXTURE_BASENAME}.patch",
+                FIXTURE_DIFF_DIR / f"{FIXTURE_BASENAME}.json",
+                TASK_REPORT_ROOT / "puml" / "fdt-review-fix-api-flow.svg",
+                TASK_REPORT_ROOT / "runtime" / "pr139-fdt-final-runtime-xen419.log",
+            )
+            if not path.exists()
+        ]
+        if missing:
+            self.fail("missing PR 139 report fixture files: " + ", ".join(str(path) for path in missing))
+
+    def test_pr139_report_renders_current_supported_features(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            report_root = self._copy_fixture_report(Path(temp_dir))
+            output_path = report_root / "diff" / "regenerated.html"
+
+            generate_report(
+                output_path=output_path,
+                title="PR 139 to local working tree",
+                diff_file=report_root / "diff" / f"{FIXTURE_BASENAME}.patch",
+                comments_file=report_root / "diff" / f"{FIXTURE_BASENAME}.json",
+            )
+
+            html = output_path.read_text(encoding="utf-8")
+
+        expected_fragments = [
+            "<h1>PR 139 to local working tree</h1>",
+            "Commit Message",
+            "summary-artifact-preview",
+            'data-diagram-id="fdt-review-fix-api-flow"',
+            'data-log-id="fdt-api-runtime"',
+            'id="story"',
+            'id="diagram-modal"',
+            'id="diagram-template-fdt-review-fix-api-flow"',
+            'data-code-links=',
+            'id="log-template-fdt-api-runtime"',
+            "FDT PROBE PASS",
+            "store raw FDT address",
+            "get_xen_fdt_ptr(&amp;size)",
+            'id="comment-arch-arm64-core-xen-fdt.c-29"',
+            'data-comment-file="arch/arm64/core/xen/fdt.c"',
+            'id="line-arch-arm64-core-xen-fdt.c-29"',
+            "Public runtime accessor implementation",
+            ".diagram-code-overlay { position: fixed; inset: 0; z-index: 1002;",
+            "function codeOverlayRoot()",
+            "codeOverlayRoot().appendChild(overlay)",
+            "positionCodePopover(popover)",
+        ]
+        for fragment in expected_fragments:
+            with self.subTest(fragment=fragment):
+                self.assertIn(fragment, html)
+
+        self.assertEqual(8, html.count("data-story-index="))
+        self.assertGreaterEqual(html.count('class="review-comment"'), 10)
+        self.assertNotIn("../puml/fdt-review-fix-api-flow.svg", html)
+        self.assertNotIn("../runtime/pr139-fdt-final-runtime-xen419.log", html)
+
+    def test_report_without_story_keeps_top_button_and_shared_story_script(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            diff_path = root / "change.patch"
+            comments_path = root / "comments.json"
+            output_path = root / "report.html"
+            diff_path.write_text(
+                "\n".join(
+                    [
+                        "diff --git a/example.txt b/example.txt",
+                        "index 83db48f..f735c2d 100644",
+                        "--- a/example.txt",
+                        "+++ b/example.txt",
+                        "@@ -1 +1 @@",
+                        "-old",
+                        "+new",
+                        "",
+                    ]
+                ),
+                encoding="utf-8",
+            )
+            comments_path.write_text('{"summary": "No story report"}\n', encoding="utf-8")
+
+            generate_report(
+                output_path=output_path,
+                title="No story report",
+                diff_file=diff_path,
+                comments_file=comments_path,
+            )
+
+            html = output_path.read_text(encoding="utf-8")
+
+        self.assertIn('class="to-top-button"', html)
+        self.assertIn("data-story-top", html)
+        self.assertIn('const steps = Array.from(document.querySelectorAll("[data-story-index]"));', html)
+        self.assertIn("if (!steps.length)", html)
+        self.assertNotIn('id="story"', html)
+
+    def test_refresh_targets_preserves_pr139_inline_anchors(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            report_root = self._copy_fixture_report(Path(temp_dir))
+            output_path = report_root / "diff" / "refreshed.html"
+            stdout = io.StringIO()
+
+            with contextlib.redirect_stdout(stdout):
+                generate_report(
+                    output_path=output_path,
+                    title="PR 139 to local working tree",
+                    diff_file=report_root / "diff" / f"{FIXTURE_BASENAME}.patch",
+                    comments_file=report_root / "diff" / f"{FIXTURE_BASENAME}.json",
+                    refresh_targets=True,
+                )
+
+            refreshed_path = output_path.with_suffix(".json")
+            refreshed = json.loads(refreshed_path.read_text(encoding="utf-8"))
+            inline = refreshed["inline"]
+
+        self.assertIn("attention=0", stdout.getvalue())
+        self.assertEqual(10, len(inline))
+        for item in inline:
+            with self.subTest(file=item["file"], line=item["line"]):
+                target = item.get("target")
+                self.assertIsInstance(target, dict)
+                self.assertEqual(item["file"], target["file"])
+                self.assertTrue(target["found"])
+                self.assertEqual("found", target["status"])
+                self.assertIn(target["kind"], {"add", "context"})
+                self.assertGreaterEqual(target["line"], item["range"]["start"])
+                self.assertLessEqual(target["line"], item["range"]["end"])
+
+    def _copy_fixture_report(self, temp_root: Path) -> Path:
+        report_root = temp_root / "report"
+        shutil.copytree(TASK_REPORT_ROOT, report_root)
+        return report_root
+
+
+if __name__ == "__main__":
+    unittest.main()

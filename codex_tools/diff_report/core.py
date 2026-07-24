@@ -214,10 +214,10 @@ def render_html_report(
     if comment_count:
         parts.append(_render_comments_index(comments, _diff_files(source.diff_text)))
     parts.append(_render_diff(source.diff_text, comments))
+    parts.append(_render_to_top_button())
     if comments.diagrams or comments.logs:
         parts.append(_render_diagram_modal(comments))
-    if comments.story:
-        parts.append(_story_script())
+    parts.append(_story_script())
     parts.append(_theme_script())
     parts.append("</main>\n</body>\n</html>\n")
     return "".join(parts)
@@ -449,8 +449,11 @@ def _render_story_section(comments: ReviewComments) -> str:
     parts.append('      <div id="story-details-body"></div>\n')
     parts.append("    </div>\n")
     parts.append("  </section>\n")
-    parts.append('  <button type="button" class="to-top-button" data-story-top aria-label="To top">↑</button>\n')
     return "".join(parts)
+
+
+def _render_to_top_button() -> str:
+    return '  <button type="button" class="to-top-button" data-story-top aria-label="To top">↑</button>\n'
 
 
 def _story_step_attrs(step: StoryStep, index: int) -> str:
@@ -1818,8 +1821,8 @@ def _html_header(title: str) -> str:
     .diagram-story-context strong {{ display: block; margin-bottom: 3px; }}
     .diagram-story-context div {{ color: var(--muted); font-size: 13px; white-space: pre-line; overflow-wrap: anywhere; }}
     .diagram-scroll {{ position: relative; flex: 1; min-height: 0; overflow: auto; padding: 18px; background: var(--diagram-bg); }}
-    .diagram-code-overlay {{ position: absolute; z-index: 4; display: flex; align-items: center; justify-content: center; padding: 10px; background: var(--overlay-bg); box-sizing: border-box; }}
-    .diagram-code-popover {{ width: min(50vw, calc(100% - 20px)); height: min(76vh, calc(100% - 20px)); border: 1px solid var(--border); border-radius: 8px; background: var(--panel); box-shadow: 0 12px 32px var(--shadow); overflow: hidden; display: flex; flex-direction: column; }}
+    .diagram-code-overlay {{ position: fixed; inset: 0; z-index: 1002; background: var(--overlay-bg); box-sizing: border-box; }}
+    .diagram-code-popover {{ position: fixed; left: 50vw; top: 50vh; transform: translate(-50%, -50%); width: min(50vw, calc(100vw - 64px)); height: min(76vh, calc(100vh - 64px)); margin: 0; border: 1px solid var(--border); border-radius: 8px; background: var(--panel); box-shadow: 0 12px 32px var(--shadow); overflow: hidden; display: flex; flex-direction: column; }}
     .diagram-code-overlay[hidden] {{ display: none; }}
     .diagram-code-popover-header {{ display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 12px; border-bottom: 1px solid var(--border); background: var(--header-bg); }}
     .diagram-code-popover-title {{ display: grid; gap: 2px; min-width: 0; color: var(--text); font-weight: 800; }}
@@ -1970,9 +1973,6 @@ def _story_script() -> str:
     return """<script>
 (function () {
   const steps = Array.from(document.querySelectorAll("[data-story-index]"));
-  if (!steps.length) {
-    return;
-  }
   const counter = document.getElementById("story-counter");
   const detailsTitle = document.getElementById("story-details-title");
   const detailsBody = document.getElementById("story-details-body");
@@ -2184,6 +2184,9 @@ def _story_script() -> str:
   }
 
   function setActive(index) {
+    if (!steps.length) {
+      return;
+    }
     activeIndex = Math.max(0, Math.min(steps.length - 1, index));
     steps.forEach(function (step, stepIndex) {
       step.classList.toggle("is-active", stepIndex === activeIndex);
@@ -2211,6 +2214,9 @@ def _story_script() -> str:
   }
 
   function openStep(index) {
+    if (!steps.length) {
+      return;
+    }
     setActive(index);
     const step = steps[activeIndex];
     clearTargetHighlight();
@@ -2438,7 +2444,9 @@ def _story_script() -> str:
   document.addEventListener("click", function (event) {
     const nav = event.target.closest("[data-story-nav]");
     if (nav) {
-      openStep(activeIndex + (nav.dataset.storyNav === "prev" ? -1 : 1));
+      if (steps.length) {
+        openStep(activeIndex + (nav.dataset.storyNav === "prev" ? -1 : 1));
+      }
       return;
     }
     if (event.target.closest("[data-story-top]")) {
@@ -2476,6 +2484,9 @@ def _story_script() -> str:
     if (!event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) {
       return;
     }
+    if (!steps.length) {
+      return;
+    }
     if (event.key === "ArrowRight") {
       event.preventDefault();
       openStep(activeIndex + 1);
@@ -2491,7 +2502,9 @@ def _story_script() -> str:
   updateStoryOffset();
   updateTopButtonState();
   resetPageScrollOnLoad();
-  setActive(0);
+  if (steps.length) {
+    setActive(0);
+  }
   if (location.hash && history.replaceState) {
     history.replaceState(null, "", location.pathname + location.search);
   }
@@ -3290,8 +3303,12 @@ def _diagram_script() -> str:
     }
   }
 
+  function codeOverlayRoot() {
+    return document.body;
+  }
+
   function closeCodePopover() {
-    const overlay = content.querySelector(".diagram-code-overlay");
+    const overlay = codeOverlayRoot().querySelector(".diagram-code-overlay");
     if (overlay) {
       overlay.remove();
     }
@@ -3309,10 +3326,6 @@ def _diagram_script() -> str:
     closeExistingCodePopoverOnly();
     const overlay = document.createElement("div");
     overlay.className = "diagram-code-overlay";
-    overlay.style.top = content.scrollTop + "px";
-    overlay.style.left = content.scrollLeft + "px";
-    overlay.style.width = content.clientWidth + "px";
-    overlay.style.height = content.clientHeight + "px";
     overlay.addEventListener("click", function (event) {
       if (event.target === overlay) {
         closeCodePopover();
@@ -3351,12 +3364,25 @@ def _diagram_script() -> str:
     }
     popover.appendChild(body);
     overlay.appendChild(popover);
-    content.appendChild(overlay);
+    codeOverlayRoot().appendChild(overlay);
+    positionCodePopover(popover);
     requestAnimationFrame(function () {
       requestAnimationFrame(function () {
+        positionCodePopover(popover);
         centerCodeTarget(popover);
       });
     });
+  }
+
+  function positionCodePopover(popover) {
+    const dialog = modal.querySelector(".diagram-dialog");
+    const rect = dialog ? dialog.getBoundingClientRect() : modal.getBoundingClientRect();
+    const centerX = rect.left + rect.width / 2;
+    const centerY = rect.top + rect.height / 2;
+    popover.style.left = centerX + "px";
+    popover.style.top = centerY + "px";
+    popover.style.maxWidth = Math.max(320, rect.width - 64) + "px";
+    popover.style.maxHeight = Math.max(320, rect.height - 64) + "px";
   }
 
   function codePopoverLocation(links) {
@@ -3387,7 +3413,7 @@ def _diagram_script() -> str:
   }
 
   function closeExistingCodePopoverOnly() {
-    const overlay = content.querySelector(".diagram-code-overlay");
+    const overlay = codeOverlayRoot().querySelector(".diagram-code-overlay");
     if (overlay) {
       overlay.remove();
     }
@@ -3898,7 +3924,7 @@ def _diagram_script() -> str:
       return;
     }
     if (event.key === "Escape") {
-      if (content.querySelector(".diagram-code-overlay")) {
+      if (codeOverlayRoot().querySelector(".diagram-code-overlay")) {
         closeCodePopover();
         return;
       }
