@@ -96,7 +96,7 @@
       --screen-code-font: 15px;
       --content-width: 1260px;
       --floating-control-size: 44px;
-      --floating-control-gap: 10px;
+      --floating-control-gap: 18px;
       --floating-content-gutter: max(24px, calc((100vw - var(--nav-width) - var(--content-width)) / 2));
     }
     :root[data-theme="dark"] {
@@ -417,6 +417,7 @@
     svg .asset-focus-related-hover { stroke: var(--diagram-focus) !important; fill: var(--diagram-focus) !important; opacity: 1 !important; filter: drop-shadow(0 0 2px rgba(255,255,255,.95)); }
     svg text.asset-focus-related-hover, svg tspan.asset-focus-related-hover { fill: var(--diagram-focus) !important; stroke: none !important; }
     svg .asset-search-match { fill: #cf222e !important; stroke: none !important; }
+    svg .asset-search-submatch { fill: rgba(255,42,61,.16); stroke: #ff2a3d; stroke-width: 1.8px; vector-effect: non-scaling-stroke; opacity: .98; }
     svg .asset-search-current { fill: #ff2a3d !important; stroke: none !important; filter: none; font-weight: 800 !important; text-decoration: underline; text-decoration-thickness: 2px; text-underline-offset: 3px; }
     svg text.asset-search-current, svg tspan.asset-search-current { fill: #ff2a3d !important; stroke: none !important; filter: none; font-weight: 800 !important; text-decoration: underline; text-decoration-thickness: 2px; text-underline-offset: 3px; }
     @keyframes focus-dash-flow { from { stroke-dashoffset: 0; } to { stroke-dashoffset: -17; } }
@@ -1919,6 +1920,9 @@ qemu-system-aarch64: terminating on signal 15 from pid 8 (timeout)
     for (const node of content.querySelectorAll(".asset-search-painted")) {
       restoreSvgSearchPaint(node);
     }
+    for (const node of content.querySelectorAll(".asset-search-submatch-layer")) {
+      node.remove();
+    }
     for (const node of content.querySelectorAll(".asset-search-match, .asset-search-current")) {
       node.classList.remove("asset-search-match", "asset-search-current");
     }
@@ -2142,9 +2146,92 @@ qemu-system-aarch64: terminating on signal 15 from pid 8 (timeout)
     for (const node of textNodes) {
       if (node.textContent.toLowerCase().includes(lowerQuery)) {
         setSvgSearchClass(node, "asset-search-match", true);
+        addSvgSearchSubmatches(node, query);
         searchMatches.push(node);
       }
     }
+  }
+
+  function addSvgSearchSubmatches(textNode, query) {
+    const parent = textNode.parentNode;
+    const svg = textNode.ownerSVGElement;
+    if (!parent || !svg || !query) {
+      return;
+    }
+    const namespace = svg.namespaceURI || "http://www.w3.org/2000/svg";
+    const layer = document.createElementNS(namespace, "g");
+    layer.classList.add("asset-search-submatch-layer");
+    layer.setAttribute("pointer-events", "none");
+    const candidates = svgSearchTextCandidates(textNode, query);
+    for (const candidate of candidates) {
+      const lowerText = candidate.textContent.toLowerCase();
+      const lowerQuery = query.toLowerCase();
+      let index = lowerText.indexOf(lowerQuery);
+      while (index !== -1) {
+        const box = svgTextRangeBox(candidate, index, query.length);
+        if (box) {
+          const rect = document.createElementNS(namespace, "rect");
+          rect.classList.add("asset-search-submatch");
+          rect.setAttribute("x", String(box.x - 1.5));
+          rect.setAttribute("y", String(box.y - 1));
+          rect.setAttribute("width", String(Math.max(2, box.width + 3)));
+          rect.setAttribute("height", String(Math.max(2, box.height + 2)));
+          rect.setAttribute("rx", "2");
+          rect.setAttribute("ry", "2");
+          layer.appendChild(rect);
+        }
+        index = lowerText.indexOf(lowerQuery, index + Math.max(1, query.length));
+      }
+    }
+    if (layer.childNodes.length) {
+      parent.insertBefore(layer, textNode.nextSibling);
+    }
+  }
+
+  function svgSearchTextCandidates(textNode, query) {
+    const children = Array.from(textNode.querySelectorAll("tspan, textPath")).filter(function (node) {
+      return node.textContent.toLowerCase().includes(query.toLowerCase());
+    });
+    return children.length ? children : [textNode];
+  }
+
+  function svgTextRangeBox(node, start, length) {
+    if (
+      typeof node.getExtentOfChar !== "function"
+      || typeof node.getNumberOfChars !== "function"
+    ) {
+      return safeBBox(node);
+    }
+    let box = null;
+    const end = Math.min(start + length, node.getNumberOfChars());
+    for (let index = start; index < end; index += 1) {
+      try {
+        const charBox = node.getExtentOfChar(index);
+        if (!isFiniteBox(charBox)) {
+          continue;
+        }
+        box = box ? unionBoxes(box, charBox) : charBox;
+      } catch (error) {
+        return safeBBox(node);
+      }
+    }
+    return box || safeBBox(node);
+  }
+
+  function isFiniteBox(box) {
+    return box
+      && Number.isFinite(box.x)
+      && Number.isFinite(box.y)
+      && Number.isFinite(box.width)
+      && Number.isFinite(box.height);
+  }
+
+  function unionBoxes(a, b) {
+    const x1 = Math.min(a.x, b.x);
+    const y1 = Math.min(a.y, b.y);
+    const x2 = Math.max(a.x + a.width, b.x + b.width);
+    const y2 = Math.max(a.y + a.height, b.y + b.height);
+    return { x: x1, y: y1, width: x2 - x1, height: y2 - y1 };
   }
 
   function setSvgSearchClass(node, className, enabled) {

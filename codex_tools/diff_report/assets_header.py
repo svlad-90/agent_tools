@@ -106,7 +106,7 @@ def html_header(title: str) -> str:
       --screen-code-font: 15px;
       --content-width: 1260px;
       --floating-control-size: 44px;
-      --floating-control-gap: 10px;
+      --floating-control-gap: 18px;
       --floating-content-gutter: max(24px, calc((100vw - var(--nav-width) - var(--content-width)) / 2));
     }}
     :root[data-theme="dark"] {{
@@ -427,6 +427,7 @@ def html_header(title: str) -> str:
     svg .asset-focus-related-hover {{ stroke: var(--diagram-focus) !important; fill: var(--diagram-focus) !important; opacity: 1 !important; filter: drop-shadow(0 0 2px rgba(255,255,255,.95)); }}
     svg text.asset-focus-related-hover, svg tspan.asset-focus-related-hover {{ fill: var(--diagram-focus) !important; stroke: none !important; }}
     svg .asset-search-match {{ fill: #cf222e !important; stroke: none !important; }}
+    svg .asset-search-submatch {{ fill: rgba(255,42,61,.16); stroke: #ff2a3d; stroke-width: 1.8px; vector-effect: non-scaling-stroke; opacity: .98; }}
     svg .asset-search-current {{ fill: #ff2a3d !important; stroke: none !important; filter: none; font-weight: 800 !important; text-decoration: underline; text-decoration-thickness: 2px; text-underline-offset: 3px; }}
     svg text.asset-search-current, svg tspan.asset-search-current {{ fill: #ff2a3d !important; stroke: none !important; filter: none; font-weight: 800 !important; text-decoration: underline; text-decoration-thickness: 2px; text-underline-offset: 3px; }}
     @keyframes focus-dash-flow {{ from {{ stroke-dashoffset: 0; }} to {{ stroke-dashoffset: -17; }} }}
