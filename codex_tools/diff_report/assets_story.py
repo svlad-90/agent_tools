@@ -395,16 +395,11 @@ def story_script() -> str:
         target.classList.remove("story-target-flash");
       }, 460);
     }
-    for (const target of codeTargets) {
-      target.classList.remove("code-target-flash");
-      target.classList.remove("code-target-flash-start");
-      target.classList.remove("code-target-flash-end");
-      void target.offsetWidth;
-      target.classList.add("code-target-flash");
+    const overlayTargets = codeTargets.concat(commentTargets);
+    if (overlayTargets.length) {
+      createCodeTargetFlashOverlay(overlayTargets);
       activeFlashClearTimer = window.setTimeout(function () {
-        target.classList.remove("code-target-flash");
-        target.classList.remove("code-target-flash-start");
-        target.classList.remove("code-target-flash-end");
+        clearCodeTargetFlashOverlays();
       }, 460);
     }
   }
@@ -419,20 +414,69 @@ def story_script() -> str:
           const line = Number(row.dataset.newLine || 0);
           return row.dataset.file === file && line >= start && line <= end;
         });
-        if (rows.length) {
-          rows[0].classList.add("code-target-flash-start");
-          rows[rows.length - 1].classList.add("code-target-flash-end");
-        }
-        return rows;
+        return rowsWithIntermediateDeletes(rows);
       }
     }
     const row = contextElement && contextElement.closest ? contextElement.closest("tr[data-file]") : null;
     if (row) {
-      row.classList.add("code-target-flash-start");
-      row.classList.add("code-target-flash-end");
       return [row];
     }
     return [];
+  }
+
+  function rowsWithIntermediateDeletes(rows) {
+    if (rows.length < 2) {
+      return rows;
+    }
+    const first = rows[0];
+    const last = rows[rows.length - 1];
+    const allRows = Array.from(first.closest("tbody").children);
+    const firstIndex = allRows.indexOf(first);
+    const lastIndex = allRows.indexOf(last);
+    if (firstIndex === -1 || lastIndex === -1 || firstIndex > lastIndex) {
+      return rows;
+    }
+    return allRows.slice(firstIndex, lastIndex + 1).filter(function (row) {
+      return row.matches("tr.add, tr.ctx, tr.del");
+    });
+  }
+
+  function createCodeTargetFlashOverlay(targets) {
+    const box = unionClientRects(targets);
+    if (!box) {
+      return;
+    }
+    const overlay = document.createElement("div");
+    overlay.className = "code-target-flash-overlay";
+    overlay.style.left = Math.max(0, box.left + window.scrollX - 3) + "px";
+    overlay.style.top = Math.max(0, box.top + window.scrollY - 3) + "px";
+    overlay.style.width = Math.max(1, box.width + 6) + "px";
+    overlay.style.height = Math.max(1, box.height + 6) + "px";
+    document.body.appendChild(overlay);
+  }
+
+  function unionClientRects(targets) {
+    let box = null;
+    for (const target of targets) {
+      const rect = target.getBoundingClientRect();
+      if (!rect.width || !rect.height) {
+        continue;
+      }
+      if (!box) {
+        box = {
+          left: rect.left,
+          top: rect.top,
+          right: rect.right,
+          bottom: rect.bottom,
+        };
+      } else {
+        box.left = Math.min(box.left, rect.left);
+        box.top = Math.min(box.top, rect.top);
+        box.right = Math.max(box.right, rect.right);
+        box.bottom = Math.max(box.bottom, rect.bottom);
+      }
+    }
+    return box ? { left: box.left, top: box.top, width: box.right - box.left, height: box.bottom - box.top } : null;
   }
 
   function clearFlashTargets() {
@@ -444,6 +488,13 @@ def story_script() -> str:
       target.classList.remove("code-target-flash");
       target.classList.remove("code-target-flash-start");
       target.classList.remove("code-target-flash-end");
+    }
+    clearCodeTargetFlashOverlays();
+  }
+
+  function clearCodeTargetFlashOverlays() {
+    for (const overlay of document.querySelectorAll(".code-target-flash-overlay")) {
+      overlay.remove();
     }
   }
 

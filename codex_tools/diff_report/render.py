@@ -308,14 +308,16 @@ def _render_diff(diff_text: str, comments: ReviewComments) -> str:
     table_open = False
     comment_ranges = _comment_line_ranges(comments)
     inline_comments_by_render_line = _inline_comments_by_render_line(comments)
+    active_delete_target: tuple[int, int] | None = None
 
     def close_file() -> None:
-        nonlocal table_open, current_file
+        nonlocal table_open, current_file, active_delete_target
         if table_open:
             parts.append("      </tbody>\n    </table>\n")
             table_open = False
         if current_file is not None:
             parts.append("  </article>\n")
+        active_delete_target = None
 
     for line in iter_diff_lines(diff_text):
         if line.kind == "file":
@@ -353,6 +355,7 @@ def _render_diff(diff_text: str, comments: ReviewComments) -> str:
 
         if line.kind == "add" and line.new_line is not None:
             line_no = line.new_line
+            target_range = _comment_target_range(comment_ranges, current_file, line_no)
             parts.append(
                 _diff_row(
                     "add",
@@ -361,9 +364,10 @@ def _render_diff(diff_text: str, comments: ReviewComments) -> str:
                     line.raw,
                     current_file,
                     line_no,
-                    _comment_target_classes(comment_ranges, current_file, line_no),
+                    _comment_target_classes_for_range(target_range, line_no),
                 )
             )
+            active_delete_target = target_range if target_range is not None and line_no < target_range[1] else None
             parts.append(
                 _render_inline_comments(
                     inline_comments_by_render_line,
@@ -373,9 +377,11 @@ def _render_diff(diff_text: str, comments: ReviewComments) -> str:
                 )
             )
         elif line.kind == "delete" and line.old_line is not None:
-            parts.append(_diff_row("del", str(line.old_line), "", line.raw))
+            extra_classes: tuple[str, ...] = ("comment-target",) if active_delete_target is not None else ()
+            parts.append(_diff_row("del", str(line.old_line), "", line.raw, extra_classes=extra_classes))
         elif line.kind == "context" and line.old_line is not None and line.new_line is not None:
             line_no = line.new_line
+            target_range = _comment_target_range(comment_ranges, current_file, line_no)
             parts.append(
                 _diff_row(
                     "ctx",
@@ -384,9 +390,10 @@ def _render_diff(diff_text: str, comments: ReviewComments) -> str:
                     line.raw,
                     current_file,
                     line_no,
-                    _comment_target_classes(comment_ranges, current_file, line_no),
+                    _comment_target_classes_for_range(target_range, line_no),
                 )
             )
+            active_delete_target = target_range if target_range is not None and line_no < target_range[1] else None
             parts.append(
                 _render_inline_comments(
                     inline_comments_by_render_line,
@@ -424,17 +431,35 @@ def _comment_target_classes(
     file_path: str,
     line: int,
 ) -> tuple[str, ...]:
+    return _comment_target_classes_for_range(_comment_target_range(ranges, file_path, line), line)
+
+
+def _comment_target_range(
+    ranges: dict[str, list[tuple[int, int]]],
+    file_path: str,
+    line: int,
+) -> tuple[int, int] | None:
     for start, end in ranges.get(file_path, ()):
         if start <= line <= end:
-            classes = ["comment-target"]
-            if line == start:
-                classes.append("comment-target-start")
-            if line == end:
-                classes.append("comment-target-end")
-            if start == end:
-                classes.append("comment-target-single")
-            return tuple(classes)
-    return ()
+            return start, end
+    return None
+
+
+def _comment_target_classes_for_range(
+    target_range: tuple[int, int] | None,
+    line: int,
+) -> tuple[str, ...]:
+    if target_range is None:
+        return ()
+    start, end = target_range
+    classes = ["comment-target"]
+    if line == start:
+        classes.append("comment-target-start")
+    if line == end:
+        classes.append("comment-target-end")
+    if start == end:
+        classes.append("comment-target-single")
+    return tuple(classes)
 
 
 def _render_inline_comments(
