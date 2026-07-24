@@ -74,6 +74,12 @@ existing behavior with regression tests.
   to the CLI module.
 - Workspace-local skills were checked; only `commit-message-format` is present
   and it does not apply to task setup.
+- Report layout now uses breakpoint-driven CSS variables for desktop
+  adaptability: the fixed left brand/navigation chrome compresses on laptop
+  widths, the main report column is centered inside the remaining viewport, and
+  the navigation becomes an in-flow block below 1100px.
+- Report font sizes use explicit breakpoint values instead of viewport-width
+  scaling so text remains stable while resizing.
 
 ## Baseline Fixture
 
@@ -218,6 +224,17 @@ copied report keeps the same relative layout.
 - After expanding baseline behavior coverage,
   `codex-tools-diff-report-enhancements/scripts/run-ci.sh` passed with six
   unittest cases.
+- After adding responsive report layout CSS,
+  `python -m unittest codex_tools.diff_report.tests.test_pr139_report_regression`
+  passed with four unittest cases.
+- After adding responsive report layout CSS,
+  `codex-tools-diff-report-enhancements/scripts/run-ci.sh` passed with 38
+  unittest cases.
+- The canonical PR139 report was regenerated at
+  `/home/vladyslav_goncharuk/Projects/new_dev/codex-tools-diff-report-enhancements/report/diff/pr139-to-local-working-tree.html`.
+- Headless Chrome screenshot checks passed at 1366x768 and 1920x1080 after
+  fixing a viewport-width calculation that caused page-level horizontal
+  overflow.
 - After expanding baseline behavior coverage,
   `codex_tools/environments/codex-tools-act/scripts/validate.sh` passed through
   local `act`; the workflow ran the shared script with six unittest cases.

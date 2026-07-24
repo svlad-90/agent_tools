@@ -88,13 +88,22 @@ def html_header(title: str) -> str:
       --diagram-note-link: #2563eb;
       --diagram-note-marker-bg: #eff6ff;
       --overlay-bg: rgba(31,35,40,.42);
+      --page-gutter: 8px;
       --nav-width: 430px;
-      --left-chrome-x: 42px;
+      --brand-height: 250px;
+      --brand-top-padding: 16px;
+      --brand-mark-size: 144px;
+      --brand-title-size: 80px;
+      --brand-subtitle-size: 40px;
+      --brand-gap: 24px;
+      --brand-padding-x: 28px;
+      --settings-top: calc(var(--page-gutter) + var(--brand-height) - 44px);
+      --review-nav-top: calc(var(--page-gutter) + var(--brand-height) + 12px);
+      --left-chrome-x: calc(var(--page-gutter) + 34px);
       --left-chrome-width: calc(var(--nav-width) - 68px);
       --story-offset: 0px;
-      --screen-body-font: clamp(22px, 0.65cm, 30px);
-      --screen-code-font: clamp(18px, 0.52cm, 24px);
-      --content-offset-width: 1360px;
+      --screen-body-font: 18px;
+      --screen-code-font: 15px;
       --content-width: 1260px;
     }}
     :root[data-theme="dark"] {{
@@ -161,15 +170,15 @@ def html_header(title: str) -> str:
     }}
     * {{ box-sizing: border-box; }}
     body {{ margin: 0; background: var(--bg); color: var(--text); font: var(--screen-body-font)/1.52 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }}
-    main {{ width: calc(100% - var(--nav-width) - 24px); max-width: calc(100vw - var(--nav-width) - 24px); min-width: 0; margin: 8px 8px 16px calc(var(--nav-width) + 16px); }}
-    .report-brand {{ position: fixed; left: 8px; top: 8px; z-index: 4; display: flex; align-items: flex-start; justify-content: center; width: var(--nav-width); height: 250px; padding-top: 16px; pointer-events: none; color: var(--brand-text); }}
-    .report-brand::before {{ content: ""; position: absolute; inset: 0; height: 250px; border-radius: 10px; background: var(--brand-panel); box-shadow: 0 10px 24px var(--shadow); }}
-    .report-brand-inner {{ position: relative; display: grid; grid-template-columns: 144px minmax(0, 1fr); align-items: center; gap: 24px; width: 100%; height: 176px; padding: 16px 28px; font-weight: 800; letter-spacing: 0; }}
-    .report-brand-mark {{ display: flex; align-items: center; justify-content: center; width: 144px; height: 144px; border-radius: 10px; background: #0969da; color: #fff; font: 800 92px/1 ui-monospace, SFMono-Regular, Consolas, monospace; }}
+    main {{ width: calc(100% - var(--nav-width) - (var(--page-gutter) * 3)); max-width: calc(100% - var(--nav-width) - (var(--page-gutter) * 3)); min-width: 0; margin: var(--page-gutter) var(--page-gutter) 16px calc(var(--nav-width) + (var(--page-gutter) * 2)); }}
+    .report-brand {{ position: fixed; left: var(--page-gutter); top: var(--page-gutter); z-index: 4; display: flex; align-items: flex-start; justify-content: center; width: var(--nav-width); height: var(--brand-height); padding-top: var(--brand-top-padding); pointer-events: none; color: var(--brand-text); }}
+    .report-brand::before {{ content: ""; position: absolute; inset: 0; height: var(--brand-height); border-radius: 10px; background: var(--brand-panel); box-shadow: 0 10px 24px var(--shadow); }}
+    .report-brand-inner {{ position: relative; display: grid; grid-template-columns: var(--brand-mark-size) minmax(0, 1fr); align-items: center; gap: var(--brand-gap); width: 100%; min-height: 0; padding: 16px var(--brand-padding-x); font-weight: 800; letter-spacing: 0; }}
+    .report-brand-mark {{ display: flex; align-items: center; justify-content: center; width: var(--brand-mark-size); height: var(--brand-mark-size); border-radius: 10px; background: #0969da; color: #fff; font: 800 calc(var(--brand-mark-size) * .64)/1 ui-monospace, SFMono-Regular, Consolas, monospace; }}
     .report-brand-text {{ display: grid; gap: 2px; min-width: 0; line-height: 1.05; }}
-    .report-brand-title {{ font-size: 80px; white-space: nowrap; }}
-    .report-brand-subtitle {{ color: var(--muted); font-size: 40px; white-space: nowrap; }}
-    .settings-launcher {{ position: fixed; left: 24px; top: 206px; z-index: 40; width: calc(var(--nav-width) - 32px); }}
+    .report-brand-title {{ font-size: var(--brand-title-size); white-space: nowrap; }}
+    .report-brand-subtitle {{ color: var(--muted); font-size: var(--brand-subtitle-size); white-space: nowrap; }}
+    .settings-launcher {{ position: fixed; left: calc(var(--page-gutter) + 16px); top: var(--settings-top); z-index: 40; width: calc(var(--nav-width) - 32px); }}
     .settings-toggle {{ display: inline-flex; align-items: center; justify-content: center; width: 100%; height: 34px; padding: 0 18px; border: 1px solid var(--border); border-radius: 999px; background: var(--button-bg); color: var(--link); box-shadow: none; cursor: pointer; font: 800 18px/1 ui-monospace, SFMono-Regular, Consolas, monospace; }}
     .settings-toggle:hover {{ border-color: var(--link); box-shadow: 0 12px 32px rgba(9,105,218,.22); }}
     .settings-modal[hidden] {{ display: none; }}
@@ -191,7 +200,7 @@ def html_header(title: str) -> str:
     .copy-context-menu {{ position: fixed; z-index: 1200; min-width: 178px; padding: 6px; border: 1px solid var(--border); border-radius: 8px; background: var(--panel); box-shadow: 0 12px 32px var(--shadow); }}
     .copy-context-menu button {{ display: flex; align-items: center; justify-content: flex-start; width: 100%; min-height: 32px; padding: 0 10px; border: 0; border-radius: 6px; background: transparent; color: var(--text); cursor: pointer; font: 700 14px/1.2 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; text-align: left; }}
     .copy-context-menu button:hover, .copy-context-menu button:focus-visible {{ background: var(--button-hover-bg); color: var(--link); outline: none; }}
-    header, section, .file {{ width: min(100%, var(--content-width)); max-width: 100%; min-width: 0; margin-right: auto; margin-left: max(0px, calc((100% - var(--content-offset-width)) / 4)); background: var(--panel); border: 1px solid var(--border); border-radius: 8px; margin-bottom: 16px; }}
+    header, section, .file {{ width: min(100%, var(--content-width)); max-width: 100%; min-width: 0; margin-right: auto; margin-left: auto; background: var(--panel); border: 1px solid var(--border); border-radius: 8px; margin-bottom: 16px; }}
     .file {{ border-top: 0; }}
     header, section {{ padding: 20px; }}
     h1, h2 {{ margin: 0 0 12px; line-height: 1.2; }}
@@ -218,7 +227,7 @@ def html_header(title: str) -> str:
     .label {{ display: block; color: var(--meta-label); font-size: .72rem; text-transform: uppercase; letter-spacing: .04em; margin-bottom: 3px; }}
     .toc a {{ display: inline-block; margin: 0 8px 8px 0; color: var(--link); text-decoration: none; }}
     .toc a:hover {{ text-decoration: underline; }}
-    .review-nav {{ position: fixed; left: 8px; top: 270px; bottom: 8px; z-index: 8; width: var(--nav-width); margin: 0; padding: 10px 14px 10px 10px; overflow: auto; box-shadow: 0 8px 22px rgba(31,35,40,.10); }}
+    .review-nav {{ position: fixed; left: var(--page-gutter); top: var(--review-nav-top); bottom: var(--page-gutter); z-index: 8; width: var(--nav-width); margin: 0; padding: 10px 14px 10px 10px; overflow: auto; box-shadow: 0 8px 22px rgba(31,35,40,.10); }}
     .review-nav-head {{ position: sticky; top: -10px; z-index: 2; display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: -10px -14px 8px -10px; padding: 10px 14px 8px 10px; background: var(--panel); border-bottom: 1px solid var(--border); box-shadow: 0 2px 0 var(--panel); }}
     .review-nav h2 {{ margin: 0; font-size: .86em; }}
     .review-nav-head button {{ display: inline-flex; align-items: center; justify-content: center; min-width: 102px; height: 28px; padding: 0 10px; border: 1px solid var(--border); border-radius: 6px; background: var(--button-bg); color: var(--text); cursor: pointer; font: var(--screen-code-font)/1 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }}
@@ -244,7 +253,7 @@ def html_header(title: str) -> str:
     .review-nav-comments a {{ display: grid; grid-template-columns: 3.2em minmax(0, 1fr); gap: 6px; align-items: baseline; padding: 4px 4px; border-radius: 4px; font-size: .78em; line-height: 1.25; overflow-wrap: anywhere; }}
     .review-nav-comments a:hover {{ background: var(--button-hover-bg); text-decoration: none; }}
     .review-nav-line {{ color: var(--muted); font-family: ui-monospace, SFMono-Regular, Consolas, monospace; }}
-    .review-nav-resizer {{ position: fixed; left: calc(var(--nav-width) + 5px); top: 270px; bottom: 8px; width: 10px; cursor: ew-resize; z-index: 20; }}
+    .review-nav-resizer {{ position: fixed; left: calc(var(--nav-width) + var(--page-gutter) - 3px); top: var(--review-nav-top); bottom: var(--page-gutter); width: 10px; cursor: ew-resize; z-index: 20; }}
     .review-nav-resizer::before {{ content: ""; position: absolute; inset: 0 3px; border-radius: 99px; background: transparent; }}
     .review-nav-resizer:hover::before, body.is-resizing-review-nav .review-nav-resizer::before {{ background: rgba(9,105,218,.38); }}
     body.is-resizing-review-nav {{ cursor: ew-resize; user-select: none; }}
@@ -270,7 +279,7 @@ def html_header(title: str) -> str:
     .story-details {{ min-width: 0; max-width: 100%; margin-top: 7px; border: 1px solid var(--border); border-radius: 6px; background: var(--panel-subtle); }}
     .story-details-title {{ padding: 7px 8px; font-size: var(--screen-code-font); font-weight: 700; }}
     .story-details div:not(.story-details-title) {{ padding: 0 8px 8px; color: var(--muted); font-size: var(--screen-code-font); line-height: 1.35; white-space: pre-line; overflow-wrap: anywhere; }}
-    .asset-inventory {{ width: min(100%, var(--content-width)); max-width: 100%; min-width: 0; margin-right: auto; margin-left: max(0px, calc((100% - var(--content-offset-width)) / 4)); background: var(--panel); border: 1px solid var(--border); border-radius: 8px; margin-bottom: 16px; }}
+    .asset-inventory {{ width: min(100%, var(--content-width)); max-width: 100%; min-width: 0; margin-right: auto; margin-left: auto; background: var(--panel); border: 1px solid var(--border); border-radius: 8px; margin-bottom: 16px; }}
     .asset-inventory summary {{ display: flex; align-items: center; gap: 10px; padding: 14px 20px; font-size: 20px; font-weight: 700; line-height: 1.2; cursor: pointer; user-select: none; }}
     .asset-inventory summary:hover {{ color: var(--link); background: var(--button-hover-bg); }}
     .asset-inventory summary:focus-visible {{ outline: 2px solid var(--link); outline-offset: 2px; }}
@@ -428,14 +437,78 @@ def html_header(title: str) -> str:
       svg line.asset-focus-connector, svg path.asset-focus-connector, svg polyline.asset-focus-connector, svg polygon.asset-focus-connector {{ animation: none; }}
       .story-target-flash, tr.code-target-flash .code {{ animation: none; }}
     }}
+    @media (min-width: 1800px) {{
+      :root {{
+        --nav-width: 460px;
+        --brand-height: 260px;
+        --brand-mark-size: 150px;
+        --brand-title-size: 84px;
+        --brand-subtitle-size: 42px;
+        --content-width: 1500px;
+        --screen-body-font: 20px;
+        --screen-code-font: 16px;
+      }}
+    }}
+    @media (max-width: 1500px) {{
+      :root {{
+        --nav-width: 350px;
+        --brand-height: 206px;
+        --brand-top-padding: 12px;
+        --brand-mark-size: 104px;
+        --brand-title-size: 56px;
+        --brand-subtitle-size: 28px;
+        --brand-gap: 14px;
+        --brand-padding-x: 18px;
+        --content-width: 1120px;
+        --screen-body-font: 16px;
+        --screen-code-font: 14px;
+      }}
+      header, section {{ padding: 16px; }}
+      .story-steps {{ grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); }}
+      .num {{ width: 56px; padding: 0 8px !important; }}
+      tr.comment-row td {{ background: linear-gradient(to right, var(--comment-row-bg) 0 96px, transparent 96px); }}
+      .review-comment {{ margin-left: 96px; }}
+    }}
+    @media (max-width: 1280px) {{
+      :root {{
+        --nav-width: 300px;
+        --brand-height: 174px;
+        --brand-mark-size: 78px;
+        --brand-title-size: 42px;
+        --brand-subtitle-size: 22px;
+        --brand-gap: 10px;
+        --brand-padding-x: 14px;
+        --content-width: 920px;
+        --screen-body-font: 15px;
+        --screen-code-font: 13px;
+      }}
+      .settings-toggle {{ height: 30px; font-size: 15px; }}
+      .review-nav {{ padding-right: 10px; }}
+      .review-nav-head button {{ min-width: 86px; }}
+      .story-steps {{ grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); }}
+      .story-step {{ grid-template-columns: 28px minmax(0, 1fr); padding: 7px 8px; }}
+    }}
     @media (max-width: 1100px) {{
-      body {{ font-size: 18px; }}
-      main {{ width: calc(100% - 16px); margin: 8px auto 16px; }}
+      :root {{
+        --nav-width: 0px;
+        --screen-body-font: 16px;
+        --screen-code-font: 13px;
+        --content-width: 100%;
+      }}
+      body {{ font-size: var(--screen-body-font); }}
+      main {{ width: calc(100% - 16px); max-width: calc(100vw - 16px); margin: 8px auto 16px; }}
+      header, section, .file, .asset-inventory {{ width: 100%; margin-left: 0; margin-right: 0; }}
       .report-brand {{ display: none; }}
       .settings-launcher {{ left: auto; right: 16px; top: 16px; z-index: 40; width: min(280px, calc(100vw - 32px)); }}
       .review-nav {{ position: static; width: calc(100% - 16px); max-height: 38vh; margin: 8px auto 16px; }}
       .review-nav-resizer {{ display: none; }}
       .story {{ top: 0; }}
+      .story-controls {{ margin-top: 0; justify-content: flex-start; }}
+      .story-steps {{ grid-template-columns: repeat(auto-fit, minmax(148px, 1fr)); }}
+      .diagram-dialog {{ inset: 12px; }}
+      .diagram-toolbar {{ align-items: flex-start; flex-wrap: wrap; }}
+      .diagram-tools {{ flex-wrap: wrap; justify-content: flex-end; }}
+      .diagram-tools input {{ width: min(220px, calc(100vw - 48px)); }}
     }}
   </style>
 </head>
