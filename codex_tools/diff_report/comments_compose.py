@@ -26,6 +26,16 @@ _INLINE_OPTIONAL_KEYS = (
 
 
 def compose_comments_payload(diff_text: str, findings: dict[str, Any]) -> dict[str, Any]:
+    payload, diagnostics = compose_comments_payload_with_diagnostics(diff_text, findings)
+    if diagnostics:
+        raise DiffReportError(str(diagnostics[0]["message"]))
+    return payload
+
+
+def compose_comments_payload_with_diagnostics(
+    diff_text: str,
+    findings: dict[str, Any],
+) -> tuple[dict[str, Any], list[dict[str, Any]]]:
     if not isinstance(findings, dict):
         raise DiffReportError("findings JSON must be an object")
 
@@ -34,9 +44,16 @@ def compose_comments_payload(diff_text: str, findings: dict[str, Any]) -> dict[s
         if key in findings:
             comments[key] = findings[key]
 
+    diagnostics: list[dict[str, Any]] = []
     comments["files"] = file_comments_from_findings(findings.get("files", {}))
-    comments["inline"] = inline_comments_from_findings(diff_text, findings.get("inline", []))
-    return enrich_comments_payload(diff_text, comments)
+    comments["inline"] = inline_comments_from_findings(
+        diff_text,
+        findings.get("inline", []),
+        diagnostics=diagnostics,
+    )
+    enriched = enrich_comments_payload(diff_text, comments)
+    diagnostics.extend(unresolved_target_diagnostics(enriched.get("inline", [])))
+    return enriched, diagnostics
 
 
 def file_comments_from_findings(raw_files: Any) -> dict[str, str]:
@@ -58,7 +75,12 @@ def file_comments_from_findings(raw_files: Any) -> dict[str, str]:
     return comments
 
 
-def inline_comments_from_findings(diff_text: str, raw_inline: Any) -> list[dict[str, Any]]:
+def inline_comments_from_findings(
+    diff_text: str,
+    raw_inline: Any,
+    *,
+    diagnostics: list[dict[str, Any]] | None = None,
+) -> list[dict[str, Any]]:
     if raw_inline is None:
         return []
     if not isinstance(raw_inline, list):
@@ -66,11 +88,17 @@ def inline_comments_from_findings(diff_text: str, raw_inline: Any) -> list[dict[
 
     targets = list(diff_line_targets(diff_text).values())
     comments: list[dict[str, Any]] = []
-    for item in raw_inline:
+    for index, item in enumerate(raw_inline):
         if not isinstance(item, dict):
             raise DiffReportError("findings.inline entries must be objects")
         file_path = str(required_finding(item, "file"))
-        line = int(item["line"]) if "line" in item else resolve_finding_line(targets, item, file_path)
+        try:
+            line = int(item["line"]) if "line" in item else resolve_finding_line(targets, item, file_path)
+        except DiffReportError as error:
+            if diagnostics is None:
+                raise
+            diagnostics.append(finding_diagnostic(index, item, file_path, str(error)))
+            continue
         comment = {
             "file": file_path,
             "line": line,
@@ -82,6 +110,50 @@ def inline_comments_from_findings(diff_text: str, raw_inline: Any) -> list[dict[
                 comment[key] = item[key]
         comments.append(comment)
     return comments
+
+
+def unresolved_target_diagnostics(raw_inline: Any) -> list[dict[str, Any]]:
+    if not isinstance(raw_inline, list):
+        return []
+
+    diagnostics: list[dict[str, Any]] = []
+    for index, item in enumerate(raw_inline):
+        if not isinstance(item, dict):
+            continue
+        target = item.get("target", {})
+        status = target.get("status") if isinstance(target, dict) else None
+        if status not in {"ambiguous", "not_found"}:
+            continue
+        diagnostic = {
+            "index": index,
+            "file": item.get("file"),
+            "line": item.get("line"),
+            "status": status,
+            "message": f"inline finding target is {status}",
+            "title": item.get("title"),
+        }
+        if isinstance(target, dict) and "candidate_lines" in target:
+            diagnostic["candidate_lines"] = target["candidate_lines"]
+        diagnostics.append(diagnostic)
+    return diagnostics
+
+
+def finding_diagnostic(
+    index: int,
+    item: dict[str, Any],
+    file_path: str,
+    message: str,
+) -> dict[str, Any]:
+    diagnostic: dict[str, Any] = {
+        "index": index,
+        "file": file_path,
+        "status": "unresolved",
+        "message": message,
+    }
+    for key in ("title", "content", "contains", "kind"):
+        if key in item:
+            diagnostic[key] = item[key]
+    return diagnostic
 
 
 def resolve_finding_line(
