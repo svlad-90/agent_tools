@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>PR 139 to Local Working Tree</title>
+  <title>PR 139 to local working tree</title>
   <script>
     (function () {
       try {
@@ -39,6 +39,8 @@
       --link: #007acc;
       --button-bg: #ffffff;
       --button-hover-bg: #e5f1fb;
+      --settings-active-bg: #e5f1fb;
+      --settings-active-text: #0969da;
       --row-bg: #ffffff;
       --header-bg: #f3f3f3;
       --add-bg: #e6f4ea;
@@ -107,6 +109,8 @@
       --link: #3794ff;
       --button-bg: #2d2d30;
       --button-hover-bg: #094771;
+      --settings-active-bg: #0e639c;
+      --settings-active-text: #ffffff;
       --row-bg: #1e1e1e;
       --header-bg: #252526;
       --add-bg: #113311;
@@ -172,7 +176,7 @@
     .settings-options { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
     .settings-option { display: inline-flex; align-items: center; justify-content: center; min-width: 0; height: 34px; padding: 0 10px; border: 1px solid var(--border); border-radius: 6px; background: var(--button-bg); color: var(--text); cursor: pointer; font: 700 15px/1 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
     .settings-option:hover { border-color: var(--link); color: var(--link); }
-    .settings-option.is-active { border-color: var(--link); background: var(--button-hover-bg); color: var(--link); box-shadow: inset 3px 0 0 var(--link); }
+    .settings-option.is-active { border-color: var(--link); background: var(--settings-active-bg); color: var(--settings-active-text); box-shadow: inset 3px 0 0 var(--link); }
     .copy-context-menu[hidden] { display: none; }
     .copy-context-menu { position: fixed; z-index: 1200; min-width: 178px; padding: 6px; border: 1px solid var(--border); border-radius: 8px; background: var(--panel); box-shadow: 0 12px 32px var(--shadow); }
     .copy-context-menu button { display: flex; align-items: center; justify-content: flex-start; width: 100%; min-height: 32px; padding: 0 10px; border: 0; border-radius: 6px; background: transparent; color: var(--text); cursor: pointer; font: 700 14px/1.2 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; text-align: left; }
@@ -455,7 +459,7 @@
 
 <main>
   <header>
-    <h1>PR 139 to Local Working Tree</h1>
+    <h1>PR 139 to local working tree</h1>
   </header>
   <section class="note-section"><h2>Commit ID</h2><pre class="report-note">8919e524b1f7e00a0733d545938b4153027eaa1a</pre></section>
   <section class="note-section"><h2>Subject</h2><pre class="report-note">arch: arm64: save Xen-provided guest FDT</pre></section>
@@ -1066,6 +1070,7 @@ Signed-off-by: Vladyslav Goncharuk &lt;vladyslav_goncharuk@epam.com&gt;</pre></s
         <button type="button" id="diagram-general-view" data-diagram-general hidden>General view</button>
         <button type="button" data-diagram-search="prev" aria-label="Previous search match">Prev</button>
         <button type="button" data-diagram-search="next" aria-label="Next search match">Next</button>
+        <button type="button" id="diagram-export" data-asset-export hidden>Export</button>
         <button type="button" data-diagram-zoom="out" data-diagram-zoom-tool aria-label="Zoom out">-</button>
         <button type="button" data-diagram-zoom="reset" data-diagram-zoom-tool aria-label="Reset zoom"><span id="diagram-zoom-label">100%</span></button>
         <button type="button" data-diagram-zoom="in" data-diagram-zoom-tool aria-label="Zoom in">+</button>
@@ -1406,6 +1411,7 @@ qemu-system-aarch64: terminating on signal 15 from pid 8 (timeout)
   const searchInput = document.getElementById("diagram-search");
   const searchCount = document.getElementById("diagram-search-count");
   const generalViewButton = document.getElementById("diagram-general-view");
+  const exportButton = document.getElementById("diagram-export");
   const storyContext = document.getElementById("diagram-story-context");
   const storyTitle = document.getElementById("diagram-story-title");
   const storyBody = document.getElementById("diagram-story-body");
@@ -1425,6 +1431,7 @@ qemu-system-aarch64: terminating on signal 15 from pid 8 (timeout)
   let panStartY = 0;
   let panStartLeft = 0;
   let panStartTop = 0;
+  let activeExportName = "asset";
 
   function setScale(nextScale) {
     scale = Math.max(0.25, Math.min(4, nextScale));
@@ -1486,6 +1493,134 @@ qemu-system-aarch64: terminating on signal 15 from pid 8 (timeout)
     for (const tool of zoomTools) {
       tool.hidden = mode !== "diagram";
     }
+    if (exportButton) {
+      exportButton.hidden = mode !== "diagram" && mode !== "log";
+      exportButton.textContent = mode === "diagram" ? "Save as SVG" : "Save as HTML";
+    }
+  }
+
+  function safeFileName(text, extension) {
+    const base = String(text || "asset")
+      .trim()
+      .replace(/[^A-Za-z0-9._-]+/g, "-")
+      .replace(/^-+|-+$/g, "")
+      .slice(0, 80) || "asset";
+    return base + "." + extension;
+  }
+
+  function downloadBlob(filename, type, text) {
+    const blob = new Blob([text], { type: type });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    window.setTimeout(function () {
+      URL.revokeObjectURL(url);
+    }, 0);
+  }
+
+  function escapeHtml(text) {
+    return String(text).replace(/[&<>"']/g, function (char) {
+      return {
+        "&": "&amp;",
+        "<": "&lt;",
+        ">": "&gt;",
+        '"': "&quot;",
+        "'": "&#39;",
+      }[char];
+    });
+  }
+
+  function cssVariable(name, fallback) {
+    const value = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+    return value || fallback;
+  }
+
+  function standaloneDiagramStyle() {
+    const focus = cssVariable("--diagram-focus", "#1d4ed8");
+    const noteBg = cssVariable("--diagram-note-bg", "#dbeafe");
+    const noteHoverBg = cssVariable("--diagram-note-hover-bg", "#bfdbfe");
+    const noteText = cssVariable("--diagram-note-text", "#111827");
+    const noteLink = cssVariable("--diagram-note-link", "#2563eb");
+    const noteMarkerBg = cssVariable("--diagram-note-marker-bg", "#eff6ff");
+    return [
+      "svg .asset-focus-connector { stroke: " + focus + " !important; stroke-width: 3px !important; opacity: .95; }",
+      "svg line.asset-focus-connector, svg path.asset-focus-connector, svg polyline.asset-focus-connector { stroke-dasharray: 10 7; animation: focus-dash-flow 1.1s linear infinite; }",
+      "svg line.asset-focus-connector-reverse, svg path.asset-focus-connector-reverse, svg polyline.asset-focus-connector-reverse { animation-name: focus-dash-flow-reverse; }",
+      "svg polygon.asset-focus-connector { fill: " + focus + " !important; opacity: .95; animation: focus-arrow-pulse 1.1s ease-in-out infinite; }",
+      "svg .asset-focus-match { fill: " + focus + " !important; stroke: none !important; }",
+      "svg .asset-focus-related-hover { stroke: " + focus + " !important; fill: " + focus + " !important; opacity: 1 !important; }",
+      "svg text.asset-focus-related-hover, svg tspan.asset-focus-related-hover { fill: " + focus + " !important; stroke: none !important; }",
+      "svg .diagram-note-panel { opacity: 0; pointer-events: none; transition: opacity .12s ease; }",
+      "svg .diagram-note-hover .diagram-note-panel, svg .diagram-note-hotspot:hover .diagram-note-panel { opacity: 1; pointer-events: auto; }",
+      "svg .diagram-note-box { fill: " + noteBg + "; stroke: " + noteLink + "; stroke-width: 1.8px; rx: 6px; ry: 6px; }",
+      "svg .diagram-note-text, svg .diagram-note-text tspan { fill: " + noteText + " !important; font: 12px -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; pointer-events: none; }",
+      "svg .diagram-note-link { fill: none; stroke: " + noteLink + "; stroke-width: 1.8px; opacity: .95; }",
+      "svg .diagram-note-marker { fill: " + noteMarkerBg + "; stroke: " + noteLink + "; stroke-width: 1.8px; }",
+      "svg .diagram-note-marker-text { fill: " + noteLink + "; font: 700 13px -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; text-anchor: middle; dominant-baseline: central; pointer-events: none; }",
+      "svg .diagram-note-hotspot { cursor: pointer; }",
+      "svg .diagram-note-hover .diagram-note-box, svg .diagram-note-hotspot:hover .diagram-note-box { fill: " + noteHoverBg + "; stroke: " + noteLink + "; stroke-width: 2.4px; }",
+      "svg .diagram-note-hover .diagram-note-marker, svg .diagram-note-hotspot:hover .diagram-note-marker { fill: " + noteHoverBg + "; stroke: " + noteLink + "; stroke-width: 2.4px; }",
+      "svg .diagram-note-hover .diagram-note-link, svg .diagram-note-hotspot:hover .diagram-note-link { stroke: " + noteLink + "; stroke-width: 2.1px; opacity: 1; }",
+      "@keyframes focus-dash-flow { from { stroke-dashoffset: 0; } to { stroke-dashoffset: -17; } }",
+      "@keyframes focus-dash-flow-reverse { from { stroke-dashoffset: 0; } to { stroke-dashoffset: 17; } }",
+      "@keyframes focus-arrow-pulse { 0%, 100% { opacity: .95; } 50% { opacity: .62; } }",
+      "@media (prefers-reduced-motion: reduce) { svg line.asset-focus-connector, svg path.asset-focus-connector, svg polyline.asset-focus-connector, svg polygon.asset-focus-connector { animation: none; } }",
+    ].join("\n");
+  }
+
+  function removeCodeLinkState(svg) {
+    for (const node of svg.querySelectorAll(".diagram-code-link-badge")) {
+      node.remove();
+    }
+    for (const node of svg.querySelectorAll("[data-code-link-instance], [data-code-link-target]")) {
+      node.classList.remove(
+        "diagram-code-link-target",
+        "diagram-code-link-connector",
+        "diagram-code-link-hover",
+        "diagram-code-link-active"
+      );
+      node.removeAttribute("data-code-link-instance");
+      node.removeAttribute("data-code-link-target");
+    }
+  }
+
+  function exportOpenedDiagram() {
+    const svg = content.querySelector(".diagram-zoom-stage svg");
+    if (!svg) {
+      return;
+    }
+    const clone = svg.cloneNode(true);
+    removeCodeLinkState(clone);
+    if (!clone.getAttribute("xmlns")) {
+      clone.setAttribute("xmlns", "http://www.w3.org/2000/svg");
+    }
+    const style = document.createElementNS("http://www.w3.org/2000/svg", "style");
+    style.textContent = standaloneDiagramStyle();
+    clone.insertBefore(style, clone.firstChild);
+    const source = new XMLSerializer().serializeToString(clone);
+    downloadBlob(safeFileName(activeExportName, "svg"), "image/svg+xml;charset=utf-8", source);
+  }
+
+  function exportOpenedLog() {
+    const pre = content.querySelector(".log-view-text");
+    if (!pre) {
+      return;
+    }
+    const sourceText = pre.dataset.sourceText || pre.textContent || "";
+    const safeTitle = escapeHtml(title ? title.textContent : activeExportName);
+    const html = "<!doctype html>\n"
+      + "<html lang=\"en\">\n<head>\n<meta charset=\"utf-8\">\n"
+      + "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n"
+      + "<title>" + safeTitle + "</title>\n"
+      + "<style>body{margin:0;background:#0d1117;color:#e6edf3;}main{padding:24px;}h1{font:700 18px -apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;margin:0 0 16px;}pre{margin:0;white-space:pre-wrap;overflow-wrap:anywhere;word-break:break-word;font:14px/1.45 ui-monospace,SFMono-Regular,Consolas,monospace;}</style>\n"
+      + "</head>\n<body><main><h1>" + safeTitle + "</h1><pre>"
+      + escapeHtml(sourceText)
+      + "</pre></main></body>\n</html>\n";
+    downloadBlob(safeFileName(activeExportName, "html"), "text/html;charset=utf-8", html);
   }
 
   function clearSearch() {
@@ -2659,6 +2794,7 @@ qemu-system-aarch64: terminating on signal 15 from pid 8 (timeout)
       return;
     }
     title.textContent = template.dataset.title || "Diagram";
+    activeExportName = template.dataset.title || id || nextMode || "asset";
     setStoryContext(nextStoryContext || null);
     content.innerHTML = "";
     const stage = document.createElement("div");
@@ -2717,6 +2853,7 @@ qemu-system-aarch64: terminating on signal 15 from pid 8 (timeout)
     activeFocusTerms = [];
     activeNotes = [];
     activeCodeLinks = [];
+    activeExportName = "asset";
     setStoryContext(null);
     closeCodePopover();
     clearSearch();
@@ -2766,6 +2903,14 @@ qemu-system-aarch64: terminating on signal 15 from pid 8 (timeout)
     if (event.target.closest("[data-diagram-general]")) {
       closeCodePopover();
       applyFocusTerms([], []);
+      return;
+    }
+    if (event.target.closest("[data-asset-export]")) {
+      if (mode === "diagram") {
+        exportOpenedDiagram();
+      } else if (mode === "log") {
+        exportOpenedLog();
+      }
       return;
     }
     if (event.target.closest(".diagram-code-popover")) {
