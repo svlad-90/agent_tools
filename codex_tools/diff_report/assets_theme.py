@@ -14,6 +14,8 @@ def theme_script() -> str:
   const textScaleReset = document.querySelector("[data-text-scale-reset]");
   const minTextScale = 0.9;
   const maxTextScale = 1.3;
+  let activeTextScale = 1;
+  let textScaleRaf = 0;
 
   function currentTheme() {
     return root.dataset.theme === "dark" ? "dark" : "light";
@@ -54,7 +56,7 @@ def theme_script() -> str:
 
   function applyTextScale(scale, persist) {
     const nextScale = normalizeTextScale(scale);
-    root.style.setProperty("--text-scale", String(nextScale));
+    activeTextScale = nextScale;
     if (textScaleReset) {
       textScaleReset.textContent = Math.round(nextScale * 100) + "%";
     }
@@ -64,6 +66,13 @@ def theme_script() -> str:
       button.disabled = disabled;
       button.setAttribute("aria-disabled", disabled ? "true" : "false");
     }
+    if (textScaleRaf) {
+      window.cancelAnimationFrame(textScaleRaf);
+    }
+    textScaleRaf = window.requestAnimationFrame(function () {
+      textScaleRaf = 0;
+      root.style.setProperty("--text-scale", String(nextScale));
+    });
     if (persist) {
       try {
         localStorage.setItem(textScaleKey, String(nextScale));
@@ -110,8 +119,7 @@ def theme_script() -> str:
   }
   for (const button of textScaleButtons) {
     button.addEventListener("click", function () {
-      const currentScale = Number(root.style.getPropertyValue("--text-scale")) || 1;
-      applyTextScale(currentScale + Number(button.dataset.textScaleStep || 0), true);
+      applyTextScale(activeTextScale + Number(button.dataset.textScaleStep || 0), true);
     });
   }
   if (textScaleReset) {

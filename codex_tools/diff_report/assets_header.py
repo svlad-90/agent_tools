@@ -435,8 +435,8 @@ def html_header(title: str) -> str:
     svg .asset-focus-related-hover {{ stroke: var(--diagram-focus) !important; fill: var(--diagram-focus) !important; opacity: 1 !important; filter: drop-shadow(0 0 2px rgba(255,255,255,.95)); }}
     svg text.asset-focus-related-hover, svg tspan.asset-focus-related-hover {{ fill: var(--diagram-focus) !important; stroke: none !important; }}
     svg .asset-search-match {{ fill: #cf222e !important; stroke: none !important; }}
-    svg .asset-search-submatch {{ fill: rgba(255,42,61,.26); stroke: #ff2a3d; stroke-width: 2px; vector-effect: non-scaling-stroke; opacity: .98; }}
-    svg .asset-search-submatch-text {{ fill: #ff2a3d !important; stroke: rgba(255,255,255,.74); stroke-width: 2px; paint-order: stroke fill; font-weight: 900 !important; text-decoration: underline; text-decoration-thickness: 2px; text-underline-offset: 3px; pointer-events: none; }}
+    svg .asset-search-submatch {{ fill: #cf222e; stroke: #ff8a96; stroke-width: 1.4px; vector-effect: non-scaling-stroke; opacity: .96; }}
+    svg .asset-search-submatch-text {{ fill: #ffffff !important; stroke: none !important; font-weight: 900 !important; pointer-events: none; }}
     svg .asset-search-current {{ fill: #ff2a3d !important; stroke: none !important; filter: none; font-weight: 800 !important; text-decoration: underline; text-decoration-thickness: 2px; text-underline-offset: 3px; }}
     svg text.asset-search-current, svg tspan.asset-search-current {{ fill: #ff2a3d !important; stroke: none !important; filter: none; font-weight: 800 !important; text-decoration: underline; text-decoration-thickness: 2px; text-underline-offset: 3px; }}
     @keyframes focus-dash-flow {{ from {{ stroke-dashoffset: 0; }} to {{ stroke-dashoffset: -17; }} }}

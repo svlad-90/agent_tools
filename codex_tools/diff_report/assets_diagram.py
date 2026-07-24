@@ -27,6 +27,7 @@ def diagram_script() -> str:
   let activeCodeLinkHoverTarget = "";
   let searchMatches = [];
   let searchIndex = -1;
+  let searchRaf = 0;
   let isPanning = false;
   let panStartX = 0;
   let panStartY = 0;
@@ -675,6 +676,16 @@ def diagram_script() -> str:
     showSearchMatch();
   }
 
+  function scheduleSearch(resetIndex) {
+    if (searchRaf) {
+      window.cancelAnimationFrame(searchRaf);
+    }
+    searchRaf = window.requestAnimationFrame(function () {
+      searchRaf = 0;
+      updateSearch(resetIndex);
+    });
+  }
+
   function searchDiagram(query) {
     const lowerQuery = query.toLowerCase();
     const textNodes = content.querySelectorAll("svg text");
@@ -710,10 +721,10 @@ def diagram_script() -> str:
         if (box) {
           const rect = document.createElementNS(namespace, "rect");
           rect.classList.add("asset-search-submatch");
-          rect.setAttribute("x", String(box.x - 1.5));
-          rect.setAttribute("y", String(box.y - 1));
-          rect.setAttribute("width", String(Math.max(2, box.width + 3)));
-          rect.setAttribute("height", String(Math.max(2, box.height + 2)));
+          rect.setAttribute("x", String(box.x - 2.5));
+          rect.setAttribute("y", String(box.y - 2));
+          rect.setAttribute("width", String(Math.max(2, box.width + 5)));
+          rect.setAttribute("height", String(Math.max(2, box.height + 4)));
           rect.setAttribute("rx", "2");
           rect.setAttribute("ry", "2");
           underlay.appendChild(rect);
@@ -1949,7 +1960,7 @@ def diagram_script() -> str:
 
   if (searchInput) {
     searchInput.addEventListener("input", function () {
-      updateSearch(true);
+      scheduleSearch(true);
     });
   }
 
