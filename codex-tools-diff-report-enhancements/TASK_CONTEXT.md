@@ -114,10 +114,18 @@ existing behavior with regression tests.
   top arrow. Settings and top navigation are rendered as external floating
   controls aligned symmetrically to the left and right edges of the main content
   column.
+- The floating Settings and top-arrow controls are equal-sized circular buttons
+  positioned just outside the main content column when there is room, with a
+  small viewport-edge fallback on narrow layouts.
+- The report brand mark/text scale was increased so the fixed brand card reads
+  as a deliberate logo block rather than a small element inside a large target
+  area.
 - SVG search highlighting now uses a temporary inline `fill: #cf222e
   !important` overlay with restoration of the previous inline style so matches
   remain visible even when SVG text is colored directly by PlantUML/manual
   styles.
+- The current SVG search match uses a brighter red inline fill and bold,
+  underlined CSS styling, while other found SVG text stays plain red.
 - Active-file navigation auto-scroll is now limited to fixed-position nav
   layouts; when the tree is part of the page flow on narrow screens it only
   updates the active item and does not call `scrollIntoView()`.
@@ -319,6 +327,10 @@ copied report keeps the same relative layout.
   as a floating left-side control and the top arrow as a matching floating
   right-side control around the main content column.
 - After that control placement change,
+  `codex-tools-diff-report-enhancements/scripts/run-ci.sh` passed with 38
+  unittest cases.
+- After increasing the logo scale, moving floating controls outside the content
+  column, and brightening the current SVG search match,
   `codex-tools-diff-report-enhancements/scripts/run-ci.sh` passed with 38
   unittest cases.
 - Headless Chrome screenshot check at 1280x720 confirmed the report brand is

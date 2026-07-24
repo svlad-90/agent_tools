@@ -92,11 +92,11 @@ def html_header(title: str) -> str:
       --nav-width: 430px;
       --brand-height: 250px;
       --brand-top-padding: 16px;
-      --brand-mark-size: 144px;
+      --brand-mark-size: 172px;
       --brand-title-size: 80px;
       --brand-subtitle-size: 40px;
-      --brand-gap: 24px;
-      --brand-padding-x: 28px;
+      --brand-gap: 20px;
+      --brand-padding-x: 20px;
       --settings-top: calc(var(--page-gutter) + var(--brand-height) - 44px);
       --review-nav-top: calc(var(--page-gutter) + var(--brand-height) + 12px);
       --left-chrome-x: calc(var(--page-gutter) + 34px);
@@ -105,6 +105,8 @@ def html_header(title: str) -> str:
       --screen-body-font: 18px;
       --screen-code-font: 15px;
       --content-width: 1260px;
+      --floating-control-size: 44px;
+      --floating-control-gap: 10px;
       --floating-content-gutter: max(24px, calc((100vw - var(--nav-width) - var(--content-width)) / 2));
     }}
     :root[data-theme="dark"] {{
@@ -179,9 +181,9 @@ def html_header(title: str) -> str:
     .report-brand-text {{ display: grid; gap: 2px; min-width: 0; line-height: 1.05; }}
     .report-brand-title {{ font-size: var(--brand-title-size); white-space: nowrap; }}
     .report-brand-subtitle {{ color: var(--muted); font-size: var(--brand-subtitle-size); white-space: nowrap; }}
-    .settings-launcher {{ position: fixed; left: calc(var(--nav-width) + var(--floating-content-gutter)); bottom: 24px; z-index: 32; width: auto; opacity: 0; visibility: hidden; pointer-events: none; transform: translateY(10px) scale(.96); transition: opacity .18s ease, transform .18s ease, visibility 0s linear .18s, border-color .12s ease, box-shadow .12s ease; }}
-    .settings-toggle {{ display: inline-flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; width: 34px; height: 34px; padding: 0; border: 1px solid var(--border); border-radius: 8px; background: var(--button-bg); color: var(--link); box-shadow: none; cursor: pointer; font: 800 18px/1 ui-monospace, SFMono-Regular, Consolas, monospace; }}
-    .settings-toggle span, .settings-toggle::before, .settings-toggle::after {{ content: ""; display: block; width: 16px; height: 2px; border-radius: 99px; background: currentColor; }}
+    .settings-launcher {{ position: fixed; left: max(8px, calc(var(--nav-width) + var(--floating-content-gutter) - var(--floating-control-size) - var(--floating-control-gap))); bottom: 24px; z-index: 32; width: auto; opacity: 0; visibility: hidden; pointer-events: none; transform: translateY(10px) scale(.96); transition: opacity .18s ease, transform .18s ease, visibility 0s linear .18s, border-color .12s ease, box-shadow .12s ease; }}
+    .settings-toggle {{ display: inline-flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; width: var(--floating-control-size); height: var(--floating-control-size); padding: 0; border: 1px solid var(--border); border-radius: 999px; background: var(--button-bg); color: var(--link); box-shadow: 0 10px 28px var(--shadow); cursor: pointer; font: 800 18px/1 ui-monospace, SFMono-Regular, Consolas, monospace; }}
+    .settings-toggle span, .settings-toggle::before, .settings-toggle::after {{ content: ""; display: block; width: 18px; height: 2px; border-radius: 99px; background: currentColor; }}
     .settings-toggle:hover {{ border-color: var(--link); box-shadow: 0 12px 32px rgba(9,105,218,.22); }}
     .settings-modal[hidden] {{ display: none; }}
     .settings-modal {{ position: fixed; inset: 0; z-index: 1100; }}
@@ -261,8 +263,8 @@ def html_header(title: str) -> str:
     body.is-resizing-review-nav {{ cursor: ew-resize; user-select: none; }}
     .story {{ position: sticky; top: 0; z-index: 12; padding: 10px 12px; margin-bottom: 0; border-bottom: 0; border-bottom-left-radius: 0; border-bottom-right-radius: 0; box-shadow: 0 8px 22px rgba(31,35,40,.08); }}
     .story h2 {{ margin: 0; font-size: var(--screen-code-font); }}
-    .to-top-button {{ position: fixed; right: var(--floating-content-gutter); bottom: 24px; z-index: 32; display: inline-flex; align-items: center; justify-content: center; width: 58px; height: 58px; border: 1px solid var(--border); border-radius: 999px; background: var(--button-bg); color: var(--link); box-shadow: 0 10px 28px var(--shadow); cursor: pointer; opacity: 0; visibility: hidden; pointer-events: none; transform: translateY(10px) scale(.96); transition: opacity .18s ease, transform .18s ease, visibility 0s linear .18s, border-color .12s ease, box-shadow .12s ease; font-size: 0; }}
-    .to-top-button::before {{ content: ""; width: 15px; height: 15px; border-left: 4px solid currentColor; border-top: 4px solid currentColor; transform: translateY(4px) rotate(45deg); border-radius: 2px; }}
+    .to-top-button {{ position: fixed; right: max(8px, calc(var(--floating-content-gutter) - var(--floating-control-size) - var(--floating-control-gap))); bottom: 24px; z-index: 32; display: inline-flex; align-items: center; justify-content: center; width: var(--floating-control-size); height: var(--floating-control-size); border: 1px solid var(--border); border-radius: 999px; background: var(--button-bg); color: var(--link); box-shadow: 0 10px 28px var(--shadow); cursor: pointer; opacity: 0; visibility: hidden; pointer-events: none; transform: translateY(10px) scale(.96); transition: opacity .18s ease, transform .18s ease, visibility 0s linear .18s, border-color .12s ease, box-shadow .12s ease; font-size: 0; }}
+    .to-top-button::before {{ content: ""; width: 13px; height: 13px; border-left: 4px solid currentColor; border-top: 4px solid currentColor; transform: translateY(4px) rotate(45deg); border-radius: 2px; }}
     .to-top-button:hover {{ border-color: var(--link); box-shadow: 0 12px 32px rgba(9,105,218,.22); transform: translateY(0) scale(1.03); }}
     body.has-left-top .to-top-button, body.has-left-top .report-settings-launcher {{ opacity: 1; visibility: visible; pointer-events: auto; transform: translateY(0) scale(1); transition-delay: 0s; }}
     .story-steps {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); align-items: stretch; gap: 6px; margin: 0; padding: 0; list-style: none; }}
@@ -425,8 +427,8 @@ def html_header(title: str) -> str:
     svg .asset-focus-related-hover {{ stroke: var(--diagram-focus) !important; fill: var(--diagram-focus) !important; opacity: 1 !important; filter: drop-shadow(0 0 2px rgba(255,255,255,.95)); }}
     svg text.asset-focus-related-hover, svg tspan.asset-focus-related-hover {{ fill: var(--diagram-focus) !important; stroke: none !important; }}
     svg .asset-search-match {{ fill: #cf222e !important; stroke: none !important; }}
-    svg .asset-search-current {{ fill: #cf222e !important; stroke: none !important; filter: none; }}
-    svg text.asset-search-current, svg tspan.asset-search-current {{ fill: #cf222e !important; stroke: none !important; filter: none; }}
+    svg .asset-search-current {{ fill: #ff2a3d !important; stroke: none !important; filter: none; font-weight: 800 !important; text-decoration: underline; text-decoration-thickness: 2px; text-underline-offset: 3px; }}
+    svg text.asset-search-current, svg tspan.asset-search-current {{ fill: #ff2a3d !important; stroke: none !important; filter: none; font-weight: 800 !important; text-decoration: underline; text-decoration-thickness: 2px; text-underline-offset: 3px; }}
     @keyframes focus-dash-flow {{ from {{ stroke-dashoffset: 0; }} to {{ stroke-dashoffset: -17; }} }}
     @keyframes focus-dash-flow-reverse {{ from {{ stroke-dashoffset: 0; }} to {{ stroke-dashoffset: 17; }} }}
     @keyframes focus-arrow-pulse {{ 0%, 100% {{ opacity: .55; }} 50% {{ opacity: .9; }} }}
@@ -440,7 +442,7 @@ def html_header(title: str) -> str:
       :root {{
         --nav-width: 460px;
         --brand-height: 260px;
-        --brand-mark-size: 150px;
+        --brand-mark-size: 176px;
         --brand-title-size: 84px;
         --brand-subtitle-size: 42px;
         --content-width: 1500px;
@@ -453,11 +455,11 @@ def html_header(title: str) -> str:
         --nav-width: 350px;
         --brand-height: 188px;
         --brand-top-padding: 12px;
-        --brand-mark-size: 96px;
-        --brand-title-size: 52px;
-        --brand-subtitle-size: 26px;
-        --brand-gap: 14px;
-        --brand-padding-x: 18px;
+        --brand-mark-size: 128px;
+        --brand-title-size: 58px;
+        --brand-subtitle-size: 29px;
+        --brand-gap: 12px;
+        --brand-padding-x: 12px;
         --content-width: 1120px;
         --screen-body-font: 16px;
         --screen-code-font: 14px;
@@ -472,16 +474,15 @@ def html_header(title: str) -> str:
       :root {{
         --nav-width: 300px;
         --brand-height: 174px;
-        --brand-mark-size: 92px;
-        --brand-title-size: 50px;
-        --brand-subtitle-size: 25px;
-        --brand-gap: 10px;
-        --brand-padding-x: 14px;
+        --brand-mark-size: 134px;
+        --brand-title-size: 58px;
+        --brand-subtitle-size: 29px;
+        --brand-gap: 8px;
+        --brand-padding-x: 8px;
         --content-width: 920px;
         --screen-body-font: 15px;
         --screen-code-font: 13px;
       }}
-      .settings-toggle {{ width: 30px; height: 30px; font-size: 15px; }}
       .review-nav {{ padding-right: 10px; }}
       .review-nav-head button {{ min-width: 86px; }}
       .story-steps {{ grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); }}

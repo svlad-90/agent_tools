@@ -692,19 +692,19 @@ def diagram_script() -> str:
 
   function setSvgSearchClassOnNode(node, className, enabled) {
     node.classList.toggle(className, enabled);
-    if (enabled) {
-      applySvgSearchPaint(node);
-    } else if (!node.classList.contains("asset-search-match") && !node.classList.contains("asset-search-current")) {
+    if (enabled || node.classList.contains("asset-search-match") || node.classList.contains("asset-search-current")) {
+      applySvgSearchPaint(node, node.classList.contains("asset-search-current"));
+    } else {
       restoreSvgSearchPaint(node);
     }
   }
 
-  function applySvgSearchPaint(node) {
+  function applySvgSearchPaint(node, isCurrent) {
     if (!node.classList.contains("asset-search-painted")) {
       node.dataset.assetSearchStyle = node.hasAttribute("style") ? node.getAttribute("style") : "";
       node.classList.add("asset-search-painted");
     }
-    node.style.setProperty("fill", "#cf222e", "important");
+    node.style.setProperty("fill", isCurrent ? "#ff2a3d" : "#cf222e", "important");
     node.style.setProperty("stroke", "none", "important");
     node.style.setProperty("filter", "none", "important");
   }
