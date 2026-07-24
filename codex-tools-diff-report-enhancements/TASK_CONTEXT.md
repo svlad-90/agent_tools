@@ -113,6 +113,8 @@ copied report keeps the same relative layout.
   `~/Projects/new_dev/codex_tools/diff_report/tests/test_comments.py`.
 - Added
   `~/Projects/new_dev/codex_tools/diff_report/tests/test_refresh.py`.
+- Added
+  `~/Projects/new_dev/codex_tools/diff_report/tests/test_cli.py`.
 - The tests copy the task-owned baseline fixture into a temporary directory and
   regenerate the report there.
 - Covered behavior:
@@ -199,6 +201,8 @@ copied report keeps the same relative layout.
   passed.
 - `python -m codex_tools.code_map parse-check codex_tools/diff_report/tests/test_refresh.py`
   passed.
+- `python -m codex_tools.code_map parse-check codex_tools/diff_report/tests/test_cli.py`
+  passed.
 - `python -m unittest codex_tools.diff_report.tests.test_pr139_report_regression`
   passed.
 - `python -m unittest codex_tools.diff_report.tests.test_diff_report_behavior`
@@ -267,6 +271,12 @@ copied report keeps the same relative layout.
 - After adding explicit parse-check lines for all diff report test modules,
   `codex_tools/environments/codex-tools-act/scripts/validate.sh` passed through
   local `act`; the workflow ran the shared script with twenty-one unittest
+  cases.
+- After adding direct CLI tests, `codex-tools-diff-report-enhancements/scripts/run-ci.sh`
+  passed with twenty-six unittest cases.
+- After adding direct CLI tests,
+  `codex_tools/environments/codex-tools-act/scripts/validate.sh` passed through
+  local `act`; the workflow ran the shared script with twenty-six unittest
   cases.
 
 ## Remaining Work

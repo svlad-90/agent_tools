@@ -15,6 +15,7 @@ python -m codex_tools.code_map parse-check codex_tools/diff_report/refresh.py
 python -m codex_tools.code_map parse-check codex_tools/diff_report/render.py
 python -m codex_tools.code_map parse-check codex_tools/diff_report/__init__.py
 python -m codex_tools.code_map parse-check codex_tools/diff_report/__main__.py
+python -m codex_tools.code_map parse-check codex_tools/diff_report/tests/test_cli.py
 python -m codex_tools.code_map parse-check codex_tools/diff_report/tests/test_comments.py
 python -m codex_tools.code_map parse-check codex_tools/diff_report/tests/test_diff_parse.py
 python -m codex_tools.code_map parse-check codex_tools/diff_report/tests/test_diff_report_behavior.py
