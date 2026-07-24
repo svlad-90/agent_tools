@@ -50,6 +50,12 @@ existing behavior with regression tests.
   workflow, shared script, context, and copied fixture artifacts can be tracked.
 - Reusable local GitHub Actions validation lives under
   `~/Projects/new_dev/codex_tools/environments/codex-tools-act/`.
+- The first implementation split keeps `codex_tools.diff_report.core` as the
+  public orchestration and rendering module while moving immutable data models
+  to `codex_tools.diff_report.models`.
+- The second implementation split moves git/diff source loading, commit message
+  extraction from patches, diff file ordering, and diff statistics into
+  `codex_tools.diff_report.diff_source`.
 - Workspace-local skills were checked; only `commit-message-format` is present
   and it does not apply to task setup.
 
@@ -74,6 +80,9 @@ copied report keeps the same relative layout.
   `~/Projects/new_dev/codex_tools/diff_report/tests/test_pr139_report_regression.py`.
 - Added
   `~/Projects/new_dev/codex_tools/diff_report/tests/test_diff_report_behavior.py`.
+- Added implementation modules:
+  - `~/Projects/new_dev/codex_tools/diff_report/models.py`
+  - `~/Projects/new_dev/codex_tools/diff_report/diff_source.py`
 - The tests copy the task-owned baseline fixture into a temporary directory and
   regenerate the report there.
 - Covered behavior:
@@ -136,6 +145,10 @@ copied report keeps the same relative layout.
   passed.
 - `python -m codex_tools.code_map parse-check codex_tools/diff_report/tests/test_diff_report_behavior.py`
   passed.
+- `python -m codex_tools.code_map parse-check codex_tools/diff_report/models.py`
+  passed.
+- `python -m codex_tools.code_map parse-check codex_tools/diff_report/diff_source.py`
+  passed.
 - `python -m unittest codex_tools.diff_report.tests.test_pr139_report_regression`
   passed.
 - `python -m unittest codex_tools.diff_report.tests.test_diff_report_behavior`
@@ -154,13 +167,21 @@ copied report keeps the same relative layout.
 - After expanding baseline behavior coverage,
   `codex_tools/environments/codex-tools-act/scripts/validate.sh` passed through
   local `act`; the workflow ran the shared script with six unittest cases.
+- After extracting `models.py` and `diff_source.py`,
+  `codex-tools-diff-report-enhancements/scripts/run-ci.sh` passed with six
+  unittest cases.
+- After extracting `models.py` and `diff_source.py`,
+  `codex_tools/environments/codex-tools-act/scripts/validate.sh` passed through
+  local `act`; the workflow ran the shared script with six unittest cases.
 
 ## Remaining Work
 
-- Plan a conservative module split for `codex_tools/diff_report/core.py`.
+- Continue the conservative module split for
+  `codex_tools/diff_report/core.py`.
+- Next likely split: move comments JSON loading and normalization while keeping
+  shared `refresh-targets` helpers explicit.
 - Resolve exact symbol spans with `python -m codex_tools.code_map symbol-get`
   before moving or editing existing functions.
-- Implement the split in the relevant `codex_tools` modules.
 - Run `codex-tools-diff-report-enhancements/scripts/run-ci.sh` after each
   meaningful split.
 - Run `codex_tools/environments/codex-tools-act/scripts/validate.sh` before
