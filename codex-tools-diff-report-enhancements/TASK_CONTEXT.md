@@ -335,14 +335,30 @@ copied report keeps the same relative layout.
   `codex_tools/environments/codex-tools-act/scripts/validate.sh` passed through
   local `act`; the workflow ran the shared script with thirty-five unittest
   cases.
+- Extended findings compose UX so
+  `--findings findings.json --output-comments comments.json --output report.html`
+  composes canonical comments and renders HTML in one command when all findings
+  resolve cleanly. `--compose-report diagnostics.json` writes unresolved or
+  ambiguous finding diagnostics; when diagnostics are present the CLI writes the
+  resolved subset to comments JSON but does not render HTML.
+- Split large static asset builders out of `assets.py` into focused modules:
+  `assets_header.py`, `assets_theme.py`, `assets_story.py`, `assets_copy.py`,
+  and `assets_diagram.py`. The original `assets.py` now re-exports the same
+  public helper names for compatibility.
+- After adding compose UX and splitting static asset modules,
+  `codex-tools-diff-report-enhancements/scripts/run-ci.sh` passed with
+  thirty-eight unittest cases.
+- After adding compose UX and splitting static asset modules,
+  `codex_tools/environments/codex-tools-act/scripts/validate.sh` passed through
+  local `act`; the workflow ran the shared script with thirty-eight unittest
+  cases.
 
 ## Remaining Work
 
-- Continue the conservative module split for
-  `codex_tools/diff_report/core.py`.
+- Continue conservative splits only where a specific feature needs them.
 - `core.py` is now limited to CLI-facing help and report orchestration.
-- Remaining split candidates are smaller and optional: split renderer subareas
-  further if a specific change needs it.
+- Remaining split candidates are smaller and optional: split `render.py`
+  subareas further if a specific change needs it.
 - Resolve exact symbol spans with `python -m codex_tools.code_map symbol-get`
   before moving or editing existing functions.
 - Run `codex-tools-diff-report-enhancements/scripts/run-ci.sh` after each

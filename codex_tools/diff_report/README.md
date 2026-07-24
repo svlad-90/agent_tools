@@ -88,6 +88,21 @@ Content-based matches must resolve to exactly one rendered new-file line in the
 selected file. The generated `comments.json` can then be passed to normal
 rendering or `--refresh-targets`.
 
+To compose and render in one command, add `--output`:
+
+```sh
+python -m codex_tools.diff_report \
+  --diff-file change.patch \
+  --findings findings.json \
+  --output-comments comments.json \
+  --output review.html
+```
+
+When writing findings by `content` or `contains`, add `--compose-report` to get
+a JSON diagnostics file for entries that did not resolve cleanly. If diagnostics
+are present, the tool still writes the resolved subset to `comments.json` but
+does not render HTML.
+
 Target refresh records a status for each inline comment:
 
 - `found`: the existing `file` and `line` still point at a rendered diff line.

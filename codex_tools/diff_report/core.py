@@ -18,6 +18,7 @@ def compact_help() -> str:
             "diff_report --diff-file diff.patch --output report.html --comments comments.json --refresh-targets",
             "diff_report --diff-file diff.patch --init-comments comments.json",
             "diff_report --diff-file diff.patch --findings findings.json --output-comments comments.json",
+            "diff_report --diff-file diff.patch --findings findings.json --output-comments comments.json --output report.html [--compose-report diagnostics.json]",
             "",
             "comments.json schema:",
             "{",
