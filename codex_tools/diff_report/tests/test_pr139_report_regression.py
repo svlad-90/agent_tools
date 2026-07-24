@@ -127,7 +127,9 @@ class Pr139ReportRegressionTests(unittest.TestCase):
             "function rowsWithIntermediateDeletes(rows)",
             "tr.comment-target.add .num, tr.comment-target.add .code { background: linear-gradient(to right, var(--comment-target-overlay), var(--comment-target-overlay)), var(--comment-target-add-bg); }",
             "tr.comment-target.del .num, tr.comment-target.del .code { background: linear-gradient(to right, var(--comment-target-overlay), var(--comment-target-overlay)), var(--comment-target-del-bg); }",
-            "tr.comment-row td { background: linear-gradient(to right, transparent calc(var(--diff-num-width) - 1px), var(--border) calc(var(--diff-num-width) - 1px) var(--diff-num-width), transparent var(--diff-num-width)), linear-gradient(to right, transparent calc(var(--comment-gutter-width) - 1px), var(--border) calc(var(--comment-gutter-width) - 1px) var(--comment-gutter-width), transparent var(--comment-gutter-width)), linear-gradient(to right, var(--comment-target-overlay) 0 var(--comment-gutter-width), transparent var(--comment-gutter-width)), linear-gradient(to right, var(--comment-target-ctx-bg) 0 var(--comment-gutter-width), transparent var(--comment-gutter-width)); padding: 0 !important; box-shadow: inset 4px 0 0 var(--comment-border); }",
+            "tr.comment-row-add { --comment-row-target-bg: var(--comment-target-add-bg); }",
+            "tr.comment-row-del { --comment-row-target-bg: var(--comment-target-del-bg); }",
+            "tr.comment-row td { background: linear-gradient(to right, transparent calc(var(--diff-num-width) - 1px), var(--border) calc(var(--diff-num-width) - 1px) var(--diff-num-width), transparent var(--diff-num-width)), linear-gradient(to right, transparent calc(var(--comment-gutter-width) - 1px), var(--border) calc(var(--comment-gutter-width) - 1px) var(--comment-gutter-width), transparent var(--comment-gutter-width)), linear-gradient(to right, var(--comment-target-overlay) 0 var(--comment-gutter-width), transparent var(--comment-gutter-width)), linear-gradient(to right, var(--comment-row-target-bg) 0 var(--comment-gutter-width), transparent var(--comment-gutter-width)); padding: 0 !important; box-shadow: inset 4px 0 0 var(--comment-border); }",
             "tr.comment-target-end:has(+ tr.comment-row) .num, tr.comment-target-end:has(+ tr.comment-row) .code { box-shadow: none; }",
             'tr[data-file="\' + cssEscape(file) + \'"][data-new-line="\' + String(rangeStart) + \'"]',
             "function cssEscape(value)",
@@ -182,6 +184,7 @@ class Pr139ReportRegressionTests(unittest.TestCase):
             r'<tr class="del comment-target" data-diff-kind="del">'
             r'<td class="num">126</td><td class="num"></td><td class="code">-',
         )
+        self.assertIn('<tr class="comment-row comment-row-add"><td colspan="3">', html)
 
     def test_report_without_story_keeps_top_button_and_shared_story_script(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

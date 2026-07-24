@@ -656,6 +656,15 @@ copied report keeps the same relative layout.
   `report/diff/pr139-to-local-working-tree.html`;
   `codex-tools-diff-report-enhancements/scripts/run-ci.sh` passed with
   thirty-eight unittest cases.
+- Attached-comment rows now carry a `comment-row-add`, `comment-row-del`, or
+  `comment-row-ctx` modifier based on the last included target row rendered
+  before the comment. The empty gutter beside the comment uses that modifier to
+  inherit the same target-row tint, so comments after added rows continue the
+  green target background while comments after neutral rows continue the
+  neutral target background. Regenerated
+  `report/diff/pr139-to-local-working-tree.html`;
+  `codex-tools-diff-report-enhancements/scripts/run-ci.sh` passed with
+  thirty-eight unittest cases.
 
 ## Remaining Work
 
