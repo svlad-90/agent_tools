@@ -297,10 +297,7 @@ def html_header(title: str) -> str:
     .asset-inventory .diagram-list {{ padding: 14px 20px 20px; }}
     .story-target-active {{ outline: 3px solid rgba(9,105,218,.35); outline-offset: 2px; scroll-margin-top: calc(var(--story-offset) + 72px); }}
     .story-target-flash {{ animation: story-target-flash .4s ease-out; }}
-    tr.code-target-flash .num, tr.code-target-flash .code {{ animation: code-target-flash .4s ease-out; }}
-    tr.code-target-flash-start .num, tr.code-target-flash-start .code {{ box-shadow: inset 0 3px 0 rgba(9,105,218,.75); }}
-    tr.code-target-flash-end .num, tr.code-target-flash-end .code {{ box-shadow: inset 0 -3px 0 rgba(9,105,218,.45); }}
-    tr.code-target-flash-start.code-target-flash-end .num, tr.code-target-flash-start.code-target-flash-end .code {{ box-shadow: inset 0 3px 0 rgba(9,105,218,.75), inset 0 -3px 0 rgba(9,105,218,.45); }}
+    .code-target-flash-overlay {{ position: absolute; z-index: 45; pointer-events: none; border: 3px solid rgba(9,105,218,.92); border-radius: 6px; box-shadow: 0 0 0 2px rgba(9,105,218,.22); animation: code-target-overlay-flash .46s ease-out; }}
     .file, .file-comment, .review-comment, tr[id] {{ scroll-margin-top: calc(var(--story-offset) + 72px); }}
     .file-header {{ margin: -1px -1px 0; padding: 10px 13px; border-bottom: 1px solid var(--border); background: var(--header-bg); font-weight: 700; position: sticky; top: calc(var(--story-offset) - 2px); z-index: 6; box-shadow: 0 1px 0 var(--border); }}
     .file-comment {{ min-width: 0; max-width: calc(100% - 24px); margin: 6px 12px 6px; padding: 8px 12px; border-left: 4px solid var(--comment-border); background: var(--comment-bg); border-radius: 6px; overflow-wrap: anywhere; }}
@@ -321,7 +318,7 @@ def html_header(title: str) -> str:
     tr.comment-target-start .num:first-child {{ box-shadow: inset 4px 0 0 var(--comment-border), inset 0 2px 0 var(--comment-border); }}
     tr.comment-target-end .num:first-child {{ box-shadow: inset 4px 0 0 var(--comment-border), inset 0 -2px 0 var(--comment-border); }}
     tr.comment-target-single .num:first-child {{ box-shadow: inset 4px 0 0 var(--comment-border), inset 0 2px 0 var(--comment-border), inset 0 -2px 0 var(--comment-border); }}
-    tr.comment-row td {{ background: linear-gradient(to right, var(--comment-row-bg) 0 112px, transparent 112px); padding: 0 !important; }}
+    tr.comment-row td {{ background: linear-gradient(to right, var(--comment-row-bg) 0 112px, transparent 112px); padding: 0 !important; box-shadow: inset 4px 0 0 var(--comment-border); }}
     .review-comment {{ position: relative; margin: 6px 18px 14px 112px; border: 1px solid var(--comment-panel-border); border-left-width: 4px; background: var(--comment-bg); border-radius: 6px; box-shadow: 0 1px 2px rgba(31,35,40,.08); overflow: hidden; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }}
     .review-comment::before {{ content: ""; position: absolute; top: -7px; left: -4px; width: 4px; height: 7px; background: var(--comment-border); }}
     .review-comment .title {{ padding: 8px 10px; font-weight: 700; border-bottom: 1px solid var(--comment-title-border); background: var(--comment-title-bg); }}
@@ -441,10 +438,10 @@ def html_header(title: str) -> str:
     @keyframes focus-dash-flow-reverse {{ from {{ stroke-dashoffset: 0; }} to {{ stroke-dashoffset: 17; }} }}
     @keyframes focus-arrow-pulse {{ 0%, 100% {{ opacity: .55; }} 50% {{ opacity: .9; }} }}
     @keyframes story-target-flash {{ 0% {{ box-shadow: 0 0 0 0 rgba(9,105,218,.75), inset 0 0 0 3px rgba(9,105,218,.8); filter: saturate(1.28) brightness(1.03); }} 55% {{ box-shadow: 0 0 0 10px rgba(9,105,218,.22), inset 0 0 0 2px rgba(9,105,218,.5); filter: saturate(1.12) brightness(1.01); }} 100% {{ box-shadow: 0 0 0 16px rgba(9,105,218,0), inset 0 0 0 0 rgba(9,105,218,0); filter: saturate(1) brightness(1); }} }}
-    @keyframes code-target-flash {{ 0% {{ outline: 3px solid rgba(9,105,218,.85); outline-offset: -2px; filter: saturate(1.28) brightness(1.03); font-weight: 800; }} 45% {{ outline: 2px solid rgba(9,105,218,.55); outline-offset: -1px; filter: saturate(1.16) brightness(1.01); font-weight: 650; }} 100% {{ outline: 0 solid rgba(9,105,218,0); outline-offset: 0; filter: saturate(1) brightness(1); font-weight: 400; }} }}
+    @keyframes code-target-overlay-flash {{ 0% {{ opacity: 1; transform: scale(1.004); box-shadow: 0 0 0 0 rgba(9,105,218,.42), 0 0 0 2px rgba(9,105,218,.32); }} 70% {{ opacity: .96; box-shadow: 0 0 0 8px rgba(9,105,218,.18), 0 0 0 2px rgba(9,105,218,.22); }} 100% {{ opacity: 0; transform: scale(1); box-shadow: 0 0 0 12px rgba(9,105,218,0), 0 0 0 0 rgba(9,105,218,0); }} }}
     @media (prefers-reduced-motion: reduce) {{
       svg line.asset-focus-connector, svg path.asset-focus-connector, svg polyline.asset-focus-connector, svg polygon.asset-focus-connector {{ animation: none; }}
-      .story-target-flash, tr.code-target-flash .code {{ animation: none; }}
+      .story-target-flash, .code-target-flash-overlay {{ animation: none; }}
     }}
     @media (min-width: 1800px) {{
       :root {{

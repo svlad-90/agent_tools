@@ -160,6 +160,12 @@ existing behavior with regression tests.
   on every target row.
 - Comment target rows now render as a consistent highlighted block across
   added, deleted, and context rows, with shared top/bottom block borders.
+- Deleted diff rows that sit between covered new-line rows are now included in
+  the same comment target block, so mixed add/delete/context ranges keep a
+  continuous left edge.
+- Story navigation flash now draws one absolute overlay around the union of the
+  target rows and the related review comment instead of animating individual
+  table cells.
 - Active-file navigation auto-scroll is now limited to fixed-position nav
   layouts; when the tree is part of the page flow on narrow screens it only
   updates the active item and does not call `scrollIntoView()`.
@@ -386,6 +392,10 @@ copied report keeps the same relative layout.
   controls, keeping Settings visible, and making comment target ranges render
   as one block, `codex-tools-diff-report-enhancements/scripts/run-ci.sh`
   passed with 38 unittest cases.
+- After including intermediate deleted rows in comment target ranges and moving
+  story flash to a single external overlay,
+  `codex-tools-diff-report-enhancements/scripts/run-ci.sh` passed with 38
+  unittest cases.
 - Headless Chrome screenshot check at 1280x720 confirmed the report brand is
   centered and uses more of the available card area.
 - After expanding baseline behavior coverage,

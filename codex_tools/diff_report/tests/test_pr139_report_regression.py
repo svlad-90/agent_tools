@@ -117,6 +117,10 @@ class Pr139ReportRegressionTests(unittest.TestCase):
             "svg .asset-search-submatch { fill: transparent; stroke: #ff4d5e;",
             "svg .asset-search-current { fill: #ff2a3d !important; stroke: none !important; filter: none; font-weight: 800 !important;",
             "svg text.asset-search-current, svg tspan.asset-search-current",
+            ".code-target-flash-overlay { position: absolute; z-index: 45;",
+            "function createCodeTargetFlashOverlay(targets)",
+            "function rowsWithIntermediateDeletes(rows)",
+            "tr.comment-row td { background: linear-gradient(to right, var(--comment-row-bg) 0 112px, transparent 112px); padding: 0 !important; box-shadow: inset 4px 0 0 var(--comment-border); }",
             "@media (min-width: 1800px)",
             "@media (max-width: 1500px)",
             "@media (max-width: 1280px)",
@@ -160,6 +164,11 @@ class Pr139ReportRegressionTests(unittest.TestCase):
         self.assertNotIn("story-settings-launcher", html)
         self.assertNotIn('id="story-counter"', html)
         self.assertNotIn("story-top-inline", html)
+        self.assertRegex(
+            html,
+            r'<tr class="del comment-target" data-diff-kind="del">'
+            r'<td class="num">126</td><td class="num"></td><td class="code">-',
+        )
 
     def test_report_without_story_keeps_top_button_and_shared_story_script(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
