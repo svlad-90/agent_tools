@@ -90,6 +90,12 @@ existing behavior with regression tests.
   so search matches remain red even on focused or code-linked labels.
 - On narrow layouts the Settings launcher participates in document flow as a
   sticky full-width control instead of overlaying the report content.
+- On narrow layouts the Settings launcher is now visible as an in-flow control
+  at the top of the report, hidden while scrolling through ordinary content,
+  and shown as a compact fixed control on the right once Review Story is pinned
+  as the sticky header.
+- SVG search current-match styling uses the same red text color as other
+  matches and no longer adds a glow/drop-shadow effect.
 
 ## Baseline Fixture
 
@@ -255,6 +261,16 @@ copied report keeps the same relative layout.
   `xenstore-cli/CMakeLists.txt`.
 - Headless Chrome screenshot check at 760x640 confirmed Settings no longer
   overlays report content on a narrow desktop window.
+- After refining narrow Settings visibility and SVG search current-match
+  styling, `python -m unittest
+  codex_tools.diff_report.tests.test_pr139_report_regression` passed with four
+  unittest cases.
+- After refining narrow Settings visibility and SVG search current-match
+  styling, `codex-tools-diff-report-enhancements/scripts/run-ci.sh` passed with
+  38 unittest cases.
+- Headless Chrome screenshot check at 760x640 confirmed the top-of-report
+  Settings placement remains in flow and does not overlay the first report
+  sections.
 - After expanding baseline behavior coverage,
   `codex_tools/environments/codex-tools-act/scripts/validate.sh` passed through
   local `act`; the workflow ran the shared script with six unittest cases.
