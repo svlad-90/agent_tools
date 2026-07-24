@@ -4,111 +4,24 @@ import base64
 import html
 import json
 import re
-import subprocess
-from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from .diff_source import diff_files, diff_stats, load_diff_source
+from .models import (
+    Diagram,
+    DiffReportError,
+    DiffSource,
+    DiffStats,
+    InlineComment,
+    LogAttachment,
+    ReviewComments,
+    StoryStep,
+    SummaryBlock,
+)
+
 
 _HUNK_RE = re.compile(r"^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@")
-
-
-@dataclass(frozen=True)
-class InlineComment:
-    file_path: str
-    line: int
-    body: str
-    title: str = "Review comment"
-    line_range: tuple[int, int] | None = None
-    diagram: str | None = None
-    log: str | None = None
-    diagram_focus: tuple[str, ...] = ()
-    log_focus: tuple[str, ...] = ()
-    diagram_notes: tuple[dict[str, Any], ...] = ()
-
-
-@dataclass(frozen=True)
-class Diagram:
-    diagram_id: str
-    title: str
-    svg: str
-    code_links: tuple[dict[str, Any], ...] = ()
-
-
-@dataclass(frozen=True)
-class LogAttachment:
-    log_id: str
-    title: str
-    text: str
-
-
-@dataclass(frozen=True)
-class StoryStep:
-    step_id: str
-    title: str
-    body: str
-    file_path: str | None = None
-    line: int | None = None
-    comment_file_path: str | None = None
-    comment_line: int | None = None
-    diagram: str | None = None
-    log: str | None = None
-    diagram_focus: tuple[str, ...] = ()
-    log_focus: tuple[str, ...] = ()
-    diagram_notes: tuple[dict[str, Any], ...] = ()
-
-
-@dataclass(frozen=True)
-class SummaryBlock:
-    kind: str
-    text: str | None = None
-    diagram: str | None = None
-    log: str | None = None
-    diagram_focus: tuple[str, ...] = ()
-    log_focus: tuple[str, ...] = ()
-    diagram_notes: tuple[dict[str, Any], ...] = ()
-
-
-@dataclass(frozen=True)
-class ReviewComments:
-    file_comments: dict[str, str]
-    inline_comments: dict[tuple[str, int], tuple[InlineComment, ...]]
-    diagrams: dict[str, Diagram]
-    logs: dict[str, LogAttachment]
-    story: tuple[StoryStep, ...]
-    file_diagrams: dict[str, str]
-    file_logs: dict[str, str]
-    file_diagram_focus: dict[str, tuple[str, ...]]
-    file_log_focus: dict[str, tuple[str, ...]]
-    file_diagram_notes: dict[str, tuple[dict[str, Any], ...]]
-    summary: str | None = None
-    summary_blocks: tuple[SummaryBlock, ...] = ()
-    commit_id: str | None = None
-    commit_message: str | None = None
-
-
-@dataclass(frozen=True)
-class DiffSource:
-    diff_text: str
-    stat_text: str
-    label: str
-    commit: str | None = None
-    subject: str | None = None
-    message: str | None = None
-
-
-@dataclass(frozen=True)
-class DiffStats:
-    files_changed: int
-    files_added: int
-    files_deleted: int
-    files_renamed: int
-    lines_added: int
-    lines_deleted: int
-
-
-class DiffReportError(ValueError):
-    pass
 
 
 _TARGET_STATUS_ORDER = {
@@ -154,7 +67,7 @@ def generate_report(
     display_label: str | None = None,
     refresh_targets: bool = False,
 ) -> None:
-    source = _load_diff_source(repo_path, rev_range, diff_file, context, display_label)
+    source = load_diff_source(repo_path, rev_range, diff_file, context, display_label)
     comments = _load_comments(comments_file)
     output_path.parent.mkdir(parents=True, exist_ok=True)
     rendered_comments = comments
@@ -185,7 +98,7 @@ def render_html_report(
     commit_message = comments.commit_message or source.message
     commit_subject = next((line for line in (commit_message or "").splitlines() if line.strip()), None)
     subject = source.subject or commit_subject
-    stats = _diff_stats(source.diff_text)
+    stats = diff_stats(source.diff_text)
     parts: list[str] = []
     parts.append(_html_header(title))
     parts.append(
@@ -212,7 +125,7 @@ def render_html_report(
     if comments.story:
         parts.append(_render_story_section(comments))
     if comment_count:
-        parts.append(_render_comments_index(comments, _diff_files(source.diff_text)))
+        parts.append(_render_comments_index(comments, diff_files(source.diff_text)))
     parts.append(_render_diff(source.diff_text, comments))
     parts.append(_render_to_top_button())
     if comments.diagrams or comments.logs:
@@ -256,53 +169,6 @@ def _render_diff_stats_section(stats: DiffStats) -> str:
 
 def _comment_count(comments: ReviewComments) -> int:
     return len(comments.file_comments) + sum(len(items) for items in comments.inline_comments.values())
-
-
-def _diff_stats(diff_text: str) -> DiffStats:
-    lines_added = 0
-    lines_deleted = 0
-    files_changed = 0
-    files_added = 0
-    files_deleted = 0
-    files_renamed = 0
-    current_metadata: set[str] = set()
-
-    def close_file() -> None:
-        nonlocal files_added, files_deleted, files_renamed
-        if not current_metadata:
-            return
-        if "renamed" in current_metadata:
-            files_renamed += 1
-        elif "added" in current_metadata:
-            files_added += 1
-        elif "deleted" in current_metadata:
-            files_deleted += 1
-
-    for line in diff_text.splitlines():
-        if line.startswith("diff --git "):
-            close_file()
-            files_changed += 1
-            current_metadata = set()
-            continue
-        if line.startswith("new file mode "):
-            current_metadata.add("added")
-        elif line.startswith("deleted file mode "):
-            current_metadata.add("deleted")
-        elif line.startswith("rename from ") or line.startswith("rename to "):
-            current_metadata.add("renamed")
-        if line.startswith("+") and not line.startswith("+++"):
-            lines_added += 1
-        elif line.startswith("-") and not line.startswith("---"):
-            lines_deleted += 1
-    close_file()
-    return DiffStats(
-        files_changed=files_changed,
-        files_added=files_added,
-        files_deleted=files_deleted,
-        files_renamed=files_renamed,
-        lines_added=lines_added,
-        lines_deleted=lines_deleted,
-    )
 
 
 def _render_summary_section(comments: ReviewComments) -> str:
@@ -496,44 +362,6 @@ def _render_logs_section(comments: ReviewComments) -> str:
         parts.append(_render_log_preview(log))
     parts.append("  </div></details>\n")
     return "".join(parts)
-
-
-def _load_diff_source(
-    repo_path: Path | None,
-    rev_range: str,
-    diff_file: Path | None,
-    context: int,
-    display_label: str | None,
-) -> DiffSource:
-    if diff_file is not None:
-        diff_text = diff_file.read_text(encoding="utf-8")
-        commit, subject, message = _commit_message_from_patch(diff_text)
-        return DiffSource(
-            diff_text=diff_text,
-            stat_text="Loaded from diff file; git stat is unavailable.",
-            label=display_label or str(diff_file),
-            commit=commit,
-            subject=subject,
-            message=message,
-        )
-    if repo_path is None:
-        raise DiffReportError("--repo is required unless --diff-file is used")
-    if not repo_path.exists():
-        raise DiffReportError(f"Repository path does not exist: {repo_path}")
-    base, head = _parse_rev_range(rev_range)
-    diff_text = _git(repo_path, ["diff", "--find-renames", f"--unified={context}", base, head])
-    stat_text = _git(repo_path, ["diff", "--stat", base, head])
-    commit = _git(repo_path, ["rev-parse", head]).strip()
-    subject = _git(repo_path, ["log", "-1", "--pretty=%s", head]).strip()
-    message = _git(repo_path, ["log", "-1", "--format=%B", head]).strip()
-    return DiffSource(
-        diff_text=diff_text,
-        stat_text=stat_text,
-        label=display_label or f"{repo_path} {base}..{head}",
-        commit=None if display_label else commit,
-        subject=subject,
-        message=message or None,
-    )
 
 
 def _load_comments(comments_file: Path | None) -> ReviewComments:
@@ -4007,67 +3835,6 @@ def _diagram_script() -> str:
 }());
 </script>
 """
-
-
-def _parse_rev_range(rev_range: str) -> tuple[str, str]:
-    if "..." in rev_range:
-        base, head = rev_range.split("...", 1)
-    elif ".." in rev_range:
-        base, head = rev_range.split("..", 1)
-    else:
-        raise DiffReportError("--range must use '..' or '...', for example HEAD^..HEAD")
-    if not base or not head:
-        raise DiffReportError("--range must include both base and head revisions")
-    return base, head
-
-
-def _git(repo_path: Path, args: list[str]) -> str:
-    try:
-        return subprocess.check_output(["git", "-C", str(repo_path), *args], text=True, stderr=subprocess.PIPE)
-    except subprocess.CalledProcessError as error:
-        message = error.stderr.strip() or str(error)
-        raise DiffReportError(message) from error
-
-
-def _commit_message_from_patch(diff_text: str) -> tuple[str | None, str | None, str | None]:
-    commit_id = None
-    message_lines: list[str] = []
-    in_message = False
-
-    for line in diff_text.splitlines():
-        if commit_id is None and line.startswith("From "):
-            parts = line.split()
-            if len(parts) >= 2:
-                commit_id = parts[1]
-        if line.startswith("diff --git "):
-            break
-        if line.startswith("    "):
-            in_message = True
-            message_lines.append(line[4:])
-        elif in_message and line == "":
-            message_lines.append("")
-        elif in_message:
-            break
-
-    while message_lines and message_lines[0] == "":
-        message_lines.pop(0)
-    while message_lines and message_lines[-1] == "":
-        message_lines.pop()
-
-    if not message_lines:
-        return commit_id, None, None
-
-    message = "\n".join(message_lines)
-    subject = next((line for line in message_lines if line), None)
-    return commit_id, subject, message
-
-
-def _diff_files(diff_text: str) -> list[str]:
-    files: list[str] = []
-    for line in diff_text.splitlines():
-        if line.startswith("diff --git "):
-            files.append(_file_from_diff_header(line))
-    return files
 
 
 def _file_from_diff_header(line: str) -> str:
