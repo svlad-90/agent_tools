@@ -365,6 +365,11 @@ copied report keeps the same relative layout.
   `codex_tools/environments/codex-tools-act/scripts/validate.sh` passed through
   local `act`; the workflow ran the shared script with thirty-eight unittest
   cases.
+- Regenerated `report/diff/pr139-to-local-working-tree.html` from the
+  canonical patch and comments JSON so the target report includes the artifact
+  export controls. `--refresh-targets` reported `attention=0`; static checks
+  confirmed `data-asset-export`, `Save as SVG`, `Save as HTML`, and the export
+  JavaScript hooks are embedded.
 
 ## Remaining Work
 
