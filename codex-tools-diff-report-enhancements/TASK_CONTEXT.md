@@ -319,6 +319,22 @@ copied report keeps the same relative layout.
   `/tmp/pr139-init-comments.json` template. The full
   `codex-tools-diff-report-enhancements/scripts/run-ci.sh` suite passed with
   twenty-nine unittest cases.
+- Added a findings-to-comments compose path:
+  `python -m codex_tools.diff_report --diff-file change.patch --findings findings.json --output-comments comments.json`.
+  Draft findings can target inline comments by explicit `line`, exact
+  `content`, or substring `contains`; the composer resolves unique matches and
+  writes canonical comments JSON with refreshed `target` anchors.
+- Added `dev/pr139-compose-smoke-findings.json` as a task-owned PR139 compose
+  input. Regression coverage composes it into temporary comments JSON, renders
+  a temporary HTML report, and verifies the generated comments land on
+  `arch/arm64/core/reset.S:127` and `arch/arm64/core/xen/fdt.c:56`.
+- After adding findings compose support,
+  `codex-tools-diff-report-enhancements/scripts/run-ci.sh` passed with
+  thirty-five unittest cases.
+- After adding findings compose support,
+  `codex_tools/environments/codex-tools-act/scripts/validate.sh` passed through
+  local `act`; the workflow ran the shared script with thirty-five unittest
+  cases.
 
 ## Remaining Work
 
