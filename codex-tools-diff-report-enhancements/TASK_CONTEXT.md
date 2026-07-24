@@ -286,6 +286,55 @@ copied report keeps the same relative layout.
 - After fixing the review finding,
   `codex-tools-diff-report-enhancements/scripts/run-ci.sh` passed with
   twenty-seven unittest cases.
+- Added a report UI feature for copying selected diff fragments as Markdown.
+  Selecting diff rows or review comments and opening the context menu now shows
+  `Copy` and `Copy as Markdown`. `Copy` uses normal browser selection copying;
+  `Copy as Markdown` exports the selected report fragment as Markdown.
+- The Markdown export groups selected rows by file, preserves the raw rendered
+  diff text in fenced `diff` blocks, and includes selected file-level or inline
+  review comment text as blockquotes. Partial text selections inside comments
+  are copied as partial comment text instead of expanding to the whole comment.
+- The old standalone theme toggle was replaced by a global Settings modal with
+  Theme options. The theme setting is persisted in `localStorage` and
+  synchronizes across open report tabs through browser storage events.
+- The Settings modal is centered with an opaque report-styled dialog and
+  backdrop instead of a dropdown panel.
+- Regenerated
+  `report/diff/pr139-to-local-working-tree.html` from the canonical patch and
+  comments JSON after adding the selection-copy UI; `--refresh-targets`
+  reported `attention=0`.
+- After adding Markdown selection copy,
+  `codex-tools-diff-report-enhancements/scripts/run-ci.sh` passed with
+  twenty-seven unittest cases.
+- Browser automation was not run because Playwright is not installed in the
+  workspace Python environment; static HTML checks confirmed the generated
+  report contains the selection context menu, diff row metadata, and clipboard
+  handler.
+- Added comments-filling scaffolding through
+  `python -m codex_tools.diff_report --diff-file change.patch --init-comments comments.json`.
+  The generated starter JSON keeps renderable comments empty and stores changed
+  files plus added-line entries under `_template`, with ready `target` anchors
+  for copying into real review comments.
+- Verified the scaffolding with the PR139 patch and a generated
+  `/tmp/pr139-init-comments.json` template. The full
+  `codex-tools-diff-report-enhancements/scripts/run-ci.sh` suite passed with
+  twenty-nine unittest cases.
+- Added a findings-to-comments compose path:
+  `python -m codex_tools.diff_report --diff-file change.patch --findings findings.json --output-comments comments.json`.
+  Draft findings can target inline comments by explicit `line`, exact
+  `content`, or substring `contains`; the composer resolves unique matches and
+  writes canonical comments JSON with refreshed `target` anchors.
+- Added `dev/pr139-compose-smoke-findings.json` as a task-owned PR139 compose
+  input. Regression coverage composes it into temporary comments JSON, renders
+  a temporary HTML report, and verifies the generated comments land on
+  `arch/arm64/core/reset.S:127` and `arch/arm64/core/xen/fdt.c:56`.
+- After adding findings compose support,
+  `codex-tools-diff-report-enhancements/scripts/run-ci.sh` passed with
+  thirty-five unittest cases.
+- After adding findings compose support,
+  `codex_tools/environments/codex-tools-act/scripts/validate.sh` passed through
+  local `act`; the workflow ran the shared script with thirty-five unittest
+  cases.
 
 ## Remaining Work
 

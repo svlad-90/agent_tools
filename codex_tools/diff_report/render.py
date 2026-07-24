@@ -6,7 +6,7 @@ import json
 import re
 from typing import Any
 
-from .assets import diagram_script, html_header, story_script, theme_script
+from .assets import copy_selection_script, diagram_script, html_header, story_script, theme_script
 from .diff_parse import iter_diff_lines
 from .diff_source import diff_files, diff_stats
 from .models import (
@@ -61,6 +61,7 @@ def render_html_report(
     parts.append(_render_to_top_button())
     if comments.diagrams or comments.logs:
         parts.append(_render_diagram_modal(comments))
+    parts.append(copy_selection_script())
     parts.append(story_script())
     parts.append(theme_script())
     parts.append("</main>\n</body>\n</html>\n")
@@ -576,7 +577,6 @@ def _render_diagram_modal(comments: ReviewComments) -> str:
     parts.append('        <button type="button" id="diagram-general-view" data-diagram-general hidden>General view</button>\n')
     parts.append('        <button type="button" data-diagram-search="prev" aria-label="Previous search match">Prev</button>\n')
     parts.append('        <button type="button" data-diagram-search="next" aria-label="Next search match">Next</button>\n')
-    parts.append('        <button type="button" data-theme-toggle><span data-theme-toggle-label>Theme</span></button>\n')
     parts.append('        <button type="button" data-diagram-zoom="out" data-diagram-zoom-tool aria-label="Zoom out">-</button>\n')
     parts.append(
         '        <button type="button" data-diagram-zoom="reset" data-diagram-zoom-tool aria-label="Reset zoom">'
@@ -630,7 +630,8 @@ def _diff_row(
         )
     class_name = " ".join((kind, *extra_classes))
     return (
-        f'      <tr class="{class_name}"{attrs}><td class="num">{_esc(old_no)}</td>'
+        f'      <tr class="{class_name}" data-diff-kind="{_esc(kind)}"{attrs}>'
+        f'<td class="num">{_esc(old_no)}</td>'
         f'<td class="num">{_esc(new_no)}</td><td class="code">{_esc(text)}</td></tr>\n'
     )
 

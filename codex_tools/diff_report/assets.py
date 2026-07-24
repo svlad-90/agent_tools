@@ -45,6 +45,8 @@ def html_header(title: str) -> str:
       --link: #007acc;
       --button-bg: #ffffff;
       --button-hover-bg: #e5f1fb;
+      --settings-active-bg: #e5f1fb;
+      --settings-active-text: #0969da;
       --row-bg: #ffffff;
       --header-bg: #f3f3f3;
       --add-bg: #e6f4ea;
@@ -113,6 +115,8 @@ def html_header(title: str) -> str:
       --link: #3794ff;
       --button-bg: #2d2d30;
       --button-hover-bg: #094771;
+      --settings-active-bg: #0e639c;
+      --settings-active-text: #ffffff;
       --row-bg: #1e1e1e;
       --header-bg: #252526;
       --add-bg: #113311;
@@ -161,8 +165,28 @@ def html_header(title: str) -> str:
     .report-brand-text {{ display: grid; gap: 2px; min-width: 0; line-height: 1.05; }}
     .report-brand-title {{ font-size: 80px; white-space: nowrap; }}
     .report-brand-subtitle {{ color: var(--muted); font-size: 40px; white-space: nowrap; }}
-    .theme-toggle {{ position: fixed; left: 24px; top: 206px; z-index: 9; display: inline-flex; align-items: center; justify-content: center; width: calc(var(--nav-width) - 32px); height: 34px; padding: 0 18px; border: 1px solid var(--border); border-radius: 999px; background: var(--button-bg); color: var(--link); box-shadow: none; cursor: pointer; font: 800 18px/1 ui-monospace, SFMono-Regular, Consolas, monospace; }}
-    .theme-toggle:hover {{ border-color: var(--link); box-shadow: 0 12px 32px rgba(9,105,218,.22); }}
+    .settings-launcher {{ position: fixed; left: 24px; top: 206px; z-index: 40; width: calc(var(--nav-width) - 32px); }}
+    .settings-toggle {{ display: inline-flex; align-items: center; justify-content: center; width: 100%; height: 34px; padding: 0 18px; border: 1px solid var(--border); border-radius: 999px; background: var(--button-bg); color: var(--link); box-shadow: none; cursor: pointer; font: 800 18px/1 ui-monospace, SFMono-Regular, Consolas, monospace; }}
+    .settings-toggle:hover {{ border-color: var(--link); box-shadow: 0 12px 32px rgba(9,105,218,.22); }}
+    .settings-modal[hidden] {{ display: none; }}
+    .settings-modal {{ position: fixed; inset: 0; z-index: 1100; }}
+    .settings-backdrop {{ position: absolute; inset: 0; background: var(--overlay-bg); }}
+    .settings-dialog {{ position: absolute; left: 50%; top: 50%; display: grid; gap: 18px; width: min(460px, calc(100vw - 40px)); max-height: calc(100vh - 40px); overflow: auto; transform: translate(-50%, -50%); padding: 20px; border: 1px solid var(--border); border-radius: 8px; background: var(--panel); color: var(--text); box-shadow: 0 18px 58px rgba(0,0,0,.42); }}
+    .settings-dialog-head {{ display: flex; align-items: center; justify-content: space-between; gap: 12px; }}
+    .settings-dialog h2 {{ margin: 0; color: var(--text); font-size: 20px; }}
+    .settings-close {{ display: inline-flex; align-items: center; justify-content: center; width: 32px; height: 32px; padding: 0; border: 1px solid var(--border); border-radius: 6px; background: var(--button-bg); color: var(--text); cursor: pointer; font: 22px/1 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }}
+    .settings-close:hover {{ border-color: var(--link); color: var(--link); }}
+    .settings-menu {{ display: grid; gap: 12px; }}
+    .settings-group {{ display: grid; gap: 6px; }}
+    .settings-label {{ color: var(--meta-label); font-size: 13px; font-weight: 800; text-transform: uppercase; letter-spacing: .04em; }}
+    .settings-options {{ display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }}
+    .settings-option {{ display: inline-flex; align-items: center; justify-content: center; min-width: 0; height: 34px; padding: 0 10px; border: 1px solid var(--border); border-radius: 6px; background: var(--button-bg); color: var(--text); cursor: pointer; font: 700 15px/1 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }}
+    .settings-option:hover {{ border-color: var(--link); color: var(--link); }}
+    .settings-option.is-active {{ border-color: var(--link); background: var(--settings-active-bg); color: var(--settings-active-text); box-shadow: inset 3px 0 0 var(--link); }}
+    .copy-context-menu[hidden] {{ display: none; }}
+    .copy-context-menu {{ position: fixed; z-index: 1200; min-width: 178px; padding: 6px; border: 1px solid var(--border); border-radius: 8px; background: var(--panel); box-shadow: 0 12px 32px var(--shadow); }}
+    .copy-context-menu button {{ display: flex; align-items: center; justify-content: flex-start; width: 100%; min-height: 32px; padding: 0 10px; border: 0; border-radius: 6px; background: transparent; color: var(--text); cursor: pointer; font: 700 14px/1.2 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; text-align: left; }}
+    .copy-context-menu button:hover, .copy-context-menu button:focus-visible {{ background: var(--button-hover-bg); color: var(--link); outline: none; }}
     header, section, .file {{ width: min(100%, var(--content-width)); max-width: 100%; min-width: 0; margin-right: auto; margin-left: max(0px, calc((100% - var(--content-offset-width)) / 4)); background: var(--panel); border: 1px solid var(--border); border-radius: 8px; margin-bottom: 16px; }}
     .file {{ border-top: 0; }}
     header, section {{ padding: 20px; }}
@@ -404,7 +428,7 @@ def html_header(title: str) -> str:
       body {{ font-size: 18px; }}
       main {{ width: calc(100% - 16px); margin: 8px auto 16px; }}
       .report-brand {{ display: none; }}
-      .theme-toggle {{ left: auto; right: 16px; top: 16px; z-index: 33; }}
+      .settings-launcher {{ left: auto; right: 16px; top: 16px; z-index: 40; width: min(280px, calc(100vw - 32px)); }}
       .review-nav {{ position: static; width: calc(100% - 16px); max-height: 38vh; margin: 8px auto 16px; }}
       .review-nav-resizer {{ display: none; }}
       .story {{ top: 0; }}
@@ -413,16 +437,43 @@ def html_header(title: str) -> str:
 </head>
 <body>
 <div class="report-brand" aria-hidden="true"><div class="report-brand-inner"><span class="report-brand-mark">AI</span><span class="report-brand-text"><span class="report-brand-title">Diff</span><span class="report-brand-subtitle">report</span></span></div></div>
-<button type="button" class="theme-toggle" data-theme-toggle aria-label="Toggle theme"><span data-theme-toggle-label>Theme</span></button>
+<div class="settings-launcher">
+  <button type="button" class="settings-toggle" data-settings-toggle aria-haspopup="dialog" aria-expanded="false">Settings</button>
+</div>
+<div class="settings-modal" data-settings-modal hidden>
+  <div class="settings-backdrop" data-settings-close></div>
+  <div class="settings-dialog" role="dialog" aria-modal="true" aria-labelledby="settings-title">
+    <div class="settings-dialog-head">
+      <h2 id="settings-title">Settings</h2>
+      <button type="button" class="settings-close" data-settings-close aria-label="Close settings">&times;</button>
+    </div>
+    <div class="settings-menu">
+      <div class="settings-group">
+        <div class="settings-label">Theme</div>
+        <div class="settings-options">
+          <button type="button" class="settings-option" data-theme-value="light">Light</button>
+          <button type="button" class="settings-option" data-theme-value="dark">Dark</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+<div class="copy-context-menu" data-copy-markdown-menu hidden>
+  <button type="button" data-copy-plain-action>Copy</button>
+  <button type="button" data-copy-markdown-action>Copy as Markdown</button>
+</div>
 """
 
 
 def theme_script() -> str:
     return """<script>
 (function () {
-  const key = "codex-diff-report-theme";
+  const themeKey = "codex-diff-report-theme";
   const root = document.documentElement;
-  const toggles = Array.from(document.querySelectorAll("[data-theme-toggle]"));
+  const toggle = document.querySelector("[data-settings-toggle]");
+  const modal = document.querySelector("[data-settings-modal]");
+  const closeButtons = Array.from(document.querySelectorAll("[data-settings-close]"));
+  const themeOptions = Array.from(document.querySelectorAll("[data-theme-value]"));
 
   function currentTheme() {
     return root.dataset.theme === "dark" ? "dark" : "light";
@@ -431,29 +482,64 @@ def theme_script() -> str:
   function applyTheme(theme, persist) {
     const nextTheme = theme === "dark" ? "dark" : "light";
     root.dataset.theme = nextTheme;
-    for (const toggle of toggles) {
-      const label = toggle.querySelector("[data-theme-toggle-label]");
-      if (label) {
-        label.textContent = nextTheme === "dark" ? "Light" : "Dark";
-      }
-      toggle.setAttribute("aria-label", "Switch to " + (nextTheme === "dark" ? "light" : "dark") + " theme");
-      toggle.setAttribute("aria-pressed", nextTheme === "dark" ? "true" : "false");
+    for (const option of themeOptions) {
+      const active = option.dataset.themeValue === nextTheme;
+      option.classList.toggle("is-active", active);
+      option.setAttribute("aria-pressed", active ? "true" : "false");
     }
     if (persist) {
       try {
-        localStorage.setItem(key, nextTheme);
+        localStorage.setItem(themeKey, nextTheme);
       } catch (error) {
         // Ignore storage failures, for example in restricted file viewers.
       }
     }
   }
 
+  function setSettingsOpen(open) {
+    if (!modal || !toggle) {
+      return;
+    }
+    modal.hidden = !open;
+    toggle.setAttribute("aria-expanded", open ? "true" : "false");
+    if (open) {
+      const close = modal.querySelector("[data-settings-close].settings-close");
+      if (close) {
+        close.focus();
+      }
+    } else {
+      toggle.focus();
+    }
+  }
+
   applyTheme(currentTheme(), false);
-  for (const toggle of toggles) {
-    toggle.addEventListener("click", function () {
-      applyTheme(currentTheme() === "dark" ? "light" : "dark", true);
+
+  if (toggle) {
+    toggle.addEventListener("click", function (event) {
+      event.preventDefault();
+      setSettingsOpen(!modal || modal.hidden);
     });
   }
+  for (const closeButton of closeButtons) {
+    closeButton.addEventListener("click", function () {
+      setSettingsOpen(false);
+    });
+  }
+  for (const option of themeOptions) {
+    option.addEventListener("click", function () {
+      applyTheme(option.dataset.themeValue, true);
+    });
+  }
+  document.addEventListener("keydown", function (event) {
+    if (event.key === "Escape" && modal && !modal.hidden) {
+      setSettingsOpen(false);
+    }
+  });
+  window.addEventListener("storage", function (event) {
+    if (event.key === themeKey) {
+      applyTheme(event.newValue === "dark" ? "dark" : "light", false);
+    }
+  });
 }());
 </script>
 """
@@ -1010,6 +1096,261 @@ def story_script() -> str:
     updateTopButtonState();
     resetPageScrollOnLoad();
   }, 60);
+}());
+	</script>
+	"""
+
+
+def copy_selection_script() -> str:
+    return """<script>
+(function () {
+  const menu = document.querySelector("[data-copy-markdown-menu]");
+  const plainAction = document.querySelector("[data-copy-plain-action]");
+  const action = document.querySelector("[data-copy-markdown-action]");
+  let activeMarkdown = "";
+
+  function selectionRange() {
+    const selection = window.getSelection ? window.getSelection() : null;
+    if (!selection || selection.isCollapsed || selection.rangeCount === 0) {
+      return null;
+    }
+    return selection.getRangeAt(0);
+  }
+
+  function intersects(range, node) {
+    try {
+      return range.intersectsNode(node);
+    } catch (error) {
+      return false;
+    }
+  }
+
+  function rowFile(row) {
+    const article = row.closest("article.file[data-file]");
+    return article ? article.dataset.file || "" : "";
+  }
+
+  function selectedTextWithin(range, node) {
+    if (!intersects(range, node)) {
+      return "";
+    }
+    const nodeRange = document.createRange();
+    nodeRange.selectNodeContents(node);
+    const clipped = range.cloneRange();
+    if (clipped.compareBoundaryPoints(Range.START_TO_START, nodeRange) < 0) {
+      clipped.setStart(nodeRange.startContainer, nodeRange.startOffset);
+    }
+    if (clipped.compareBoundaryPoints(Range.END_TO_END, nodeRange) > 0) {
+      clipped.setEnd(nodeRange.endContainer, nodeRange.endOffset);
+    }
+    if (clipped.collapsed) {
+      return "";
+    }
+    const wrapper = document.createElement("div");
+    wrapper.appendChild(clipped.cloneContents());
+    for (const asset of wrapper.querySelectorAll(".diagram-preview-wrap, .log-preview")) {
+      asset.remove();
+    }
+    return wrapper.textContent.trim();
+  }
+
+  function commentText(comment, range) {
+    const body = comment.classList.contains("file-comment") ? comment : comment.querySelector(".body");
+    return body ? selectedTextWithin(range, body) : "";
+  }
+
+  function quoteMarkdown(text) {
+    if (!text) {
+      return "";
+    }
+    return text.split(/\\r?\\n/).map(function (line) {
+      return line ? "> " + line : ">";
+    }).join("\\n");
+  }
+
+  function fileHeading(file) {
+    return "### `" + String(file).replace(/`/g, "\\\\`") + "`";
+  }
+
+  function appendBlank(parts) {
+    if (parts.length && parts[parts.length - 1] !== "") {
+      parts.push("");
+    }
+  }
+
+  function openFence(parts, state) {
+    if (!state.inFence) {
+      appendBlank(parts);
+      parts.push("```diff");
+      state.inFence = true;
+    }
+  }
+
+  function closeFence(parts, state) {
+    if (state.inFence) {
+      parts.push("```");
+      state.inFence = false;
+    }
+  }
+
+  function appendFile(parts, state, file) {
+    if (state.file === file) {
+      return;
+    }
+    closeFence(parts, state);
+    appendBlank(parts);
+    parts.push(fileHeading(file || "diff"));
+    state.file = file;
+  }
+
+  function buildMarkdown(range) {
+    const nodes = Array.from(document.querySelectorAll("article.file .file-comment, article.file tr"));
+    const selectedNodes = nodes.filter(function (node) {
+      return intersects(range, node);
+    });
+    if (!selectedNodes.length) {
+      return "";
+    }
+
+    const parts = [];
+    const state = { file: null, inFence: false };
+    for (const row of selectedNodes) {
+      const file = rowFile(row);
+      appendFile(parts, state, file);
+      if (row.dataset.diffKind) {
+        const code = row.querySelector(".code");
+        if (code) {
+          openFence(parts, state);
+          parts.push(code.textContent);
+        }
+        continue;
+      }
+
+      const comment = row.classList.contains("file-comment")
+        ? row
+        : row.querySelector(".review-comment");
+      if (!comment) {
+        continue;
+      }
+      closeFence(parts, state);
+      const title = comment.classList.contains("file-comment") ? null : comment.querySelector(".title");
+      appendBlank(parts);
+      if (title && intersects(range, title) && title.textContent.trim()) {
+        parts.push("> **" + title.textContent.trim() + "**");
+        parts.push(">");
+      }
+      const body = quoteMarkdown(commentText(comment, range));
+      if (body) {
+        parts.push(body);
+      }
+    }
+    closeFence(parts, state);
+    return parts.join("\\n").replace(/\\n{3,}/g, "\\n\\n").trim();
+  }
+
+  function hideMenu() {
+    if (!menu) {
+      return;
+    }
+    menu.hidden = true;
+    activeMarkdown = "";
+  }
+
+  function fallbackCopy(text) {
+    const textarea = document.createElement("textarea");
+    textarea.value = text;
+    textarea.setAttribute("readonly", "");
+    textarea.style.position = "fixed";
+    textarea.style.left = "-9999px";
+    document.body.appendChild(textarea);
+    textarea.select();
+    try {
+      document.execCommand("copy");
+    } finally {
+      textarea.remove();
+    }
+  }
+
+  function copyMarkdown(text) {
+    if (!text) {
+      return Promise.resolve(false);
+    }
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      return navigator.clipboard.writeText(text).then(function () {
+        return true;
+      }).catch(function () {
+        fallbackCopy(text);
+        return true;
+      });
+    }
+    fallbackCopy(text);
+    return Promise.resolve(true);
+  }
+
+  function copyPlainSelection() {
+    if (menu) {
+      menu.hidden = true;
+    }
+    document.execCommand("copy");
+    activeMarkdown = "";
+  }
+
+  function showMenu(event, markdown) {
+    if (!menu) {
+      return;
+    }
+    activeMarkdown = markdown;
+    menu.hidden = false;
+    const width = menu.offsetWidth || 178;
+    const height = menu.offsetHeight || 76;
+    const left = Math.min(event.clientX, window.innerWidth - width - 8);
+    const top = Math.min(event.clientY, window.innerHeight - height - 8);
+    menu.style.left = Math.max(8, left) + "px";
+    menu.style.top = Math.max(8, top) + "px";
+  }
+
+  document.addEventListener("contextmenu", function (event) {
+    const range = selectionRange();
+    const markdown = range ? buildMarkdown(range) : "";
+    if (!markdown) {
+      hideMenu();
+      return;
+    }
+    event.preventDefault();
+    showMenu(event, markdown);
+  });
+
+  document.addEventListener("selectionchange", function () {
+    if (!selectionRange()) {
+      hideMenu();
+    }
+  });
+  document.addEventListener("click", function (event) {
+    if (menu && menu.contains(event.target)) {
+      return;
+    }
+    hideMenu();
+  });
+  document.addEventListener("keydown", function (event) {
+    if (event.key === "Escape") {
+      hideMenu();
+    }
+  });
+  window.addEventListener("scroll", hideMenu, { passive: true });
+  window.addEventListener("resize", hideMenu);
+
+  if (plainAction) {
+    plainAction.addEventListener("click", function () {
+      copyPlainSelection();
+    });
+  }
+  if (action) {
+    action.addEventListener("click", function () {
+      const markdown = activeMarkdown;
+      hideMenu();
+      copyMarkdown(markdown);
+    });
+  }
 }());
 </script>
 """
