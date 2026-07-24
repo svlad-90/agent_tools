@@ -69,6 +69,9 @@ existing behavior with regression tests.
   `codex_tools.diff_report.assets`.
 - The duplicate diff line parsing used by `render.py`, `refresh.py`, and
   `diff_source.py` now lives in `codex_tools.diff_report.diff_parse`.
+- CLI parsing now lives in `codex_tools.diff_report.cli`; package
+  `__init__.py` exposes an explicit public API and lazily delegates `main()`
+  to the CLI module.
 - Workspace-local skills were checked; only `commit-message-format` is present
   and it does not apply to task setup.
 
@@ -101,6 +104,11 @@ copied report keeps the same relative layout.
   - `~/Projects/new_dev/codex_tools/diff_report/render.py`
   - `~/Projects/new_dev/codex_tools/diff_report/assets.py`
   - `~/Projects/new_dev/codex_tools/diff_report/diff_parse.py`
+  - `~/Projects/new_dev/codex_tools/diff_report/cli.py`
+- Added
+  `~/Projects/new_dev/codex_tools/diff_report/tests/test_diff_parse.py`.
+- Added
+  `~/Projects/new_dev/codex_tools/diff_report/tests/test_public_api.py`.
 - The tests copy the task-owned baseline fixture into a temporary directory and
   regenerate the report there.
 - Covered behavior:
@@ -177,6 +185,12 @@ copied report keeps the same relative layout.
   passed.
 - `python -m codex_tools.code_map parse-check codex_tools/diff_report/diff_parse.py`
   passed.
+- `python -m codex_tools.code_map parse-check codex_tools/diff_report/cli.py`
+  passed.
+- `python -m codex_tools.code_map parse-check codex_tools/diff_report/tests/test_diff_parse.py`
+  passed.
+- `python -m codex_tools.code_map parse-check codex_tools/diff_report/tests/test_public_api.py`
+  passed.
 - `python -m unittest codex_tools.diff_report.tests.test_pr139_report_regression`
   passed.
 - `python -m unittest codex_tools.diff_report.tests.test_diff_report_behavior`
@@ -225,6 +239,16 @@ copied report keeps the same relative layout.
 - After extracting `diff_parse.py`,
   `codex_tools/environments/codex-tools-act/scripts/validate.sh` passed through
   local `act`; the workflow ran the shared script with six unittest cases.
+- After clarifying package imports and adding direct `diff_parse.py` unit tests,
+  `codex-tools-diff-report-enhancements/scripts/run-ci.sh` passed with twelve
+  unittest cases.
+- Import check confirmed `import codex_tools.diff_report` exposes
+  `DiffReportError`, `compact_help`, `generate_report`, and `main` without
+  loading `argparse` or `codex_tools.diff_report.cli` until `main()` is called.
+- After clarifying package imports and adding direct `diff_parse.py` and public
+  API unit tests, `codex_tools/environments/codex-tools-act/scripts/validate.sh`
+  passed through local `act`; the workflow ran the shared script with twelve
+  unittest cases.
 
 ## Remaining Work
 
