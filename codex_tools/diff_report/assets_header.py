@@ -62,7 +62,7 @@ def html_header(title: str) -> str:
       --comment-target-add-bg: #d6eedc;
       --comment-target-del-bg: #f8d5da;
       --comment-target-overlay: rgba(202,80,16,.045);
-      --comment-row-bg: rgba(255,243,196,.68);
+      --comment-row-bg: var(--comment-target-ctx-bg);
       --comment-title-bg: rgba(255,255,255,.44);
       --comment-title-border: rgba(202,80,16,.34);
       --comment-panel-border: rgba(202,80,16,.55);
@@ -151,7 +151,7 @@ def html_header(title: str) -> str:
       --comment-target-add-bg: #14351f;
       --comment-target-del-bg: #421f24;
       --comment-target-overlay: rgba(204,167,0,.08);
-      --comment-row-bg: rgba(58,50,23,.62);
+      --comment-row-bg: var(--comment-target-ctx-bg);
       --comment-title-bg: rgba(255,255,255,.06);
       --comment-title-border: rgba(204,167,0,.34);
       --comment-panel-border: rgba(204,167,0,.55);

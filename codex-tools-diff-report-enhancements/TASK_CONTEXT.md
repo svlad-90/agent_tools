@@ -643,6 +643,12 @@ copied report keeps the same relative layout.
   collapsed. Regenerated `report/diff/pr139-to-local-working-tree.html`;
   `codex-tools-diff-report-enhancements/scripts/run-ci.sh` passed with
   thirty-eight unittest cases.
+- The empty gutter beside attached review comments now uses the neutral
+  comment-target block background in both themes while preserving the old/new
+  line separators and the comment-block left border. Regenerated
+  `report/diff/pr139-to-local-working-tree.html`;
+  `codex-tools-diff-report-enhancements/scripts/run-ci.sh` passed with
+  thirty-eight unittest cases.
 
 ## Remaining Work
 
