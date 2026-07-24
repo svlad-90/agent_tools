@@ -113,11 +113,15 @@ class Pr139ReportRegressionTests(unittest.TestCase):
             ".story-steps { grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); }",
             ".story-settings-launcher { position: static; left: auto; top: auto;",
             ".story-settings-launcher .settings-toggle { width: 30px; height: 28px; }",
+            "class=\"story-top-inline\" data-story-top",
             ".settings-toggle span, .settings-toggle::before, .settings-toggle::after",
             "header, section, .file, .asset-inventory { width: 100%; margin-left: 0; margin-right: 0; }",
             'setSvgSearchClass(node, "asset-search-match", true)',
             'setSvgSearchClass(current, "asset-search-current", true)',
+            'node.style.setProperty("fill", "#cf222e", "important")',
+            "restoreSvgSearchPaint(node)",
             'item.scrollIntoView({ block: "nearest", inline: "nearest" })',
+            'navStyle.position === "fixed"',
         ]
         for fragment in expected_fragments:
             with self.subTest(fragment=fragment):

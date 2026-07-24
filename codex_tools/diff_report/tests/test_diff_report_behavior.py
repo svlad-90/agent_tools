@@ -220,6 +220,10 @@ class DiffReportBehaviorTests(unittest.TestCase):
             html,
             r'(?s)<div class="story-controls"[^>]*>.*story-settings-launcher.*</div>',
         )
+        self.assertRegex(
+            html,
+            r'(?s)story-settings-launcher.*id="story-counter".*class="story-top-inline"',
+        )
         self.assertNotIn("data-theme-toggle", html)
         self.assertNotIn("data-copy-mode-value", html)
         self.assertNotIn("codex-diff-report-copy-mode", html)

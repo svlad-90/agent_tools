@@ -171,9 +171,9 @@ def html_header(title: str) -> str:
     * {{ box-sizing: border-box; }}
     body {{ margin: 0; background: var(--bg); color: var(--text); font: var(--screen-body-font)/1.52 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }}
     main {{ width: calc(100% - var(--nav-width) - (var(--page-gutter) * 3)); max-width: calc(100% - var(--nav-width) - (var(--page-gutter) * 3)); min-width: 0; margin: var(--page-gutter) var(--page-gutter) 16px calc(var(--nav-width) + (var(--page-gutter) * 2)); }}
-    .report-brand {{ position: fixed; left: var(--page-gutter); top: var(--page-gutter); z-index: 4; display: flex; align-items: flex-start; justify-content: center; width: var(--nav-width); height: var(--brand-height); padding-top: var(--brand-top-padding); pointer-events: none; color: var(--brand-text); }}
+    .report-brand {{ position: fixed; left: var(--page-gutter); top: var(--page-gutter); z-index: 4; display: flex; align-items: center; justify-content: center; width: var(--nav-width); height: var(--brand-height); padding-top: 0; pointer-events: none; color: var(--brand-text); }}
     .report-brand::before {{ content: ""; position: absolute; inset: 0; height: var(--brand-height); border-radius: 10px; background: var(--brand-panel); box-shadow: 0 10px 24px var(--shadow); }}
-    .report-brand-inner {{ position: relative; display: grid; grid-template-columns: var(--brand-mark-size) minmax(0, 1fr); align-items: center; gap: var(--brand-gap); width: 100%; min-height: 0; padding: 16px var(--brand-padding-x); font-weight: 800; letter-spacing: 0; }}
+    .report-brand-inner {{ position: relative; display: grid; grid-template-columns: var(--brand-mark-size) max-content; align-items: center; justify-content: center; gap: var(--brand-gap); width: auto; max-width: 100%; min-height: 0; padding: 16px var(--brand-padding-x); font-weight: 800; letter-spacing: 0; }}
     .report-brand-mark {{ display: flex; align-items: center; justify-content: center; width: var(--brand-mark-size); height: var(--brand-mark-size); border-radius: 10px; background: #0969da; color: #fff; font: 800 calc(var(--brand-mark-size) * .64)/1 ui-monospace, SFMono-Regular, Consolas, monospace; }}
     .report-brand-text {{ display: grid; gap: 2px; min-width: 0; line-height: 1.05; }}
     .report-brand-title {{ font-size: var(--brand-title-size); white-space: nowrap; }}
@@ -260,11 +260,12 @@ def html_header(title: str) -> str:
     body.is-resizing-review-nav {{ cursor: ew-resize; user-select: none; }}
     .story {{ position: sticky; top: 0; z-index: 12; padding: 10px 12px; margin-bottom: 0; border-bottom: 0; border-bottom-left-radius: 0; border-bottom-right-radius: 0; box-shadow: 0 8px 22px rgba(31,35,40,.08); }}
     .story h2 {{ margin: 0; font-size: var(--screen-code-font); }}
-    .story-controls {{ display: flex; align-items: center; justify-content: flex-start; gap: 6px; margin: -22px 0 8px; }}
+    .story-controls {{ display: flex; align-items: center; justify-content: flex-end; gap: 6px; margin: -22px 0 8px; }}
     .story-controls button {{ display: inline-flex; align-items: center; justify-content: center; min-width: 54px; height: 28px; padding: 0 10px; border: 1px solid var(--border); border-radius: 6px; background: var(--button-bg); color: var(--text); cursor: pointer; font: inherit; line-height: 1; }}
     .story-controls button:hover {{ border-color: var(--link); color: var(--link); }}
     .story-settings-launcher {{ position: static; left: auto; top: auto; width: auto; margin-left: auto; }}
     .story-settings-launcher .settings-toggle {{ width: 30px; height: 28px; }}
+    .story-top-inline {{ min-width: 34px !important; width: 34px; padding: 0 !important; font-size: 18px !important; }}
     .to-top-button {{ position: fixed; right: 24px; bottom: 24px; z-index: 32; display: inline-flex; align-items: center; justify-content: center; width: 58px; height: 58px; border: 1px solid var(--border); border-radius: 999px; background: var(--button-bg); color: var(--link); box-shadow: 0 10px 28px var(--shadow); cursor: pointer; opacity: 0; visibility: hidden; pointer-events: none; transform: translateY(10px) scale(.96); transition: opacity .18s ease, transform .18s ease, visibility 0s linear .18s, border-color .12s ease, box-shadow .12s ease; font-size: 0; }}
     .to-top-button::before {{ content: ""; width: 15px; height: 15px; border-left: 4px solid currentColor; border-top: 4px solid currentColor; transform: translateY(4px) rotate(45deg); border-radius: 2px; }}
     .to-top-button:hover {{ border-color: var(--link); box-shadow: 0 12px 32px rgba(9,105,218,.22); transform: translateY(0) scale(1.03); }}
@@ -458,9 +459,9 @@ def html_header(title: str) -> str:
         --nav-width: 350px;
         --brand-height: 188px;
         --brand-top-padding: 12px;
-        --brand-mark-size: 78px;
-        --brand-title-size: 42px;
-        --brand-subtitle-size: 22px;
+        --brand-mark-size: 96px;
+        --brand-title-size: 52px;
+        --brand-subtitle-size: 26px;
         --brand-gap: 14px;
         --brand-padding-x: 18px;
         --content-width: 1120px;
@@ -477,9 +478,9 @@ def html_header(title: str) -> str:
       :root {{
         --nav-width: 300px;
         --brand-height: 174px;
-        --brand-mark-size: 78px;
-        --brand-title-size: 42px;
-        --brand-subtitle-size: 22px;
+        --brand-mark-size: 92px;
+        --brand-title-size: 50px;
+        --brand-subtitle-size: 25px;
         --brand-gap: 10px;
         --brand-padding-x: 14px;
         --content-width: 920px;

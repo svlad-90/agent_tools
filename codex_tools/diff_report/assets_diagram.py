@@ -452,6 +452,9 @@ def diagram_script() -> str:
       renderLogView("", activeFocusTerms);
       return;
     }
+    for (const node of content.querySelectorAll(".asset-search-painted")) {
+      restoreSvgSearchPaint(node);
+    }
     for (const node of content.querySelectorAll(".asset-search-match, .asset-search-current")) {
       node.classList.remove("asset-search-match", "asset-search-current");
     }
@@ -681,10 +684,43 @@ def diagram_script() -> str:
   }
 
   function setSvgSearchClass(node, className, enabled) {
-    node.classList.toggle(className, enabled);
-    for (const child of node.querySelectorAll("tspan")) {
-      child.classList.toggle(className, enabled);
+    setSvgSearchClassOnNode(node, className, enabled);
+    for (const child of node.querySelectorAll("tspan, textPath")) {
+      setSvgSearchClassOnNode(child, className, enabled);
     }
+  }
+
+  function setSvgSearchClassOnNode(node, className, enabled) {
+    node.classList.toggle(className, enabled);
+    if (enabled) {
+      applySvgSearchPaint(node);
+    } else if (!node.classList.contains("asset-search-match") && !node.classList.contains("asset-search-current")) {
+      restoreSvgSearchPaint(node);
+    }
+  }
+
+  function applySvgSearchPaint(node) {
+    if (!node.classList.contains("asset-search-painted")) {
+      node.dataset.assetSearchStyle = node.hasAttribute("style") ? node.getAttribute("style") : "";
+      node.classList.add("asset-search-painted");
+    }
+    node.style.setProperty("fill", "#cf222e", "important");
+    node.style.setProperty("stroke", "none", "important");
+    node.style.setProperty("filter", "none", "important");
+  }
+
+  function restoreSvgSearchPaint(node) {
+    if (!node.classList.contains("asset-search-painted")) {
+      return;
+    }
+    const previousStyle = node.dataset.assetSearchStyle || "";
+    if (previousStyle) {
+      node.setAttribute("style", previousStyle);
+    } else {
+      node.removeAttribute("style");
+    }
+    delete node.dataset.assetSearchStyle;
+    node.classList.remove("asset-search-painted");
   }
 
   function searchLog(query) {

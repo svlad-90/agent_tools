@@ -231,8 +231,9 @@ def _render_comments_index(comments: ReviewComments, diff_file_order: list[str])
 def _render_story_section(comments: ReviewComments) -> str:
     parts = ['  <section class="story" id="story"><h2>Review Story</h2>\n']
     parts.append('    <div class="story-controls" aria-label="Story navigation">\n')
-    parts.append('      <span id="story-counter">1 / 1</span>\n')
     parts.append(_render_settings_launcher(" story-settings-launcher"))
+    parts.append('      <span id="story-counter">1 / 1</span>\n')
+    parts.append('      <button type="button" class="story-top-inline" data-story-top aria-label="To top">↑</button>\n')
     parts.append("    </div>\n")
     parts.append('    <ol class="story-steps">\n')
     for index, step in enumerate(comments.story):
