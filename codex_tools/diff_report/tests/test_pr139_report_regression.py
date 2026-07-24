@@ -112,9 +112,12 @@ class Pr139ReportRegressionTests(unittest.TestCase):
             "@media (max-width: 1280px)",
             ".story-steps { grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); }",
             ".story-settings-launcher { position: static; left: auto; top: auto;",
-            ".story-settings-launcher .settings-toggle { height: 28px; font-size: var(--screen-code-font); }",
+            ".story-settings-launcher .settings-toggle { width: 30px; height: 28px; }",
+            ".settings-toggle span, .settings-toggle::before, .settings-toggle::after",
             "header, section, .file, .asset-inventory { width: 100%; margin-left: 0; margin-right: 0; }",
-            'child.classList.add("asset-search-current")',
+            'setSvgSearchClass(node, "asset-search-match", true)',
+            'setSvgSearchClass(current, "asset-search-current", true)',
+            'item.scrollIntoView({ block: "nearest", inline: "nearest" })',
         ]
         for fragment in expected_fragments:
             with self.subTest(fragment=fragment):
@@ -126,6 +129,8 @@ class Pr139ReportRegressionTests(unittest.TestCase):
         self.assertNotIn("../runtime/pr139-fdt-final-runtime-xen419.log", html)
         self.assertNotIn("General view", html)
         self.assertNotIn("data-diagram-general", html)
+        self.assertNotIn('data-story-nav="prev"', html)
+        self.assertNotIn('data-story-nav="next"', html)
 
     def test_report_without_story_keeps_top_button_and_shared_story_script(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

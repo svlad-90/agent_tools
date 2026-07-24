@@ -146,7 +146,12 @@ def story_script() -> str:
         }
         parent = parent.parentElement ? parent.parentElement.closest(".review-nav-dir") : null;
       }
-      item.scrollIntoView({ block: "nearest", inline: "nearest" });
+      const navRect = nav.getBoundingClientRect();
+      const hasOwnScroll = nav.scrollHeight > nav.clientHeight + 2 || nav.scrollWidth > nav.clientWidth + 2;
+      const isViewportFlow = navRect.height >= window.innerHeight * 0.8;
+      if (hasOwnScroll && !isViewportFlow) {
+        item.scrollIntoView({ block: "nearest", inline: "nearest" });
+      }
     }
 
     function setActiveFile(article) {
