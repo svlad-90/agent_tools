@@ -192,6 +192,7 @@ class DiffReportBehaviorTests(unittest.TestCase):
             'data-story-target="line-src-app.py-2"',
             'data-diff-kind="add"',
             'data-settings-toggle',
+            'aria-label="Settings"><span aria-hidden="true"></span></button>',
             'story-settings-launcher',
             'data-settings-modal',
             'role="dialog" aria-modal="true" aria-labelledby="settings-title"',
@@ -224,6 +225,7 @@ class DiffReportBehaviorTests(unittest.TestCase):
         self.assertNotIn("codex-diff-report-copy-mode", html)
         self.assertNotIn("General view", html)
         self.assertNotIn("data-diagram-general", html)
+        self.assertNotIn('<button type="button" data-story-nav', html)
 
     def test_review_text_linkifies_complete_urls(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

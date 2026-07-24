@@ -179,7 +179,8 @@ def html_header(title: str) -> str:
     .report-brand-title {{ font-size: var(--brand-title-size); white-space: nowrap; }}
     .report-brand-subtitle {{ color: var(--muted); font-size: var(--brand-subtitle-size); white-space: nowrap; }}
     .settings-launcher {{ position: fixed; left: calc(var(--page-gutter) + 16px); top: var(--settings-top); z-index: 40; width: calc(var(--nav-width) - 32px); }}
-    .settings-toggle {{ display: inline-flex; align-items: center; justify-content: center; width: 100%; height: 34px; padding: 0 18px; border: 1px solid var(--border); border-radius: 999px; background: var(--button-bg); color: var(--link); box-shadow: none; cursor: pointer; font: 800 18px/1 ui-monospace, SFMono-Regular, Consolas, monospace; }}
+    .settings-toggle {{ display: inline-flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; width: 34px; height: 34px; padding: 0; border: 1px solid var(--border); border-radius: 8px; background: var(--button-bg); color: var(--link); box-shadow: none; cursor: pointer; font: 800 18px/1 ui-monospace, SFMono-Regular, Consolas, monospace; }}
+    .settings-toggle span, .settings-toggle::before, .settings-toggle::after {{ content: ""; display: block; width: 16px; height: 2px; border-radius: 99px; background: currentColor; }}
     .settings-toggle:hover {{ border-color: var(--link); box-shadow: 0 12px 32px rgba(9,105,218,.22); }}
     .settings-modal[hidden] {{ display: none; }}
     .settings-modal {{ position: fixed; inset: 0; z-index: 1100; }}
@@ -262,8 +263,8 @@ def html_header(title: str) -> str:
     .story-controls {{ display: flex; align-items: center; justify-content: flex-start; gap: 6px; margin: -22px 0 8px; }}
     .story-controls button {{ display: inline-flex; align-items: center; justify-content: center; min-width: 54px; height: 28px; padding: 0 10px; border: 1px solid var(--border); border-radius: 6px; background: var(--button-bg); color: var(--text); cursor: pointer; font: inherit; line-height: 1; }}
     .story-controls button:hover {{ border-color: var(--link); color: var(--link); }}
-    .story-settings-launcher {{ position: static; left: auto; top: auto; width: min(180px, 32vw); margin-left: auto; }}
-    .story-settings-launcher .settings-toggle {{ height: 28px; font-size: var(--screen-code-font); }}
+    .story-settings-launcher {{ position: static; left: auto; top: auto; width: auto; margin-left: auto; }}
+    .story-settings-launcher .settings-toggle {{ width: 30px; height: 28px; }}
     .to-top-button {{ position: fixed; right: 24px; bottom: 24px; z-index: 32; display: inline-flex; align-items: center; justify-content: center; width: 58px; height: 58px; border: 1px solid var(--border); border-radius: 999px; background: var(--button-bg); color: var(--link); box-shadow: 0 10px 28px var(--shadow); cursor: pointer; opacity: 0; visibility: hidden; pointer-events: none; transform: translateY(10px) scale(.96); transition: opacity .18s ease, transform .18s ease, visibility 0s linear .18s, border-color .12s ease, box-shadow .12s ease; font-size: 0; }}
     .to-top-button::before {{ content: ""; width: 15px; height: 15px; border-left: 4px solid currentColor; border-top: 4px solid currentColor; transform: translateY(4px) rotate(45deg); border-radius: 2px; }}
     .to-top-button:hover {{ border-color: var(--link); box-shadow: 0 12px 32px rgba(9,105,218,.22); transform: translateY(0) scale(1.03); }}
@@ -455,11 +456,11 @@ def html_header(title: str) -> str:
     @media (max-width: 1500px) {{
       :root {{
         --nav-width: 350px;
-        --brand-height: 206px;
+        --brand-height: 188px;
         --brand-top-padding: 12px;
-        --brand-mark-size: 104px;
-        --brand-title-size: 56px;
-        --brand-subtitle-size: 28px;
+        --brand-mark-size: 78px;
+        --brand-title-size: 42px;
+        --brand-subtitle-size: 22px;
         --brand-gap: 14px;
         --brand-padding-x: 18px;
         --content-width: 1120px;
@@ -485,7 +486,7 @@ def html_header(title: str) -> str:
         --screen-body-font: 15px;
         --screen-code-font: 13px;
       }}
-      .settings-toggle {{ height: 30px; font-size: 15px; }}
+      .settings-toggle {{ width: 30px; height: 30px; font-size: 15px; }}
       .review-nav {{ padding-right: 10px; }}
       .review-nav-head button {{ min-width: 86px; }}
       .story-steps {{ grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); }}
@@ -503,7 +504,7 @@ def html_header(title: str) -> str:
       header, section, .file, .asset-inventory {{ width: 100%; margin-left: 0; margin-right: 0; }}
       .report-brand {{ display: none; }}
       .report-settings-launcher {{ position: static; left: auto; right: auto; top: auto; z-index: 40; width: calc(100% - 16px); margin: 8px auto; }}
-      .story-settings-launcher {{ position: static; left: auto; top: auto; right: auto; width: min(180px, 32vw); margin-left: auto; }}
+      .story-settings-launcher {{ position: static; left: auto; top: auto; right: auto; width: auto; margin-left: auto; }}
       .review-nav {{ position: static; width: calc(100% - 16px); max-height: 38vh; margin: 8px auto 16px; }}
       .review-nav-resizer {{ display: none; }}
       .story {{ top: 0; }}

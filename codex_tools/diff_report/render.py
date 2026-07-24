@@ -231,9 +231,7 @@ def _render_comments_index(comments: ReviewComments, diff_file_order: list[str])
 def _render_story_section(comments: ReviewComments) -> str:
     parts = ['  <section class="story" id="story"><h2>Review Story</h2>\n']
     parts.append('    <div class="story-controls" aria-label="Story navigation">\n')
-    parts.append('      <button type="button" data-story-nav="prev">Prev</button>\n')
     parts.append('      <span id="story-counter">1 / 1</span>\n')
-    parts.append('      <button type="button" data-story-nav="next">Next</button>\n')
     parts.append(_render_settings_launcher(" story-settings-launcher"))
     parts.append("    </div>\n")
     parts.append('    <ol class="story-steps">\n')
@@ -257,7 +255,8 @@ def _render_settings_launcher(extra_class: str = "") -> str:
     return (
         f'<div class="settings-launcher{extra_class}">\n'
         '  <button type="button" class="settings-toggle" data-settings-toggle '
-        'aria-haspopup="dialog" aria-expanded="false">Settings</button>\n'
+        'aria-haspopup="dialog" aria-expanded="false" aria-label="Settings">'
+        '<span aria-hidden="true"></span></button>\n'
         "</div>\n"
     )
 

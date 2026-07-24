@@ -674,9 +674,16 @@ def diagram_script() -> str:
     const textNodes = content.querySelectorAll("svg text");
     for (const node of textNodes) {
       if (node.textContent.toLowerCase().includes(lowerQuery)) {
-        node.classList.add("asset-search-match");
+        setSvgSearchClass(node, "asset-search-match", true);
         searchMatches.push(node);
       }
+    }
+  }
+
+  function setSvgSearchClass(node, className, enabled) {
+    node.classList.toggle(className, enabled);
+    for (const child of node.querySelectorAll("tspan")) {
+      child.classList.toggle(className, enabled);
     }
   }
 
@@ -1575,19 +1582,13 @@ def diagram_script() -> str:
 
   function showSearchMatch() {
     for (const node of searchMatches) {
-      node.classList.remove("asset-search-current");
-      for (const child of node.querySelectorAll("tspan")) {
-        child.classList.remove("asset-search-current");
-      }
+      setSvgSearchClass(node, "asset-search-current", false);
     }
     const current = searchMatches[searchIndex];
     if (!current) {
       return;
     }
-    current.classList.add("asset-search-current");
-    for (const child of current.querySelectorAll("tspan")) {
-      child.classList.add("asset-search-current");
-    }
+    setSvgSearchClass(current, "asset-search-current", true);
     if (mode === "log") {
       animateScrollContainerToElement(content, current, 180, { horizontal: false });
     } else {

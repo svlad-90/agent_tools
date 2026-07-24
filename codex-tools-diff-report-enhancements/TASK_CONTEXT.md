@@ -102,6 +102,19 @@ existing behavior with regression tests.
 - Diagram SVG search now also applies the current-match class to child `tspan`
   nodes so the active match remains red when PlantUML or manual diagram styling
   colors the actual `tspan` rather than the parent `text` node.
+- Review Story no longer renders Prev/Next buttons; story selection happens
+  through the numbered story cards and keyboard navigation remains handled by
+  the shared script.
+- The Settings control is now a compact hamburger button in the Review Story
+  control row instead of a full-width text button.
+- Review navigation active-file syncing no longer calls `scrollIntoView()` when
+  the navigation tree is in normal page flow, preventing narrow layouts from
+  snapping back to the tree while scrolling between files.
+- Diagram SVG search applies both match and current-match classes to child
+  `tspan` nodes so all found words, not only the active match parent, can be
+  painted red over PlantUML/manual fills.
+- The left report brand is reduced on medium desktop widths so it fits the
+  navigation column without dominating the available vertical space.
 
 ## Baseline Fixture
 
@@ -283,6 +296,12 @@ copied report keeps the same relative layout.
   unittest cases.
 - Headless Chrome screenshot check at 760x640 confirmed story reports no
   longer render a Settings control over the top report sections.
+- After removing Review Story Prev/Next buttons, changing Settings to a
+  hamburger control, constraining active-file nav scrolling, and expanding SVG
+  search highlighting, `codex-tools-diff-report-enhancements/scripts/run-ci.sh`
+  passed with 38 unittest cases.
+- Headless Chrome screenshot check at 1280x720 confirmed the medium-width brand
+  card is compact and aligned with the navigation column.
 - After expanding baseline behavior coverage,
   `codex_tools/environments/codex-tools-act/scripts/validate.sh` passed through
   local `act`; the workflow ran the shared script with six unittest cases.
