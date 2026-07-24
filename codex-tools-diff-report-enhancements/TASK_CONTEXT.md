@@ -117,6 +117,8 @@ existing behavior with regression tests.
 - The floating Settings and top-arrow controls are equal-sized circular buttons
   positioned just outside the main content column when there is room, with a
   small viewport-edge fallback on narrow layouts.
+- The outside-content gap for those floating controls was increased so the
+  controls no longer feel attached to the sticky Review Story card.
 - The report brand mark/text scale was increased so the fixed brand card reads
   as a deliberate logo block rather than a small element inside a large target
   area.
@@ -126,6 +128,9 @@ existing behavior with regression tests.
   styles.
 - The current SVG search match uses a brighter red inline fill and bold,
   underlined CSS styling, while other found SVG text stays plain red.
+- SVG search now adds red overlay rectangles for every found substring inside a
+  matched SVG text node, keeping the whole matched line red and making the
+  exact substring stand out without splitting PlantUML text nodes.
 - Active-file navigation auto-scroll is now limited to fixed-position nav
   layouts; when the tree is part of the page flow on narrow screens it only
   updates the active item and does not call `scrollIntoView()`.
@@ -331,6 +336,9 @@ copied report keeps the same relative layout.
   unittest cases.
 - After increasing the logo scale, moving floating controls outside the content
   column, and brightening the current SVG search match,
+  `codex-tools-diff-report-enhancements/scripts/run-ci.sh` passed with 38
+  unittest cases.
+- After widening the floating-control gap and adding SVG substring overlays,
   `codex-tools-diff-report-enhancements/scripts/run-ci.sh` passed with 38
   unittest cases.
 - Headless Chrome screenshot check at 1280x720 confirmed the report brand is
