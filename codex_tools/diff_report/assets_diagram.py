@@ -719,7 +719,7 @@ def diagram_script() -> str:
       }
     }
     if (layer.childNodes.length) {
-      parent.insertBefore(layer, textNode.nextSibling);
+      parent.insertBefore(layer, textNode);
     }
   }
 
@@ -1779,6 +1779,12 @@ def diagram_script() -> str:
 
   function openDiagram(id, focusTerms, notes, nextStoryContext) {
     openTemplate("diagram", id, "diagram", focusTerms, notes, nextStoryContext);
+    if (searchInput) {
+      window.setTimeout(function () {
+        searchInput.focus();
+        searchInput.select();
+      }, 0);
+    }
   }
 
   function openLog(id, focusTerms, nextStoryContext) {
