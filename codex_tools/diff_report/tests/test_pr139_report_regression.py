@@ -100,6 +100,15 @@ class Pr139ReportRegressionTests(unittest.TestCase):
             "Math.ceil(story.getBoundingClientRect().top)",
             "const currentHeight = Math.ceil(story.getBoundingClientRect().height)",
             "scheduleStoryOffsetUpdate()",
+            "--page-gutter: 8px",
+            "--review-nav-top: calc(var(--page-gutter) + var(--brand-height) + 12px)",
+            "main { width: calc(100% - var(--nav-width) - (var(--page-gutter) * 3))",
+            "header, section, .file { width: min(100%, var(--content-width));",
+            "@media (min-width: 1800px)",
+            "@media (max-width: 1500px)",
+            "@media (max-width: 1280px)",
+            ".story-steps { grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); }",
+            "header, section, .file, .asset-inventory { width: 100%; margin-left: 0; margin-right: 0; }",
         ]
         for fragment in expected_fragments:
             with self.subTest(fragment=fragment):
