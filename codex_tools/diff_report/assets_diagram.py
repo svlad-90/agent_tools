@@ -1576,12 +1576,18 @@ def diagram_script() -> str:
   function showSearchMatch() {
     for (const node of searchMatches) {
       node.classList.remove("asset-search-current");
+      for (const child of node.querySelectorAll("tspan")) {
+        child.classList.remove("asset-search-current");
+      }
     }
     const current = searchMatches[searchIndex];
     if (!current) {
       return;
     }
     current.classList.add("asset-search-current");
+    for (const child of current.querySelectorAll("tspan")) {
+      child.classList.add("asset-search-current");
+    }
     if (mode === "log") {
       animateScrollContainerToElement(content, current, 180, { horizontal: false });
     } else {

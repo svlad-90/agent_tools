@@ -192,6 +192,7 @@ class DiffReportBehaviorTests(unittest.TestCase):
             'data-story-target="line-src-app.py-2"',
             'data-diff-kind="add"',
             'data-settings-toggle',
+            'story-settings-launcher',
             'data-settings-modal',
             'role="dialog" aria-modal="true" aria-labelledby="settings-title"',
             'data-copy-markdown-menu',
@@ -213,6 +214,10 @@ class DiffReportBehaviorTests(unittest.TestCase):
         self.assertRegex(
             html,
             r'(?s)id="diagram-search".*data-diagram-search="prev".*data-diagram-search="next"',
+        )
+        self.assertRegex(
+            html,
+            r'(?s)<div class="story-controls"[^>]*>.*story-settings-launcher.*</div>',
         )
         self.assertNotIn("data-theme-toggle", html)
         self.assertNotIn("data-copy-mode-value", html)

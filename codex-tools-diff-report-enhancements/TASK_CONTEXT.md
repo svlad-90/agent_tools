@@ -96,6 +96,12 @@ existing behavior with regression tests.
   as the sticky header.
 - SVG search current-match styling uses the same red text color as other
   matches and no longer adds a glow/drop-shadow effect.
+- Settings for story reports now renders inside the `Review Story` control row
+  instead of as a separate launcher before the report or a fixed overlay. A
+  fallback launcher is still rendered for reports without a story section.
+- Diagram SVG search now also applies the current-match class to child `tspan`
+  nodes so the active match remains red when PlantUML or manual diagram styling
+  colors the actual `tspan` rather than the parent `text` node.
 
 ## Baseline Fixture
 
@@ -271,6 +277,12 @@ copied report keeps the same relative layout.
 - Headless Chrome screenshot check at 760x640 confirmed the top-of-report
   Settings placement remains in flow and does not overlay the first report
   sections.
+- After moving Settings into the Review Story control row and applying SVG
+  current-match styling to `tspan` nodes,
+  `codex-tools-diff-report-enhancements/scripts/run-ci.sh` passed with 38
+  unittest cases.
+- Headless Chrome screenshot check at 760x640 confirmed story reports no
+  longer render a Settings control over the top report sections.
 - After expanding baseline behavior coverage,
   `codex_tools/environments/codex-tools-act/scripts/validate.sh` passed through
   local `act`; the workflow ran the shared script with six unittest cases.
