@@ -58,8 +58,10 @@ def html_header(title: str) -> str:
       --hunk-bg: #dbeafe;
       --comment-bg: #fff3c4;
       --comment-border: #ca5010;
-      --comment-target-bg: #e9f5ec;
-      --comment-target-mix: rgba(26,127,55,.16);
+      --comment-target-ctx-bg: #f4f6f4;
+      --comment-target-add-bg: #d6eedc;
+      --comment-target-del-bg: #f8d5da;
+      --comment-target-overlay: rgba(202,80,16,.045);
       --comment-row-bg: rgba(233,245,236,.86);
       --comment-title-bg: rgba(255,255,255,.44);
       --comment-title-border: rgba(202,80,16,.34);
@@ -143,8 +145,10 @@ def html_header(title: str) -> str:
       --hunk-bg: #063b49;
       --comment-bg: #3a3217;
       --comment-border: #cca700;
-      --comment-target-bg: #2f2a1d;
-      --comment-target-mix: rgba(204,167,0,.22);
+      --comment-target-ctx-bg: #25251f;
+      --comment-target-add-bg: #14351f;
+      --comment-target-del-bg: #421f24;
+      --comment-target-overlay: rgba(204,167,0,.08);
       --comment-row-bg: rgba(58,50,23,.62);
       --comment-title-bg: rgba(255,255,255,.06);
       --comment-title-border: rgba(204,167,0,.34);
@@ -310,8 +314,9 @@ def html_header(title: str) -> str:
     tr.ctx .num, tr.ctx .code {{ background: var(--row-bg); }}
     tr.hunk .num, tr.hunk .code {{ background: var(--hunk-bg); color: #0969da; }}
     tr.header .num, tr.header .code {{ background: var(--header-bg); color: var(--muted); font-weight: 700; }}
-    tr.comment-target .num, tr.comment-target .code {{ background: var(--comment-target-bg); border-left: 0; }}
-    tr.comment-target.add .num, tr.comment-target.add .code, tr.comment-target.del .num, tr.comment-target.del .code {{ background: linear-gradient(to right, var(--comment-target-mix), var(--comment-target-mix)), var(--comment-target-bg); }}
+    tr.comment-target .num, tr.comment-target .code {{ background: linear-gradient(to right, var(--comment-target-overlay), var(--comment-target-overlay)), var(--comment-target-ctx-bg); border-left: 0; }}
+    tr.comment-target.add .num, tr.comment-target.add .code {{ background: linear-gradient(to right, var(--comment-target-overlay), var(--comment-target-overlay)), var(--comment-target-add-bg); }}
+    tr.comment-target.del .num, tr.comment-target.del .code {{ background: linear-gradient(to right, var(--comment-target-overlay), var(--comment-target-overlay)), var(--comment-target-del-bg); }}
     tr.comment-target .num:first-child {{ box-shadow: inset 4px 0 0 var(--comment-border); }}
     tr.comment-target-start .num, tr.comment-target-start .code {{ box-shadow: inset 0 2px 0 var(--comment-border); }}
     tr.comment-target-end .num, tr.comment-target-end .code {{ box-shadow: inset 0 -2px 0 var(--comment-border); }}
