@@ -8,8 +8,6 @@
 !.github/workflows/diff-report.yml
 !codex_tools/
 !codex_tools/**
-!codex-tools-diff-report-enhancements/
-!codex-tools-diff-report-enhancements/**
 !.gitignore
 
 __pycache__/

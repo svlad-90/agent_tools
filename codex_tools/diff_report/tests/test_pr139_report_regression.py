@@ -12,12 +12,12 @@ from codex_tools.diff_report.comments_compose import compose_comments_payload
 from codex_tools.diff_report.core import generate_report
 
 
-WORKSPACE_ROOT = Path(__file__).resolve().parents[3]
-TASK_REPORT_ROOT = WORKSPACE_ROOT / "codex-tools-diff-report-enhancements" / "report"
-TASK_DEV_ROOT = WORKSPACE_ROOT / "codex-tools-diff-report-enhancements" / "dev"
-FIXTURE_DIFF_DIR = TASK_REPORT_ROOT / "diff"
+FIXTURE_ROOT = Path(__file__).resolve().parent / "fixtures" / "pr139"
+FIXTURE_REPORT_ROOT = FIXTURE_ROOT / "report"
+FIXTURE_DEV_ROOT = FIXTURE_ROOT / "dev"
+FIXTURE_DIFF_DIR = FIXTURE_REPORT_ROOT / "diff"
 FIXTURE_BASENAME = "pr139-to-local-working-tree"
-PR139_COMPOSE_FINDINGS = TASK_DEV_ROOT / "pr139-compose-smoke-findings.json"
+PR139_COMPOSE_FINDINGS = FIXTURE_DEV_ROOT / "pr139-compose-smoke-findings.json"
 
 
 class Pr139ReportRegressionTests(unittest.TestCase):
@@ -27,8 +27,8 @@ class Pr139ReportRegressionTests(unittest.TestCase):
             for path in (
                 FIXTURE_DIFF_DIR / f"{FIXTURE_BASENAME}.patch",
                 FIXTURE_DIFF_DIR / f"{FIXTURE_BASENAME}.json",
-                TASK_REPORT_ROOT / "puml" / "fdt-review-fix-api-flow.svg",
-                TASK_REPORT_ROOT / "runtime" / "pr139-fdt-final-runtime-xen419.log",
+                FIXTURE_REPORT_ROOT / "puml" / "fdt-review-fix-api-flow.svg",
+                FIXTURE_REPORT_ROOT / "runtime" / "pr139-fdt-final-runtime-xen419.log",
                 PR139_COMPOSE_FINDINGS,
             )
             if not path.exists()
@@ -288,7 +288,7 @@ class Pr139ReportRegressionTests(unittest.TestCase):
 
     def _copy_fixture_report(self, temp_root: Path) -> Path:
         report_root = temp_root / "report"
-        shutil.copytree(TASK_REPORT_ROOT, report_root)
+        shutil.copytree(FIXTURE_REPORT_ROOT, report_root)
         return report_root
 
 
