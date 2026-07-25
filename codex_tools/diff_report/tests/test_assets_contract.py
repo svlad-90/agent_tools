@@ -9,6 +9,7 @@ from codex_tools.diff_report.assets import (
     story_script,
     theme_script,
 )
+from codex_tools.diff_report.assets_styles import stylesheet
 
 
 class AssetContractTests(unittest.TestCase):
@@ -24,6 +25,21 @@ class AssetContractTests(unittest.TestCase):
 
         expected_fragments = [
             "<title>A &lt;report&gt;</title>",
+            "<style>",
+            "</style>",
+            "data-settings-modal",
+            "data-theme-value=\"light\"",
+            "data-text-scale-reset",
+            "data-copy-markdown-menu",
+        ]
+        for fragment in expected_fragments:
+            with self.subTest(fragment=fragment):
+                self.assertIn(fragment, header)
+
+    def test_stylesheet_exposes_layout_theme_and_search_contracts(self) -> None:
+        styles = stylesheet()
+
+        expected_fragments = [
             "--text-scale: 1",
             "--scaled-code-font: calc(var(--screen-code-font) * var(--text-scale))",
             "--floating-control-size: 44px",
@@ -43,7 +59,7 @@ class AssetContractTests(unittest.TestCase):
         ]
         for fragment in expected_fragments:
             with self.subTest(fragment=fragment):
-                self.assertIn(fragment, header)
+                self.assertIn(fragment, styles)
 
     def test_theme_script_exposes_settings_and_text_scale_contracts(self) -> None:
         script = theme_script()
