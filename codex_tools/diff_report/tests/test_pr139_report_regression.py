@@ -58,6 +58,8 @@ class Pr139ReportRegressionTests(unittest.TestCase):
             'data-log-id="fdt-api-runtime"',
             'id="story"',
             'id="diagram-modal"',
+            'id="diagram-export"',
+            'data-asset-export',
             'id="diagram-template-fdt-review-fix-api-flow"',
             'data-code-links=',
             'id="log-template-fdt-api-runtime"',
@@ -72,6 +74,93 @@ class Pr139ReportRegressionTests(unittest.TestCase):
             "function codeOverlayRoot()",
             "codeOverlayRoot().appendChild(overlay)",
             "positionCodePopover(popover)",
+            "function exportOpenedDiagram()",
+            "function exportOpenedLog()",
+            "inlineReportOverlayStyles(svg, clone)",
+            "prepareExportedSvgForViewers(clone)",
+            "fixExportedSvgViewportSize(svg)",
+            'svg.style.maxWidth = "none"',
+            'svg.removeAttribute("viewBox")',
+            'if (next === "svg")',
+            'node.removeAttribute("textLength")',
+            "standaloneDiagramStyle()",
+            "standaloneDiagramVariablesStyle()",
+            "standaloneDiagramVariableMap(rootStyle)",
+            "resolveCssVariables(rule.style.cssText)",
+            "document.styleSheets",
+            "standaloneCssRules(rules, includeDarkRules)",
+            "standaloneSelector(rule.selectorText, includeDarkRules)",
+            "canInlineOverlayProperty(sourceNode, property)",
+            "insertSvgBackground(clone)",
+            'class", "diagram-export-background"',
+            "removeCodeLinkState(clone)",
+            "Save as SVG",
+            "Save as HTML",
+            "let storyOffsetRaf = 0",
+            "Math.ceil(story.getBoundingClientRect().top)",
+            "const currentHeight = Math.ceil(story.getBoundingClientRect().height)",
+            "scheduleStoryOffsetUpdate()",
+            "--page-gutter: 8px",
+            "--comment-target-ctx-bg: #f4f6f4",
+            "--comment-target-add-bg: #d6eedc",
+            "--comment-target-del-bg: #f8d5da",
+            "--comment-target-overlay: rgba(202,80,16,.045)",
+            "--text-scale: 1",
+            "--scaled-code-font: calc(var(--screen-code-font) * var(--text-scale))",
+            "--diff-num-width: 64px",
+            "--comment-gutter-width: 112px",
+            "--brand-mark-size: 172px",
+            "--floating-control-size: 44px",
+            "--floating-control-gap: 18px",
+            "--floating-content-gutter: max(24px, calc((100vw - var(--nav-width) - var(--content-width)) / 2))",
+            "--review-nav-top: calc(var(--page-gutter) + var(--brand-height) + 12px)",
+            "main { width: calc(100% - var(--nav-width) - (var(--page-gutter) * 3))",
+            "header, section, .file { width: min(100%, var(--content-width));",
+            ".settings-dialog { position: absolute; left: 50%; top: 50%;",
+            "font-size: var(--screen-body-font);",
+            "svg .asset-search-match { fill: #cf222e !important; stroke: none !important; }",
+            "svg .asset-search-submatch { fill: transparent; stroke: #ff4d5e;",
+            "svg .asset-search-current { fill: #ff2a3d !important; stroke: none !important; filter: none; font-weight: 800 !important;",
+            "svg text.asset-search-current, svg tspan.asset-search-current",
+            ".code-target-flash-overlay { position: absolute; z-index: 45;",
+            "function createCodeTargetFlashOverlay(targets)",
+            "function rowsWithIntermediateDeletes(rows)",
+            "tr.comment-target.add .num, tr.comment-target.add .code { background: linear-gradient(to right, var(--comment-target-overlay), var(--comment-target-overlay)), var(--comment-target-add-bg); }",
+            "tr.comment-target.del .num, tr.comment-target.del .code { background: linear-gradient(to right, var(--comment-target-overlay), var(--comment-target-overlay)), var(--comment-target-del-bg); }",
+            "tr.comment-row-add { --comment-row-target-bg: var(--comment-target-add-bg); }",
+            "tr.comment-row-del { --comment-row-target-bg: var(--comment-target-del-bg); }",
+            "tr.comment-row td { background: linear-gradient(to right, transparent calc(var(--diff-num-width) - 1px), var(--border) calc(var(--diff-num-width) - 1px) var(--diff-num-width), transparent var(--diff-num-width)), linear-gradient(to right, transparent calc(var(--comment-gutter-width) - 1px), var(--border) calc(var(--comment-gutter-width) - 1px) var(--comment-gutter-width), transparent var(--comment-gutter-width)), linear-gradient(to right, var(--comment-target-overlay) 0 var(--comment-gutter-width), transparent var(--comment-gutter-width)), linear-gradient(to right, var(--comment-row-target-bg) 0 var(--comment-gutter-width), transparent var(--comment-gutter-width)); padding: 0 !important; box-shadow: inset 4px 0 0 var(--comment-border); }",
+            "tr.comment-target-end:has(+ tr.comment-row) .num, tr.comment-target-end:has(+ tr.comment-row) .code { box-shadow: none; }",
+            'tr[data-file="\' + cssEscape(file) + \'"][data-new-line="\' + String(rangeStart) + \'"]',
+            "function cssEscape(value)",
+            "@media (min-width: 1800px)",
+            "@media (max-width: 1500px)",
+            "@media (max-width: 1280px)",
+            ".story-steps { grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); }",
+            ".settings-launcher { position: fixed; right: max(8px, calc(var(--floating-content-gutter) - var(--floating-control-size) - var(--floating-control-gap))); bottom: 24px;",
+            ".to-top-button { position: fixed; right: max(8px, calc(var(--floating-content-gutter) - var(--floating-control-size) - var(--floating-control-gap))); bottom: calc(24px + var(--floating-control-size) + 10px);",
+            ".report-settings-launcher { right: 14px; bottom: 24px; }",
+            ".to-top-button { right: 14px; bottom: calc(24px + var(--floating-control-size) + 12px); }",
+            "body.has-left-top .to-top-button { opacity: 1; visibility: visible;",
+            "class=\"settings-launcher report-settings-launcher\"",
+            ".settings-toggle span, .settings-toggle::before, .settings-toggle::after",
+            "header, section, .file, .asset-inventory { width: 100%; margin-left: 0; margin-right: 0; }",
+            'setSvgSearchClass(node, "asset-search-match", true)',
+            "function scheduleSearch(resetIndex)",
+            "window.requestAnimationFrame(function ()",
+            "addSvgSearchSubmatches(node, query)",
+            "parent.insertBefore(underlay, textNode)",
+            "function svgTextRangeBox(node, start, length)",
+            "searchInput.select()",
+            'setSvgSearchClass(current, "asset-search-current", true)',
+            'node.style.setProperty("fill", isCurrent ? "#ff2a3d" : "#cf222e", "important")',
+            'const textScaleKey = "codex-diff-report-text-scale"',
+            "let activeTextScale = 1",
+            "applyTextScale(activeTextScale + Number(button.dataset.textScaleStep || 0), true)",
+            'data-text-scale-step="0.1"',
+            "restoreSvgSearchPaint(node)",
+            'item.scrollIntoView({ block: "nearest", inline: "nearest" })',
+            'navStyle.position === "fixed"',
         ]
         for fragment in expected_fragments:
             with self.subTest(fragment=fragment):
@@ -81,6 +170,21 @@ class Pr139ReportRegressionTests(unittest.TestCase):
         self.assertGreaterEqual(html.count('class="review-comment"'), 10)
         self.assertNotIn("../puml/fdt-review-fix-api-flow.svg", html)
         self.assertNotIn("../runtime/pr139-fdt-final-runtime-xen419.log", html)
+        self.assertNotIn("General view", html)
+        self.assertNotIn("data-diagram-general", html)
+        self.assertNotIn('data-story-nav="prev"', html)
+        self.assertNotIn('data-story-nav="next"', html)
+        self.assertNotIn("story-controls", html)
+        self.assertNotIn("story-settings-launcher", html)
+        self.assertNotIn('id="story-counter"', html)
+        self.assertNotIn("story-top-inline", html)
+        self.assertNotIn(".review-comment::before", html)
+        self.assertRegex(
+            html,
+            r'<tr class="del comment-target" data-diff-kind="del">'
+            r'<td class="num">126</td><td class="num"></td><td class="code">-',
+        )
+        self.assertIn('<tr class="comment-row comment-row-add"><td colspan="3">', html)
 
     def test_report_without_story_keeps_top_button_and_shared_story_script(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

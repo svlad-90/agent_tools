@@ -6,6 +6,11 @@ cd "${ROOT_DIR}"
 
 python -m codex_tools.code_map parse-check codex_tools/diff_report/core.py
 python -m codex_tools.code_map parse-check codex_tools/diff_report/assets.py
+python -m codex_tools.code_map parse-check codex_tools/diff_report/assets_copy.py
+python -m codex_tools.code_map parse-check codex_tools/diff_report/assets_diagram.py
+python -m codex_tools.code_map parse-check codex_tools/diff_report/assets_header.py
+python -m codex_tools.code_map parse-check codex_tools/diff_report/assets_story.py
+python -m codex_tools.code_map parse-check codex_tools/diff_report/assets_theme.py
 python -m codex_tools.code_map parse-check codex_tools/diff_report/cli.py
 python -m codex_tools.code_map parse-check codex_tools/diff_report/comments_compose.py
 python -m codex_tools.code_map parse-check codex_tools/diff_report/comments.py

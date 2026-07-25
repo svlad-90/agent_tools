@@ -151,6 +151,135 @@ class CliTests(unittest.TestCase):
         self.assertEqual(2, payload["inline"][0]["line"])
         self.assertEqual("found", payload["inline"][0]["target"]["status"])
 
+    def test_findings_can_render_after_writing_composed_comments(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            diff_path = root / "change.patch"
+            findings_path = root / "findings.json"
+            comments_path = root / "comments.json"
+            output_path = root / "report.html"
+            diff_path.write_text(
+                textwrap.dedent(
+                    """\
+                    diff --git a/app.py b/app.py
+                    index 1111111..2222222 100644
+                    --- a/app.py
+                    +++ b/app.py
+                    @@ -1 +1,2 @@
+                     keep()
+                    +added()
+                    """
+                ),
+                encoding="utf-8",
+            )
+            findings_path.write_text(
+                json.dumps(
+                    {
+                        "inline": [
+                            {
+                                "file": "app.py",
+                                "contains": "added",
+                                "title": "Added call",
+                                "body": "Rendered from findings.",
+                            }
+                        ],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            stdout = io.StringIO()
+
+            with contextlib.redirect_stdout(stdout):
+                status = main(
+                    [
+                        "--diff-file",
+                        str(diff_path),
+                        "--findings",
+                        str(findings_path),
+                        "--output-comments",
+                        str(comments_path),
+                        "--output",
+                        str(output_path),
+                        "--title",
+                        "Rendered findings",
+                    ]
+                )
+
+            html = output_path.read_text(encoding="utf-8")
+
+        self.assertEqual(0, status)
+        self.assertIn(f"{comments_path}\n", stdout.getvalue())
+        self.assertIn(f"{output_path}\n", stdout.getvalue())
+        self.assertIn("<h1>Rendered findings</h1>", html)
+        self.assertIn("Rendered from findings.", html)
+
+    def test_findings_writes_compose_report_for_unresolved_targets(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            diff_path = root / "change.patch"
+            findings_path = root / "findings.json"
+            comments_path = root / "comments.json"
+            report_path = root / "compose-report.json"
+            output_path = root / "report.html"
+            diff_path.write_text(
+                textwrap.dedent(
+                    """\
+                    diff --git a/app.py b/app.py
+                    index 1111111..2222222 100644
+                    --- a/app.py
+                    +++ b/app.py
+                    @@ -1 +1,3 @@
+                     keep()
+                    +duplicate()
+                    +duplicate()
+                    """
+                ),
+                encoding="utf-8",
+            )
+            findings_path.write_text(
+                json.dumps(
+                    {
+                        "inline": [
+                            {
+                                "file": "app.py",
+                                "contains": "duplicate",
+                                "title": "Ambiguous call",
+                                "body": "Needs a line.",
+                            }
+                        ],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            stderr = io.StringIO()
+            stdout = io.StringIO()
+
+            with contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(stderr):
+                status = main(
+                    [
+                        "--diff-file",
+                        str(diff_path),
+                        "--findings",
+                        str(findings_path),
+                        "--output-comments",
+                        str(comments_path),
+                        "--compose-report",
+                        str(report_path),
+                        "--output",
+                        str(output_path),
+                    ]
+                )
+
+            report = json.loads(report_path.read_text(encoding="utf-8"))
+            comments = json.loads(comments_path.read_text(encoding="utf-8"))
+
+        self.assertEqual(1, status)
+        self.assertFalse(output_path.exists())
+        self.assertEqual([], comments["inline"])
+        self.assertEqual("unresolved", report["diagnostics"][0]["status"])
+        self.assertIn("ambiguous", report["diagnostics"][0]["message"])
+        self.assertIn("diagnostics=1", stderr.getvalue())
+
     def test_generates_report_from_diff_file_and_comments(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
