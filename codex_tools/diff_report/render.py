@@ -58,6 +58,7 @@ def render_html_report(
     if comment_count:
         parts.append(_render_comments_index(comments, diff_files(source.diff_text)))
     parts.append(_render_diff(source.diff_text, comments))
+    parts.append(_render_settings_launcher(" report-settings-launcher"))
     parts.append(_render_to_top_button())
     if comments.diagrams or comments.logs:
         parts.append(_render_diagram_modal(comments))
@@ -134,7 +135,7 @@ def _render_comments_index(comments: ReviewComments, diff_file_order: list[str])
         '<button type="button" data-review-nav-reset>Reset tree</button></div>\n'
     ]
     comment_file_paths = set(comments.file_comments) | {key[0] for key in comments.inline_comments}
-    file_paths = [file_path for file_path in diff_file_order if file_path in comment_file_paths]
+    file_paths = list(diff_file_order)
     file_paths.extend(sorted(comment_file_paths - set(file_paths)))
     comments_by_file = {
         file_path: [
@@ -228,11 +229,6 @@ def _render_comments_index(comments: ReviewComments, diff_file_order: list[str])
 
 def _render_story_section(comments: ReviewComments) -> str:
     parts = ['  <section class="story" id="story"><h2>Review Story</h2>\n']
-    parts.append('    <div class="story-controls" aria-label="Story navigation">\n')
-    parts.append('      <button type="button" data-story-nav="prev">Prev</button>\n')
-    parts.append('      <span id="story-counter">1 / 1</span>\n')
-    parts.append('      <button type="button" data-story-nav="next">Next</button>\n')
-    parts.append("    </div>\n")
     parts.append('    <ol class="story-steps">\n')
     for index, step in enumerate(comments.story):
         attrs = _story_step_attrs(step, index)
@@ -248,6 +244,16 @@ def _render_story_section(comments: ReviewComments) -> str:
     parts.append("    </div>\n")
     parts.append("  </section>\n")
     return "".join(parts)
+
+
+def _render_settings_launcher(extra_class: str = "") -> str:
+    return (
+        f'<div class="settings-launcher{extra_class}">\n'
+        '  <button type="button" class="settings-toggle" data-settings-toggle '
+        'aria-haspopup="dialog" aria-expanded="false" aria-label="Settings">'
+        '<span aria-hidden="true"></span></button>\n'
+        "</div>\n"
+    )
 
 
 def _render_to_top_button() -> str:
@@ -302,14 +308,16 @@ def _render_diff(diff_text: str, comments: ReviewComments) -> str:
     table_open = False
     comment_ranges = _comment_line_ranges(comments)
     inline_comments_by_render_line = _inline_comments_by_render_line(comments)
+    active_delete_target: tuple[int, int] | None = None
 
     def close_file() -> None:
-        nonlocal table_open, current_file
+        nonlocal table_open, current_file, active_delete_target
         if table_open:
             parts.append("      </tbody>\n    </table>\n")
             table_open = False
         if current_file is not None:
             parts.append("  </article>\n")
+        active_delete_target = None
 
     for line in iter_diff_lines(diff_text):
         if line.kind == "file":
@@ -347,6 +355,7 @@ def _render_diff(diff_text: str, comments: ReviewComments) -> str:
 
         if line.kind == "add" and line.new_line is not None:
             line_no = line.new_line
+            target_range = _comment_target_range(comment_ranges, current_file, line_no)
             parts.append(
                 _diff_row(
                     "add",
@@ -355,21 +364,25 @@ def _render_diff(diff_text: str, comments: ReviewComments) -> str:
                     line.raw,
                     current_file,
                     line_no,
-                    _comment_target_classes(comment_ranges, current_file, line_no),
+                    _comment_target_classes_for_range(target_range, line_no),
                 )
             )
+            active_delete_target = target_range if target_range is not None and line_no < target_range[1] else None
             parts.append(
                 _render_inline_comments(
                     inline_comments_by_render_line,
                     comments,
                     current_file,
                     line_no,
+                    "add" if target_range is not None else "ctx",
                 )
             )
         elif line.kind == "delete" and line.old_line is not None:
-            parts.append(_diff_row("del", str(line.old_line), "", line.raw))
+            extra_classes: tuple[str, ...] = ("comment-target",) if active_delete_target is not None else ()
+            parts.append(_diff_row("del", str(line.old_line), "", line.raw, extra_classes=extra_classes))
         elif line.kind == "context" and line.old_line is not None and line.new_line is not None:
             line_no = line.new_line
+            target_range = _comment_target_range(comment_ranges, current_file, line_no)
             parts.append(
                 _diff_row(
                     "ctx",
@@ -378,15 +391,17 @@ def _render_diff(diff_text: str, comments: ReviewComments) -> str:
                     line.raw,
                     current_file,
                     line_no,
-                    _comment_target_classes(comment_ranges, current_file, line_no),
+                    _comment_target_classes_for_range(target_range, line_no),
                 )
             )
+            active_delete_target = target_range if target_range is not None and line_no < target_range[1] else None
             parts.append(
                 _render_inline_comments(
                     inline_comments_by_render_line,
                     comments,
                     current_file,
                     line_no,
+                    "ctx" if target_range is not None else "ctx",
                 )
             )
 
@@ -418,17 +433,35 @@ def _comment_target_classes(
     file_path: str,
     line: int,
 ) -> tuple[str, ...]:
+    return _comment_target_classes_for_range(_comment_target_range(ranges, file_path, line), line)
+
+
+def _comment_target_range(
+    ranges: dict[str, list[tuple[int, int]]],
+    file_path: str,
+    line: int,
+) -> tuple[int, int] | None:
     for start, end in ranges.get(file_path, ()):
         if start <= line <= end:
-            classes = ["comment-target"]
-            if line == start:
-                classes.append("comment-target-start")
-            if line == end:
-                classes.append("comment-target-end")
-            if start == end:
-                classes.append("comment-target-single")
-            return tuple(classes)
-    return ()
+            return start, end
+    return None
+
+
+def _comment_target_classes_for_range(
+    target_range: tuple[int, int] | None,
+    line: int,
+) -> tuple[str, ...]:
+    if target_range is None:
+        return ()
+    start, end = target_range
+    classes = ["comment-target"]
+    if line == start:
+        classes.append("comment-target-start")
+    if line == end:
+        classes.append("comment-target-end")
+    if start == end:
+        classes.append("comment-target-single")
+    return tuple(classes)
 
 
 def _render_inline_comments(
@@ -436,13 +469,15 @@ def _render_inline_comments(
     comments: ReviewComments,
     file_path: str,
     line: int,
+    target_kind: str = "ctx",
 ) -> str:
     rendered: list[str] = []
+    row_kind = target_kind if target_kind in {"add", "del", "ctx"} else "ctx"
     for comment in grouped_comments.get((file_path, line), ()):
         location = _comment_location(comment)
         start, end = comment.line_range or (comment.line, comment.line)
         rendered.append(
-            '      <tr class="comment-row"><td colspan="3">'
+            f'      <tr class="comment-row comment-row-{row_kind}"><td colspan="3">'
             f'<div class="review-comment" id="{_comment_anchor(file_path, comment.line)}"'
             f' data-comment-file="{_esc(file_path)}" data-comment-range-start="{start}"'
             f' data-comment-range-end="{end}">'
@@ -574,9 +609,9 @@ def _render_diagram_modal(comments: ReviewComments) -> str:
     parts.append('      <div class="diagram-tools">\n')
     parts.append('        <input id="diagram-search" type="search" placeholder="Search" aria-label="Search opened asset">\n')
     parts.append('        <span id="diagram-search-count" class="diagram-search-count"></span>\n')
-    parts.append('        <button type="button" id="diagram-general-view" data-diagram-general hidden>General view</button>\n')
     parts.append('        <button type="button" data-diagram-search="prev" aria-label="Previous search match">Prev</button>\n')
     parts.append('        <button type="button" data-diagram-search="next" aria-label="Next search match">Next</button>\n')
+    parts.append('        <button type="button" id="diagram-export" data-asset-export hidden>Export</button>\n')
     parts.append('        <button type="button" data-diagram-zoom="out" data-diagram-zoom-tool aria-label="Zoom out">-</button>\n')
     parts.append(
         '        <button type="button" data-diagram-zoom="reset" data-diagram-zoom-tool aria-label="Reset zoom">'
