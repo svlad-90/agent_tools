@@ -9,6 +9,7 @@ from codex_tools.diff_report.assets import (
     story_script,
     theme_script,
 )
+from codex_tools.diff_report.assets_diagram_export import diagram_export_helpers
 from codex_tools.diff_report.assets_styles import stylesheet
 
 
@@ -120,13 +121,6 @@ class AssetContractTests(unittest.TestCase):
         script = diagram_script()
 
         expected_fragments = [
-            "function exportOpenedDiagram()",
-            "function exportOpenedLog()",
-            "inlineReportOverlayStyles(svg, clone)",
-            "prepareExportedSvgForViewers(clone)",
-            "fixExportedSvgViewportSize(svg)",
-            "standaloneDiagramStyle()",
-            "standaloneCssRules(rules, includeDarkRules)",
             "data-diagram-search",
             "scheduleSearch(resetIndex)",
             "setSvgSearchClass(node, \"asset-search-match\", true)",
@@ -135,6 +129,28 @@ class AssetContractTests(unittest.TestCase):
             "activeCodeLinks",
             "function codeOverlayRoot()",
             "positionCodePopover(popover)",
+        ]
+        for fragment in expected_fragments:
+            with self.subTest(fragment=fragment):
+                self.assertIn(fragment, script)
+
+    def test_diagram_export_helpers_expose_standalone_export_contracts(self) -> None:
+        script = diagram_export_helpers()
+
+        expected_fragments = [
+            "function exportOpenedDiagram()",
+            "function exportOpenedLog()",
+            "inlineReportOverlayStyles(svg, clone)",
+            "prepareExportedSvgForViewers(clone)",
+            "fixExportedSvgViewportSize(svg)",
+            "standaloneDiagramStyle()",
+            "standaloneCssRules(rules, includeDarkRules)",
+            "standaloneSelector(rule.selectorText, includeDarkRules)",
+            "resolveCssVariables(rule.style.cssText)",
+            "insertSvgBackground(clone)",
+            "removeCodeLinkState(clone)",
+            "downloadBlob(safeFileName(activeExportName, \"svg\")",
+            "downloadBlob(safeFileName(activeExportName, \"html\")",
         ]
         for fragment in expected_fragments:
             with self.subTest(fragment=fragment):
