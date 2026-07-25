@@ -5,14 +5,22 @@ def story_script() -> str:
 (function () {
   const steps = Array.from(document.querySelectorAll("[data-story-index]"));
   const storySteps = document.querySelector(".story-steps");
+  const story = document.getElementById("story");
   const storyNavButtons = Array.from(document.querySelectorAll("[data-story-nav]"));
+  const storyMoveButtons = Array.from(document.querySelectorAll("[data-diagram-story-step]"));
+  const storyToggleButtons = Array.from(document.querySelectorAll("[data-diagram-story-toggle]"));
   const detailsTitle = document.getElementById("story-details-title");
   const detailsBody = document.getElementById("story-details-body");
   const jumpDurationMs = 0;
   let activeIndex = 0;
   let storyPage = 0;
   let storyPageCount = 1;
+  let storyPageStart = 0;
+  let storyPageColumns = 1;
+  let storyPageMaxStart = 0;
+  let storyPageUnitWidth = 1;
   let storyPagerRaf = 0;
+  let storyPagerResizeTimer = 0;
   let activeTarget = null;
   let activeScrollTimer = 0;
   let activeScrollEndTimer = 0;
@@ -20,6 +28,11 @@ def story_script() -> str:
   let navigationToken = 0;
   let topStateRaf = 0;
   let storyOffsetRaf = 0;
+  const storySentinel = story ? document.createElement("div") : null;
+  if (story && storySentinel) {
+    storySentinel.className = "story-sentinel";
+    story.before(storySentinel);
+  }
   if ("scrollRestoration" in history) {
     history.scrollRestoration = "manual";
   }
@@ -139,6 +152,8 @@ def story_script() -> str:
     }
     let activeItem = null;
     let activeRaf = 0;
+    let navScrollRaf = 0;
+    let navScrollFollowupTimer = 0;
 
     function revealActiveItem(item) {
       let parent = item.parentElement ? item.parentElement.closest(".review-nav-dir") : null;
@@ -150,10 +165,41 @@ def story_script() -> str:
         }
         parent = parent.parentElement ? parent.parentElement.closest(".review-nav-dir") : null;
       }
-      const navStyle = window.getComputedStyle(nav);
+      scheduleNavScrollToItem(item);
+    }
+
+    function scheduleNavScrollToItem(item) {
+      window.clearTimeout(navScrollFollowupTimer);
+      if (navScrollRaf) {
+        window.cancelAnimationFrame(navScrollRaf);
+      }
+      navScrollRaf = window.requestAnimationFrame(function () {
+        navScrollRaf = 0;
+        scrollNavToItem(item);
+        navScrollFollowupTimer = window.setTimeout(function () {
+          scrollNavToItem(item);
+        }, 80);
+      });
+    }
+
+    function scrollNavToItem(item) {
       const hasOwnScroll = nav.scrollHeight > nav.clientHeight + 2 || nav.scrollWidth > nav.clientWidth + 2;
-      if (hasOwnScroll && navStyle.position === "fixed") {
-        item.scrollIntoView({ block: "nearest", inline: "nearest" });
+      if (!hasOwnScroll) {
+        return;
+      }
+      const navRect = nav.getBoundingClientRect();
+      const itemRect = item.getBoundingClientRect();
+      const topPadding = 44;
+      const bottomPadding = 18;
+      if (itemRect.top < navRect.top + topPadding) {
+        nav.scrollTop += itemRect.top - navRect.top - Math.max(topPadding, (navRect.height - itemRect.height) / 2);
+      } else if (itemRect.bottom > navRect.bottom - bottomPadding) {
+        nav.scrollTop += itemRect.bottom - navRect.bottom + Math.max(bottomPadding, (navRect.height - itemRect.height) / 2);
+      }
+      if (itemRect.left < navRect.left + 8) {
+        nav.scrollLeft += itemRect.left - navRect.left - 8;
+      } else if (itemRect.right > navRect.right - 8) {
+        nav.scrollLeft += itemRect.right - navRect.right + 8;
       }
     }
 
@@ -236,9 +282,8 @@ def story_script() -> str:
     topStateRaf = window.requestAnimationFrame(function () {
       topStateRaf = 0;
       const hasLeftTop = window.scrollY > 24;
-      const story = document.getElementById("story");
       const storyPinned = Boolean(
-        hasLeftTop && story && story.getBoundingClientRect().top <= 0
+        hasLeftTop && storySentinel && storySentinel.getBoundingClientRect().top <= 0
       );
       document.body.classList.toggle("has-left-top", hasLeftTop);
       document.body.classList.toggle("has-pinned-story", storyPinned);
@@ -263,24 +308,87 @@ def story_script() -> str:
       detailsBody.textContent = step.dataset.storyBody || "";
     }
     updateStoryOffset();
+    updateStoryMoveButtons();
     scheduleStoryPagerUpdate(true);
   }
 
-  function scheduleStoryPagerUpdate(ensureActive) {
+  function setOpenStep(index) {
+    for (const step of steps) {
+      step.classList.remove("is-open");
+      step.setAttribute("aria-pressed", "false");
+    }
+    if (Number.isInteger(index) && index >= 0 && index < steps.length) {
+      steps[index].classList.add("is-open");
+      steps[index].setAttribute("aria-pressed", "true");
+    }
+    updateStoryToggleButtons();
+  }
+
+  function updateStoryMoveButtons() {
+    for (const button of storyMoveButtons) {
+      const isPrev = button.dataset.diagramStoryStep === "prev";
+      const disabled = isPrev ? activeIndex <= 0 : activeIndex >= steps.length - 1;
+      button.disabled = disabled;
+      button.setAttribute("aria-disabled", disabled ? "true" : "false");
+    }
+    updateStoryToggleButtons();
+  }
+
+  function isActiveStepOpen() {
+    return steps[activeIndex] ? steps[activeIndex].classList.contains("is-open") : false;
+  }
+
+  function updateStoryToggleButtons() {
+    const open = isActiveStepOpen();
+    const disabled = !steps.length;
+    for (const button of storyToggleButtons) {
+      const label = open ? "Close slide" : "Open slide";
+      button.classList.toggle("is-open", open);
+      button.textContent = "";
+      button.dataset.tooltip = label;
+      button.setAttribute("aria-label", label);
+      button.setAttribute("aria-pressed", open ? "true" : "false");
+      button.disabled = disabled;
+      button.setAttribute("aria-disabled", disabled ? "true" : "false");
+    }
+  }
+
+  function scheduleStoryPagerUpdate(ensureActive, scrollBehavior) {
     if (storyPagerRaf) {
       window.cancelAnimationFrame(storyPagerRaf);
     }
     storyPagerRaf = window.requestAnimationFrame(function () {
       storyPagerRaf = 0;
-      updateStoryPager(ensureActive);
+      updateStoryPager(ensureActive, scrollBehavior);
     });
   }
 
   function scheduleStoryPagerResize() {
-    scheduleStoryPagerUpdate(true);
+    scheduleStoryPagerUpdate(false, "auto");
+    if (storyPagerResizeTimer) {
+      window.clearTimeout(storyPagerResizeTimer);
+    }
+    storyPagerResizeTimer = window.setTimeout(function () {
+      storyPagerResizeTimer = 0;
+      scheduleStoryPagerUpdate(false, "auto");
+    }, 220);
   }
 
-  function updateStoryPager(ensureActive) {
+  function initStoryPagerResizeObserver() {
+    if (!storySteps || typeof ResizeObserver === "undefined") {
+      return;
+    }
+    const observer = new ResizeObserver(function () {
+      scheduleStoryOffsetUpdate();
+      scheduleStoryPagerResize();
+    });
+    observer.observe(storySteps);
+    if (story) {
+      observer.observe(story);
+    }
+  }
+
+  function updateStoryPager(ensureActive, scrollBehavior) {
     if (!steps.length || !storySteps) {
       return;
     }
@@ -290,33 +398,55 @@ def story_script() -> str:
     if (!items.length) {
       return;
     }
-    const viewportWidth = storySteps.clientWidth;
+    const viewportWidth = Math.floor(storySteps.getBoundingClientRect().width || storySteps.clientWidth || 0);
+    if (viewportWidth <= 0) {
+      scheduleStoryPagerResize();
+      return;
+    }
     const columns = storyColumnsForWidth(viewportWidth);
     const gap = 6;
     const columnWidth = Math.max(1, Math.floor((Math.max(0, viewportWidth) - (gap * Math.max(0, columns - 1))) / columns));
     storySteps.style.setProperty("--story-step-column-width", columnWidth + "px");
-    const totalColumns = Math.max(1, Math.ceil(items.length / 2));
+    const totalColumns = Math.max(1, items.length);
+    const maxStart = Math.max(0, totalColumns - columns);
+    storyPageColumns = columns;
+    storyPageMaxStart = maxStart;
+    storyPageUnitWidth = columnWidth + gap;
     storyPageCount = Math.max(1, Math.ceil(totalColumns / columns));
     if (ensureActive) {
-      storyPage = Math.floor(Math.floor(activeIndex / 2) / columns);
+      storyPageStart = Math.min(Math.floor(activeIndex / columns) * columns, maxStart);
     }
-    storyPage = Math.max(0, Math.min(storyPage, storyPageCount - 1));
+    storyPageStart = Math.max(0, Math.min(storyPageStart, maxStart));
+    storyPage = Math.floor(storyPageStart / columns);
     for (let index = 0; index < items.length; index += 1) {
-      const page = Math.floor(index / (columns * 2));
-      const indexInPage = index % (columns * 2);
-      const column = (page * columns) + (indexInPage % columns) + 1;
-      const row = Math.floor(indexInPage / columns) + 1;
+      const page = Math.floor(index / columns);
+      const indexInPage = index % columns;
+      const column = (page * columns) + indexInPage + 1;
+      const row = 1;
       items[index].style.gridColumn = String(column);
       items[index].style.gridRow = String(row);
     }
-    const targetLeft = storyPage * columns * (columnWidth + gap);
-    storySteps.scrollTo({ left: targetLeft, behavior: "smooth" });
+    const targetLeft = storyPageStart * (columnWidth + gap);
+    if (scrollBehavior === "auto") {
+      syncStoryScrollLeft(targetLeft);
+    } else {
+      storySteps.scrollTo({ left: targetLeft, behavior: "smooth" });
+    }
     for (const button of storyNavButtons) {
       const isPrev = button.dataset.storyNav === "prev";
-      const disabled = isPrev ? storyPage <= 0 : storyPage >= storyPageCount - 1;
+      const disabled = isPrev ? storyPageStart <= 0 : storyPageStart >= maxStart;
       button.disabled = disabled;
       button.setAttribute("aria-disabled", disabled ? "true" : "false");
     }
+  }
+
+  function syncStoryScrollLeft(targetLeft) {
+    const previousScrollBehavior = storySteps.style.scrollBehavior;
+    storySteps.style.scrollBehavior = "auto";
+    storySteps.scrollLeft = targetLeft;
+    window.requestAnimationFrame(function () {
+      storySteps.style.scrollBehavior = previousScrollBehavior;
+    });
   }
 
   function storyColumnsForWidth(width) {
@@ -329,8 +459,15 @@ def story_script() -> str:
     if (!steps.length) {
       return;
     }
-    storyPage = Math.max(0, Math.min(storyPageCount - 1, storyPage + (direction < 0 ? -1 : 1)));
-    updateStoryPager(false);
+    const currentStart = Math.max(0, Math.min(storyPageMaxStart, Math.round(storySteps.scrollLeft / storyPageUnitWidth)));
+    const nextStart = direction < 0
+      ? Math.max(0, currentStart - storyPageColumns)
+      : Math.min(storyPageMaxStart, currentStart + storyPageColumns);
+    if (nextStart === storyPageStart) {
+      return;
+    }
+    storyPageStart = nextStart;
+    updateStoryPager(false, "smooth");
   }
 
   function clearTargetHighlight() {
@@ -341,18 +478,55 @@ def story_script() -> str:
     clearFlashTargets();
   }
 
+  function closeOpenStoryArtifact() {
+    const modal = document.getElementById("diagram-modal");
+    if (!modal || modal.hidden) {
+      return;
+    }
+    const closeControl = modal.querySelector("[data-diagram-close]");
+    if (closeControl instanceof HTMLElement) {
+      closeControl.click();
+    }
+  }
+
+  function closeCurrentStorySlide() {
+    closeOpenStoryArtifact();
+    clearTargetHighlight();
+    setOpenStep(null);
+  }
+
+  function toggleCurrentStorySlide() {
+    if (!steps.length) {
+      return;
+    }
+    if (isActiveStepOpen()) {
+      closeCurrentStorySlide();
+      return;
+    }
+    openStep(activeIndex);
+  }
+
   function openStep(index) {
     if (!steps.length) {
       return;
     }
-    setActive(index);
+    const nextIndex = Math.max(0, Math.min(steps.length - 1, index));
+    if (nextIndex === activeIndex && steps[nextIndex].classList.contains("is-open")) {
+      closeCurrentStorySlide();
+      return;
+    }
+    setActive(nextIndex);
     const step = steps[activeIndex];
     clearTargetHighlight();
 
     if (openStoryArtifact(step)) {
+      setOpenStep(activeIndex);
+      document.body.classList.add("has-pinned-story");
       return;
     }
 
+    closeOpenStoryArtifact();
+    setOpenStep(activeIndex);
     const targetId = step.dataset.storyTarget || "";
     jumpToStoryTarget(step, targetId);
   }
@@ -368,6 +542,12 @@ def story_script() -> str:
         if (step.dataset.storyDiagramNotes) {
           preview.dataset.diagramNotes = step.dataset.storyDiagramNotes;
         }
+        if (step.dataset.storyDiagramZoom) {
+          preview.dataset.diagramZoom = step.dataset.storyDiagramZoom;
+        }
+        if (step.dataset.storyArtifactComment) {
+          preview.dataset.artifactComment = step.dataset.storyArtifactComment;
+        }
         preview.dataset.storyTitle = step.dataset.storyTitle || "";
         preview.dataset.storyBody = step.dataset.storyBody || "";
         preview.click();
@@ -380,6 +560,12 @@ def story_script() -> str:
       if (preview) {
         if (step.dataset.storyLogFocus) {
           preview.dataset.logFocus = step.dataset.storyLogFocus;
+        }
+        if (step.dataset.storyLogZoom) {
+          preview.dataset.logZoom = step.dataset.storyLogZoom;
+        }
+        if (step.dataset.storyArtifactComment) {
+          preview.dataset.artifactComment = step.dataset.storyArtifactComment;
         }
         preview.dataset.storyTitle = step.dataset.storyTitle || "";
         preview.dataset.storyBody = step.dataset.storyBody || "";
@@ -729,16 +915,53 @@ def story_script() -> str:
     }
   });
 
+  document.addEventListener("codex-review-story-move", function (event) {
+    if (!steps.length) {
+      return;
+    }
+    const direction = event.detail && Number(event.detail.direction) < 0 ? -1 : 1;
+    const nextIndex = Math.max(0, Math.min(steps.length - 1, activeIndex + direction));
+    if (nextIndex === activeIndex) {
+      return;
+    }
+    openStep(nextIndex);
+  });
+
+  document.addEventListener("click", function (event) {
+    const toggle = event.target.closest("[data-diagram-story-toggle]");
+    if (!toggle) {
+      return;
+    }
+    event.preventDefault();
+    toggleCurrentStorySlide();
+  });
+
+  document.addEventListener("codex-review-story-layout", function () {
+    updateStoryOffset();
+    updateTopButtonState();
+  });
+
+  document.addEventListener("codex-review-story-artifact", function (event) {
+    const detail = event.detail || {};
+    if (detail.status === "closed") {
+      setOpenStep(null);
+    } else if (detail.status === "open" && Number.isInteger(detail.index)) {
+      setOpenStep(detail.index);
+    }
+  });
+
   initReviewNavResize();
   initReviewNavTree();
   initReviewNavActiveFile();
+  initStoryPagerResizeObserver();
   updateStoryOffset();
-  updateStoryPager(true);
+  updateStoryPager(true, "auto");
   updateTopButtonState();
   resetPageScrollOnLoad();
   if (steps.length) {
     setActive(0);
   }
+  updateStoryMoveButtons();
   if (location.hash && history.replaceState) {
     history.replaceState(null, "", location.pathname + location.search);
   }

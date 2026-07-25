@@ -18,9 +18,6 @@ def diagram_script() -> str:
   const searchInput = document.getElementById("diagram-search");
   const searchCount = document.getElementById("diagram-search-count");
   const exportButton = document.getElementById("diagram-export");
-  const storyContext = document.getElementById("diagram-story-context");
-  const storyTitle = document.getElementById("diagram-story-title");
-  const storyBody = document.getElementById("diagram-story-body");
   const zoomTools = Array.from(document.querySelectorAll("[data-diagram-zoom-tool]"));
   let scale = 1;
   let initialScale = 1;
@@ -39,18 +36,63 @@ def diagram_script() -> str:
   let panStartLeft = 0;
   let panStartTop = 0;
   let activeExportName = "asset";
+  let scaleAnimation = 0;
 
-  function setScale(nextScale) {
-    scale = Math.max(0.25, Math.min(4, nextScale));
+  function setScale(nextScale, options) {
+    const targetScale = Math.max(0.25, Math.min(4, nextScale));
+    if (options && options.animate) {
+      animateScaleTo(targetScale);
+      return;
+    }
+    if (scaleAnimation) {
+      window.cancelAnimationFrame(scaleAnimation);
+      scaleAnimation = 0;
+    }
+    applyScale(targetScale);
+  }
+
+  function animateScaleTo(targetScale) {
+    if (scaleAnimation) {
+      window.cancelAnimationFrame(scaleAnimation);
+    }
+    const startedAt = performance.now();
+    const startScale = scale;
+    const durationMs = 160;
+    function tick(now) {
+      const elapsed = Math.min(1, (now - startedAt) / durationMs);
+      const eased = 1 - Math.pow(1 - elapsed, 3);
+      applyScale(startScale + (targetScale - startScale) * eased);
+      if (elapsed < 1) {
+        scaleAnimation = window.requestAnimationFrame(tick);
+      } else {
+        scaleAnimation = 0;
+        applyScale(targetScale);
+      }
+    }
+    scaleAnimation = window.requestAnimationFrame(tick);
+  }
+
+  function applyScale(nextScale) {
+    scale = nextScale;
     if (zoomLabel) {
       zoomLabel.textContent = Math.round(scale * 100) + "%";
     }
+    if (mode === "log") {
+      content.style.setProperty("--asset-log-scale", String(scale));
+      return;
+    }
+    content.style.removeProperty("--asset-log-scale");
     const stage = content.querySelector(".diagram-zoom-stage");
     if (stage) {
       stage.style.transform = "scale(" + scale + ")";
       stage.style.marginRight = ((scale - 1) * stage.scrollWidth) + "px";
       stage.style.marginBottom = ((scale - 1) * stage.scrollHeight) + "px";
     }
+  }
+
+  function parseZoom(value) {
+    const parsed = Number.parseFloat(value || "");
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
   }
 
   function setInitialDiagramScale() {
@@ -101,7 +143,7 @@ def diagram_script() -> str:
     mode = nextMode;
     content.dataset.mode = mode;
     for (const tool of zoomTools) {
-      tool.hidden = mode !== "diagram";
+      tool.hidden = mode !== "diagram" && mode !== "log";
     }
     if (exportButton) {
       exportButton.hidden = mode !== "diagram" && mode !== "log";
@@ -139,6 +181,9 @@ def diagram_script() -> str:
     for (const node of content.querySelectorAll(".asset-focus-connector")) {
       node.classList.remove("asset-focus-connector", "asset-focus-connector-reverse");
     }
+    for (const node of content.querySelectorAll(".asset-focus-object")) {
+      node.classList.remove("asset-focus-object");
+    }
     for (const node of content.querySelectorAll(".asset-focus-match")) {
       node.classList.remove("asset-focus-match", "asset-focus-related-hover");
     }
@@ -153,6 +198,12 @@ def diagram_script() -> str:
     if (mode === "log") {
       renderLogView(searchInput ? searchInput.value : "", activeFocusTerms);
     }
+  }
+
+  function resetArtifactViewport() {
+    content.scrollLeft = 0;
+    content.scrollTop = 0;
+    content.style.removeProperty("--asset-log-scale");
   }
 
   function parseFocus(value) {
@@ -185,6 +236,47 @@ def diagram_script() -> str:
         child.classList.add("asset-focus-match");
       }
     }
+    const shape = closestSvgObjectShape(labelNode);
+    if (shape) {
+      shape.classList.add("asset-focus-object");
+    }
+  }
+
+  function closestSvgObjectShape(labelNode) {
+    const box = safeBBox(labelNode);
+    const parent = labelNode.parentNode;
+    if (!box || !parent || !parent.querySelectorAll) {
+      return null;
+    }
+    const center = {
+      x: box.x + box.width / 2,
+      y: box.y + box.height / 2,
+    };
+    let best = null;
+    let bestArea = Infinity;
+    for (const candidate of parent.querySelectorAll("rect, polygon, path")) {
+      if (candidate.classList.contains("diagram-note-box")
+        || candidate.classList.contains("diagram-code-link-badge-box")) {
+        continue;
+      }
+      const candidateBox = safeBBox(candidate);
+      if (!candidateBox || candidateBox.width < box.width || candidateBox.height < box.height) {
+        continue;
+      }
+      const containsCenter = center.x >= candidateBox.x
+        && center.x <= candidateBox.x + candidateBox.width
+        && center.y >= candidateBox.y
+        && center.y <= candidateBox.y + candidateBox.height;
+      if (!containsCenter) {
+        continue;
+      }
+      const area = candidateBox.width * candidateBox.height;
+      if (area < bestArea) {
+        best = candidate;
+        bestArea = area;
+      }
+    }
+    return best;
   }
 
   function svgLabelLineGroup(node) {
@@ -567,6 +659,7 @@ def diagram_script() -> str:
     clearFocus();
     activeFocusTerms = terms;
     activeNotes = notes || [];
+    let focusTarget = null;
     if (mode === "diagram") {
       const focused = [];
       const textNodes = content.querySelectorAll("svg text, svg tspan");
@@ -588,19 +681,70 @@ def diagram_script() -> str:
       }
       addDiagramNotes(notes || [], textNodes);
       if (focused[0]) {
-        window.setTimeout(function () {
-          animateScrollContainerToElement(content, focused[0], 1000);
-        }, 40);
+        focusTarget = focused[0];
       }
     } else if (mode === "log") {
       renderLogView(searchInput ? searchInput.value : "", activeFocusTerms);
       const firstLine = content.querySelector(".asset-focus-line");
       if (firstLine) {
-        window.setTimeout(function () {
-          animateScrollContainerToElement(content, firstLine, 1000, { horizontal: false });
-        }, 40);
+        focusTarget = firstLine;
       }
     }
+    return focusTarget;
+  }
+
+  function applyStoryObjectZoom(target, nextZoom) {
+    if (!nextZoom) {
+      return;
+    }
+    if (mode === "diagram") {
+      setScale(nextZoom);
+    }
+  }
+
+  function scheduleFocusedArtifactView(target, storyZoom, storyComment) {
+    const shouldCenterTarget = Boolean(target && (storyZoom || storyComment));
+    window.requestAnimationFrame(function () {
+      applyStoryObjectZoom(target, storyZoom || 0);
+      window.requestAnimationFrame(function () {
+        if (shouldCenterTarget) {
+          scrollContainerToElement(content, target, { horizontal: mode !== "log" });
+        }
+        positionStoryComment(storyComment);
+      });
+    });
+  }
+
+  function positionStoryComment(comment) {
+    if (!comment) {
+      return;
+    }
+    const margin = 18;
+    const contentRect = content.getBoundingClientRect();
+    const availableWidth = Math.max(180, contentRect.width - margin * 2);
+    const commentWidth = Math.min(520, availableWidth);
+    comment.style.width = commentWidth + "px";
+    const left = mode === "log"
+      ? contentRect.right - commentWidth - margin
+      : contentRect.left + margin;
+    const top = contentRect.top + margin;
+    placeStoryComment(comment, left, top);
+  }
+
+  function placeStoryComment(comment, left, top) {
+    const margin = 18;
+    const contentRect = content.getBoundingClientRect();
+    const maxLeft = Math.max(contentRect.left + margin, contentRect.right - comment.offsetWidth - margin);
+    const maxTop = Math.max(contentRect.top + margin, contentRect.bottom - comment.offsetHeight - margin);
+    comment.style.left = clamp(left, contentRect.left + margin, maxLeft) + "px";
+    comment.style.top = clamp(top, contentRect.top + margin, maxTop) + "px";
+  }
+
+  function clamp(value, min, max) {
+    if (max < min) {
+      return min;
+    }
+    return Math.min(max, Math.max(min, value));
   }
 
   function animateScrollContainerToElement(container, element, durationMs, options) {
@@ -647,6 +791,26 @@ def diagram_script() -> str:
       container.scrollLeft = targetLeft;
       container.scrollTop = targetTop;
     }, durationMs + 30);
+  }
+
+  function scrollContainerToElement(container, element, options) {
+    const scrollHorizontal = !options || options.horizontal !== false;
+    const containerRect = container.getBoundingClientRect();
+    const targetRect = elementViewportRect(element);
+    const maxLeft = Math.max(0, container.scrollWidth - container.clientWidth);
+    const maxTop = Math.max(0, container.scrollHeight - container.clientHeight);
+    if (scrollHorizontal) {
+      container.scrollLeft = clamp(
+        container.scrollLeft + targetRect.left - containerRect.left - container.clientWidth / 2 + targetRect.width / 2,
+        0,
+        maxLeft
+      );
+    }
+    container.scrollTop = clamp(
+      container.scrollTop + targetRect.top - containerRect.top - container.clientHeight / 2 + targetRect.height / 2,
+      0,
+      maxTop
+    );
   }
 
   function elementViewportRect(element) {
@@ -953,55 +1117,76 @@ def diagram_script() -> str:
     showSearchMatch();
   }
 
-  function openTemplate(prefix, id, nextMode, focusTerms, notes, nextStoryContext) {
+  function openTemplate(prefix, id, nextMode, focusTerms, notes, nextStoryContext, storyZoom) {
     const template = document.getElementById(prefix + "-template-" + id);
     if (!template) {
       return;
     }
     title.textContent = template.dataset.title || "Diagram";
     activeExportName = template.dataset.title || id || nextMode || "asset";
-    setStoryContext(nextStoryContext || null);
     content.innerHTML = "";
+    resetArtifactViewport();
+    const storyComment = createAssetStoryComment(nextStoryContext || null);
+    if (storyComment) {
+      content.appendChild(storyComment);
+    }
     const stage = document.createElement("div");
     stage.className = "diagram-zoom-stage";
     stage.appendChild(template.content.cloneNode(true));
     content.appendChild(stage);
     modal.hidden = false;
+    document.body.classList.add("has-diagram-open");
+    document.dispatchEvent(new CustomEvent("codex-review-story-layout"));
+    if (nextStoryContext && Number.isInteger(nextStoryContext.index)) {
+      document.dispatchEvent(new CustomEvent("codex-review-story-artifact", {
+        detail: { status: "open", index: nextStoryContext.index },
+      }));
+    }
     document.body.style.overflow = "hidden";
     setMode(nextMode);
     if (searchInput) {
       searchInput.value = "";
     }
     setInitialDiagramScale();
-    applyFocusTerms(focusTerms || [], notes || []);
+    const focusTarget = applyFocusTerms(focusTerms || [], notes || []);
     applyCodeLinks(nextMode === "diagram" ? parseCodeLinks(template.dataset.codeLinks) : []);
+    scheduleFocusedArtifactView(focusTarget, storyZoom || 0, storyComment);
     if (nextMode === "log" && searchInput) {
       searchInput.focus();
     }
   }
 
-  function setStoryContext(nextStoryContext) {
-    const contextTitle = nextStoryContext ? String(nextStoryContext.title || "") : "";
-    const contextBody = nextStoryContext ? String(nextStoryContext.body || "") : "";
-    if (!storyContext || !storyTitle || !storyBody) {
-      return;
+  function createAssetStoryComment(nextStoryContext) {
+    const commentText = nextStoryContext ? String(nextStoryContext.artifactComment || "") : "";
+    if (!commentText) {
+      return null;
     }
-    storyTitle.textContent = contextTitle;
-    storyBody.textContent = contextBody;
-    storyContext.hidden = !(contextTitle || contextBody);
+    const comment = document.createElement("div");
+    comment.className = "asset-story-comment";
+    const label = document.createElement("strong");
+    label.textContent = nextStoryContext.title || "Story note";
+    const body = document.createElement("div");
+    body.textContent = commentText;
+    comment.appendChild(label);
+    comment.appendChild(body);
+    return comment;
   }
 
   function storyContextFromTrigger(trigger) {
     const triggerTitle = trigger ? trigger.dataset.storyTitle || "" : "";
     const triggerBody = trigger ? trigger.dataset.storyBody || "" : "";
+    const artifactComment = trigger ? trigger.dataset.artifactComment || "" : "";
+    const storyIndex = trigger && trigger.dataset.storyIndex ? Number(trigger.dataset.storyIndex) : null;
     return {
-      title: triggerTitle || document.body.dataset.activeStoryTitle || "",
-      body: triggerBody || document.body.dataset.activeStoryBody || "",
+      title: triggerTitle,
+      body: triggerBody,
+      artifactComment: artifactComment,
+      index: storyIndex,
     };
   }
 
-  function openDiagram(id, focusTerms, notes, nextStoryContext) {
-    openTemplate("diagram", id, "diagram", focusTerms, notes, nextStoryContext);
+  function openDiagram(id, focusTerms, notes, nextStoryContext, storyZoom) {
+    openTemplate("diagram", id, "diagram", focusTerms, notes, nextStoryContext, storyZoom);
     if (searchInput) {
       window.setTimeout(function () {
         searchInput.focus();
@@ -1010,14 +1195,20 @@ def diagram_script() -> str:
     }
   }
 
-  function openLog(id, focusTerms, nextStoryContext) {
-    openTemplate("log", id, "log", focusTerms, undefined, nextStoryContext);
+  function openLog(id, focusTerms, nextStoryContext, storyZoom) {
+    openTemplate("log", id, "log", focusTerms, undefined, nextStoryContext, storyZoom);
   }
 
   function closeDiagram() {
     modal.hidden = true;
     content.innerHTML = "";
+    content.style.removeProperty("--asset-log-scale");
     document.body.style.overflow = "";
+    document.body.classList.remove("has-diagram-open");
+    document.dispatchEvent(new CustomEvent("codex-review-story-layout"));
+    document.dispatchEvent(new CustomEvent("codex-review-story-artifact", {
+      detail: { status: "closed" },
+    }));
     scale = 1;
     initialScale = 1;
     setMode("");
@@ -1025,7 +1216,6 @@ def diagram_script() -> str:
     activeNotes = [];
     activeCodeLinks = [];
     activeExportName = "asset";
-    setStoryContext(null);
     closeCodePopover();
     clearSearch();
   }
@@ -1037,7 +1227,8 @@ def diagram_script() -> str:
         preview.dataset.diagramId,
         parseFocus(preview.dataset.diagramFocus),
         parseNotes(preview.dataset.diagramNotes),
-        storyContextFromTrigger(preview)
+        storyContextFromTrigger(preview),
+        parseZoom(preview.dataset.diagramZoom)
       );
       return;
     }
@@ -1046,7 +1237,8 @@ def diagram_script() -> str:
       openLog(
         logPreview.dataset.logId,
         parseFocus(logPreview.dataset.logFocus),
-        storyContextFromTrigger(logPreview)
+        storyContextFromTrigger(logPreview),
+        parseZoom(logPreview.dataset.logZoom)
       );
       return;
     }
@@ -1054,15 +1246,25 @@ def diagram_script() -> str:
       closeDiagram();
       return;
     }
+    const storyMove = event.target.closest("[data-diagram-story-step]");
+    if (storyMove) {
+      if (storyMove.disabled || storyMove.getAttribute("aria-disabled") === "true") {
+        return;
+      }
+      document.dispatchEvent(new CustomEvent("codex-review-story-move", {
+        detail: { direction: storyMove.dataset.diagramStoryStep === "prev" ? -1 : 1 },
+      }));
+      return;
+    }
     const zoom = event.target.closest("[data-diagram-zoom]");
     if (zoom) {
       const action = zoom.dataset.diagramZoom;
       if (action === "in") {
-        setScale(scale + 0.25);
+        setScale(scale + 0.1, { animate: true });
       } else if (action === "out") {
-        setScale(scale - 0.25);
+        setScale(scale - 0.1, { animate: true });
       } else {
-        setScale(initialScale);
+        setScale(initialScale, { animate: true });
       }
       return;
     }
@@ -1133,12 +1335,12 @@ def diagram_script() -> str:
 
   content.addEventListener("wheel", function (event) {
     clearCodeLinkHover();
-    if (!event.ctrlKey || modal.hidden || mode !== "diagram") {
+    if (!event.ctrlKey || modal.hidden || (mode !== "diagram" && mode !== "log")) {
       return;
     }
     event.preventDefault();
     const step = event.deltaY < 0 ? 0.1 : -0.1;
-    setScale(scale + step);
+    setScale(scale + step, { animate: true });
   }, { passive: false });
 
   content.addEventListener("pointerdown", function (event) {

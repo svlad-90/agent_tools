@@ -308,9 +308,15 @@ def _story_step_attrs(step: StoryStep, index: int) -> str:
         attrs.append(f' data-story-diagram="{_esc(step.diagram)}"')
         attrs.append(_json_attr("data-story-diagram-focus", step.diagram_focus))
         attrs.append(_json_attr("data-story-diagram-notes", step.diagram_notes))
+        if step.diagram_zoom is not None:
+            attrs.append(f' data-story-diagram-zoom="{step.diagram_zoom:g}"')
     if step.log:
         attrs.append(f' data-story-log="{_esc(step.log)}"')
         attrs.append(_json_attr("data-story-log-focus", step.log_focus))
+        if step.log_zoom is not None:
+            attrs.append(f' data-story-log-zoom="{step.log_zoom:g}"')
+    if step.artifact_comment:
+        attrs.append(f' data-story-artifact-comment="{_esc(step.artifact_comment)}"')
     return "".join(attrs)
 
 
@@ -474,12 +480,13 @@ def _render_diagram_modal(comments: ReviewComments) -> str:
     parts.append("        </div>\n")
     parts.append("      </div>\n")
     parts.append("    </div>\n")
-    parts.append(
-        '    <div class="diagram-story-context" id="diagram-story-context" hidden>'
-        '<strong id="diagram-story-title"></strong><div id="diagram-story-body"></div></div>\n'
-    )
     parts.append('    <div class="diagram-scroll" id="diagram-modal-content"></div>\n')
     parts.append("  </div>\n")
+    parts.append("</div>\n")
+    parts.append('<div class="diagram-story-nav" aria-label="Review story navigation">\n')
+    parts.append('  <button type="button" data-diagram-story-step="prev" aria-label="Previous review story step">&larr; Previous slide</button>\n')
+    parts.append('  <button type="button" class="story-slide-toggle" data-diagram-story-toggle data-tooltip="Open slide" aria-label="Open slide"></button>\n')
+    parts.append('  <button type="button" data-diagram-story-step="next" aria-label="Next review story step">Next slide &rarr;</button>\n')
     parts.append("</div>\n")
     parts.append('<div class="diagram-store" hidden>\n')
     for diagram in comments.diagrams.values():
