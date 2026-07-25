@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import base64
-import html
 import json
 import re
 from typing import Any
@@ -9,6 +8,11 @@ from typing import Any
 from .assets import copy_selection_script, diagram_script, html_header, story_script, theme_script
 from .diff_parse import iter_diff_lines
 from .diff_source import diff_files, diff_stats
+from .html_utils import anchor as _anchor
+from .html_utils import comment_anchor as _comment_anchor
+from .html_utils import esc as _esc
+from .html_utils import format_text as _format_text
+from .html_utils import line_anchor as _line_anchor
 from .models import (
     Diagram,
     DiffSource,
@@ -677,44 +681,3 @@ def _json_attr(name: str, value: object) -> str:
         return ""
     payload = json.dumps(value, ensure_ascii=False)
     return f' {name}="{_esc(payload)}"'
-
-
-def _anchor(value: str) -> str:
-    return re.sub(r"[^A-Za-z0-9_.-]+", "-", value)
-
-
-def _comment_anchor(file_path: str, line: int) -> str:
-    return f"comment-{_anchor(file_path)}-{line}"
-
-
-def _line_anchor(file_path: str, line: int) -> str:
-    return f"line-{_anchor(file_path)}-{line}"
-
-
-def _esc(value: object) -> str:
-    return html.escape(str(value), quote=True)
-
-
-def _format_text(value: object) -> str:
-    text = str(value)
-    url_re = re.compile(r"https?://[^\s<>'\"`]+")
-    parts: list[str] = []
-    last = 0
-
-    def repl(match: re.Match[str]) -> str:
-        nonlocal last
-        parts.append(_esc(text[last:match.start()]))
-        raw_url = match.group(0)
-        url = raw_url.rstrip(".,);")
-        suffix = raw_url[len(url):]
-        safe_url = html.escape(url, quote=True)
-        parts.append(
-            f'<a href="{safe_url}" target="_blank" rel="noopener noreferrer">{safe_url}</a>'
-        )
-        parts.append(_esc(suffix))
-        last = match.end()
-        return ""
-
-    url_re.sub(repl, text)
-    parts.append(_esc(text[last:]))
-    return "".join(parts)
