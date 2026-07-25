@@ -6,7 +6,6 @@ import re
 from typing import Any
 
 from .assets import copy_selection_script, diagram_script, html_header, story_script, theme_script
-from .diff_parse import iter_diff_lines
 from .diff_source import diff_files, diff_stats
 from .html_utils import anchor as _anchor
 from .html_utils import comment_anchor as _comment_anchor
@@ -17,18 +16,11 @@ from .models import (
     Diagram,
     DiffSource,
     DiffStats,
-    InlineComment,
     LogAttachment,
     ReviewComments,
     StoryStep,
 )
-from .render_state import (
-    active_delete_target_after_line,
-    comment_row_kind,
-    delete_target_classes,
-    target_classes_for_line,
-    target_range_for_line,
-)
+from .render_diff import render_diff
 
 
 def render_html_report(
@@ -69,7 +61,28 @@ def render_html_report(
         parts.append(_render_story_section(comments))
     if comment_count:
         parts.append(_render_comments_index(comments, diff_files(source.diff_text)))
-    parts.append(_render_diff(source.diff_text, comments))
+    parts.append(
+        render_diff(
+            source.diff_text,
+            comments,
+            render_file_comment_assets=lambda file_path: _render_comment_assets(
+                comments,
+                comments.file_diagrams.get(file_path),
+                comments.file_logs.get(file_path),
+                comments.file_diagram_focus.get(file_path, ()),
+                comments.file_log_focus.get(file_path, ()),
+                comments.file_diagram_notes.get(file_path, ()),
+            ),
+            render_inline_comment_assets=lambda comment: _render_comment_assets(
+                comments,
+                comment.diagram,
+                comment.log,
+                comment.diagram_focus,
+                comment.log_focus,
+                comment.diagram_notes,
+            ),
+        )
+    )
     parts.append(_render_settings_launcher(" report-settings-launcher"))
     parts.append(_render_to_top_button())
     if comments.diagrams or comments.logs:
@@ -314,173 +327,6 @@ def _render_logs_section(comments: ReviewComments) -> str:
     return "".join(parts)
 
 
-def _render_diff(diff_text: str, comments: ReviewComments) -> str:
-    parts: list[str] = []
-    current_file: str | None = None
-    table_open = False
-    comment_ranges = _comment_line_ranges(comments)
-    inline_comments_by_render_line = _inline_comments_by_render_line(comments)
-    active_delete_target: tuple[int, int] | None = None
-
-    def close_file() -> None:
-        nonlocal table_open, current_file, active_delete_target
-        if table_open:
-            parts.append("      </tbody>\n    </table>\n")
-            table_open = False
-        if current_file is not None:
-            parts.append("  </article>\n")
-        active_delete_target = None
-
-    for line in iter_diff_lines(diff_text):
-        if line.kind == "file":
-            close_file()
-            current_file = line.file_path
-            if current_file is None:
-                continue
-            parts.append(
-                f'  <article class="file" id="{_anchor(current_file)}" '
-                f'data-file="{_esc(current_file)}">\n'
-            )
-            parts.append(f'    <div class="file-header">{_esc(current_file)}</div>\n')
-            if current_file in comments.file_comments:
-                parts.append(
-                    f'    <div class="file-comment"><strong>File review note:</strong> '
-                    f'{_format_text(comments.file_comments[current_file])}'
-                    f'{_render_comment_assets(comments, comments.file_diagrams.get(current_file), comments.file_logs.get(current_file), comments.file_diagram_focus.get(current_file, ()), comments.file_log_focus.get(current_file, ()), comments.file_diagram_notes.get(current_file, ()))}'
-                    "</div>\n"
-                )
-            parts.append('    <table class="diff"><tbody>\n')
-            table_open = True
-            parts.append(_diff_row("header", "", "", line.raw))
-            continue
-
-        if current_file is None:
-            continue
-
-        if line.kind == "hunk":
-            parts.append(_diff_row("hunk", "...", "...", line.raw))
-            continue
-
-        if line.kind in {"metadata", "header"}:
-            parts.append(_diff_row("header", "", "", line.raw))
-            continue
-
-        if line.kind == "add" and line.new_line is not None:
-            line_no = line.new_line
-            target_range = target_range_for_line(comment_ranges, current_file, line_no)
-            parts.append(
-                _diff_row(
-                    "add",
-                    "",
-                    str(line_no),
-                    line.raw,
-                    current_file,
-                    line_no,
-                    target_classes_for_line(target_range, line_no),
-                )
-            )
-            active_delete_target = active_delete_target_after_line(target_range, line_no)
-            parts.append(
-                _render_inline_comments(
-                    inline_comments_by_render_line,
-                    comments,
-                    current_file,
-                    line_no,
-                    "add" if target_range is not None else "ctx",
-                )
-            )
-        elif line.kind == "delete" and line.old_line is not None:
-            parts.append(
-                _diff_row(
-                    "del",
-                    str(line.old_line),
-                    "",
-                    line.raw,
-                    extra_classes=delete_target_classes(active_delete_target),
-                )
-            )
-        elif line.kind == "context" and line.old_line is not None and line.new_line is not None:
-            line_no = line.new_line
-            target_range = target_range_for_line(comment_ranges, current_file, line_no)
-            parts.append(
-                _diff_row(
-                    "ctx",
-                    str(line.old_line),
-                    str(line.new_line),
-                    line.raw,
-                    current_file,
-                    line_no,
-                    target_classes_for_line(target_range, line_no),
-                )
-            )
-            active_delete_target = active_delete_target_after_line(target_range, line_no)
-            parts.append(
-                _render_inline_comments(
-                    inline_comments_by_render_line,
-                    comments,
-                    current_file,
-                    line_no,
-                    "ctx" if target_range is not None else "ctx",
-                )
-            )
-
-    close_file()
-    return "".join(parts)
-
-
-def _comment_line_ranges(comments: ReviewComments) -> dict[str, list[tuple[int, int]]]:
-    ranges: dict[str, list[tuple[int, int]]] = {}
-    for (file_path, line), inline_comments in comments.inline_comments.items():
-        for comment in inline_comments:
-            ranges.setdefault(file_path, []).append(comment.line_range or (line, line))
-    return ranges
-
-
-def _inline_comments_by_render_line(
-    comments: ReviewComments,
-) -> dict[tuple[str, int], list[InlineComment]]:
-    grouped: dict[tuple[str, int], list[InlineComment]] = {}
-    for (file_path, line), inline_comments in comments.inline_comments.items():
-        for comment in inline_comments:
-            render_line = comment.line_range[1] if comment.line_range is not None else line
-            grouped.setdefault((file_path, render_line), []).append(comment)
-    return grouped
-
-
-def _render_inline_comments(
-    grouped_comments: dict[tuple[str, int], list[InlineComment]],
-    comments: ReviewComments,
-    file_path: str,
-    line: int,
-    target_kind: str = "ctx",
-) -> str:
-    rendered: list[str] = []
-    row_kind = comment_row_kind(target_kind)
-    for comment in grouped_comments.get((file_path, line), ()):
-        location = _comment_location(comment)
-        start, end = comment.line_range or (comment.line, comment.line)
-        rendered.append(
-            f'      <tr class="comment-row comment-row-{row_kind}"><td colspan="3">'
-            f'<div class="review-comment" id="{_comment_anchor(file_path, comment.line)}"'
-            f' data-comment-file="{_esc(file_path)}" data-comment-range-start="{start}"'
-            f' data-comment-range-end="{end}">'
-            f'<div class="title">{_esc(comment.title)} on {_esc(location)}</div>'
-            f'<div class="body">{_format_text(comment.body)}'
-            f'{_render_comment_assets(comments, comment.diagram, comment.log, comment.diagram_focus, comment.log_focus, comment.diagram_notes)}</div>'
-            "</div></td></tr>\n"
-        )
-    return "".join(rendered)
-
-
-def _comment_location(comment: InlineComment) -> str:
-    if comment.line_range is None:
-        return f"{comment.file_path}:{comment.line}"
-    start, end = comment.line_range
-    if start == end:
-        return f"{comment.file_path}:{start}"
-    return f"{comment.file_path}:{start}-{end}"
-
-
 def _render_comment_assets(
     comments: ReviewComments,
     diagram_id: str | None,
@@ -629,29 +475,6 @@ def _render_diagram_modal(comments: ReviewComments) -> str:
     parts.append("</div>\n")
     parts.append(diagram_script())
     return "".join(parts)
-
-
-def _diff_row(
-    kind: str,
-    old_no: str,
-    new_no: str,
-    text: str,
-    file_path: str | None = None,
-    new_line: int | None = None,
-    extra_classes: tuple[str, ...] = (),
-) -> str:
-    attrs = ""
-    if file_path is not None and new_line is not None:
-        attrs = (
-            f' id="{_line_anchor(file_path, new_line)}"'
-            f' data-file="{_esc(file_path)}" data-new-line="{new_line}"'
-        )
-    class_name = " ".join((kind, *extra_classes))
-    return (
-        f'      <tr class="{class_name}" data-diff-kind="{_esc(kind)}"{attrs}>'
-        f'<td class="num">{_esc(old_no)}</td>'
-        f'<td class="num">{_esc(new_no)}</td><td class="code">{_esc(text)}</td></tr>\n'
-    )
 
 
 def _maybe_code(value: str | None) -> str:
