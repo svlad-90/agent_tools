@@ -254,6 +254,11 @@ def _render_comments_index(comments: ReviewComments, diff_file_order: list[str])
 
 def _render_story_section(comments: ReviewComments) -> str:
     parts = ['  <section class="story" id="story"><h2>Review Story</h2>\n']
+    parts.append('    <div class="story-step-strip">\n')
+    parts.append(
+        '      <button type="button" class="story-page-button" data-story-nav="prev" '
+        'aria-label="Previous story steps">&lsaquo;</button>\n'
+    )
     parts.append('    <ol class="story-steps">\n')
     for index, step in enumerate(comments.story):
         attrs = _story_step_attrs(step, index)
@@ -263,6 +268,11 @@ def _render_story_section(comments: ReviewComments) -> str:
             f'<span class="story-step-text"><strong>{_esc(step.title)}</strong></span></button></li>\n'
         )
     parts.append("    </ol>\n")
+    parts.append(
+        '      <button type="button" class="story-page-button" data-story-nav="next" '
+        'aria-label="Next story steps">&rsaquo;</button>\n'
+    )
+    parts.append("    </div>\n")
     parts.append('    <div class="story-details" id="story-details">\n')
     parts.append('      <div class="story-details-title" id="story-details-title">Details</div>\n')
     parts.append('      <div id="story-details-body"></div>\n')
@@ -294,6 +304,13 @@ def _story_step_attrs(step: StoryStep, index: int) -> str:
     target = _story_target(step)
     if target is not None:
         attrs.append(f' data-story-target="{_esc(target)}"')
+    if step.diagram:
+        attrs.append(f' data-story-diagram="{_esc(step.diagram)}"')
+        attrs.append(_json_attr("data-story-diagram-focus", step.diagram_focus))
+        attrs.append(_json_attr("data-story-diagram-notes", step.diagram_notes))
+    if step.log:
+        attrs.append(f' data-story-log="{_esc(step.log)}"')
+        attrs.append(_json_attr("data-story-log-focus", step.log_focus))
     return "".join(attrs)
 
 
@@ -409,7 +426,10 @@ svg tspan:not(.diagram-note-text):not(.diagram-note-marker-text):not(.asset-focu
 svg line:not(.asset-focus-connector):not(.diagram-code-link-connector):not(.diagram-note-link),
 svg path:not(.diagram-note-box):not(.diagram-note-link),
 svg polyline:not(.asset-focus-connector):not(.diagram-code-link-connector) { stroke: #c5c5c5 !important; }
-svg polygon:not(.asset-focus-connector):not(.diagram-code-link-connector) { fill: #c5c5c5 !important; stroke: #c5c5c5 !important; }
+svg polygon[fill="#FFFFFF"],
+svg polygon[fill="#FEFECE"],
+svg polygon[fill="#EEEEEE"],
+svg path[fill="#FEFECE"] { fill: #252526 !important; stroke: #c5c5c5 !important; }
 svg rect:not(.diagram-note-box):not(.diagram-code-link-badge-box) { fill: #252526 !important; stroke: #c5c5c5 !important; }
 svg path[fill="#FBFB77"] { fill: #3a3217 !important; stroke: #cca700 !important; }
 </style>
@@ -436,10 +456,13 @@ def _render_diagram_modal(comments: ReviewComments) -> str:
     parts.append('    <div class="diagram-toolbar">\n')
     parts.append('      <h2 id="diagram-modal-title">Diagram</h2>\n')
     parts.append('      <div class="diagram-tools">\n')
+    parts.append('        <div class="diagram-search-tools">\n')
     parts.append('        <input id="diagram-search" type="search" placeholder="Search" aria-label="Search opened asset">\n')
     parts.append('        <span id="diagram-search-count" class="diagram-search-count"></span>\n')
     parts.append('        <button type="button" data-diagram-search="prev" aria-label="Previous search match">Prev</button>\n')
     parts.append('        <button type="button" data-diagram-search="next" aria-label="Next search match">Next</button>\n')
+    parts.append("        </div>\n")
+    parts.append('        <div class="diagram-action-tools">\n')
     parts.append('        <button type="button" id="diagram-export" data-asset-export hidden>Export</button>\n')
     parts.append('        <button type="button" data-diagram-zoom="out" data-diagram-zoom-tool aria-label="Zoom out">-</button>\n')
     parts.append(
@@ -448,6 +471,7 @@ def _render_diagram_modal(comments: ReviewComments) -> str:
     )
     parts.append('        <button type="button" data-diagram-zoom="in" data-diagram-zoom-tool aria-label="Zoom in">+</button>\n')
     parts.append('        <button type="button" data-diagram-close aria-label="Close diagram">&times;</button>\n')
+    parts.append("        </div>\n")
     parts.append("      </div>\n")
     parts.append("    </div>\n")
     parts.append(
