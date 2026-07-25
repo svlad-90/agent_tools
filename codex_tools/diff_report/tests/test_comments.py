@@ -60,7 +60,21 @@ class CommentsTests(unittest.TestCase):
                         ],
                         "diagrams": {"flow": {"svg": "diagram.svg"}},
                         "logs": {"runtime": {"path": "runtime.log"}},
-                        "story": [{"title": "Step", "file": "app.py", "line": 2}],
+                        "story": [
+                            {
+                                "title": "Step",
+                                "diagram": "flow",
+                                "diagram_focus": "flow",
+                                "diagram_zoom": 1.8,
+                                "artifact_comment": "Look at this object.",
+                            },
+                            {
+                                "title": "Log Step",
+                                "log": "runtime",
+                                "log_focus": "PASS",
+                                "log_zoom": 1.3,
+                            },
+                        ],
                     }
                 ),
                 encoding="utf-8",
@@ -78,6 +92,11 @@ class CommentsTests(unittest.TestCase):
         self.assertEqual("boot\nPASS\n", comments.logs["runtime"].text)
         self.assertEqual(4, len(comments.summary_blocks))
         self.assertEqual("Step", comments.story[0].title)
+        self.assertEqual(("flow",), comments.story[0].diagram_focus)
+        self.assertEqual(1.8, comments.story[0].diagram_zoom)
+        self.assertEqual("Look at this object.", comments.story[0].artifact_comment)
+        self.assertEqual(("PASS",), comments.story[1].log_focus)
+        self.assertEqual(1.3, comments.story[1].log_zoom)
         inline = comments.inline_comments[("app.py", 2)][0]
         self.assertEqual((1, 3), inline.line_range)
         self.assertEqual(("flow",), inline.diagram_focus)

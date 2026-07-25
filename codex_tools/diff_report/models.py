@@ -47,6 +47,9 @@ class StoryStep:
     diagram_focus: tuple[str, ...] = ()
     log_focus: tuple[str, ...] = ()
     diagram_notes: tuple[dict[str, Any], ...] = ()
+    diagram_zoom: float | None = None
+    log_zoom: float | None = None
+    artifact_comment: str | None = None
 
 
 @dataclass(frozen=True)

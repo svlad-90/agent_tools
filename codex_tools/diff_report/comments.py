@@ -231,6 +231,14 @@ def story_from_payload(
         log = str(raw_step["log"]) if "log" in raw_step else None
         if log is not None and log not in logs:
             raise DiffReportError(f"unknown log referenced by story step {index + 1}: {log}")
+        diagram_zoom = float(raw_step["diagram_zoom"]) if "diagram_zoom" in raw_step else None
+        if diagram_zoom is not None and diagram_zoom <= 0:
+            raise DiffReportError(
+                f"comments.story[{index}].diagram_zoom must be a positive number"
+            )
+        log_zoom = float(raw_step["log_zoom"]) if "log_zoom" in raw_step else None
+        if log_zoom is not None and log_zoom <= 0:
+            raise DiffReportError(f"comments.story[{index}].log_zoom must be a positive number")
         if not any((file_path, comment_file_path, diagram, log)):
             raise DiffReportError(
                 f"comments.story[{index}] must target a file, comment, diagram, or log"
@@ -249,6 +257,11 @@ def story_from_payload(
                 diagram_focus=focus_terms(raw_step.get("diagram_focus", ()), field="diagram_focus"),
                 log_focus=focus_terms(raw_step.get("log_focus", ()), field="log_focus"),
                 diagram_notes=diagram_notes(raw_step.get("diagram_notes", ())),
+                diagram_zoom=diagram_zoom,
+                log_zoom=log_zoom,
+                artifact_comment=(
+                    str(raw_step["artifact_comment"]) if "artifact_comment" in raw_step else None
+                ),
             )
         )
     return tuple(steps)
