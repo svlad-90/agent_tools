@@ -190,6 +190,10 @@ class DiffReportBehaviorTests(unittest.TestCase):
             "PASS artifact",
             'data-story-index="4"',
             'data-story-target="line-src-app.py-2"',
+            'data-story-diagram="flow"',
+            'data-story-diagram-focus="[&quot;call()&quot;]"',
+            'data-story-log="runtime"',
+            'data-story-log-focus="[&quot;PASS&quot;]"',
             'data-diff-kind="add"',
             'data-settings-toggle',
             'aria-label="Settings"><span aria-hidden="true"></span></button>',
@@ -229,7 +233,8 @@ class DiffReportBehaviorTests(unittest.TestCase):
         self.assertNotIn("codex-diff-report-copy-mode", html)
         self.assertNotIn("General view", html)
         self.assertNotIn("data-diagram-general", html)
-        self.assertNotIn('<button type="button" data-story-nav', html)
+        self.assertIn('data-story-nav="prev"', html)
+        self.assertIn('data-story-nav="next"', html)
 
     def test_review_text_linkifies_complete_urls(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

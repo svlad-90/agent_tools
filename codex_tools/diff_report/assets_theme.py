@@ -12,8 +12,8 @@ def theme_script() -> str:
   const themeOptions = Array.from(document.querySelectorAll("[data-theme-value]"));
   const textScaleButtons = Array.from(document.querySelectorAll("[data-text-scale-step]"));
   const textScaleReset = document.querySelector("[data-text-scale-reset]");
-  const minTextScale = 0.9;
-  const maxTextScale = 1.3;
+  const minTextScale = 0.5;
+  const maxTextScale = 2;
   let activeTextScale = 1;
   let textScaleRaf = 0;
 

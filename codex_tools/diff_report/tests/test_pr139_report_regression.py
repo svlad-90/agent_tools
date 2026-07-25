@@ -117,10 +117,17 @@ class Pr139ReportRegressionTests(unittest.TestCase):
             "main { width: calc(100% - var(--nav-width) - (var(--page-gutter) * 3))",
             "header, section, .file { width: min(100%, var(--content-width));",
             ".settings-dialog { position: absolute; left: 50%; top: 50%;",
+            ".diagram-dialog { position: absolute; inset: clamp(8px, 2vh, 24px) clamp(8px, 2vw, 24px);",
+            ".diagram-toolbar { display: grid; grid-template-columns: minmax(180px, 1fr) minmax(0, auto);",
+            ".diagram-search-tools, .diagram-action-tools { display: inline-flex;",
+            ".diagram-action-tools { flex: 0 0 auto; justify-content: flex-end; }",
+            "width: min(1120px, calc(100vw - 32px)); height: min(86vh, calc(100vh - 32px));",
             "font-size: var(--screen-body-font);",
             "svg .asset-search-match { fill: #cf222e !important; stroke: none !important; }",
             "svg .asset-search-submatch { fill: transparent; stroke: #ff4d5e;",
             "svg .asset-search-current { fill: #ff2a3d !important; stroke: none !important; filter: none; font-weight: 800 !important;",
+            ".summary-artifact-preview .diagram-preview { width: min(760px, 100%); }",
+            ".summary-artifact-preview .diagram-preview-canvas { height: clamp(220px, 26vw, 320px); }",
             "svg text.asset-search-current, svg tspan.asset-search-current",
             ".code-target-flash-overlay { position: absolute; z-index: 45;",
             "function createCodeTargetFlashOverlay(targets)",
@@ -136,7 +143,13 @@ class Pr139ReportRegressionTests(unittest.TestCase):
             "@media (min-width: 1800px)",
             "@media (max-width: 1500px)",
             "@media (max-width: 1280px)",
-            ".story-steps { grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); }",
+            ".story-step-strip { display: grid; grid-template-columns: 32px minmax(0, 1fr) 32px;",
+            ".story-page-button { display: inline-flex;",
+            ".story-steps { display: grid; grid-template-rows: repeat(2, minmax(52px, 1fr));",
+            "grid-auto-columns: var(--story-step-column-width, 260px)",
+            "scroll-behavior: smooth",
+            'polygon[fill="#FFFFFF"]',
+            'path[fill="#FEFECE"]',
             ".settings-launcher { position: fixed; right: max(8px, calc(var(--floating-content-gutter) - var(--floating-control-size) - var(--floating-control-gap))); bottom: 24px;",
             ".to-top-button { position: fixed; right: max(8px, calc(var(--floating-content-gutter) - var(--floating-control-size) - var(--floating-control-gap))); bottom: calc(24px + var(--floating-control-size) + 10px);",
             ".report-settings-launcher { right: 14px; bottom: 24px; }",
@@ -155,10 +168,25 @@ class Pr139ReportRegressionTests(unittest.TestCase):
             'setSvgSearchClass(current, "asset-search-current", true)',
             'node.style.setProperty("fill", isCurrent ? "#ff2a3d" : "#cf222e", "important")',
             'const textScaleKey = "codex-diff-report-text-scale"',
+            "const minTextScale = 0.5",
+            "const maxTextScale = 2",
             "let activeTextScale = 1",
             "applyTextScale(activeTextScale + Number(button.dataset.textScaleStep || 0), true)",
             'data-text-scale-step="0.1"',
             "restoreSvgSearchPaint(node)",
+            "const widthScale = availableWidth > 0 ? availableWidth / size.width : 1",
+            "const heightScale = availableHeight > 0 ? availableHeight / size.height : 1",
+            "initialScale = Math.min(3, widthScale)",
+            "function updateStoryPager(ensureActive)",
+            "function moveStoryPage(direction)",
+            "storySteps.clientWidth",
+            "storySteps.style.setProperty(\"--story-step-column-width\"",
+            "storySteps.scrollTo({ left: targetLeft, behavior: \"smooth\" })",
+            "Math.floor(Math.floor(activeIndex / 2) / columns)",
+            "indexInPage % columns",
+            "items[index].style.gridColumn",
+            "items[index].style.gridRow",
+            "function openStoryArtifact(step)",
             'item.scrollIntoView({ block: "nearest", inline: "nearest" })',
             'navStyle.position === "fixed"',
         ]
@@ -172,12 +200,13 @@ class Pr139ReportRegressionTests(unittest.TestCase):
         self.assertNotIn("../runtime/pr139-fdt-final-runtime-xen419.log", html)
         self.assertNotIn("General view", html)
         self.assertNotIn("data-diagram-general", html)
-        self.assertNotIn('data-story-nav="prev"', html)
-        self.assertNotIn('data-story-nav="next"', html)
+        self.assertIn('data-story-nav="prev"', html)
+        self.assertIn('data-story-nav="next"', html)
         self.assertNotIn("story-controls", html)
         self.assertNotIn("story-settings-launcher", html)
         self.assertNotIn('id="story-counter"', html)
         self.assertNotIn("story-top-inline", html)
+        self.assertNotIn("lastOpenedStoryIndex", html)
         self.assertNotIn(".review-comment::before", html)
         self.assertRegex(
             html,

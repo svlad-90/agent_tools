@@ -4,10 +4,15 @@ def story_script() -> str:
     return """<script>
 (function () {
   const steps = Array.from(document.querySelectorAll("[data-story-index]"));
+  const storySteps = document.querySelector(".story-steps");
+  const storyNavButtons = Array.from(document.querySelectorAll("[data-story-nav]"));
   const detailsTitle = document.getElementById("story-details-title");
   const detailsBody = document.getElementById("story-details-body");
   const jumpDurationMs = 0;
   let activeIndex = 0;
+  let storyPage = 0;
+  let storyPageCount = 1;
+  let storyPagerRaf = 0;
   let activeTarget = null;
   let activeScrollTimer = 0;
   let activeScrollEndTimer = 0;
@@ -258,6 +263,74 @@ def story_script() -> str:
       detailsBody.textContent = step.dataset.storyBody || "";
     }
     updateStoryOffset();
+    scheduleStoryPagerUpdate(true);
+  }
+
+  function scheduleStoryPagerUpdate(ensureActive) {
+    if (storyPagerRaf) {
+      window.cancelAnimationFrame(storyPagerRaf);
+    }
+    storyPagerRaf = window.requestAnimationFrame(function () {
+      storyPagerRaf = 0;
+      updateStoryPager(ensureActive);
+    });
+  }
+
+  function scheduleStoryPagerResize() {
+    scheduleStoryPagerUpdate(true);
+  }
+
+  function updateStoryPager(ensureActive) {
+    if (!steps.length || !storySteps) {
+      return;
+    }
+    const items = steps.map(function (step) {
+      return step.closest("li");
+    }).filter(Boolean);
+    if (!items.length) {
+      return;
+    }
+    const viewportWidth = storySteps.clientWidth;
+    const columns = storyColumnsForWidth(viewportWidth);
+    const gap = 6;
+    const columnWidth = Math.max(1, Math.floor((Math.max(0, viewportWidth) - (gap * Math.max(0, columns - 1))) / columns));
+    storySteps.style.setProperty("--story-step-column-width", columnWidth + "px");
+    const totalColumns = Math.max(1, Math.ceil(items.length / 2));
+    storyPageCount = Math.max(1, Math.ceil(totalColumns / columns));
+    if (ensureActive) {
+      storyPage = Math.floor(Math.floor(activeIndex / 2) / columns);
+    }
+    storyPage = Math.max(0, Math.min(storyPage, storyPageCount - 1));
+    for (let index = 0; index < items.length; index += 1) {
+      const page = Math.floor(index / (columns * 2));
+      const indexInPage = index % (columns * 2);
+      const column = (page * columns) + (indexInPage % columns) + 1;
+      const row = Math.floor(indexInPage / columns) + 1;
+      items[index].style.gridColumn = String(column);
+      items[index].style.gridRow = String(row);
+    }
+    const targetLeft = storyPage * columns * (columnWidth + gap);
+    storySteps.scrollTo({ left: targetLeft, behavior: "smooth" });
+    for (const button of storyNavButtons) {
+      const isPrev = button.dataset.storyNav === "prev";
+      const disabled = isPrev ? storyPage <= 0 : storyPage >= storyPageCount - 1;
+      button.disabled = disabled;
+      button.setAttribute("aria-disabled", disabled ? "true" : "false");
+    }
+  }
+
+  function storyColumnsForWidth(width) {
+    const itemMinWidth = window.matchMedia("(max-width: 1100px)").matches ? 230 : 260;
+    const gap = 6;
+    return Math.max(1, Math.floor((Math.max(0, width) + gap) / (itemMinWidth + gap)));
+  }
+
+  function moveStoryPage(direction) {
+    if (!steps.length) {
+      return;
+    }
+    storyPage = Math.max(0, Math.min(storyPageCount - 1, storyPage + (direction < 0 ? -1 : 1)));
+    updateStoryPager(false);
   }
 
   function clearTargetHighlight() {
@@ -276,8 +349,45 @@ def story_script() -> str:
     const step = steps[activeIndex];
     clearTargetHighlight();
 
+    if (openStoryArtifact(step)) {
+      return;
+    }
+
     const targetId = step.dataset.storyTarget || "";
     jumpToStoryTarget(step, targetId);
+  }
+
+  function openStoryArtifact(step) {
+    const diagramId = step.dataset.storyDiagram || "";
+    if (diagramId) {
+      const preview = document.querySelector('[data-diagram-id="' + cssEscape(diagramId) + '"]');
+      if (preview) {
+        if (step.dataset.storyDiagramFocus) {
+          preview.dataset.diagramFocus = step.dataset.storyDiagramFocus;
+        }
+        if (step.dataset.storyDiagramNotes) {
+          preview.dataset.diagramNotes = step.dataset.storyDiagramNotes;
+        }
+        preview.dataset.storyTitle = step.dataset.storyTitle || "";
+        preview.dataset.storyBody = step.dataset.storyBody || "";
+        preview.click();
+        return true;
+      }
+    }
+    const logId = step.dataset.storyLog || "";
+    if (logId) {
+      const preview = document.querySelector('[data-log-id="' + cssEscape(logId) + '"]');
+      if (preview) {
+        if (step.dataset.storyLogFocus) {
+          preview.dataset.logFocus = step.dataset.storyLogFocus;
+        }
+        preview.dataset.storyTitle = step.dataset.storyTitle || "";
+        preview.dataset.storyBody = step.dataset.storyBody || "";
+        preview.click();
+        return true;
+      }
+    }
+    return false;
   }
 
   function jumpToStoryTarget(step, targetId) {
@@ -568,9 +678,8 @@ def story_script() -> str:
   document.addEventListener("click", function (event) {
     const nav = event.target.closest("[data-story-nav]");
     if (nav) {
-      if (steps.length) {
-        openStep(activeIndex + (nav.dataset.storyNav === "prev" ? -1 : 1));
-      }
+      event.preventDefault();
+      moveStoryPage(nav.dataset.storyNav === "prev" ? -1 : 1);
       return;
     }
     if (event.target.closest("[data-story-top]")) {
@@ -624,6 +733,7 @@ def story_script() -> str:
   initReviewNavTree();
   initReviewNavActiveFile();
   updateStoryOffset();
+  updateStoryPager(true);
   updateTopButtonState();
   resetPageScrollOnLoad();
   if (steps.length) {
@@ -636,7 +746,10 @@ def story_script() -> str:
     updateTopButtonState();
     scheduleStoryOffsetUpdate();
   }, { passive: true });
-  window.addEventListener("resize", scheduleStoryOffsetUpdate);
+  window.addEventListener("resize", function () {
+    scheduleStoryOffsetUpdate();
+    scheduleStoryPagerResize();
+  });
   window.addEventListener("pageshow", function () {
     updateStoryOffset();
     updateTopButtonState();
