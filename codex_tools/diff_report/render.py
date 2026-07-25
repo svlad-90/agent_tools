@@ -1,23 +1,27 @@
 from __future__ import annotations
 
 import base64
-import html
 import json
 import re
 from typing import Any
 
 from .assets import copy_selection_script, diagram_script, html_header, story_script, theme_script
-from .diff_parse import iter_diff_lines
 from .diff_source import diff_files, diff_stats
+from .html_utils import anchor as _anchor
+from .html_utils import comment_anchor as _comment_anchor
+from .html_utils import esc as _esc
+from .html_utils import format_text as _format_text
+from .html_utils import line_anchor as _line_anchor
 from .models import (
     Diagram,
     DiffSource,
     DiffStats,
-    InlineComment,
     LogAttachment,
     ReviewComments,
     StoryStep,
 )
+from .render_diff import render_diff
+
 
 def render_html_report(
     title: str,
@@ -57,7 +61,28 @@ def render_html_report(
         parts.append(_render_story_section(comments))
     if comment_count:
         parts.append(_render_comments_index(comments, diff_files(source.diff_text)))
-    parts.append(_render_diff(source.diff_text, comments))
+    parts.append(
+        render_diff(
+            source.diff_text,
+            comments,
+            render_file_comment_assets=lambda file_path: _render_comment_assets(
+                comments,
+                comments.file_diagrams.get(file_path),
+                comments.file_logs.get(file_path),
+                comments.file_diagram_focus.get(file_path, ()),
+                comments.file_log_focus.get(file_path, ()),
+                comments.file_diagram_notes.get(file_path, ()),
+            ),
+            render_inline_comment_assets=lambda comment: _render_comment_assets(
+                comments,
+                comment.diagram,
+                comment.log,
+                comment.diagram_focus,
+                comment.log_focus,
+                comment.diagram_notes,
+            ),
+        )
+    )
     parts.append(_render_settings_launcher(" report-settings-launcher"))
     parts.append(_render_to_top_button())
     if comments.diagrams or comments.logs:
@@ -229,6 +254,11 @@ def _render_comments_index(comments: ReviewComments, diff_file_order: list[str])
 
 def _render_story_section(comments: ReviewComments) -> str:
     parts = ['  <section class="story" id="story"><h2>Review Story</h2>\n']
+    parts.append('    <div class="story-step-strip">\n')
+    parts.append(
+        '      <button type="button" class="story-page-button" data-story-nav="prev" '
+        'aria-label="Previous story steps">&lsaquo;</button>\n'
+    )
     parts.append('    <ol class="story-steps">\n')
     for index, step in enumerate(comments.story):
         attrs = _story_step_attrs(step, index)
@@ -238,6 +268,11 @@ def _render_story_section(comments: ReviewComments) -> str:
             f'<span class="story-step-text"><strong>{_esc(step.title)}</strong></span></button></li>\n'
         )
     parts.append("    </ol>\n")
+    parts.append(
+        '      <button type="button" class="story-page-button" data-story-nav="next" '
+        'aria-label="Next story steps">&rsaquo;</button>\n'
+    )
+    parts.append("    </div>\n")
     parts.append('    <div class="story-details" id="story-details">\n')
     parts.append('      <div class="story-details-title" id="story-details-title">Details</div>\n')
     parts.append('      <div id="story-details-body"></div>\n')
@@ -269,6 +304,13 @@ def _story_step_attrs(step: StoryStep, index: int) -> str:
     target = _story_target(step)
     if target is not None:
         attrs.append(f' data-story-target="{_esc(target)}"')
+    if step.diagram:
+        attrs.append(f' data-story-diagram="{_esc(step.diagram)}"')
+        attrs.append(_json_attr("data-story-diagram-focus", step.diagram_focus))
+        attrs.append(_json_attr("data-story-diagram-notes", step.diagram_notes))
+    if step.log:
+        attrs.append(f' data-story-log="{_esc(step.log)}"')
+        attrs.append(_json_attr("data-story-log-focus", step.log_focus))
     return "".join(attrs)
 
 
@@ -300,202 +342,6 @@ def _render_logs_section(comments: ReviewComments) -> str:
         parts.append(_render_log_preview(log))
     parts.append("  </div></details>\n")
     return "".join(parts)
-
-
-def _render_diff(diff_text: str, comments: ReviewComments) -> str:
-    parts: list[str] = []
-    current_file: str | None = None
-    table_open = False
-    comment_ranges = _comment_line_ranges(comments)
-    inline_comments_by_render_line = _inline_comments_by_render_line(comments)
-    active_delete_target: tuple[int, int] | None = None
-
-    def close_file() -> None:
-        nonlocal table_open, current_file, active_delete_target
-        if table_open:
-            parts.append("      </tbody>\n    </table>\n")
-            table_open = False
-        if current_file is not None:
-            parts.append("  </article>\n")
-        active_delete_target = None
-
-    for line in iter_diff_lines(diff_text):
-        if line.kind == "file":
-            close_file()
-            current_file = line.file_path
-            if current_file is None:
-                continue
-            parts.append(
-                f'  <article class="file" id="{_anchor(current_file)}" '
-                f'data-file="{_esc(current_file)}">\n'
-            )
-            parts.append(f'    <div class="file-header">{_esc(current_file)}</div>\n')
-            if current_file in comments.file_comments:
-                parts.append(
-                    f'    <div class="file-comment"><strong>File review note:</strong> '
-                    f'{_format_text(comments.file_comments[current_file])}'
-                    f'{_render_comment_assets(comments, comments.file_diagrams.get(current_file), comments.file_logs.get(current_file), comments.file_diagram_focus.get(current_file, ()), comments.file_log_focus.get(current_file, ()), comments.file_diagram_notes.get(current_file, ()))}'
-                    "</div>\n"
-                )
-            parts.append('    <table class="diff"><tbody>\n')
-            table_open = True
-            parts.append(_diff_row("header", "", "", line.raw))
-            continue
-
-        if current_file is None:
-            continue
-
-        if line.kind == "hunk":
-            parts.append(_diff_row("hunk", "...", "...", line.raw))
-            continue
-
-        if line.kind in {"metadata", "header"}:
-            parts.append(_diff_row("header", "", "", line.raw))
-            continue
-
-        if line.kind == "add" and line.new_line is not None:
-            line_no = line.new_line
-            target_range = _comment_target_range(comment_ranges, current_file, line_no)
-            parts.append(
-                _diff_row(
-                    "add",
-                    "",
-                    str(line_no),
-                    line.raw,
-                    current_file,
-                    line_no,
-                    _comment_target_classes_for_range(target_range, line_no),
-                )
-            )
-            active_delete_target = target_range if target_range is not None and line_no < target_range[1] else None
-            parts.append(
-                _render_inline_comments(
-                    inline_comments_by_render_line,
-                    comments,
-                    current_file,
-                    line_no,
-                    "add" if target_range is not None else "ctx",
-                )
-            )
-        elif line.kind == "delete" and line.old_line is not None:
-            extra_classes: tuple[str, ...] = ("comment-target",) if active_delete_target is not None else ()
-            parts.append(_diff_row("del", str(line.old_line), "", line.raw, extra_classes=extra_classes))
-        elif line.kind == "context" and line.old_line is not None and line.new_line is not None:
-            line_no = line.new_line
-            target_range = _comment_target_range(comment_ranges, current_file, line_no)
-            parts.append(
-                _diff_row(
-                    "ctx",
-                    str(line.old_line),
-                    str(line.new_line),
-                    line.raw,
-                    current_file,
-                    line_no,
-                    _comment_target_classes_for_range(target_range, line_no),
-                )
-            )
-            active_delete_target = target_range if target_range is not None and line_no < target_range[1] else None
-            parts.append(
-                _render_inline_comments(
-                    inline_comments_by_render_line,
-                    comments,
-                    current_file,
-                    line_no,
-                    "ctx" if target_range is not None else "ctx",
-                )
-            )
-
-    close_file()
-    return "".join(parts)
-
-
-def _comment_line_ranges(comments: ReviewComments) -> dict[str, list[tuple[int, int]]]:
-    ranges: dict[str, list[tuple[int, int]]] = {}
-    for (file_path, line), inline_comments in comments.inline_comments.items():
-        for comment in inline_comments:
-            ranges.setdefault(file_path, []).append(comment.line_range or (line, line))
-    return ranges
-
-
-def _inline_comments_by_render_line(
-    comments: ReviewComments,
-) -> dict[tuple[str, int], list[InlineComment]]:
-    grouped: dict[tuple[str, int], list[InlineComment]] = {}
-    for (file_path, line), inline_comments in comments.inline_comments.items():
-        for comment in inline_comments:
-            render_line = comment.line_range[1] if comment.line_range is not None else line
-            grouped.setdefault((file_path, render_line), []).append(comment)
-    return grouped
-
-
-def _comment_target_classes(
-    ranges: dict[str, list[tuple[int, int]]],
-    file_path: str,
-    line: int,
-) -> tuple[str, ...]:
-    return _comment_target_classes_for_range(_comment_target_range(ranges, file_path, line), line)
-
-
-def _comment_target_range(
-    ranges: dict[str, list[tuple[int, int]]],
-    file_path: str,
-    line: int,
-) -> tuple[int, int] | None:
-    for start, end in ranges.get(file_path, ()):
-        if start <= line <= end:
-            return start, end
-    return None
-
-
-def _comment_target_classes_for_range(
-    target_range: tuple[int, int] | None,
-    line: int,
-) -> tuple[str, ...]:
-    if target_range is None:
-        return ()
-    start, end = target_range
-    classes = ["comment-target"]
-    if line == start:
-        classes.append("comment-target-start")
-    if line == end:
-        classes.append("comment-target-end")
-    if start == end:
-        classes.append("comment-target-single")
-    return tuple(classes)
-
-
-def _render_inline_comments(
-    grouped_comments: dict[tuple[str, int], list[InlineComment]],
-    comments: ReviewComments,
-    file_path: str,
-    line: int,
-    target_kind: str = "ctx",
-) -> str:
-    rendered: list[str] = []
-    row_kind = target_kind if target_kind in {"add", "del", "ctx"} else "ctx"
-    for comment in grouped_comments.get((file_path, line), ()):
-        location = _comment_location(comment)
-        start, end = comment.line_range or (comment.line, comment.line)
-        rendered.append(
-            f'      <tr class="comment-row comment-row-{row_kind}"><td colspan="3">'
-            f'<div class="review-comment" id="{_comment_anchor(file_path, comment.line)}"'
-            f' data-comment-file="{_esc(file_path)}" data-comment-range-start="{start}"'
-            f' data-comment-range-end="{end}">'
-            f'<div class="title">{_esc(comment.title)} on {_esc(location)}</div>'
-            f'<div class="body">{_format_text(comment.body)}'
-            f'{_render_comment_assets(comments, comment.diagram, comment.log, comment.diagram_focus, comment.log_focus, comment.diagram_notes)}</div>'
-            "</div></td></tr>\n"
-        )
-    return "".join(rendered)
-
-
-def _comment_location(comment: InlineComment) -> str:
-    if comment.line_range is None:
-        return f"{comment.file_path}:{comment.line}"
-    start, end = comment.line_range
-    if start == end:
-        return f"{comment.file_path}:{start}"
-    return f"{comment.file_path}:{start}-{end}"
 
 
 def _render_comment_assets(
@@ -580,7 +426,10 @@ svg tspan:not(.diagram-note-text):not(.diagram-note-marker-text):not(.asset-focu
 svg line:not(.asset-focus-connector):not(.diagram-code-link-connector):not(.diagram-note-link),
 svg path:not(.diagram-note-box):not(.diagram-note-link),
 svg polyline:not(.asset-focus-connector):not(.diagram-code-link-connector) { stroke: #c5c5c5 !important; }
-svg polygon:not(.asset-focus-connector):not(.diagram-code-link-connector) { fill: #c5c5c5 !important; stroke: #c5c5c5 !important; }
+svg polygon[fill="#FFFFFF"],
+svg polygon[fill="#FEFECE"],
+svg polygon[fill="#EEEEEE"],
+svg path[fill="#FEFECE"] { fill: #252526 !important; stroke: #c5c5c5 !important; }
 svg rect:not(.diagram-note-box):not(.diagram-code-link-badge-box) { fill: #252526 !important; stroke: #c5c5c5 !important; }
 svg path[fill="#FBFB77"] { fill: #3a3217 !important; stroke: #cca700 !important; }
 </style>
@@ -607,10 +456,13 @@ def _render_diagram_modal(comments: ReviewComments) -> str:
     parts.append('    <div class="diagram-toolbar">\n')
     parts.append('      <h2 id="diagram-modal-title">Diagram</h2>\n')
     parts.append('      <div class="diagram-tools">\n')
+    parts.append('        <div class="diagram-search-tools">\n')
     parts.append('        <input id="diagram-search" type="search" placeholder="Search" aria-label="Search opened asset">\n')
     parts.append('        <span id="diagram-search-count" class="diagram-search-count"></span>\n')
     parts.append('        <button type="button" data-diagram-search="prev" aria-label="Previous search match">Prev</button>\n')
     parts.append('        <button type="button" data-diagram-search="next" aria-label="Next search match">Next</button>\n')
+    parts.append("        </div>\n")
+    parts.append('        <div class="diagram-action-tools">\n')
     parts.append('        <button type="button" id="diagram-export" data-asset-export hidden>Export</button>\n')
     parts.append('        <button type="button" data-diagram-zoom="out" data-diagram-zoom-tool aria-label="Zoom out">-</button>\n')
     parts.append(
@@ -619,6 +471,7 @@ def _render_diagram_modal(comments: ReviewComments) -> str:
     )
     parts.append('        <button type="button" data-diagram-zoom="in" data-diagram-zoom-tool aria-label="Zoom in">+</button>\n')
     parts.append('        <button type="button" data-diagram-close aria-label="Close diagram">&times;</button>\n')
+    parts.append("        </div>\n")
     parts.append("      </div>\n")
     parts.append("    </div>\n")
     parts.append(
@@ -648,29 +501,6 @@ def _render_diagram_modal(comments: ReviewComments) -> str:
     return "".join(parts)
 
 
-def _diff_row(
-    kind: str,
-    old_no: str,
-    new_no: str,
-    text: str,
-    file_path: str | None = None,
-    new_line: int | None = None,
-    extra_classes: tuple[str, ...] = (),
-) -> str:
-    attrs = ""
-    if file_path is not None and new_line is not None:
-        attrs = (
-            f' id="{_line_anchor(file_path, new_line)}"'
-            f' data-file="{_esc(file_path)}" data-new-line="{new_line}"'
-        )
-    class_name = " ".join((kind, *extra_classes))
-    return (
-        f'      <tr class="{class_name}" data-diff-kind="{_esc(kind)}"{attrs}>'
-        f'<td class="num">{_esc(old_no)}</td>'
-        f'<td class="num">{_esc(new_no)}</td><td class="code">{_esc(text)}</td></tr>\n'
-    )
-
-
 def _maybe_code(value: str | None) -> str:
     if not value:
         return "n/a"
@@ -698,44 +528,3 @@ def _json_attr(name: str, value: object) -> str:
         return ""
     payload = json.dumps(value, ensure_ascii=False)
     return f' {name}="{_esc(payload)}"'
-
-
-def _anchor(value: str) -> str:
-    return re.sub(r"[^A-Za-z0-9_.-]+", "-", value)
-
-
-def _comment_anchor(file_path: str, line: int) -> str:
-    return f"comment-{_anchor(file_path)}-{line}"
-
-
-def _line_anchor(file_path: str, line: int) -> str:
-    return f"line-{_anchor(file_path)}-{line}"
-
-
-def _esc(value: object) -> str:
-    return html.escape(str(value), quote=True)
-
-
-def _format_text(value: object) -> str:
-    text = str(value)
-    url_re = re.compile(r"https?://[^\s<>'\"`]+")
-    parts: list[str] = []
-    last = 0
-
-    def repl(match: re.Match[str]) -> str:
-        nonlocal last
-        parts.append(_esc(text[last:match.start()]))
-        raw_url = match.group(0)
-        url = raw_url.rstrip(".,);")
-        suffix = raw_url[len(url):]
-        safe_url = html.escape(url, quote=True)
-        parts.append(
-            f'<a href="{safe_url}" target="_blank" rel="noopener noreferrer">{safe_url}</a>'
-        )
-        parts.append(_esc(suffix))
-        last = match.end()
-        return ""
-
-    url_re.sub(repl, text)
-    parts.append(_esc(text[last:]))
-    return "".join(parts)
