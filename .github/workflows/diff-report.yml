@@ -6,13 +6,11 @@ on:
       - ".github/workflows/diff-report.yml"
       - "codex_tools/diff_report/**"
       - "codex_tools/code_map/**"
-      - "codex-tools-diff-report-enhancements/**"
   pull_request:
     paths:
       - ".github/workflows/diff-report.yml"
       - "codex_tools/diff_report/**"
       - "codex_tools/code_map/**"
-      - "codex-tools-diff-report-enhancements/**"
   workflow_dispatch:
 
 jobs:
@@ -29,4 +27,4 @@ jobs:
           python-version: "3.11"
 
       - name: Run diff report regression tests
-        run: bash codex-tools-diff-report-enhancements/scripts/run-ci.sh
+        run: bash codex_tools/diff_report/tests/run-ci.sh
