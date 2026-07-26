@@ -33,11 +33,22 @@ def story_script() -> str:
     storySentinel.className = "story-sentinel";
     story.before(storySentinel);
   }
-  if ("scrollRestoration" in history) {
-    history.scrollRestoration = "manual";
-  }
+	  if ("scrollRestoration" in history) {
+	    history.scrollRestoration = "manual";
+	  }
 
-  function initVocabularyPopovers() {
+	  function requestExtraPaint(node) {
+	    window.requestAnimationFrame(function () {
+	      window.requestAnimationFrame(function () {
+	        const target = node && node.isConnected ? node : document.body;
+	        if (target) {
+	          void target.offsetHeight;
+	        }
+	      });
+	    });
+	  }
+	
+	  function initVocabularyPopovers() {
     const wraps = Array.from(document.querySelectorAll(".vocabulary-ref-wrap"));
     if (!wraps.length) {
       return;
@@ -51,12 +62,13 @@ def story_script() -> str:
       }
     }
 
-    function clearVocabularyPopover(wrap) {
-      wrap.classList.remove("is-open");
-      setStoryVocabularyPopover(wrap, false);
-      if (activeWrap === wrap) {
-        activeWrap = null;
-      }
+	    function clearVocabularyPopover(wrap) {
+	      wrap.classList.remove("is-open");
+	      setStoryVocabularyPopover(wrap, false);
+	      requestExtraPaint(wrap);
+	      if (activeWrap === wrap) {
+	        activeWrap = null;
+	      }
     }
 
     function closeActiveVocabularyPopover(exceptWrap) {
@@ -110,9 +122,10 @@ def story_script() -> str:
       if (top + popoverHeight > window.innerHeight - margin) {
         top = Math.max(margin, triggerRect.top - popoverHeight - 8);
       }
-      wrap.style.setProperty("--vocabulary-popover-left", left.toFixed(0) + "px");
-      wrap.style.setProperty("--vocabulary-popover-top", top.toFixed(0) + "px");
-    }
+	      wrap.style.setProperty("--vocabulary-popover-left", left.toFixed(0) + "px");
+	      wrap.style.setProperty("--vocabulary-popover-top", top.toFixed(0) + "px");
+	      requestExtraPaint(popover);
+	    }
 
     function toggleVocabularyPopover(wrap) {
       if (wrap.classList.contains("is-open")) {
@@ -246,46 +259,6 @@ def story_script() -> str:
     });
   }
 
-  function initReviewNavTree() {
-    const nav = document.getElementById("review-comments");
-    if (!nav) {
-      return;
-    }
-    nav.addEventListener("click", function (event) {
-      const toggle = event.target.closest(".review-nav-toggle");
-      if (!toggle || !nav.contains(toggle)) {
-        return;
-      }
-      const node = toggle.closest(".review-nav-node");
-      if (!node) {
-        return;
-      }
-      const nextOpen = !node.classList.contains("is-open");
-      event.preventDefault();
-      event.stopPropagation();
-      node.classList.toggle("is-open", nextOpen);
-      toggle.setAttribute("aria-expanded", nextOpen ? "true" : "false");
-    });
-  }
-
-  function resetReviewNavTree() {
-    const nav = document.getElementById("review-comments");
-    if (!nav) {
-      return;
-    }
-    for (const node of nav.querySelectorAll(".review-nav-node")) {
-      const isFile = node.classList.contains("review-nav-file");
-      const shouldOpen = !isFile || node.classList.contains("review-nav-passthrough");
-      node.classList.toggle("is-open", shouldOpen);
-      const toggle = node.querySelector(":scope > .review-nav-row .review-nav-toggle");
-      if (toggle) {
-        toggle.setAttribute("aria-expanded", shouldOpen ? "true" : "false");
-      }
-    }
-    nav.scrollTop = 0;
-    nav.scrollLeft = 0;
-  }
-
   function initReviewNavActiveFile() {
     const nav = document.getElementById("review-comments");
     const files = Array.from(document.querySelectorAll("article.file[data-file]"));
@@ -305,19 +278,26 @@ def story_script() -> str:
     let navScrollRaf = 0;
     let navScrollFollowupTimer = 0;
 
+    function clearActivePath() {
+      for (const item of nav.querySelectorAll(".review-nav-dir.is-current-path")) {
+        item.classList.remove("is-current-path");
+      }
+    }
+
+    function markActivePath(item) {
+      clearActivePath();
+      let parent = item && item.parentElement ? item.parentElement.closest(".review-nav-dir") : null;
+      while (parent) {
+        parent.classList.add("is-current-path");
+        parent = parent.parentElement ? parent.parentElement.closest(".review-nav-dir") : null;
+      }
+    }
+
     function revealActiveItem(item) {
       item.classList.add("is-open");
-      const itemToggle = item.querySelector(":scope > .review-nav-row .review-nav-toggle");
-      if (itemToggle) {
-        itemToggle.setAttribute("aria-expanded", "true");
-      }
       let parent = item.parentElement ? item.parentElement.closest(".review-nav-dir") : null;
       while (parent) {
         parent.classList.add("is-open");
-        const toggle = parent.querySelector(":scope > .review-nav-row .review-nav-toggle");
-        if (toggle) {
-          toggle.setAttribute("aria-expanded", "true");
-        }
         parent = parent.parentElement ? parent.parentElement.closest(".review-nav-dir") : null;
       }
       scheduleNavScrollToItem(item);
@@ -369,13 +349,17 @@ def story_script() -> str:
       activeItem = nextItem;
       if (activeItem) {
         activeItem.classList.add("is-current");
+        markActivePath(activeItem);
         revealActiveItem(activeItem);
+      } else {
+        clearActivePath();
       }
     }
 
     nav.addEventListener("click", function (event) {
-      const link = event.target.closest(".review-nav-file > .review-nav-row a");
-      if (!link || !nav.contains(link)) {
+      const row = event.target.closest(".review-nav-file > .review-nav-row");
+      const link = row ? row.querySelector('a[href^="#"]') : null;
+      if (!row || !link || !nav.contains(row)) {
         return;
       }
       const anchor = decodeURIComponent(String(link.getAttribute("href") || "").replace(/^#/, ""));
@@ -388,6 +372,23 @@ def story_script() -> str:
       }
       activeItem = item;
       activeItem.classList.add("is-current");
+      markActivePath(activeItem);
+      revealActiveItem(activeItem);
+    });
+
+    document.addEventListener("codex-review-file-link-selected", function (event) {
+      const href = event.detail && event.detail.href ? String(event.detail.href) : "";
+      const anchor = decodeURIComponent(href.replace(/^#/, ""));
+      const item = anchor ? navItemsByAnchor.get(anchor) || null : null;
+      if (!item || item === activeItem) {
+        return;
+      }
+      if (activeItem) {
+        activeItem.classList.remove("is-current");
+      }
+      activeItem = item;
+      activeItem.classList.add("is-current");
+      markActivePath(activeItem);
       revealActiveItem(activeItem);
     });
 
@@ -398,6 +399,11 @@ def story_script() -> str:
         Math.max((story ? story.offsetHeight : 0) + 80, 120),
         window.innerHeight * 0.45
       );
+      const firstRect = files[0].getBoundingClientRect();
+      if (firstRect.top > probeY) {
+        setActiveFile(null);
+        return;
+      }
       let candidate = null;
       let fallback = null;
       for (const file of files) {
@@ -411,7 +417,10 @@ def story_script() -> str:
           fallback = file;
         }
       }
-      setActiveFile(candidate || fallback);
+      const nextFile = candidate || fallback;
+      if (nextFile) {
+        setActiveFile(nextFile);
+      }
     }
 
     function scheduleActiveFileUpdate() {
@@ -439,6 +448,7 @@ def story_script() -> str:
     let previousCommentScrollY = window.scrollY;
     let lastCommentFlashKey = "";
     let lastCommentFlashAt = 0;
+    let suppressCommentUpdatesForFileJump = false;
 
     function revealCommentLink(link) {
       const fileNode = link.closest(".review-nav-file");
@@ -446,17 +456,9 @@ def story_script() -> str:
         return;
       }
       fileNode.classList.add("is-open");
-      const fileToggle = fileNode.querySelector(":scope > .review-nav-row .review-nav-toggle");
-      if (fileToggle) {
-        fileToggle.setAttribute("aria-expanded", "true");
-      }
       let parent = fileNode.parentElement ? fileNode.parentElement.closest(".review-nav-dir") : null;
       while (parent) {
         parent.classList.add("is-open");
-        const toggle = parent.querySelector(":scope > .review-nav-row .review-nav-toggle");
-        if (toggle) {
-          toggle.setAttribute("aria-expanded", "true");
-        }
         parent = parent.parentElement ? parent.parentElement.closest(".review-nav-dir") : null;
       }
       scrollNavToCommentLink(link);
@@ -479,7 +481,7 @@ def story_script() -> str:
       nav.scrollTop += offset;
     }
 
-    function setActiveComment(comment, edge) {
+    function setActiveComment(comment, edge, flash) {
       const nextId = comment && comment.id ? comment.id : "";
       if (!nextId) {
         return;
@@ -499,6 +501,9 @@ def story_script() -> str:
       if (wasActive) {
         return;
       }
+      if (flash === false) {
+        return;
+      }
       const flashKey = nextId + ":" + (edge || "");
       const now = performance.now();
       if (flashKey === lastCommentFlashKey && now - lastCommentFlashAt < 300) {
@@ -507,6 +512,17 @@ def story_script() -> str:
       lastCommentFlashKey = flashKey;
       lastCommentFlashAt = now;
       flashTargets(comment, scrollContextElement(comment), false);
+    }
+
+    function clearActiveComment() {
+      if (!activeCommentId) {
+        return;
+      }
+      const link = nav.querySelector('[data-review-comment-link="' + cssEscape(activeCommentId) + '"]');
+      if (link) {
+        link.classList.remove("is-current-comment");
+      }
+      activeCommentId = "";
     }
 
     nav.addEventListener("click", function (event) {
@@ -540,6 +556,26 @@ def story_script() -> str:
         link.classList.remove("is-current-comment");
       }
     }
+
+    function resetCommentTriggerBaseline() {
+      previousCommentCenterY = currentCommentCenterY();
+      previousCommentVisibleRange = currentCommentVisibleRange();
+      previousCommentScrollY = window.scrollY;
+    }
+
+    document.addEventListener("codex-review-file-jump-start", function () {
+      suppressCommentUpdatesForFileJump = true;
+      clearActiveComment();
+      resetCommentTriggerBaseline();
+    });
+
+    document.addEventListener("codex-review-file-jump-end", function () {
+      window.requestAnimationFrame(function () {
+        clearActiveComment();
+        resetCommentTriggerBaseline();
+        suppressCommentUpdatesForFileJump = false;
+      });
+    });
 
     function currentCommentCenterY() {
       const storyPinned = Boolean(storySentinel && storySentinel.getBoundingClientRect().top <= 0);
@@ -608,13 +644,13 @@ def story_script() -> str:
       return null;
     }
 
-    function updateCommentEdges() {
+    function updateCommentEdges(filePath, baseline) {
       const currentCenterY = currentCommentCenterY();
-      const previousCenterY = previousCommentCenterY;
+      const previousCenterY = baseline ? baseline.centerY : previousCommentCenterY;
       const currentVisibleRange = currentCommentVisibleRange();
-      const previousVisibleRange = previousCommentVisibleRange;
+      const previousVisibleRange = baseline ? baseline.visibleRange : previousCommentVisibleRange;
       const currentScrollY = window.scrollY;
-      const scrollingDown = currentScrollY >= previousCommentScrollY;
+      const scrollingDown = currentScrollY >= (baseline ? baseline.scrollY : previousCommentScrollY);
       previousCommentCenterY = currentCenterY;
       previousCommentVisibleRange = currentVisibleRange;
       previousCommentScrollY = currentScrollY;
@@ -622,6 +658,9 @@ def story_script() -> str:
       let bestEdge = "";
       let bestCrossingProgress = Infinity;
       for (const comment of comments) {
+        if (filePath && comment.dataset.commentFile !== filePath) {
+          continue;
+        }
         const rect = commentTargetBox(comment) || comment.getBoundingClientRect();
         const box = {
           top: rect.top + window.scrollY,
@@ -642,16 +681,61 @@ def story_script() -> str:
       return best ? { comment: best, edge: bestEdge } : null;
     }
 
+    function commentContainingCenter(filePath, centerY) {
+      for (const comment of comments) {
+        if (filePath && comment.dataset.commentFile !== filePath) {
+          continue;
+        }
+        const rect = commentTargetBox(comment) || comment.getBoundingClientRect();
+        const top = rect.top + window.scrollY;
+        const bottom = rect.bottom + window.scrollY;
+        if (top <= centerY && centerY <= bottom) {
+          return comment;
+        }
+      }
+      return null;
+    }
+
+    function activeCommentContainsCenter(centerY) {
+      if (!activeCommentId) {
+        return false;
+      }
+      const comment = document.getElementById(activeCommentId);
+      if (!comment) {
+        return false;
+      }
+      const rect = commentTargetBox(comment) || comment.getBoundingClientRect();
+      const top = rect.top + window.scrollY;
+      const bottom = rect.bottom + window.scrollY;
+      return top <= centerY && centerY <= bottom;
+    }
+
     function updateActiveComment() {
       commentRaf = 0;
+      if (suppressCommentUpdatesForFileJump) {
+        resetCommentTriggerBaseline();
+        return;
+      }
       resetHiddenActiveComment();
       const crossing = updateCommentEdges();
       if (crossing) {
         setActiveComment(crossing.comment, crossing.edge);
+        return;
+      }
+      if (activeCommentContainsCenter(previousCommentCenterY)) {
+        return;
+      }
+      const centeredComment = commentContainingCenter(null, previousCommentCenterY);
+      if (centeredComment) {
+        setActiveComment(centeredComment, "center", false);
       }
     }
 
     function scheduleActiveCommentUpdate() {
+      if (suppressCommentUpdatesForFileJump) {
+        resetCommentTriggerBaseline();
+        return;
+      }
       if (commentRaf) {
         return;
       }
@@ -992,9 +1076,10 @@ def story_script() -> str:
     }
     const target = document.getElementById(targetId);
     if (target) {
-      activeTarget = target;
-      target.classList.add("story-target-active");
-      animateWindowScrollToElement(target, jumpDurationMs);
+      const navigationTarget = navigationTargetElement(target);
+      activeTarget = navigationTarget;
+      navigationTarget.classList.add("story-target-active");
+      animateWindowScrollToElement(navigationTarget, jumpDurationMs);
     }
   }
 
@@ -1008,13 +1093,21 @@ def story_script() -> str:
       return false;
     }
     clearTargetHighlight();
-    activeTarget = target;
-    target.classList.add("story-target-active");
-    animateWindowScrollToElement(target, jumpDurationMs);
+    const navigationTarget = navigationTargetElement(target);
+    activeTarget = navigationTarget;
+    navigationTarget.classList.add("story-target-active");
+    animateWindowScrollToElement(navigationTarget, jumpDurationMs);
     if (updateUrl && history.replaceState) {
       history.replaceState(null, "", location.pathname + location.search);
     }
     return true;
+  }
+
+  function navigationTargetElement(target) {
+    if (target && target.classList && target.classList.contains("file")) {
+      return target.querySelector(":scope > .file-header") || target;
+    }
+    return target;
   }
 
   function jumpToTop() {
@@ -1048,14 +1141,27 @@ def story_script() -> str:
     window.clearTimeout(activeScrollEndTimer);
     navigationToken += 1;
     const token = navigationToken;
+    const isFileJump = element && element.classList && element.classList.contains("file-header");
     const startY = window.scrollY;
     const scrollElement = scrollContextElement(element);
     const rect = scrollElement.getBoundingClientRect();
-    const safeTop = scrollSafeTop();
+    const safeTop = scrollOffsetForElement(element);
     const maxY = Math.max(0, document.documentElement.scrollHeight - window.innerHeight);
     const targetY = Math.max(0, Math.min(maxY, startY + rect.top - safeTop));
-    animateWindowScrollToY(targetY, durationMs, token, function () {
+    if (isFileJump) {
+      document.dispatchEvent(new CustomEvent("codex-review-file-jump-start"));
+    }
+    function finishNavigation() {
+      if (isFileJump) {
+        document.dispatchEvent(new CustomEvent("codex-review-file-jump-end"));
+      }
       flashTargets(element, scrollElement);
+    }
+    animateWindowScrollToY(targetY, durationMs, token, function () {
+      if (settleFileHeaderScroll(element, finishNavigation)) {
+        return;
+      }
+      finishNavigation();
     });
   }
 
@@ -1065,7 +1171,40 @@ def story_script() -> str:
     return (Number.isFinite(storyOffset) ? storyOffset : 0) + 72;
   }
 
+  function scrollOffsetForElement(element) {
+    if (element && element.classList && element.classList.contains("file-header")) {
+      return fileHeaderStickyTop();
+    }
+    return scrollSafeTop();
+  }
+
+  function fileHeaderStickyTop() {
+    const value = getComputedStyle(document.documentElement).getPropertyValue("--story-offset");
+    const storyOffset = Number.parseFloat(value || "0");
+    return Math.max(0, (Number.isFinite(storyOffset) ? storyOffset : 0) - 2);
+  }
+
+  function settleFileHeaderScroll(element, onDone) {
+    if (!element || !element.classList || !element.classList.contains("file-header")) {
+      return false;
+    }
+    window.requestAnimationFrame(function () {
+      updateStoryOffset();
+      const delta = element.getBoundingClientRect().top - fileHeaderStickyTop();
+      if (Math.abs(delta) > 1) {
+        window.scrollTo(0, Math.max(0, window.scrollY + delta));
+      }
+      if (onDone) {
+        onDone();
+      }
+    });
+    return true;
+  }
+
   function scrollContextElement(element) {
+    if (element && element.classList && element.classList.contains("file-header")) {
+      return element.closest("article.file") || element;
+    }
     if (!element || !element.classList || !element.classList.contains("review-comment")) {
       return element;
     }
@@ -1325,12 +1464,13 @@ def story_script() -> str:
       jumpToTop();
       return;
     }
-    if (event.target.closest("[data-review-nav-reset]")) {
-      event.preventDefault();
-      resetReviewNavTree();
-      return;
+    const navFileRow = event.target.closest(".review-nav-file .review-nav-row");
+    const navFileLink = navFileRow ? navFileRow.querySelector('a[href^="#"]') : null;
+    if (navFileLink) {
+      document.dispatchEvent(new CustomEvent("codex-review-file-link-selected", {
+        detail: { href: navFileLink.getAttribute("href") || "" },
+      }));
     }
-    const navFileLink = event.target.closest(".review-nav-file .review-nav-row a");
     if (navFileLink && jumpToHash(navFileLink.getAttribute("href"), true)) {
       event.preventDefault();
       event.stopPropagation();
@@ -1404,7 +1544,6 @@ def story_script() -> str:
 
   initVocabularyPopovers();
   initReviewNavResize();
-  initReviewNavTree();
   initReviewNavActiveFile();
   initReviewNavActiveComment();
   initStoryPagerResizeObserver();

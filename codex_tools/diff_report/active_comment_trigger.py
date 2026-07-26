@@ -63,6 +63,23 @@ def first_directional_crossing(
     return best
 
 
+def containing_block_at_center(
+    center_y: float,
+    *,
+    blocks: list[CommentBlock],
+) -> CommentCrossing | None:
+    """Return the comment block that currently contains the visible center."""
+    for block in blocks:
+        if block.top <= center_y <= block.bottom:
+            return CommentCrossing(id=block.id, edge="center", progress=0.0)
+    return None
+
+
+def block_contains_center(block: CommentBlock, center_y: float) -> bool:
+    """Return whether an already active block still owns the center point."""
+    return block.top <= center_y <= block.bottom
+
+
 def _block_crossing(
     previous_center_y: float,
     current_center_y: float,

@@ -74,6 +74,13 @@ class DiffReportBehaviorTests(unittest.TestCase):
                     +++ b/docs/CMakeLists.txt
                     @@ -0,0 +1 @@
                     +add_subdirectory(app)
+                    diff --git a/deep/path/app2.py b/deep/path/app2.py
+                    new file mode 100644
+                    index 0000000..4444444
+                    --- /dev/null
+                    +++ b/deep/path/app2.py
+                    @@ -0,0 +1 @@
+                    +value = 2
                     """
                 ),
                 encoding="utf-8",
@@ -244,6 +251,8 @@ class DiffReportBehaviorTests(unittest.TestCase):
             "navigator.clipboard.writeText",
             'href="#docs-CMakeLists.txt">CMakeLists.txt</a>',
             'id="docs-CMakeLists.txt"',
+            'href="#deep-path-app2.py">app2.py</a>',
+            '<span class="review-nav-label">deep/path</span>',
         ]
         for fragment in expected_fragments:
             with self.subTest(fragment=fragment):
@@ -252,6 +261,20 @@ class DiffReportBehaviorTests(unittest.TestCase):
             html,
             r'(?s)id="diagram-search".*data-diagram-search="prev".*data-diagram-search="next"',
         )
+        self.assertRegex(
+            html,
+            r'(?s)<li class="review-nav-node review-nav-file review-nav-file-with-comments">.*?'
+            r'href="#src-app.py">app.py</a>',
+        )
+        self.assertRegex(
+            html,
+            r'(?s)<li class="review-nav-node review-nav-file">.*?'
+            r'href="#docs-CMakeLists.txt">CMakeLists.txt</a>',
+        )
+        self.assertNotIn("review-nav-toggle", html)
+        self.assertNotIn("review-nav-toggle-spacer", html)
+        self.assertNotIn("data-review-nav-reset", html)
+        self.assertNotIn("review-nav-passthrough", html)
         self.assertNotIn("story-controls", html)
         self.assertNotIn("story-settings-launcher", html)
         self.assertNotIn('id="story-counter"', html)

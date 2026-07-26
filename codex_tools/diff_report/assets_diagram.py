@@ -158,19 +158,30 @@ def diagram_script() -> str:
     return box ? { width: box.width, height: box.height } : null;
   }
 
-  function setMode(nextMode) {
-    mode = nextMode;
-    content.dataset.mode = mode;
+	  function setMode(nextMode) {
+	    mode = nextMode;
+	    content.dataset.mode = mode;
     for (const tool of zoomTools) {
       tool.hidden = mode !== "diagram" && mode !== "log";
     }
     if (exportButton) {
       exportButton.hidden = mode !== "diagram" && mode !== "log";
-      exportButton.textContent = mode === "diagram" ? "Save as SVG" : "Save as HTML";
-    }
-  }
+	      exportButton.textContent = mode === "diagram" ? "Save as SVG" : "Save as HTML";
+	    }
+	  }
 
-""" + diagram_export_helpers() + """  function clearSearch() {
+	  function requestExtraPaint(node) {
+	    window.requestAnimationFrame(function () {
+	      window.requestAnimationFrame(function () {
+	        const target = node && node.isConnected ? node : document.body;
+	        if (target) {
+	          void target.offsetHeight;
+	        }
+	      });
+	    });
+	  }
+	
+	""" + diagram_export_helpers() + """  function clearSearch() {
     searchMatches = [];
     searchIndex = -1;
     if (searchCount) {
@@ -1172,11 +1183,12 @@ def diagram_script() -> str:
     }
     setInitialDiagramScale();
     const focusTarget = applyFocusTerms(focusTerms || [], notes || []);
-    applyCodeLinks(nextMode === "diagram" ? parseCodeLinks(template.dataset.codeLinks) : []);
-    scheduleFocusedArtifactView(focusTarget, storyZoom || 0, storyComment);
-    if (nextMode === "log" && searchInput) {
-      searchInput.focus();
-    }
+	    applyCodeLinks(nextMode === "diagram" ? parseCodeLinks(template.dataset.codeLinks) : []);
+	    scheduleFocusedArtifactView(focusTarget, storyZoom || 0, storyComment);
+	    requestExtraPaint(modal);
+	    if (nextMode === "log" && searchInput) {
+	      searchInput.focus();
+	    }
   }
 
   function createAssetStoryComment(nextStoryContext) {
@@ -1229,10 +1241,11 @@ def diagram_script() -> str:
     document.body.style.overflow = "";
     document.body.classList.remove("has-diagram-open");
     document.dispatchEvent(new CustomEvent("codex-review-story-layout"));
-    document.dispatchEvent(new CustomEvent("codex-review-story-artifact", {
-      detail: { status: "closed" },
-    }));
-    scale = 1;
+	    document.dispatchEvent(new CustomEvent("codex-review-story-artifact", {
+	      detail: { status: "closed" },
+	    }));
+	    requestExtraPaint(document.body);
+	    scale = 1;
     initialScale = 1;
     setMode("");
     activeFocusTerms = [];

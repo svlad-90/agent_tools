@@ -3,8 +3,10 @@ from __future__ import annotations
 import unittest
 
 from codex_tools.diff_report.active_comment_trigger import (
+    block_contains_center,
     CommentBlock,
     CommentCrossing,
+    containing_block_at_center,
     first_directional_crossing,
     visible_content_center_y,
 )
@@ -174,6 +176,55 @@ class ActiveCommentTriggerTests(unittest.TestCase):
         )
 
         self.assertEqual("top", crossing.edge if crossing else None)
+
+    def test_containing_block_fallback_selects_dense_neighbor_at_center(self) -> None:
+        crossing = first_directional_crossing(
+            420,
+            430,
+            scrolling_down=True,
+            previous_visible_top_y=110,
+            previous_visible_bottom_y=710,
+            current_visible_top_y=130,
+            current_visible_bottom_y=730,
+            blocks=[
+                CommentBlock(id="previous", top=320, bottom=408),
+                CommentBlock(id="dense-neighbor", top=410, bottom=470),
+            ],
+        )
+
+        self.assertIsNone(crossing)
+        self.assertEqual(
+            CommentCrossing(id="dense-neighbor", edge="center", progress=0.0),
+            containing_block_at_center(
+                430,
+                blocks=[
+                    CommentBlock(id="previous", top=320, bottom=408),
+                    CommentBlock(id="dense-neighbor", top=410, bottom=470),
+                ],
+            ),
+        )
+
+    def test_center_fallback_keeps_active_dense_block_while_center_remains_inside(self) -> None:
+        active = CommentBlock(id="active", top=410, bottom=470)
+        neighbor = CommentBlock(id="neighbor", top=472, bottom=540)
+
+        self.assertIsNone(
+            first_directional_crossing(
+                430,
+                440,
+                scrolling_down=True,
+                previous_visible_top_y=130,
+                previous_visible_bottom_y=730,
+                current_visible_top_y=140,
+                current_visible_bottom_y=740,
+                blocks=[active, neighbor],
+            )
+        )
+        self.assertTrue(block_contains_center(active, 440))
+        self.assertNotEqual(
+            "neighbor",
+            containing_block_at_center(440, blocks=[active, neighbor]).id,
+        )
 
 
 if __name__ == "__main__":

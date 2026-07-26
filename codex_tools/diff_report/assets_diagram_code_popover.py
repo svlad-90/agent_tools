@@ -6,11 +6,12 @@ def diagram_code_popover_helpers() -> str:
     return document.body;
   }
 
-  function closeCodePopover() {
-    const overlay = codeOverlayRoot().querySelector(".diagram-code-overlay");
-    if (overlay) {
-      overlay.remove();
-    }
+	  function closeCodePopover() {
+	    const overlay = codeOverlayRoot().querySelector(".diagram-code-overlay");
+	    if (overlay) {
+	      overlay.remove();
+	      requestExtraPaint(document.body);
+	    }
     for (const node of content.querySelectorAll(".diagram-code-link-active")) {
       node.classList.remove("diagram-code-link-active");
     }
@@ -63,14 +64,15 @@ def diagram_code_popover_helpers() -> str:
     }
     popover.appendChild(body);
     overlay.appendChild(popover);
-    codeOverlayRoot().appendChild(overlay);
-    positionCodePopover(popover);
-    requestAnimationFrame(function () {
-      requestAnimationFrame(function () {
-        positionCodePopover(popover);
-        centerCodeTarget(popover);
-      });
-    });
+	    codeOverlayRoot().appendChild(overlay);
+	    positionCodePopover(popover);
+	    requestAnimationFrame(function () {
+	      requestAnimationFrame(function () {
+	        positionCodePopover(popover);
+	        centerCodeTarget(popover);
+	        requestExtraPaint(popover);
+	      });
+	    });
   }
 
   function positionCodePopover(popover) {

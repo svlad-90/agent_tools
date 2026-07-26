@@ -160,8 +160,7 @@ def _render_summary_section(comments: ReviewComments) -> str:
 def _render_comments_index(comments: ReviewComments, diff_file_order: list[str]) -> str:
     parts = [
         '  <section class="review-nav" id="review-comments">'
-        '<div class="review-nav-head"><h2>Review Comments</h2>'
-        '<button type="button" data-review-nav-reset>Reset tree</button></div>\n'
+        '<div class="review-nav-head"><h2>Review Comments</h2></div>\n'
     ]
     comment_file_paths = set(comments.file_comments) | {key[0] for key in comments.inline_comments}
     file_paths = list(diff_file_order)
@@ -186,6 +185,19 @@ def _render_comments_index(comments: ReviewComments, diff_file_order: list[str])
             node = node[path_part]
         node["__items__"].append(("file", file_path))
 
+    def collapsed_dir_label(dirname: str, child: dict[str, Any]) -> tuple[str, dict[str, Any]]:
+        label_parts = [dirname]
+        current = child
+        while True:
+            current_items = list(current.get("__items__", ()))
+            child_dirs = [value for kind, value in current_items if kind == "dir"]
+            child_files = [value for kind, value in current_items if kind == "file"]
+            if child_files or len(child_dirs) != 1:
+                return "/".join(label_parts), current
+            next_dir = child_dirs[0]
+            label_parts.append(next_dir)
+            current = current[next_dir]
+
     def render_tree(node: dict[str, Any], depth: int) -> None:
         items = list(node.get("__items__", ()))
         if not items:
@@ -195,24 +207,13 @@ def _render_comments_index(comments: ReviewComments, diff_file_order: list[str])
             if item_kind == "dir":
                 dirname = item_value
                 child = node[dirname]
-                child_items = list(child.get("__items__", ()))
-                child_dirs = [kind for kind, _value in child_items if kind == "dir"]
-                child_files = [kind for kind, _value in child_items if kind == "file"]
-                is_passthrough = not child_files and len(child_dirs) == 1
+                label, child = collapsed_dir_label(dirname, child)
                 parts.append(
-                    f'{" " * (8 + depth * 2)}<li class="review-nav-node review-nav-dir '
-                    f'{"review-nav-passthrough " if is_passthrough else ""}is-open">\n'
+                    f'{" " * (8 + depth * 2)}<li class="review-nav-node review-nav-dir is-open">\n'
                 )
-                if is_passthrough:
-                    toggle = '<span class="review-nav-toggle-spacer" aria-hidden="true"></span>'
-                else:
-                    toggle = (
-                        '<button type="button" class="review-nav-toggle" aria-expanded="true">'
-                        '<span class="review-nav-twist" aria-hidden="true"></span></button>'
-                    )
                 parts.append(
-                    f'{" " * (10 + depth * 2)}<div class="review-nav-row">{toggle}'
-                    f'<span class="review-nav-label">{_esc(dirname)}</span></div>\n'
+                    f'{" " * (10 + depth * 2)}<div class="review-nav-row">'
+                    f'<span class="review-nav-label">{_esc(label)}</span></div>\n'
                 )
                 render_tree(child, depth + 1)
                 parts.append(f'{" " * (8 + depth * 2)}</li>\n')
@@ -221,16 +222,15 @@ def _render_comments_index(comments: ReviewComments, diff_file_order: list[str])
                 file_path = item_value
                 filename = file_path.rsplit("/", 1)[-1]
                 file_comments = comments_by_file[file_path]
-                parts.append(f'{" " * (8 + depth * 2)}<li class="review-nav-node review-nav-file">\n')
                 if file_comments:
-                    toggle = (
-                        '<button type="button" class="review-nav-toggle" aria-expanded="false">'
-                        '<span class="review-nav-twist" aria-hidden="true"></span></button>'
+                    parts.append(
+                        f'{" " * (8 + depth * 2)}'
+                        '<li class="review-nav-node review-nav-file review-nav-file-with-comments">\n'
                     )
                 else:
-                    toggle = '<span class="review-nav-toggle-spacer" aria-hidden="true"></span>'
+                    parts.append(f'{" " * (8 + depth * 2)}<li class="review-nav-node review-nav-file">\n')
                 parts.append(
-                    f'{" " * (10 + depth * 2)}<div class="review-nav-row">{toggle}'
+                    f'{" " * (10 + depth * 2)}<div class="review-nav-row">'
                     f'<a class="review-nav-label" href="#{_anchor(file_path)}">{_esc(filename)}</a></div>\n'
                 )
                 if file_comments:
