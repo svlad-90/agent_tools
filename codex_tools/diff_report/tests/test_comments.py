@@ -29,6 +29,13 @@ class CommentsTests(unittest.TestCase):
                     {
                         "commit": {"id": "abc123", "message": "Subject\n\nBody"},
                         "summary": "Summary text",
+                        "vocabulary": {
+                            "FDT": "Flattened Device Tree passed by Xen.",
+                            "vCPU": {
+                                "definition": "Virtual CPU exposed to the Zephyr guest.",
+                                "aliases": ["virtual CPU"],
+                            },
+                        },
                         "summary_blocks": [
                             "plain block",
                             {"type": "paragraph", "text": "paragraph block"},
@@ -85,6 +92,10 @@ class CommentsTests(unittest.TestCase):
         self.assertEqual("abc123", comments.commit_id)
         self.assertEqual("Subject\n\nBody", comments.commit_message)
         self.assertEqual("Summary text", comments.summary)
+        self.assertEqual("FDT", comments.vocabulary[0].term)
+        self.assertEqual("Flattened Device Tree passed by Xen.", comments.vocabulary[0].definition)
+        self.assertEqual("vCPU", comments.vocabulary[1].term)
+        self.assertEqual(("virtual CPU",), comments.vocabulary[1].aliases)
         self.assertEqual("file note", comments.file_comments["app.py"])
         self.assertEqual(("flow",), comments.file_diagram_focus["app.py"])
         self.assertEqual(("PASS",), comments.file_log_focus["app.py"])

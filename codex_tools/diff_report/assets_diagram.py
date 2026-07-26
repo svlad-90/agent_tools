@@ -37,57 +37,109 @@ def diagram_script() -> str:
   let panStartTop = 0;
   let activeExportName = "asset";
   let scaleAnimation = 0;
+  let scaleAnimationTarget = 1;
+  let scaleAnimationAnchorState = null;
 
   function setScale(nextScale, options) {
     const targetScale = Math.max(0.25, Math.min(4, nextScale));
+    const anchorState = zoomAnchorState(options);
+    if (mode === "log") {
+      if (scaleAnimation) {
+        window.cancelAnimationFrame(scaleAnimation);
+        scaleAnimation = 0;
+      }
+      scaleAnimationTarget = targetScale;
+      scaleAnimationAnchorState = null;
+      applyScale(targetScale, anchorState);
+      return;
+    }
     if (options && options.animate) {
-      animateScaleTo(targetScale);
+      animateScaleTo(targetScale, anchorState);
       return;
     }
     if (scaleAnimation) {
       window.cancelAnimationFrame(scaleAnimation);
       scaleAnimation = 0;
     }
-    applyScale(targetScale);
+    applyScale(targetScale, anchorState);
   }
 
-  function animateScaleTo(targetScale) {
+  function animateScaleTo(targetScale, anchorState) {
+    scaleAnimationTarget = targetScale;
+    scaleAnimationAnchorState = anchorState;
     if (scaleAnimation) {
-      window.cancelAnimationFrame(scaleAnimation);
+      return;
     }
-    const startedAt = performance.now();
-    const startScale = scale;
-    const durationMs = 160;
     function tick(now) {
-      const elapsed = Math.min(1, (now - startedAt) / durationMs);
-      const eased = 1 - Math.pow(1 - elapsed, 3);
-      applyScale(startScale + (targetScale - startScale) * eased);
-      if (elapsed < 1) {
+      const delta = scaleAnimationTarget - scale;
+      if (Math.abs(delta) > 0.002) {
+        applyScale(scale + delta * 0.32, scaleAnimationAnchorState);
         scaleAnimation = window.requestAnimationFrame(tick);
       } else {
+        applyScale(scaleAnimationTarget, scaleAnimationAnchorState);
         scaleAnimation = 0;
-        applyScale(targetScale);
+        scaleAnimationAnchorState = null;
       }
     }
     scaleAnimation = window.requestAnimationFrame(tick);
   }
 
-  function applyScale(nextScale) {
+  function applyScale(nextScale, anchorState) {
     scale = nextScale;
     if (zoomLabel) {
       zoomLabel.textContent = Math.round(scale * 100) + "%";
     }
     if (mode === "log") {
       content.style.setProperty("--asset-log-scale", String(scale));
+      preserveZoomAnchor(anchorState);
       return;
     }
     content.style.removeProperty("--asset-log-scale");
     const stage = content.querySelector(".diagram-zoom-stage");
-    if (stage) {
-      stage.style.transform = "scale(" + scale + ")";
-      stage.style.marginRight = ((scale - 1) * stage.scrollWidth) + "px";
-      stage.style.marginBottom = ((scale - 1) * stage.scrollHeight) + "px";
+    const svg = stage ? stage.querySelector("svg") : null;
+    const size = svgNaturalSize(svg);
+    if (stage && svg && size && size.width && size.height) {
+      stage.style.transform = "";
+      stage.style.marginRight = "";
+      stage.style.marginBottom = "";
+      svg.style.width = (size.width * scale) + "px";
+      svg.style.height = (size.height * scale) + "px";
+      preserveZoomAnchor(anchorState);
     }
+  }
+
+  function zoomAnchorState(options) {
+    const anchor = zoomAnchor(options);
+    return {
+      x: anchor.x,
+      y: anchor.y,
+      contentX: (content.scrollLeft + anchor.x) / (scale || 1),
+      contentY: (content.scrollTop + anchor.y) / (scale || 1),
+    };
+  }
+
+  function zoomAnchor(options) {
+    const rect = content.getBoundingClientRect();
+    const clientX = options && Number.isFinite(options.anchorClientX)
+      ? options.anchorClientX
+      : rect.left + rect.width / 2;
+    const clientY = options && Number.isFinite(options.anchorClientY)
+      ? options.anchorClientY
+      : rect.top + rect.height / 2;
+    return {
+      x: Math.max(0, Math.min(rect.width, clientX - rect.left)),
+      y: Math.max(0, Math.min(rect.height, clientY - rect.top)),
+    };
+  }
+
+  function preserveZoomAnchor(anchorState) {
+    if (!anchorState) {
+      return;
+    }
+    const maxLeft = Math.max(0, content.scrollWidth - content.clientWidth);
+    const maxTop = Math.max(0, content.scrollHeight - content.clientHeight);
+    content.scrollLeft = clamp((anchorState.contentX * scale) - anchorState.x, 0, maxLeft);
+    content.scrollTop = clamp((anchorState.contentY * scale) - anchorState.y, 0, maxTop);
   }
 
   function parseZoom(value) {
@@ -711,6 +763,7 @@ def diagram_script() -> str:
           scrollContainerToElement(content, target, { horizontal: mode !== "log" });
         }
         positionStoryComment(storyComment);
+        content.classList.remove("is-preparing-story-view");
       });
     });
   }
@@ -724,8 +777,9 @@ def diagram_script() -> str:
     const availableWidth = Math.max(180, contentRect.width - margin * 2);
     const commentWidth = Math.min(520, availableWidth);
     comment.style.width = commentWidth + "px";
+    const sideMargin = mode === "log" ? margin + 30 : margin;
     const left = mode === "log"
-      ? contentRect.right - commentWidth - margin
+      ? contentRect.right - commentWidth - sideMargin
       : contentRect.left + margin;
     const top = contentRect.top + margin;
     placeStoryComment(comment, left, top);
@@ -738,6 +792,7 @@ def diagram_script() -> str:
     const maxTop = Math.max(contentRect.top + margin, contentRect.bottom - comment.offsetHeight - margin);
     comment.style.left = clamp(left, contentRect.left + margin, maxLeft) + "px";
     comment.style.top = clamp(top, contentRect.top + margin, maxTop) + "px";
+    comment.classList.add("is-positioned");
   }
 
   function clamp(value, min, max) {
@@ -1126,6 +1181,7 @@ def diagram_script() -> str:
     activeExportName = template.dataset.title || id || nextMode || "asset";
     content.innerHTML = "";
     resetArtifactViewport();
+    content.classList.toggle("is-preparing-story-view", Boolean(nextStoryContext || storyZoom));
     const storyComment = createAssetStoryComment(nextStoryContext || null);
     if (storyComment) {
       content.appendChild(storyComment);
@@ -1333,14 +1389,44 @@ def diagram_script() -> str:
     });
   }
 
-  content.addEventListener("wheel", function (event) {
+  function handleArtifactWheel(event) {
     clearCodeLinkHover();
-    if (!event.ctrlKey || modal.hidden || (mode !== "diagram" && mode !== "log")) {
-      return;
+    if (modal.hidden || (mode !== "diagram" && mode !== "log")) {
+      return false;
+    }
+    if (event.shiftKey && !event.ctrlKey) {
+      event.preventDefault();
+      content.scrollLeft += event.deltaX || event.deltaY;
+      return true;
+    }
+    if (!event.ctrlKey) {
+      return false;
     }
     event.preventDefault();
     const step = event.deltaY < 0 ? 0.1 : -0.1;
-    setScale(scale + step, { animate: true });
+    const baseScale = scaleAnimation ? scaleAnimationTarget : scale;
+    setScale(baseScale + step, {
+      animate: true,
+      anchorClientX: event.clientX,
+      anchorClientY: event.clientY,
+    });
+    return true;
+  }
+
+  content.addEventListener("wheel", function (event) {
+    handleArtifactWheel(event);
+  }, { passive: false });
+
+  modal.addEventListener("wheel", function (event) {
+    if (modal.hidden || content.contains(event.target) || (mode !== "diagram" && mode !== "log")) {
+      return;
+    }
+    if (handleArtifactWheel(event)) {
+      return;
+    }
+    event.preventDefault();
+    content.scrollLeft += event.deltaX;
+    content.scrollTop += event.deltaY;
   }, { passive: false });
 
   content.addEventListener("pointerdown", function (event) {

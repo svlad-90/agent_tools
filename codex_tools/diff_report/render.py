@@ -19,6 +19,7 @@ from .models import (
     LogAttachment,
     ReviewComments,
     StoryStep,
+    VocabularyTerm,
 )
 from .render_diff import render_diff
 
@@ -81,6 +82,7 @@ def render_html_report(
                 comment.log_focus,
                 comment.diagram_notes,
             ),
+            vocabulary=comments.vocabulary,
         )
     )
     parts.append(_render_settings_launcher(" report-settings-launcher"))
@@ -134,7 +136,9 @@ def _render_summary_section(comments: ReviewComments) -> str:
     if comments.summary_blocks:
         for block in comments.summary_blocks:
             if block.kind == "text":
-                parts.append(f'    <p class="review-summary">{_format_text(block.text or "")}</p>\n')
+                parts.append(
+                    f'    <p class="review-summary">{_format_text(block.text or "", comments.vocabulary)}</p>\n'
+                )
             elif block.kind == "diagram":
                 parts.append(
                     '    <div class="summary-artifact-preview">'
@@ -148,7 +152,7 @@ def _render_summary_section(comments: ReviewComments) -> str:
                     "</div>\n"
                 )
     elif comments.summary:
-        parts.append(f'    <p class="review-summary">{_format_text(comments.summary)}</p>\n')
+        parts.append(f'    <p class="review-summary">{_format_text(comments.summary, comments.vocabulary)}</p>\n')
     parts.append("  </div></section>\n")
     return "".join(parts)
 
@@ -234,9 +238,10 @@ def _render_comments_index(comments: ReviewComments, diff_file_order: list[str])
                         f'{" " * (12 + depth * 2)}<ol class="review-nav-comments">\n'
                     )
                     for comment in file_comments:
+                        comment_id = _comment_anchor(comment.file_path, comment.line)
                         parts.append(
                             f'{" " * (14 + depth * 2)}<li>'
-                            f'<a href="#{_comment_anchor(comment.file_path, comment.line)}">'
+                            f'<a href="#{comment_id}" data-review-comment-link="{comment_id}">'
                             f'<span class="review-nav-line">{comment.line}</span>'
                             f'<span>{_esc(comment.title)}</span></a></li>\n'
                         )
@@ -261,7 +266,7 @@ def _render_story_section(comments: ReviewComments) -> str:
     )
     parts.append('    <ol class="story-steps">\n')
     for index, step in enumerate(comments.story):
-        attrs = _story_step_attrs(step, index)
+        attrs = _story_step_attrs(step, index, comments.vocabulary)
         parts.append(
             f'      <li><button type="button" class="story-step" id="{_story_anchor(step, index)}"'
             f'{attrs}><span class="story-step-index">{index + 1:02d}</span>'
@@ -295,11 +300,12 @@ def _render_to_top_button() -> str:
     return '  <button type="button" class="to-top-button" data-story-top aria-label="To top">↑</button>\n'
 
 
-def _story_step_attrs(step: StoryStep, index: int) -> str:
+def _story_step_attrs(step: StoryStep, index: int, vocabulary: tuple[VocabularyTerm, ...] = ()) -> str:
     attrs = [
         f' data-story-index="{index}"',
         f' data-story-title="{_esc(step.title)}"',
         f' data-story-body="{_esc(step.body)}"',
+        f' data-story-body-html="{_esc(_format_text(step.body, vocabulary))}"',
     ]
     target = _story_target(step)
     if target is not None:

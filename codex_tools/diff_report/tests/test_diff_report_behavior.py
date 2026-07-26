@@ -82,8 +82,14 @@ class DiffReportBehaviorTests(unittest.TestCase):
                 json.dumps(
                     {
                         "summary": "Plain summary",
+                        "vocabulary": {
+                            "vCPU": {
+                                "definition": "Virtual CPU used by the guest.",
+                                "aliases": ["virtual CPU"],
+                            },
+                        },
                         "summary_blocks": [
-                            "String summary block",
+                            "String summary block mentions vCPU",
                             {"type": "paragraph", "text": "Paragraph summary block"},
                             {
                                 "diagram": "flow",
@@ -180,8 +186,11 @@ class DiffReportBehaviorTests(unittest.TestCase):
             html = output.read_text(encoding="utf-8")
 
         expected_fragments = [
-            "String summary block",
+            "String summary block mentions ",
             "Paragraph summary block",
+            "Virtual CPU used by the guest.",
+            "vocabulary-ref",
+            "vocabulary-popover",
             "File body",
             "Inline title",
             "Inline body",
@@ -241,6 +250,7 @@ class DiffReportBehaviorTests(unittest.TestCase):
         self.assertNotIn("data-theme-toggle", html)
         self.assertNotIn("data-copy-mode-value", html)
         self.assertNotIn("codex-diff-report-copy-mode", html)
+        self.assertNotIn("data-vocabulary-graph", html)
         self.assertNotIn("General view", html)
         self.assertNotIn("data-diagram-general", html)
         self.assertIn('data-story-nav="prev"', html)
