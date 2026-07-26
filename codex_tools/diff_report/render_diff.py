@@ -2,9 +2,9 @@ from __future__ import annotations
 
 from collections.abc import Callable
 
-from .diff_parse import iter_diff_lines
+from .diff_parse import DiffLine, iter_diff_lines
 from .html_utils import anchor, comment_anchor, esc, format_text, line_anchor
-from .models import InlineComment, ReviewComments, VocabularyTerm
+from .models import DiffReportError, InlineComment, ReviewComments, VocabularyTerm
 from .render_state import (
     active_delete_target_after_line,
     comment_row_kind,
@@ -25,6 +25,8 @@ def render_diff(
 ) -> str:
     file_comment_assets = render_file_comment_assets or _empty_file_comment_assets
     inline_comment_assets = render_inline_comment_assets or _empty_inline_comment_assets
+    diff_lines = list(iter_diff_lines(diff_text))
+    _validate_inline_comment_targets(diff_lines, comments)
     parts: list[str] = []
     current_file: str | None = None
     table_open = False
@@ -41,7 +43,7 @@ def render_diff(
             parts.append("  </article>\n")
         active_delete_target = None
 
-    for line in iter_diff_lines(diff_text):
+    for line in diff_lines:
         if line.kind == "file":
             close_file()
             current_file = line.file_path
@@ -138,6 +140,28 @@ def render_diff(
 
     close_file()
     return "".join(parts)
+
+
+def _validate_inline_comment_targets(diff_lines: list[DiffLine], comments: ReviewComments) -> None:
+    rendered_lines: dict[str, set[int]] = {}
+    for line in diff_lines:
+        if line.file_path and line.kind in {"add", "context"} and line.new_line is not None:
+            rendered_lines.setdefault(line.file_path, set()).add(line.new_line)
+    for (file_path, line), inline_comments in comments.inline_comments.items():
+        file_lines = rendered_lines.get(file_path, set())
+        if line not in file_lines:
+            raise DiffReportError(
+                f"inline comment target is not rendered in diff: {file_path}:{line}"
+            )
+        for comment in inline_comments:
+            start, end = comment.line_range or (line, line)
+            missing = [line_no for line_no in (start, end) if line_no not in file_lines]
+            if missing:
+                missing_text = ", ".join(str(line_no) for line_no in missing)
+                raise DiffReportError(
+                    f"inline comment range is not fully rendered in diff: "
+                    f"{file_path}:{start}-{end}; missing line(s): {missing_text}"
+                )
 
 
 def _comment_line_ranges(comments: ReviewComments) -> dict[str, list[tuple[int, int]]]:

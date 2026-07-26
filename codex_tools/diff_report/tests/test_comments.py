@@ -134,6 +134,11 @@ class CommentsTests(unittest.TestCase):
         cases = [
             ({"files": []}, "comments.files must be an object"),
             ({"inline": {}}, "comments.inline must be a list"),
+            ({"inline": [{"file": "app.py", "line": 1, "body": ""}]}, "non-empty body"),
+            (
+                {"inline": [{"file": "app.py", "line": 1, "title": "", "body": "note"}]},
+                "non-empty title",
+            ),
             ({"inline": [{"file": "app.py", "line": 1, "body": "note", "diagram": "missing"}]}, "unknown diagram"),
             ({"inline": [{"file": "app.py", "line": 1, "body": "note", "log": "missing"}]}, "unknown log"),
             ({"story": [{"title": "No target"}]}, "must target"),

@@ -80,6 +80,14 @@ def comments_from_payload(
         line_range = comment_line_range(item.get("range"), line=line)
         body = str(required(item, "body"))
         title = str(item.get("title", "Review comment"))
+        if not body.strip():
+            raise DiffReportError(
+                f"comments.inline entry for {file_path}:{line} must have non-empty body"
+            )
+        if not title.strip():
+            raise DiffReportError(
+                f"comments.inline entry for {file_path}:{line} must have non-empty title"
+            )
         diagram = str(item["diagram"]) if "diagram" in item else None
         if diagram is not None and diagram not in diagrams:
             raise DiffReportError(f"unknown diagram referenced by inline comment: {diagram}")

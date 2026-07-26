@@ -10,6 +10,7 @@ import unittest
 from pathlib import Path
 
 from codex_tools.diff_report.core import generate_report
+from codex_tools.diff_report.models import DiffReportError
 
 
 class DiffReportBehaviorTests(unittest.TestCase):
@@ -375,7 +376,10 @@ class DiffReportBehaviorTests(unittest.TestCase):
             )
             stdout = io.StringIO()
 
-            with contextlib.redirect_stdout(stdout):
+            with contextlib.redirect_stdout(stdout), self.assertRaisesRegex(
+                DiffReportError,
+                "target is not rendered",
+            ):
                 generate_report(
                     output_path=output,
                     title="Refresh targets",
@@ -385,7 +389,6 @@ class DiffReportBehaviorTests(unittest.TestCase):
                 )
 
             refreshed = json.loads(output.with_suffix(".json").read_text(encoding="utf-8"))
-            html = output.read_text(encoding="utf-8")
 
         inline = refreshed["inline"]
         statuses = [item["target"]["status"] for item in inline]
@@ -397,7 +400,7 @@ class DiffReportBehaviorTests(unittest.TestCase):
         self.assertFalse(inline[1]["target"]["found"])
         self.assertFalse(inline[2]["target"]["found"])
         self.assertIn("attention=2", stdout.getvalue())
-        self._assert_contains(html, "Moved body")
+        self.assertFalse(output.exists())
 
     def _git(self, repo: Path, *args: str) -> None:
         subprocess.run(

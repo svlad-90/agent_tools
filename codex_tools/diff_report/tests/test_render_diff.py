@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import unittest
 
-from codex_tools.diff_report.models import InlineComment, ReviewComments
+from codex_tools.diff_report.models import DiffReportError, InlineComment, ReviewComments
 from codex_tools.diff_report.render_diff import diff_row, render_diff
 
 
@@ -75,6 +75,77 @@ class RenderDiffTests(unittest.TestCase):
         )
         self.assertIn('<tr class="comment-row comment-row-add"><td colspan="3">', html)
         self.assertIn('<em>Line note</em>', html)
+
+    def test_render_diff_rejects_inline_comment_without_rendered_target_line(self) -> None:
+        comments = ReviewComments(
+            summary="",
+            diagrams={},
+            logs={},
+            story=[],
+            file_comments={},
+            file_diagrams={},
+            file_logs={},
+            file_diagram_focus={},
+            file_log_focus={},
+            file_diagram_notes={},
+            inline_comments={
+                ("src/app.py", 30): [
+                    InlineComment(file_path="src/app.py", line=30, title="Missing", body="Body")
+                ]
+            },
+        )
+        diff_text = "\n".join(
+            [
+                "diff --git a/src/app.py b/src/app.py",
+                "--- a/src/app.py",
+                "+++ b/src/app.py",
+                "@@ -1 +1 @@",
+                "+added",
+                "",
+            ]
+        )
+
+        with self.assertRaisesRegex(DiffReportError, "target is not rendered"):
+            render_diff(diff_text, comments)
+
+    def test_render_diff_rejects_inline_comment_range_with_missing_end_line(self) -> None:
+        comments = ReviewComments(
+            summary="",
+            diagrams={},
+            logs={},
+            story=[],
+            file_comments={},
+            file_diagrams={},
+            file_logs={},
+            file_diagram_focus={},
+            file_log_focus={},
+            file_diagram_notes={},
+            inline_comments={
+                ("src/app.py", 1): [
+                    InlineComment(
+                        file_path="src/app.py",
+                        line=1,
+                        title="Partial range",
+                        body="Body",
+                        line_range=(1, 4),
+                    )
+                ]
+            },
+        )
+        diff_text = "\n".join(
+            [
+                "diff --git a/src/app.py b/src/app.py",
+                "--- a/src/app.py",
+                "+++ b/src/app.py",
+                "@@ -1 +1,2 @@",
+                "+added",
+                "+more",
+                "",
+            ]
+        )
+
+        with self.assertRaisesRegex(DiffReportError, "range is not fully rendered"):
+            render_diff(diff_text, comments)
 
 
 if __name__ == "__main__":
