@@ -13,6 +13,7 @@ from .models import (
     ReviewComments,
     StoryStep,
     SummaryBlock,
+    VocabularyTerm,
 )
 
 
@@ -110,6 +111,7 @@ def comments_from_payload(
             raise DiffReportError(f"unknown log referenced by file comment {file_path}: {log}")
     story = story_from_payload(payload, diagrams=diagrams, logs=logs)
     summary_blocks = summary_blocks_from_payload(payload, diagrams=diagrams, logs=logs)
+    vocabulary = vocabulary_from_payload(payload)
     return ReviewComments(
         file_comments=file_comments,
         inline_comments={key: tuple(value) for key, value in grouped.items()},
@@ -121,11 +123,44 @@ def comments_from_payload(
         file_diagram_focus=file_diagram_focus,
         file_log_focus=file_log_focus,
         file_diagram_notes=file_diagram_notes,
+        vocabulary=vocabulary,
         summary=str(payload["summary"]) if "summary" in payload else None,
         summary_blocks=summary_blocks,
         commit_id=commit_id,
         commit_message=commit_message,
     )
+
+
+def vocabulary_from_payload(payload: dict[str, Any]) -> tuple[VocabularyTerm, ...]:
+    raw_vocabulary = payload.get("vocabulary", {})
+    if raw_vocabulary is None:
+        return ()
+    if not isinstance(raw_vocabulary, dict):
+        raise DiffReportError("comments.vocabulary must be an object")
+
+    terms: list[VocabularyTerm] = []
+    seen_terms: set[str] = set()
+    for raw_term, raw_value in raw_vocabulary.items():
+        term = str(raw_term).strip()
+        if not term:
+            raise DiffReportError("comments.vocabulary keys must be non-empty terms")
+        term_key = term.casefold()
+        if term_key in seen_terms:
+            raise DiffReportError(f"duplicate vocabulary term: {term}")
+        seen_terms.add(term_key)
+
+        if isinstance(raw_value, dict):
+            if "definition" not in raw_value:
+                raise DiffReportError(f"comments.vocabulary.{term} must define definition")
+            definition = str(raw_value["definition"]).strip()
+            aliases = focus_terms(raw_value.get("aliases", ()), field=f"vocabulary.{term}.aliases")
+        else:
+            definition = str(raw_value).strip()
+            aliases = ()
+        if not definition:
+            raise DiffReportError(f"comments.vocabulary.{term} definition must be non-empty")
+        terms.append(VocabularyTerm(term=term, definition=definition, aliases=aliases))
+    return tuple(sorted(terms, key=lambda item: item.term.casefold()))
 
 
 def summary_blocks_from_payload(

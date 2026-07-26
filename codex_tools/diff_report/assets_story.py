@@ -37,6 +37,95 @@ def story_script() -> str:
     history.scrollRestoration = "manual";
   }
 
+  function initVocabularyPopovers() {
+    const wraps = Array.from(document.querySelectorAll(".vocabulary-ref-wrap"));
+    if (!wraps.length) {
+      return;
+    }
+    let activeWrap = null;
+
+    function setStoryVocabularyPopover(wrap, open) {
+      const storyPanel = wrap ? wrap.closest(".story") : null;
+      if (storyPanel) {
+        storyPanel.classList.toggle("has-vocabulary-popover", open);
+      }
+    }
+
+    function clearVocabularyPopover(wrap) {
+      setStoryVocabularyPopover(wrap, false);
+      if (activeWrap === wrap) {
+        activeWrap = null;
+      }
+    }
+
+    function positionVocabularyPopover(wrap) {
+      const trigger = wrap.querySelector(".vocabulary-ref");
+      const popover = wrap.querySelector(".vocabulary-popover");
+      if (!trigger || !popover) {
+        return;
+      }
+      activeWrap = wrap;
+      wrap.classList.add("is-positioned");
+      setStoryVocabularyPopover(wrap, true);
+      popover.style.maxWidth = Math.max(180, Math.min(360, window.innerWidth - 32)) + "px";
+      const triggerRect = trigger.getBoundingClientRect();
+      const popoverRect = popover.getBoundingClientRect();
+      const margin = 16;
+      const popoverWidth = Math.min(popoverRect.width || 360, Math.max(180, window.innerWidth - (margin * 2)));
+      const popoverHeight = popoverRect.height || 120;
+      const leftBias = Math.min(72, Math.max(24, popoverWidth * 0.22));
+      const left = Math.max(margin, Math.min(triggerRect.left - leftBias, window.innerWidth - popoverWidth - margin));
+      let top = triggerRect.bottom + 8;
+      if (top + popoverHeight > window.innerHeight - margin) {
+        top = Math.max(margin, triggerRect.top - popoverHeight - 8);
+      }
+      wrap.style.setProperty("--vocabulary-popover-left", left.toFixed(0) + "px");
+      wrap.style.setProperty("--vocabulary-popover-top", top.toFixed(0) + "px");
+    }
+
+    wraps.forEach(function (wrap) {
+      const trigger = wrap.querySelector(".vocabulary-ref");
+      if (trigger) {
+        trigger.addEventListener("pointerdown", function (event) {
+          event.preventDefault();
+        });
+        trigger.addEventListener("click", function (event) {
+          event.preventDefault();
+          trigger.blur();
+        });
+      }
+      wrap.addEventListener("pointerenter", function () {
+        positionVocabularyPopover(wrap);
+      });
+      wrap.addEventListener("focusin", function () {
+        positionVocabularyPopover(wrap);
+      });
+      wrap.addEventListener("pointerleave", function () {
+        if (!wrap.matches(":focus-within")) {
+          clearVocabularyPopover(wrap);
+        }
+      });
+      wrap.addEventListener("focusout", function () {
+        window.setTimeout(function () {
+          if (!wrap.matches(":focus-within")) {
+            clearVocabularyPopover(wrap);
+          }
+        }, 0);
+      });
+    });
+
+    window.addEventListener("scroll", function () {
+      if (activeWrap && (activeWrap.matches(":hover") || activeWrap.matches(":focus-within"))) {
+        positionVocabularyPopover(activeWrap);
+      }
+    }, { passive: true });
+    window.addEventListener("resize", function () {
+      if (activeWrap && (activeWrap.matches(":hover") || activeWrap.matches(":focus-within"))) {
+        positionVocabularyPopover(activeWrap);
+      }
+    });
+  }
+
   function initReviewNavResize() {
     const nav = document.getElementById("review-comments");
     const resizer = nav ? nav.querySelector(".review-nav-resizer") : null;
@@ -156,6 +245,11 @@ def story_script() -> str:
     let navScrollFollowupTimer = 0;
 
     function revealActiveItem(item) {
+      item.classList.add("is-open");
+      const itemToggle = item.querySelector(":scope > .review-nav-row .review-nav-toggle");
+      if (itemToggle) {
+        itemToggle.setAttribute("aria-expanded", "true");
+      }
       let parent = item.parentElement ? item.parentElement.closest(".review-nav-dir") : null;
       while (parent) {
         parent.classList.add("is-open");
@@ -253,6 +347,134 @@ def story_script() -> str:
     scheduleActiveFileUpdate();
   }
 
+  function initReviewNavActiveComment() {
+    const nav = document.getElementById("review-comments");
+    const comments = Array.from(document.querySelectorAll(".review-comment[id][data-comment-file]"));
+    if (!nav || !comments.length) {
+      return;
+    }
+    let activeCommentId = "";
+    let commentRaf = 0;
+
+    function revealCommentLink(link) {
+      const fileNode = link.closest(".review-nav-file");
+      if (!fileNode) {
+        return;
+      }
+      fileNode.classList.add("is-open");
+      const fileToggle = fileNode.querySelector(":scope > .review-nav-row .review-nav-toggle");
+      if (fileToggle) {
+        fileToggle.setAttribute("aria-expanded", "true");
+      }
+      let parent = fileNode.parentElement ? fileNode.parentElement.closest(".review-nav-dir") : null;
+      while (parent) {
+        parent.classList.add("is-open");
+        const toggle = parent.querySelector(":scope > .review-nav-row .review-nav-toggle");
+        if (toggle) {
+          toggle.setAttribute("aria-expanded", "true");
+        }
+        parent = parent.parentElement ? parent.parentElement.closest(".review-nav-dir") : null;
+      }
+      scrollNavToCommentLink(link);
+    }
+
+    function scrollNavToCommentLink(link) {
+      if (getComputedStyle(nav).position !== "fixed") {
+        return;
+      }
+      const navRect = nav.getBoundingClientRect();
+      const linkRect = link.getBoundingClientRect();
+      const head = nav.querySelector(".review-nav-head");
+      const headBottom = head ? head.getBoundingClientRect().bottom : navRect.top;
+      const upper = Math.max(navRect.top + 8, headBottom + 8);
+      const lower = navRect.bottom - 12;
+      if (linkRect.top >= upper && linkRect.bottom <= lower) {
+        return;
+      }
+      const offset = linkRect.top - navRect.top - Math.max(38, nav.clientHeight * 0.38);
+      nav.scrollTop += offset;
+    }
+
+    function setActiveComment(comment) {
+      const nextId = comment && comment.id ? comment.id : "";
+      if (!nextId || nextId === activeCommentId) {
+        return;
+      }
+      activeCommentId = nextId;
+      for (const link of nav.querySelectorAll(".review-nav-comments a.is-current-comment")) {
+        link.classList.remove("is-current-comment");
+      }
+      const link = nav.querySelector('[data-review-comment-link="' + cssEscape(nextId) + '"]');
+      if (link) {
+        link.classList.add("is-current-comment");
+        revealCommentLink(link);
+      }
+      flashTargets(comment, scrollContextElement(comment));
+    }
+
+    function resetHiddenActiveComment() {
+      if (!activeCommentId) {
+        return;
+      }
+      const comment = document.getElementById(activeCommentId);
+      if (!comment) {
+        activeCommentId = "";
+        return;
+      }
+      const rect = comment.getBoundingClientRect();
+      if (rect.bottom >= scrollSafeTop() && rect.top <= window.innerHeight) {
+        return;
+      }
+      activeCommentId = "";
+      const link = nav.querySelector('[data-review-comment-link="' + cssEscape(comment.id) + '"]');
+      if (link) {
+        link.classList.remove("is-current-comment");
+      }
+    }
+
+    function currentVisibleComment() {
+      const safeTop = scrollSafeTop();
+      const lower = window.innerHeight - Math.min(160, Math.max(80, window.innerHeight * 0.18));
+      const center = safeTop + Math.max(0, lower - safeTop) / 2;
+      let best = null;
+      let bestDistance = Infinity;
+      for (const comment of comments) {
+        const rect = comment.getBoundingClientRect();
+        if (rect.bottom < safeTop || rect.top > lower) {
+          continue;
+        }
+        const edgeDistance = Math.min(Math.abs(rect.top - center), Math.abs(rect.bottom - center));
+        const spanDistance = rect.top <= center && rect.bottom >= center ? 0 : edgeDistance;
+        const distance = spanDistance || edgeDistance;
+        if (distance < bestDistance) {
+          best = comment;
+          bestDistance = distance;
+        }
+      }
+      return best;
+    }
+
+    function updateActiveComment() {
+      commentRaf = 0;
+      resetHiddenActiveComment();
+      const comment = currentVisibleComment();
+      if (comment) {
+        setActiveComment(comment);
+      }
+    }
+
+    function scheduleActiveCommentUpdate() {
+      if (commentRaf) {
+        return;
+      }
+      commentRaf = window.requestAnimationFrame(updateActiveComment);
+    }
+
+    window.addEventListener("scroll", scheduleActiveCommentUpdate, { passive: true });
+    window.addEventListener("resize", scheduleActiveCommentUpdate);
+    scheduleActiveCommentUpdate();
+  }
+
   function updateStoryOffset() {
     const story = document.getElementById("story");
     if (!story) {
@@ -305,7 +527,7 @@ def story_script() -> str:
       detailsTitle.textContent = step.dataset.storyTitle || "Details";
     }
     if (detailsBody) {
-      detailsBody.textContent = step.dataset.storyBody || "";
+      detailsBody.innerHTML = step.dataset.storyBodyHtml || "";
     }
     updateStoryOffset();
     updateStoryMoveButtons();
@@ -708,9 +930,8 @@ def story_script() -> str:
         target.classList.remove("story-target-flash");
       }, 460);
     }
-    const overlayTargets = codeTargets.concat(commentTargets);
-    if (overlayTargets.length) {
-      createCodeTargetFlashOverlay(overlayTargets);
+    if (codeTargets.length) {
+      createCodeTargetFlashOverlay(codeTargets);
       activeFlashClearTimer = window.setTimeout(function () {
         clearCodeTargetFlashOverlays();
       }, 460);
@@ -755,17 +976,41 @@ def story_script() -> str:
   }
 
   function createCodeTargetFlashOverlay(targets) {
-    const box = unionClientRects(targets);
-    if (!box) {
-      return;
+    for (const box of groupedClientRects(targets)) {
+      const overlay = document.createElement("div");
+      overlay.className = "code-target-flash-overlay";
+      overlay.style.left = Math.max(0, box.left + window.scrollX - 3) + "px";
+      overlay.style.top = Math.max(0, box.top + window.scrollY - 3) + "px";
+      overlay.style.width = Math.max(1, box.width + 6) + "px";
+      overlay.style.height = Math.max(1, box.height + 6) + "px";
+      document.body.appendChild(overlay);
     }
-    const overlay = document.createElement("div");
-    overlay.className = "code-target-flash-overlay";
-    overlay.style.left = Math.max(0, box.left + window.scrollX - 3) + "px";
-    overlay.style.top = Math.max(0, box.top + window.scrollY - 3) + "px";
-    overlay.style.width = Math.max(1, box.width + 6) + "px";
-    overlay.style.height = Math.max(1, box.height + 6) + "px";
-    document.body.appendChild(overlay);
+  }
+
+  function groupedClientRects(targets) {
+    const rects = targets.map(function (target) {
+      const rect = target.getBoundingClientRect();
+      return rect.width && rect.height
+        ? { left: rect.left, top: rect.top, right: rect.right, bottom: rect.bottom }
+        : null;
+    }).filter(Boolean).sort(function (a, b) {
+      return a.top - b.top;
+    });
+    const groups = [];
+    for (const rect of rects) {
+      const current = groups[groups.length - 1];
+      if (!current || rect.top - current.bottom > 24) {
+        groups.push({ left: rect.left, top: rect.top, right: rect.right, bottom: rect.bottom });
+        continue;
+      }
+      current.left = Math.min(current.left, rect.left);
+      current.top = Math.min(current.top, rect.top);
+      current.right = Math.max(current.right, rect.right);
+      current.bottom = Math.max(current.bottom, rect.bottom);
+    }
+    return groups.map(function (box) {
+      return { left: box.left, top: box.top, width: box.right - box.left, height: box.bottom - box.top };
+    });
   }
 
   function unionClientRects(targets) {
@@ -951,8 +1196,10 @@ def story_script() -> str:
   });
 
   initReviewNavResize();
+  initVocabularyPopovers();
   initReviewNavTree();
   initReviewNavActiveFile();
+  initReviewNavActiveComment();
   initStoryPagerResizeObserver();
   updateStoryOffset();
   updateStoryPager(true, "auto");

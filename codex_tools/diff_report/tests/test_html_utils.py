@@ -9,6 +9,7 @@ from codex_tools.diff_report.html_utils import (
     format_text,
     line_anchor,
 )
+from codex_tools.diff_report.models import VocabularyTerm
 
 
 class HtmlUtilsTests(unittest.TestCase):
@@ -34,6 +35,24 @@ class HtmlUtilsTests(unittest.TestCase):
 
     def test_format_text_escapes_non_url_text(self) -> None:
         self.assertEqual("&lt;b&gt;safe&lt;/b&gt;", format_text("<b>safe</b>"))
+
+    def test_format_text_links_vocabulary_terms_outside_urls(self) -> None:
+        html = format_text(
+            "A vCPU reads https://example.test/vCPU and virtual CPU state.",
+            (
+                VocabularyTerm(
+                    term="vCPU",
+                    definition="Virtual CPU exposed to the guest.",
+                    aliases=("virtual CPU",),
+                ),
+            ),
+        )
+
+        self.assertIn('class="vocabulary-ref"', html)
+        self.assertIn("Virtual CPU exposed to the guest.", html)
+        self.assertIn("virtual CPU</button>", html)
+        self.assertIn("https://example.test/vCPU</a>", html)
+        self.assertEqual(2, html.count('class="vocabulary-ref"'))
 
 
 if __name__ == "__main__":

@@ -4,7 +4,7 @@ from collections.abc import Callable
 
 from .diff_parse import iter_diff_lines
 from .html_utils import anchor, comment_anchor, esc, format_text, line_anchor
-from .models import InlineComment, ReviewComments
+from .models import InlineComment, ReviewComments, VocabularyTerm
 from .render_state import (
     active_delete_target_after_line,
     comment_row_kind,
@@ -22,9 +22,11 @@ def render_diff(
     comments: ReviewComments,
     render_file_comment_assets: FileCommentAssetsRenderer | None = None,
     render_inline_comment_assets: InlineCommentAssetsRenderer | None = None,
+    vocabulary: tuple[VocabularyTerm, ...] | None = None,
 ) -> str:
     file_comment_assets = render_file_comment_assets or _empty_file_comment_assets
     inline_comment_assets = render_inline_comment_assets or _empty_inline_comment_assets
+    effective_vocabulary = comments.vocabulary if vocabulary is None else vocabulary
     parts: list[str] = []
     current_file: str | None = None
     table_open = False
@@ -55,7 +57,7 @@ def render_diff(
             if current_file in comments.file_comments:
                 parts.append(
                     f'    <div class="file-comment"><strong>File review note:</strong> '
-                    f'{format_text(comments.file_comments[current_file])}'
+                    f'{format_text(comments.file_comments[current_file], effective_vocabulary)}'
                     f'{file_comment_assets(current_file)}'
                     "</div>\n"
                 )
@@ -97,6 +99,7 @@ def render_diff(
                     line_no,
                     inline_comment_assets,
                     "add" if target_range is not None else "ctx",
+                    effective_vocabulary,
                 )
             )
         elif line.kind == "delete" and line.old_line is not None:
@@ -131,6 +134,7 @@ def render_diff(
                     line_no,
                     inline_comment_assets,
                     "ctx",
+                    effective_vocabulary,
                 )
             )
 
@@ -163,6 +167,7 @@ def _render_inline_comments(
     line: int,
     render_assets: InlineCommentAssetsRenderer,
     target_kind: str = "ctx",
+    vocabulary: tuple[VocabularyTerm, ...] = (),
 ) -> str:
     rendered: list[str] = []
     row_kind = comment_row_kind(target_kind)
@@ -175,7 +180,7 @@ def _render_inline_comments(
             f' data-comment-file="{esc(file_path)}" data-comment-range-start="{start}"'
             f' data-comment-range-end="{end}">'
             f'<div class="title">{esc(comment.title)} on {esc(location)}</div>'
-            f'<div class="body">{format_text(comment.body)}'
+            f'<div class="body">{format_text(comment.body, vocabulary)}'
             f'{render_assets(comment)}</div>'
             "</div></td></tr>\n"
         )

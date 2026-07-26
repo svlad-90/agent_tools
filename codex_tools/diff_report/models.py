@@ -64,6 +64,13 @@ class SummaryBlock:
 
 
 @dataclass(frozen=True)
+class VocabularyTerm:
+    term: str
+    definition: str
+    aliases: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
 class ReviewComments:
     file_comments: dict[str, str]
     inline_comments: dict[tuple[str, int], tuple[InlineComment, ...]]
@@ -75,6 +82,7 @@ class ReviewComments:
     file_diagram_focus: dict[str, tuple[str, ...]]
     file_log_focus: dict[str, tuple[str, ...]]
     file_diagram_notes: dict[str, tuple[dict[str, Any], ...]]
+    vocabulary: tuple[VocabularyTerm, ...] = ()
     summary: str | None = None
     summary_blocks: tuple[SummaryBlock, ...] = ()
     commit_id: str | None = None

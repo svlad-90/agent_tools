@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import unittest
 
-from codex_tools.diff_report.models import InlineComment, ReviewComments
+from codex_tools.diff_report.models import InlineComment, ReviewComments, VocabularyTerm
 from codex_tools.diff_report.render_diff import diff_row, render_diff
 
 
@@ -29,7 +29,7 @@ class RenderDiffTests(unittest.TestCase):
             diagrams={},
             logs={},
             story=[],
-            file_comments={"src/app.py": "File note"},
+            file_comments={"src/app.py": "File note vCPU"},
             file_diagrams={},
             file_logs={},
             file_diagram_focus={},
@@ -41,7 +41,7 @@ class RenderDiffTests(unittest.TestCase):
                         file_path="src/app.py",
                         line=2,
                         title="Line note",
-                        body="Body",
+                        body="Body vCPU",
                         line_range=(2, 2),
                     )
                 ]
@@ -65,10 +65,13 @@ class RenderDiffTests(unittest.TestCase):
             comments,
             render_file_comment_assets=lambda file_path: f"<span>{file_path}</span>",
             render_inline_comment_assets=lambda comment: f"<em>{comment.title}</em>",
+            vocabulary=(VocabularyTerm("vCPU", "Virtual CPU."),),
         )
 
         self.assertIn('<article class="file" id="src-app.py"', html)
-        self.assertIn("<strong>File review note:</strong> File note<span>src/app.py</span>", html)
+        self.assertIn("<strong>File review note:</strong> File note ", html)
+        self.assertIn("Virtual CPU.", html)
+        self.assertIn("<span>src/app.py</span>", html)
         self.assertIn(
             '<tr class="add comment-target comment-target-start comment-target-end comment-target-single"',
             html,
