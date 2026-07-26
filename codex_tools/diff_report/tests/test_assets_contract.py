@@ -97,6 +97,8 @@ class AssetContractTests(unittest.TestCase):
             ".review-nav a { color: var(--text); text-decoration: none; }",
             ".review-nav a:hover { color: var(--text); text-decoration: none; }",
             ".review-nav-comments a { display: grid; grid-template-columns: 3.2em minmax(0, 1fr);",
+            "gap: 6px; align-items: center;",
+            ".review-nav-line { display: inline-grid; place-items: center;",
             "background: transparent; color: color-mix(in srgb, var(--text) 82%, var(--muted));",
             "color: color-mix(in srgb, var(--text) 82%, var(--muted));",
             ".review-nav-comments a.is-current-comment",
@@ -205,6 +207,18 @@ class AssetContractTests(unittest.TestCase):
             with self.subTest(fragment=fragment):
                 self.assertIn(fragment, script)
 
+    def test_story_script_keeps_manual_comment_selection_stable_during_jump(self) -> None:
+        script = story_script()
+
+        select_file = script.index("selectFileForCommentLink(link);")
+        already_active_return = script.index("if (wasActive)")
+        self.assertLess(select_file, already_active_return)
+        self.assertIn("suppressCommentUpdatesForFileJump || suppressCommentUpdatesForManualJump", script)
+        self.assertIn("if (suppressFileUpdatesForFileJump || suppressFileUpdatesForCommentJump)", script)
+        self.assertIn('if (event.target.closest("[data-review-comment-link]"))', script)
+        self.assertIn('fileNode.querySelector(\':scope > .review-nav-row a[href^="#"]\')', script)
+        self.assertNotIn('fileNode.querySelector(":scope > .review-nav-row a[href^="#"]")', script)
+
     def test_story_script_exposes_target_and_navigation_contracts(self) -> None:
         script = story_script()
 
@@ -231,10 +245,20 @@ class AssetContractTests(unittest.TestCase):
             ".review-nav-comments a.is-current-comment",
             "data-review-comment-link",
             'event.target.closest("[data-review-comment-link]")',
+            "event.stopPropagation();",
+            "function selectFileForCommentLink(link)",
+            'fileNode.querySelector(\':scope > .review-nav-row a[href^="#"]\')',
+            "selectFileForCommentLink(link);",
             'setActiveComment(comment, "manual")',
+            "let suppressCommentUpdatesForManualJump = false;",
+            "let manualJumpCommentId = \"\";",
+            'jumpToHash(link.getAttribute("href"), true)',
+            'anchor.matches("[data-review-comment-link]")',
             "function clearActiveComment()",
             "function resetCommentTriggerBaseline()",
             "const wasActive = nextId === activeCommentId;",
+            "const visualStateMatches = currentLinks.length === 1 && linkAlreadyCurrent;",
+            "if (!wasActive || !visualStateMatches)",
             "if (wasActive)",
             "if (flash === false)",
             "flashTargets(comment, scrollContextElement(comment), false)",
@@ -243,6 +267,10 @@ class AssetContractTests(unittest.TestCase):
             "let previousCommentScrollY = window.scrollY;",
             "let lastCommentFlashKey = \"\";",
             "let suppressCommentUpdatesForFileJump = false;",
+            'document.addEventListener("codex-review-comment-jump-start"',
+            'document.addEventListener("codex-review-comment-jump-end"',
+            "suppressCommentUpdatesForFileJump || suppressCommentUpdatesForManualJump",
+            'setActiveComment(comment, "manual", false)',
             'document.addEventListener("codex-review-file-jump-start"',
             'document.addEventListener("codex-review-file-jump-end"',
             "function currentCommentCenterY()",
@@ -257,7 +285,7 @@ class AssetContractTests(unittest.TestCase):
             "edge: \"bottom\"",
             "edge: \"visible\"",
             "function updateCommentEdges(filePath, baseline)",
-            "if (suppressCommentUpdatesForFileJump)",
+            "if (suppressCommentUpdatesForFileJump || suppressCommentUpdatesForManualJump)",
             "function commentContainingCenter(filePath, centerY)",
             "function activeCommentContainsCenter(centerY)",
             "if (activeCommentContainsCenter(previousCommentCenterY))",
@@ -290,22 +318,31 @@ class AssetContractTests(unittest.TestCase):
             "const hasOwnScroll = nav.scrollHeight > nav.clientHeight + 2 || nav.scrollWidth > nav.clientWidth + 2;",
             "let navScrollRaf = 0;",
             "let navScrollFollowupTimer = 0;",
+            "let suppressFileUpdatesForFileJump = false;",
+            "let suppressFileUpdatesForCommentJump = false;",
             "function clearActivePath()",
             "function markActivePath(item)",
             ".review-nav-dir.is-current-path",
             "function scheduleNavScrollToItem(item)",
             "const row = event.target.closest(\".review-nav-file > .review-nav-row\");",
             "const link = row ? row.querySelector('a[href^=\"#\"]') : null;",
+            "jumpToHash(link.getAttribute(\"href\"), true);",
             "if (firstRect.top > probeY)",
             "setActiveFile(null);",
             "window.clearTimeout(navScrollFollowupTimer);",
             "navScrollFollowupTimer = window.setTimeout(function ()",
             "Math.max(topPadding, (navRect.height - itemRect.height) / 2)",
             'document.addEventListener("codex-review-file-link-selected"',
+            'document.addEventListener("codex-review-file-jump-start"',
+            'document.addEventListener("codex-review-file-jump-end"',
+            'document.addEventListener("codex-review-comment-jump-start"',
+            'document.addEventListener("codex-review-comment-jump-end"',
+            "if (suppressFileUpdatesForFileJump || suppressFileUpdatesForCommentJump)",
             "const nextFile = candidate || fallback;",
             "if (nextFile)",
             "setActiveFile(nextFile);",
             "const navFileRow = event.target.closest(\".review-nav-file .review-nav-row\");",
+            'if (event.target.closest("[data-review-comment-link]"))',
             "const navFileLink = navFileRow ? navFileRow.querySelector('a[href^=\"#\"]') : null;",
             "document.dispatchEvent(new CustomEvent(\"codex-review-file-link-selected\"",
             "function scrollNavToItem(item)",
@@ -332,12 +369,18 @@ class AssetContractTests(unittest.TestCase):
             "function navigationTargetElement(target)",
             'target.querySelector(":scope > .file-header")',
             "function scrollOffsetForElement(element)",
+            "return fileHeaderNavigationTop();",
+            "function currentStoryHeight()",
+            "function fileHeaderNavigationTop()",
             "function fileHeaderStickyTop()",
             "function settleFileHeaderScroll(element, onDone)",
             "element.getBoundingClientRect().top - fileHeaderStickyTop()",
             "const isFileJump = element && element.classList && element.classList.contains(\"file-header\");",
+            "const isCommentJump = element && element.classList && element.classList.contains(\"review-comment\");",
             "codex-review-file-jump-start",
             "codex-review-file-jump-end",
+            "codex-review-comment-jump-start",
+            "codex-review-comment-jump-end",
             'element.closest("article.file") || element',
             "createCodeTargetFlashOverlay",
             "if (codeTargets.length)",

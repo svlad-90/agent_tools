@@ -275,6 +275,8 @@ def story_script() -> str:
     }
     let activeItem = null;
     let activeRaf = 0;
+    let suppressFileUpdatesForFileJump = false;
+    let suppressFileUpdatesForCommentJump = false;
     let navScrollRaf = 0;
     let navScrollFollowupTimer = 0;
 
@@ -362,18 +364,22 @@ def story_script() -> str:
       if (!row || !link || !nav.contains(row)) {
         return;
       }
+      event.preventDefault();
+      event.stopPropagation();
       const anchor = decodeURIComponent(String(link.getAttribute("href") || "").replace(/^#/, ""));
       const item = anchor ? navItemsByAnchor.get(anchor) || null : null;
-      if (!item || item === activeItem) {
-        return;
+      if (item) {
+        if (item !== activeItem) {
+          if (activeItem) {
+            activeItem.classList.remove("is-current");
+          }
+          activeItem = item;
+          activeItem.classList.add("is-current");
+          markActivePath(activeItem);
+        }
+        revealActiveItem(item);
       }
-      if (activeItem) {
-        activeItem.classList.remove("is-current");
-      }
-      activeItem = item;
-      activeItem.classList.add("is-current");
-      markActivePath(activeItem);
-      revealActiveItem(activeItem);
+      jumpToHash(link.getAttribute("href"), true);
     });
 
     document.addEventListener("codex-review-file-link-selected", function (event) {
@@ -392,8 +398,31 @@ def story_script() -> str:
       revealActiveItem(activeItem);
     });
 
+    document.addEventListener("codex-review-file-jump-start", function () {
+      suppressFileUpdatesForFileJump = true;
+    });
+
+    document.addEventListener("codex-review-file-jump-end", function () {
+      window.requestAnimationFrame(function () {
+        suppressFileUpdatesForFileJump = false;
+      });
+    });
+
+    document.addEventListener("codex-review-comment-jump-start", function () {
+      suppressFileUpdatesForCommentJump = true;
+    });
+
+    document.addEventListener("codex-review-comment-jump-end", function () {
+      window.requestAnimationFrame(function () {
+        suppressFileUpdatesForCommentJump = false;
+      });
+    });
+
     function updateActiveFile() {
       activeRaf = 0;
+      if (suppressFileUpdatesForFileJump || suppressFileUpdatesForCommentJump) {
+        return;
+      }
       const story = document.getElementById("story");
       const probeY = Math.min(
         Math.max((story ? story.offsetHeight : 0) + 80, 120),
@@ -424,6 +453,9 @@ def story_script() -> str:
     }
 
     function scheduleActiveFileUpdate() {
+      if (suppressFileUpdatesForFileJump || suppressFileUpdatesForCommentJump) {
+        return;
+      }
       if (activeRaf) {
         return;
       }
@@ -449,6 +481,8 @@ def story_script() -> str:
     let lastCommentFlashKey = "";
     let lastCommentFlashAt = 0;
     let suppressCommentUpdatesForFileJump = false;
+    let suppressCommentUpdatesForManualJump = false;
+    let manualJumpCommentId = "";
 
     function revealCommentLink(link) {
       const fileNode = link.closest(".review-nav-file");
@@ -462,6 +496,19 @@ def story_script() -> str:
         parent = parent.parentElement ? parent.parentElement.closest(".review-nav-dir") : null;
       }
       scrollNavToCommentLink(link);
+    }
+
+    function selectFileForCommentLink(link) {
+      const fileNode = link.closest(".review-nav-file");
+      const fileLink = fileNode
+        ? fileNode.querySelector(':scope > .review-nav-row a[href^="#"]')
+        : null;
+      if (!fileLink) {
+        return;
+      }
+      document.dispatchEvent(new CustomEvent("codex-review-file-link-selected", {
+        detail: { href: fileLink.getAttribute("href") || "" },
+      }));
     }
 
     function scrollNavToCommentLink(link) {
@@ -487,16 +534,22 @@ def story_script() -> str:
         return;
       }
       const wasActive = nextId === activeCommentId;
-      if (!wasActive) {
+      const link = nav.querySelector('[data-review-comment-link="' + cssEscape(nextId) + '"]');
+      const currentLinks = Array.from(nav.querySelectorAll(".review-nav-comments a.is-current-comment"));
+      const linkAlreadyCurrent = Boolean(link && link.classList.contains("is-current-comment"));
+      const visualStateMatches = currentLinks.length === 1 && linkAlreadyCurrent;
+      if (!wasActive || !visualStateMatches) {
         activeCommentId = nextId;
-        for (const link of nav.querySelectorAll(".review-nav-comments a.is-current-comment")) {
-          link.classList.remove("is-current-comment");
+        for (const currentLink of currentLinks) {
+          currentLink.classList.remove("is-current-comment");
         }
-        const link = nav.querySelector('[data-review-comment-link="' + cssEscape(nextId) + '"]');
         if (link) {
           link.classList.add("is-current-comment");
           revealCommentLink(link);
         }
+      }
+      if (link) {
+        selectFileForCommentLink(link);
       }
       if (wasActive) {
         return;
@@ -530,10 +583,13 @@ def story_script() -> str:
       if (!link || !nav.contains(link)) {
         return;
       }
+      event.preventDefault();
+      event.stopPropagation();
       const commentId = link.dataset.reviewCommentLink || "";
       const comment = commentId ? document.getElementById(commentId) : null;
       if (comment) {
         setActiveComment(comment, "manual");
+        jumpToHash(link.getAttribute("href"), true);
       }
     });
 
@@ -574,6 +630,26 @@ def story_script() -> str:
         clearActiveComment();
         resetCommentTriggerBaseline();
         suppressCommentUpdatesForFileJump = false;
+      });
+    });
+
+    document.addEventListener("codex-review-comment-jump-start", function (event) {
+      suppressCommentUpdatesForManualJump = true;
+      manualJumpCommentId = event.detail && event.detail.commentId ? String(event.detail.commentId) : "";
+      resetCommentTriggerBaseline();
+    });
+
+    document.addEventListener("codex-review-comment-jump-end", function () {
+      window.requestAnimationFrame(function () {
+        if (manualJumpCommentId) {
+          const comment = document.getElementById(manualJumpCommentId);
+          if (comment) {
+            setActiveComment(comment, "manual", false);
+          }
+        }
+        resetCommentTriggerBaseline();
+        suppressCommentUpdatesForManualJump = false;
+        manualJumpCommentId = "";
       });
     });
 
@@ -712,7 +788,7 @@ def story_script() -> str:
 
     function updateActiveComment() {
       commentRaf = 0;
-      if (suppressCommentUpdatesForFileJump) {
+      if (suppressCommentUpdatesForFileJump || suppressCommentUpdatesForManualJump) {
         resetCommentTriggerBaseline();
         return;
       }
@@ -732,7 +808,7 @@ def story_script() -> str:
     }
 
     function scheduleActiveCommentUpdate() {
-      if (suppressCommentUpdatesForFileJump) {
+      if (suppressCommentUpdatesForFileJump || suppressCommentUpdatesForManualJump) {
         resetCommentTriggerBaseline();
         return;
       }
@@ -1142,6 +1218,7 @@ def story_script() -> str:
     navigationToken += 1;
     const token = navigationToken;
     const isFileJump = element && element.classList && element.classList.contains("file-header");
+    const isCommentJump = element && element.classList && element.classList.contains("review-comment");
     const startY = window.scrollY;
     const scrollElement = scrollContextElement(element);
     const rect = scrollElement.getBoundingClientRect();
@@ -1150,10 +1227,16 @@ def story_script() -> str:
     const targetY = Math.max(0, Math.min(maxY, startY + rect.top - safeTop));
     if (isFileJump) {
       document.dispatchEvent(new CustomEvent("codex-review-file-jump-start"));
+    } else if (isCommentJump) {
+      document.dispatchEvent(new CustomEvent("codex-review-comment-jump-start", {
+        detail: { commentId: element.id || "" },
+      }));
     }
     function finishNavigation() {
       if (isFileJump) {
         document.dispatchEvent(new CustomEvent("codex-review-file-jump-end"));
+      } else if (isCommentJump) {
+        document.dispatchEvent(new CustomEvent("codex-review-comment-jump-end"));
       }
       flashTargets(element, scrollElement);
     }
@@ -1173,9 +1256,26 @@ def story_script() -> str:
 
   function scrollOffsetForElement(element) {
     if (element && element.classList && element.classList.contains("file-header")) {
-      return fileHeaderStickyTop();
+      return fileHeaderNavigationTop();
     }
     return scrollSafeTop();
+  }
+
+  function currentStoryHeight() {
+    const story = document.getElementById("story");
+    if (story) {
+      const height = Math.ceil(story.getBoundingClientRect().height);
+      if (Number.isFinite(height) && height > 0) {
+        return height;
+      }
+    }
+    const value = getComputedStyle(document.documentElement).getPropertyValue("--story-offset");
+    const storyOffset = Number.parseFloat(value || "0");
+    return Number.isFinite(storyOffset) ? storyOffset : 0;
+  }
+
+  function fileHeaderNavigationTop() {
+    return Math.max(0, currentStoryHeight() - 2);
   }
 
   function fileHeaderStickyTop() {
@@ -1465,6 +1565,9 @@ def story_script() -> str:
       return;
     }
     const navFileRow = event.target.closest(".review-nav-file .review-nav-row");
+    if (event.target.closest("[data-review-comment-link]")) {
+      return;
+    }
     const navFileLink = navFileRow ? navFileRow.querySelector('a[href^="#"]') : null;
     if (navFileLink) {
       document.dispatchEvent(new CustomEvent("codex-review-file-link-selected", {
@@ -1477,6 +1580,9 @@ def story_script() -> str:
       return;
     }
     const anchor = event.target.closest('a[href^="#"]');
+    if (anchor && anchor.matches("[data-review-comment-link]")) {
+      return;
+    }
     if (anchor && jumpToHash(anchor.getAttribute("href"), true)) {
       event.preventDefault();
       return;

@@ -268,11 +268,11 @@ def stylesheet() -> str:
     .review-nav a:hover { color: var(--text); text-decoration: none; }
     .review-nav-label { min-width: 0; font-weight: 700; white-space: normal; overflow-wrap: anywhere; word-break: normal; hyphens: none; }
     .review-nav-comments { display: block; margin: 3px 0 2px 18px; padding: 0; list-style: none; }
-    .review-nav-comments a { display: grid; grid-template-columns: 3.2em minmax(0, 1fr); gap: 6px; align-items: baseline; padding: 4px 4px; border-radius: 4px; background: transparent; color: color-mix(in srgb, var(--text) 82%, var(--muted)); font-size: .78em; line-height: 1.25; overflow-wrap: anywhere; }
+    .review-nav-comments a { display: grid; grid-template-columns: 3.2em minmax(0, 1fr); gap: 6px; align-items: center; padding: 4px 4px; border-radius: 4px; background: transparent; color: color-mix(in srgb, var(--text) 82%, var(--muted)); font-size: .78em; line-height: 1.25; overflow-wrap: anywhere; }
     .review-nav-comments a:hover { background: var(--button-hover-bg); color: var(--text); text-decoration: none; }
     .review-nav-comments a.is-current-comment { background: color-mix(in srgb, var(--comment-bg) 72%, var(--button-hover-bg)); color: var(--text); box-shadow: inset 3px 0 0 var(--comment-border), 0 0 0 1px color-mix(in srgb, var(--comment-border) 34%, transparent); text-decoration: none; }
     .review-nav-comments a.is-current-comment .review-nav-line { color: var(--comment-border); font-weight: 800; }
-    .review-nav-line { color: var(--muted); font-family: ui-monospace, SFMono-Regular, Consolas, monospace; }
+    .review-nav-line { display: inline-grid; place-items: center; align-self: stretch; min-height: 1.25em; color: var(--muted); font-family: ui-monospace, SFMono-Regular, Consolas, monospace; text-align: center; }
     .review-nav-resizer { position: fixed; left: calc(var(--nav-width) + var(--page-gutter) - 3px); top: var(--review-nav-top); bottom: calc(var(--page-gutter) + var(--story-nav-height)); width: 10px; cursor: ew-resize; z-index: 20; }
     .review-nav-resizer::before { content: ""; position: absolute; inset: 0 3px; border-radius: 99px; background: transparent; }
     .review-nav-resizer:hover::before, body.is-resizing-review-nav .review-nav-resizer::before { background: rgba(9,105,218,.38); }
