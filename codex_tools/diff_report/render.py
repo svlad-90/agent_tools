@@ -238,9 +238,10 @@ def _render_comments_index(comments: ReviewComments, diff_file_order: list[str])
                         f'{" " * (12 + depth * 2)}<ol class="review-nav-comments">\n'
                     )
                     for comment in file_comments:
+                        comment_id = _comment_anchor(comment.file_path, comment.line)
                         parts.append(
                             f'{" " * (14 + depth * 2)}<li>'
-                            f'<a href="#{_comment_anchor(comment.file_path, comment.line)}">'
+                            f'<a href="#{comment_id}" data-review-comment-link="{comment_id}">'
                             f'<span class="review-nav-line">{comment.line}</span>'
                             f'<span>{_esc(comment.title)}</span></a></li>\n'
                         )
@@ -320,8 +321,11 @@ def _story_step_attrs(step: StoryStep, index: int, comments: ReviewComments) -> 
         attrs.append(_json_attr("data-story-log-focus", step.log_focus))
         if step.log_zoom is not None:
             attrs.append(f' data-story-log-zoom="{step.log_zoom:g}"')
-    if step.artifact_comment:
-        attrs.append(f' data-story-artifact-comment="{_esc(step.artifact_comment)}"')
+    artifact_comment = step.artifact_comment
+    if artifact_comment is None and (step.diagram or step.log):
+        artifact_comment = step.body
+    if artifact_comment:
+        attrs.append(f' data-story-artifact-comment="{_esc(artifact_comment)}"')
     return "".join(attrs)
 
 

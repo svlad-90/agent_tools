@@ -167,6 +167,7 @@ class DiffReportBehaviorTests(unittest.TestCase):
                             },
                             {
                                 "title": "Log step",
+                                "body": "Read the runtime proof.",
                                 "log": "runtime",
                                 "log_focus": "PASS",
                                 "log_zoom": 1.25,
@@ -218,6 +219,8 @@ class DiffReportBehaviorTests(unittest.TestCase):
             'data-story-log="runtime"',
             'data-story-log-focus="[&quot;PASS&quot;]"',
             'data-story-log-zoom="1.25"',
+            'data-story-artifact-comment="Read the runtime proof."',
+            'data-review-comment-link="comment-src-app.py-2"',
             'data-diff-kind="add"',
             'data-settings-toggle',
             'aria-label="Settings"><span aria-hidden="true"></span></button>',

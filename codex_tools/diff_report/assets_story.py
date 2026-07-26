@@ -52,19 +52,50 @@ def story_script() -> str:
     }
 
     function clearVocabularyPopover(wrap) {
+      wrap.classList.remove("is-open");
       setStoryVocabularyPopover(wrap, false);
       if (activeWrap === wrap) {
         activeWrap = null;
       }
     }
 
-    function positionVocabularyPopover(wrap) {
+    function closeActiveVocabularyPopover(exceptWrap) {
+      if (activeWrap && activeWrap !== exceptWrap) {
+        clearVocabularyPopover(activeWrap);
+      }
+    }
+
+    function pointInsideRect(x, y, rect) {
+      return rect && x >= rect.left && x <= rect.right && y >= rect.top && y <= rect.bottom;
+    }
+
+    function isVocabularyPointerInside(wrap, event) {
+      const pointerX = event ? event.clientX : Number.NaN;
+      const pointerY = event ? event.clientY : Number.NaN;
+      if (Number.isFinite(pointerX) && Number.isFinite(pointerY)) {
+        const trigger = wrap.querySelector(".vocabulary-ref");
+        const popover = wrap.querySelector(".vocabulary-popover");
+        if (
+          pointInsideRect(pointerX, pointerY, trigger ? trigger.getBoundingClientRect() : null)
+          || pointInsideRect(pointerX, pointerY, popover ? popover.getBoundingClientRect() : null)
+        ) {
+          return true;
+        }
+        const hit = document.elementFromPoint(pointerX, pointerY);
+        return Boolean(hit && wrap.contains(hit));
+      }
+      return wrap.matches(":hover") || wrap.matches(":focus-within");
+    }
+
+    function openVocabularyPopover(wrap) {
       const trigger = wrap.querySelector(".vocabulary-ref");
       const popover = wrap.querySelector(".vocabulary-popover");
       if (!trigger || !popover) {
         return;
       }
+      closeActiveVocabularyPopover(wrap);
       activeWrap = wrap;
+      wrap.classList.add("is-open");
       wrap.classList.add("is-positioned");
       setStoryVocabularyPopover(wrap, true);
       popover.style.maxWidth = Math.max(180, Math.min(360, window.innerWidth - 32)) + "px";
@@ -83,45 +114,44 @@ def story_script() -> str:
       wrap.style.setProperty("--vocabulary-popover-top", top.toFixed(0) + "px");
     }
 
+    function toggleVocabularyPopover(wrap) {
+      if (wrap.classList.contains("is-open")) {
+        clearVocabularyPopover(wrap);
+        return;
+      }
+      openVocabularyPopover(wrap);
+    }
+
     wraps.forEach(function (wrap) {
       const trigger = wrap.querySelector(".vocabulary-ref");
       if (trigger) {
-        trigger.addEventListener("pointerdown", function (event) {
-          event.preventDefault();
-        });
         trigger.addEventListener("click", function (event) {
           event.preventDefault();
-          trigger.blur();
+          toggleVocabularyPopover(wrap);
+        });
+        trigger.addEventListener("keydown", function (event) {
+          if (event.key === "Enter" || event.key === " ") {
+            event.preventDefault();
+            toggleVocabularyPopover(wrap);
+          }
         });
       }
-      wrap.addEventListener("pointerenter", function () {
-        positionVocabularyPopover(wrap);
-      });
-      wrap.addEventListener("focusin", function () {
-        positionVocabularyPopover(wrap);
-      });
-      wrap.addEventListener("pointerleave", function () {
-        if (!wrap.matches(":focus-within")) {
-          clearVocabularyPopover(wrap);
-        }
-      });
-      wrap.addEventListener("focusout", function () {
-        window.setTimeout(function () {
-          if (!wrap.matches(":focus-within")) {
-            clearVocabularyPopover(wrap);
-          }
-        }, 0);
-      });
+    });
+
+    document.addEventListener("pointerdown", function (event) {
+      if (activeWrap && !isVocabularyPointerInside(activeWrap, event)) {
+        clearVocabularyPopover(activeWrap);
+      }
     });
 
     window.addEventListener("scroll", function () {
-      if (activeWrap && (activeWrap.matches(":hover") || activeWrap.matches(":focus-within"))) {
-        positionVocabularyPopover(activeWrap);
+      if (activeWrap && activeWrap.classList.contains("is-open")) {
+        openVocabularyPopover(activeWrap);
       }
     }, { passive: true });
     window.addEventListener("resize", function () {
-      if (activeWrap && (activeWrap.matches(":hover") || activeWrap.matches(":focus-within"))) {
-        positionVocabularyPopover(activeWrap);
+      if (activeWrap && activeWrap.classList.contains("is-open")) {
+        openVocabularyPopover(activeWrap);
       }
     });
   }
@@ -276,6 +306,11 @@ def story_script() -> str:
     let navScrollFollowupTimer = 0;
 
     function revealActiveItem(item) {
+      item.classList.add("is-open");
+      const itemToggle = item.querySelector(":scope > .review-nav-row .review-nav-toggle");
+      if (itemToggle) {
+        itemToggle.setAttribute("aria-expanded", "true");
+      }
       let parent = item.parentElement ? item.parentElement.closest(".review-nav-dir") : null;
       while (parent) {
         parent.classList.add("is-open");
@@ -338,6 +373,24 @@ def story_script() -> str:
       }
     }
 
+    nav.addEventListener("click", function (event) {
+      const link = event.target.closest(".review-nav-file > .review-nav-row a");
+      if (!link || !nav.contains(link)) {
+        return;
+      }
+      const anchor = decodeURIComponent(String(link.getAttribute("href") || "").replace(/^#/, ""));
+      const item = anchor ? navItemsByAnchor.get(anchor) || null : null;
+      if (!item || item === activeItem) {
+        return;
+      }
+      if (activeItem) {
+        activeItem.classList.remove("is-current");
+      }
+      activeItem = item;
+      activeItem.classList.add("is-current");
+      revealActiveItem(activeItem);
+    });
+
     function updateActiveFile() {
       activeRaf = 0;
       const story = document.getElementById("story");
@@ -371,6 +424,243 @@ def story_script() -> str:
     window.addEventListener("scroll", scheduleActiveFileUpdate, { passive: true });
     window.addEventListener("resize", scheduleActiveFileUpdate);
     scheduleActiveFileUpdate();
+  }
+
+  function initReviewNavActiveComment() {
+    const nav = document.getElementById("review-comments");
+    const comments = Array.from(document.querySelectorAll(".review-comment[id][data-comment-file]"));
+    if (!nav || !comments.length) {
+      return;
+    }
+    let activeCommentId = "";
+    let commentRaf = 0;
+    let previousCommentCenterY = currentCommentCenterY();
+    let previousCommentVisibleRange = currentCommentVisibleRange();
+    let previousCommentScrollY = window.scrollY;
+    let lastCommentFlashKey = "";
+    let lastCommentFlashAt = 0;
+
+    function revealCommentLink(link) {
+      const fileNode = link.closest(".review-nav-file");
+      if (!fileNode) {
+        return;
+      }
+      fileNode.classList.add("is-open");
+      const fileToggle = fileNode.querySelector(":scope > .review-nav-row .review-nav-toggle");
+      if (fileToggle) {
+        fileToggle.setAttribute("aria-expanded", "true");
+      }
+      let parent = fileNode.parentElement ? fileNode.parentElement.closest(".review-nav-dir") : null;
+      while (parent) {
+        parent.classList.add("is-open");
+        const toggle = parent.querySelector(":scope > .review-nav-row .review-nav-toggle");
+        if (toggle) {
+          toggle.setAttribute("aria-expanded", "true");
+        }
+        parent = parent.parentElement ? parent.parentElement.closest(".review-nav-dir") : null;
+      }
+      scrollNavToCommentLink(link);
+    }
+
+    function scrollNavToCommentLink(link) {
+      if (getComputedStyle(nav).position !== "fixed") {
+        return;
+      }
+      const navRect = nav.getBoundingClientRect();
+      const linkRect = link.getBoundingClientRect();
+      const head = nav.querySelector(".review-nav-head");
+      const headBottom = head ? head.getBoundingClientRect().bottom : navRect.top;
+      const upper = Math.max(navRect.top + 8, headBottom + 8);
+      const lower = navRect.bottom - 12;
+      if (linkRect.top >= upper && linkRect.bottom <= lower) {
+        return;
+      }
+      const offset = linkRect.top - navRect.top - Math.max(38, nav.clientHeight * 0.38);
+      nav.scrollTop += offset;
+    }
+
+    function setActiveComment(comment, edge) {
+      const nextId = comment && comment.id ? comment.id : "";
+      if (!nextId) {
+        return;
+      }
+      const wasActive = nextId === activeCommentId;
+      if (!wasActive) {
+        activeCommentId = nextId;
+        for (const link of nav.querySelectorAll(".review-nav-comments a.is-current-comment")) {
+          link.classList.remove("is-current-comment");
+        }
+        const link = nav.querySelector('[data-review-comment-link="' + cssEscape(nextId) + '"]');
+        if (link) {
+          link.classList.add("is-current-comment");
+          revealCommentLink(link);
+        }
+      }
+      if (wasActive) {
+        return;
+      }
+      const flashKey = nextId + ":" + (edge || "");
+      const now = performance.now();
+      if (flashKey === lastCommentFlashKey && now - lastCommentFlashAt < 300) {
+        return;
+      }
+      lastCommentFlashKey = flashKey;
+      lastCommentFlashAt = now;
+      flashTargets(comment, scrollContextElement(comment), false);
+    }
+
+    nav.addEventListener("click", function (event) {
+      const link = event.target.closest("[data-review-comment-link]");
+      if (!link || !nav.contains(link)) {
+        return;
+      }
+      const commentId = link.dataset.reviewCommentLink || "";
+      const comment = commentId ? document.getElementById(commentId) : null;
+      if (comment) {
+        setActiveComment(comment, "manual");
+      }
+    });
+
+    function resetHiddenActiveComment() {
+      if (!activeCommentId) {
+        return;
+      }
+      const comment = document.getElementById(activeCommentId);
+      if (!comment) {
+        activeCommentId = "";
+        return;
+      }
+      const rect = commentTargetBox(comment) || comment.getBoundingClientRect();
+      if (rect.bottom >= scrollSafeTop() && rect.top <= window.innerHeight) {
+        return;
+      }
+      activeCommentId = "";
+      const link = nav.querySelector('[data-review-comment-link="' + cssEscape(comment.id) + '"]');
+      if (link) {
+        link.classList.remove("is-current-comment");
+      }
+    }
+
+    function currentCommentCenterY() {
+      const storyPinned = Boolean(storySentinel && storySentinel.getBoundingClientRect().top <= 0);
+      return visibleContentCenterY(window.scrollY, window.innerHeight, scrollSafeTop(), storyPinned);
+    }
+
+    function currentCommentVisibleRange() {
+      return {
+        top: window.scrollY + scrollSafeTop(),
+        bottom: window.scrollY + window.innerHeight,
+      };
+    }
+
+    function visibleContentCenterY(scrollY, viewportHeight, safeTop, pinnedTop) {
+      let topInset = 0;
+      if (pinnedTop) {
+        const maxTopInset = Math.max(0, viewportHeight * 0.35);
+        topInset = Math.min(Math.max(0, safeTop), maxTopInset);
+      }
+      return scrollY + topInset + Math.max(0, viewportHeight - topInset) / 2;
+    }
+
+    function crossedDirectionalCenterEdge(previousCenterY, currentCenterY, scrollingDown, box) {
+      if (scrollingDown) {
+        if (previousCenterY <= box.top && box.top < currentCenterY) {
+          return {
+            edge: "top",
+            progress: (box.top - previousCenterY) / (currentCenterY - previousCenterY || 1),
+          };
+        }
+        return null;
+      }
+      if (currentCenterY < box.bottom && box.bottom <= previousCenterY) {
+        return {
+          edge: "bottom",
+          progress: (previousCenterY - box.bottom) / (previousCenterY - currentCenterY || 1),
+        };
+      }
+      return null;
+    }
+
+    function crossedFullyVisibleBlock(previousRange, currentRange, scrollingDown, box) {
+      const isFullyVisible = box.top >= currentRange.top && box.bottom <= currentRange.bottom;
+      if (!isFullyVisible) {
+        return null;
+      }
+      const wasFullyVisible = box.top >= previousRange.top && box.bottom <= previousRange.bottom;
+      if (wasFullyVisible) {
+        return null;
+      }
+      if (scrollingDown) {
+        if (previousRange.bottom < box.bottom && box.bottom <= currentRange.bottom) {
+          return {
+            edge: "visible",
+            progress: (box.bottom - previousRange.bottom) / (currentRange.bottom - previousRange.bottom || 1),
+          };
+        }
+        return null;
+      }
+      if (currentRange.top <= box.top && box.top < previousRange.top) {
+        return {
+          edge: "visible",
+          progress: (previousRange.top - box.top) / (previousRange.top - currentRange.top || 1),
+        };
+      }
+      return null;
+    }
+
+    function updateCommentEdges() {
+      const currentCenterY = currentCommentCenterY();
+      const previousCenterY = previousCommentCenterY;
+      const currentVisibleRange = currentCommentVisibleRange();
+      const previousVisibleRange = previousCommentVisibleRange;
+      const currentScrollY = window.scrollY;
+      const scrollingDown = currentScrollY >= previousCommentScrollY;
+      previousCommentCenterY = currentCenterY;
+      previousCommentVisibleRange = currentVisibleRange;
+      previousCommentScrollY = currentScrollY;
+      let best = null;
+      let bestEdge = "";
+      let bestCrossingProgress = Infinity;
+      for (const comment of comments) {
+        const rect = commentTargetBox(comment) || comment.getBoundingClientRect();
+        const box = {
+          top: rect.top + window.scrollY,
+          bottom: rect.bottom + window.scrollY,
+        };
+        const crossings = [
+          crossedDirectionalCenterEdge(previousCenterY, currentCenterY, scrollingDown, box),
+          crossedFullyVisibleBlock(previousVisibleRange, currentVisibleRange, scrollingDown, box),
+        ];
+        for (const crossing of crossings) {
+          if (crossing && crossing.progress < bestCrossingProgress) {
+            best = comment;
+            bestEdge = crossing.edge;
+            bestCrossingProgress = crossing.progress;
+          }
+        }
+      }
+      return best ? { comment: best, edge: bestEdge } : null;
+    }
+
+    function updateActiveComment() {
+      commentRaf = 0;
+      resetHiddenActiveComment();
+      const crossing = updateCommentEdges();
+      if (crossing) {
+        setActiveComment(crossing.comment, crossing.edge);
+      }
+    }
+
+    function scheduleActiveCommentUpdate() {
+      if (commentRaf) {
+        return;
+      }
+      commentRaf = window.requestAnimationFrame(updateActiveComment);
+    }
+
+    window.addEventListener("scroll", scheduleActiveCommentUpdate, { passive: true });
+    window.addEventListener("resize", scheduleActiveCommentUpdate);
+    scheduleActiveCommentUpdate();
   }
 
   function updateStoryOffset() {
@@ -697,15 +987,14 @@ def story_script() -> str:
   }
 
   function jumpToStoryTarget(step, targetId) {
-    if (targetId) {
-      const target = document.getElementById(targetId);
-      if (target) {
-        activeTarget = target;
-        target.classList.add("story-target-active");
-        animateWindowScrollToElement(target, jumpDurationMs);
-      }
-    } else {
-      animateWindowScrollToElement(step, jumpDurationMs);
+    if (!targetId) {
+      return;
+    }
+    const target = document.getElementById(targetId);
+    if (target) {
+      activeTarget = target;
+      target.classList.add("story-target-active");
+      animateWindowScrollToElement(target, jumpDurationMs);
     }
   }
 
@@ -814,9 +1103,10 @@ def story_script() -> str:
     return String(value).replace(/["\\\\]/g, "\\\\$&");
   }
 
-  function flashTargets(element, contextElement) {
+  function flashTargets(element, contextElement, includeCommentFlash) {
     clearFlashTargets();
-    const commentTargets = element && element.classList && element.classList.contains("review-comment")
+    const shouldFlashComment = includeCommentFlash !== false;
+    const commentTargets = shouldFlashComment && element && element.classList && element.classList.contains("review-comment")
       ? [element]
       : [];
     const codeTargets = codeFlashTargets(element, contextElement);
@@ -828,9 +1118,8 @@ def story_script() -> str:
         target.classList.remove("story-target-flash");
       }, 460);
     }
-    const overlayTargets = codeTargets.concat(commentTargets);
-    if (overlayTargets.length) {
-      createCodeTargetFlashOverlay(overlayTargets);
+    if (codeTargets.length) {
+      createCodeTargetFlashOverlay(codeTargets);
       activeFlashClearTimer = window.setTimeout(function () {
         clearCodeTargetFlashOverlays();
       }, 460);
@@ -839,22 +1128,63 @@ def story_script() -> str:
 
   function codeFlashTargets(element, contextElement) {
     if (element && element.dataset && element.dataset.commentFile) {
-      const file = element.dataset.commentFile;
-      const start = Number(element.dataset.commentRangeStart || element.dataset.commentLine || 0);
-      const end = Number(element.dataset.commentRangeEnd || start);
-      if (file && Number.isFinite(start) && Number.isFinite(end)) {
-        const rows = Array.from(document.querySelectorAll("tr[data-file]")).filter(function (row) {
-          const line = Number(row.dataset.newLine || 0);
-          return row.dataset.file === file && line >= start && line <= end;
-        });
-        return rowsWithIntermediateDeletes(rows);
-      }
+      return commentFlashTargets(element);
     }
     const row = contextElement && contextElement.closest ? contextElement.closest("tr[data-file]") : null;
     if (row) {
       return [row];
     }
     return [];
+  }
+
+  function commentFlashTargets(comment) {
+    const rows = commentRangeRows(comment);
+    const commentRow = comment.closest ? comment.closest("tr.comment-row") : null;
+    if (commentRow) {
+      rows.push(commentRow);
+    }
+    return rows;
+  }
+
+  function commentRangeRows(comment) {
+    const file = comment.dataset.commentFile;
+    const start = Number(comment.dataset.commentRangeStart || comment.dataset.commentLine || 0);
+    const end = Number(comment.dataset.commentRangeEnd || start);
+    if (!file || !Number.isFinite(start) || !Number.isFinite(end)) {
+      return [];
+    }
+    const numberedRows = Array.from(document.querySelectorAll(
+      'tr[data-file="' + cssEscape(file) + '"][data-new-line]'
+    ));
+    const first = numberedRows.find(function (row) {
+      return Number(row.dataset.newLine || 0) >= start;
+    });
+    let last = null;
+    for (const row of numberedRows) {
+      const line = Number(row.dataset.newLine || 0);
+      if (line >= start && line <= end) {
+        last = row;
+      }
+      if (line > end) {
+        break;
+      }
+    }
+    if (!first || !last) {
+      return [];
+    }
+    const allRows = Array.from(first.closest("tbody").children);
+    const firstIndex = allRows.indexOf(first);
+    const lastIndex = allRows.indexOf(last);
+    if (firstIndex === -1 || lastIndex === -1 || firstIndex > lastIndex) {
+      return [];
+    }
+    return allRows.slice(firstIndex, lastIndex + 1).filter(function (row) {
+      return row.matches("tr.add, tr.ctx, tr.del");
+    });
+  }
+
+  function commentTargetBox(comment) {
+    return targetBlockClientRect(commentFlashTargets(comment));
   }
 
   function rowsWithIntermediateDeletes(rows) {
@@ -875,7 +1205,7 @@ def story_script() -> str:
   }
 
   function createCodeTargetFlashOverlay(targets) {
-    const box = unionClientRects(targets);
+    const box = targetBlockClientRect(targets);
     if (!box) {
       return;
     }
@@ -888,28 +1218,30 @@ def story_script() -> str:
     document.body.appendChild(overlay);
   }
 
-  function unionClientRects(targets) {
-    let box = null;
-    for (const target of targets) {
+  function targetBlockClientRect(targets) {
+    const rects = targets.map(function (target) {
       const rect = target.getBoundingClientRect();
-      if (!rect.width || !rect.height) {
-        continue;
-      }
-      if (!box) {
-        box = {
-          left: rect.left,
-          top: rect.top,
-          right: rect.right,
-          bottom: rect.bottom,
-        };
-      } else {
-        box.left = Math.min(box.left, rect.left);
-        box.top = Math.min(box.top, rect.top);
-        box.right = Math.max(box.right, rect.right);
-        box.bottom = Math.max(box.bottom, rect.bottom);
-      }
+      return rect.width && rect.height
+        ? { left: rect.left, top: rect.top, right: rect.right, bottom: rect.bottom }
+        : null;
+    }).filter(Boolean);
+    if (!rects.length) {
+      return null;
     }
-    return box ? { left: box.left, top: box.top, width: box.right - box.left, height: box.bottom - box.top } : null;
+    const box = { left: rects[0].left, top: rects[0].top, right: rects[0].right, bottom: rects[0].bottom };
+    for (const rect of rects) {
+      box.left = Math.min(box.left, rect.left);
+      box.top = Math.min(box.top, rect.top);
+      box.right = Math.max(box.right, rect.right);
+      box.bottom = Math.max(box.bottom, rect.bottom);
+    }
+    return {
+      left: box.left,
+      top: box.top,
+      width: box.right - box.left,
+      height: box.bottom - box.top,
+      bottom: box.bottom,
+    };
   }
 
   function clearFlashTargets() {
@@ -1074,6 +1406,7 @@ def story_script() -> str:
   initReviewNavResize();
   initReviewNavTree();
   initReviewNavActiveFile();
+  initReviewNavActiveComment();
   initStoryPagerResizeObserver();
   updateStoryOffset();
   updateStoryPager(true, "auto");

@@ -730,6 +730,7 @@ def diagram_script() -> str:
           scrollContainerToElement(content, target, { horizontal: mode !== "log" });
         }
         positionStoryComment(storyComment);
+        content.classList.remove("is-preparing-story-view");
       });
     });
   }
@@ -743,8 +744,9 @@ def diagram_script() -> str:
     const availableWidth = Math.max(180, contentRect.width - margin * 2);
     const commentWidth = Math.min(520, availableWidth);
     comment.style.width = commentWidth + "px";
+    const sideMargin = mode === "log" ? margin + 30 : margin;
     const left = mode === "log"
-      ? contentRect.right - commentWidth - margin
+      ? contentRect.right - commentWidth - sideMargin
       : contentRect.left + margin;
     const top = contentRect.top + margin;
     placeStoryComment(comment, left, top);
@@ -757,6 +759,7 @@ def diagram_script() -> str:
     const maxTop = Math.max(contentRect.top + margin, contentRect.bottom - comment.offsetHeight - margin);
     comment.style.left = clamp(left, contentRect.left + margin, maxLeft) + "px";
     comment.style.top = clamp(top, contentRect.top + margin, maxTop) + "px";
+    comment.classList.add("is-positioned");
   }
 
   function clamp(value, min, max) {
@@ -1145,6 +1148,7 @@ def diagram_script() -> str:
     activeExportName = template.dataset.title || id || nextMode || "asset";
     content.innerHTML = "";
     resetArtifactViewport();
+    content.classList.toggle("is-preparing-story-view", Boolean(nextStoryContext || storyZoom));
     const storyComment = createAssetStoryComment(nextStoryContext || null);
     if (storyComment) {
       content.appendChild(storyComment);
@@ -1352,15 +1356,40 @@ def diagram_script() -> str:
     });
   }
 
-  content.addEventListener("wheel", function (event) {
+  function handleArtifactWheel(event) {
     clearCodeLinkHover();
-    if (!event.ctrlKey || modal.hidden || (mode !== "diagram" && mode !== "log")) {
-      return;
+    if (modal.hidden || (mode !== "diagram" && mode !== "log")) {
+      return false;
+    }
+    if (event.shiftKey && !event.ctrlKey) {
+      event.preventDefault();
+      content.scrollLeft += event.deltaX || event.deltaY;
+      return true;
+    }
+    if (!event.ctrlKey) {
+      return false;
     }
     event.preventDefault();
     const direction = event.deltaY < 0 ? 1 : -1;
     const step = Math.max(0.06, Math.min(0.18, Math.abs(event.deltaY) / 600));
     zoomAtPoint(scale + (direction * step), event.clientX, event.clientY);
+    return true;
+  }
+
+  content.addEventListener("wheel", function (event) {
+    handleArtifactWheel(event);
+  }, { passive: false });
+
+  modal.addEventListener("wheel", function (event) {
+    if (modal.hidden || content.contains(event.target) || (mode !== "diagram" && mode !== "log")) {
+      return;
+    }
+    if (handleArtifactWheel(event)) {
+      return;
+    }
+    event.preventDefault();
+    content.scrollLeft += event.deltaX;
+    content.scrollTop += event.deltaY;
   }, { passive: false });
 
   content.addEventListener("pointerdown", function (event) {
