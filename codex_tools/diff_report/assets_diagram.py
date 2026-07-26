@@ -51,6 +51,25 @@ def diagram_script() -> str:
     applyScale(targetScale);
   }
 
+  function zoomAtPoint(nextScale, clientX, clientY) {
+    const targetScale = Math.max(0.25, Math.min(4, nextScale));
+    if (Math.abs(targetScale - scale) < 0.001) {
+      return;
+    }
+    if (mode !== "diagram") {
+      setScale(targetScale);
+      return;
+    }
+    const rect = content.getBoundingClientRect();
+    const offsetX = clientX - rect.left;
+    const offsetY = clientY - rect.top;
+    const anchorX = (content.scrollLeft + offsetX) / scale;
+    const anchorY = (content.scrollTop + offsetY) / scale;
+    setScale(targetScale);
+    content.scrollLeft = Math.max(0, (anchorX * scale) - offsetX);
+    content.scrollTop = Math.max(0, (anchorY * scale) - offsetY);
+  }
+
   function animateScaleTo(targetScale) {
     if (scaleAnimation) {
       window.cancelAnimationFrame(scaleAnimation);
@@ -1260,11 +1279,11 @@ def diagram_script() -> str:
     if (zoom) {
       const action = zoom.dataset.diagramZoom;
       if (action === "in") {
-        setScale(scale + 0.1, { animate: true });
+        setScale(scale + 0.1);
       } else if (action === "out") {
-        setScale(scale - 0.1, { animate: true });
+        setScale(scale - 0.1);
       } else {
-        setScale(initialScale, { animate: true });
+        setScale(initialScale);
       }
       return;
     }
@@ -1339,8 +1358,9 @@ def diagram_script() -> str:
       return;
     }
     event.preventDefault();
-    const step = event.deltaY < 0 ? 0.1 : -0.1;
-    setScale(scale + step, { animate: true });
+    const direction = event.deltaY < 0 ? 1 : -1;
+    const step = Math.max(0.06, Math.min(0.18, Math.abs(event.deltaY) / 600));
+    zoomAtPoint(scale + (direction * step), event.clientX, event.clientY);
   }, { passive: false });
 
   content.addEventListener("pointerdown", function (event) {
