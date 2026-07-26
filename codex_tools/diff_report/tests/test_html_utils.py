@@ -9,6 +9,7 @@ from codex_tools.diff_report.html_utils import (
     format_text,
     line_anchor,
 )
+from codex_tools.diff_report.models import VocabularyTerm
 
 
 class HtmlUtilsTests(unittest.TestCase):
@@ -34,6 +35,35 @@ class HtmlUtilsTests(unittest.TestCase):
 
     def test_format_text_escapes_non_url_text(self) -> None:
         self.assertEqual("&lt;b&gt;safe&lt;/b&gt;", format_text("<b>safe</b>"))
+
+    def test_format_text_highlights_vocabulary_terms_with_definitions(self) -> None:
+        html = format_text(
+            "The event channel targets a vCPU.",
+            (
+                VocabularyTerm(
+                    term="event channel",
+                    definition="Xen notification path.",
+                    aliases=("event channels",),
+                ),
+                VocabularyTerm(term="vCPU", definition="Virtual CPU."),
+            ),
+        )
+
+        self.assertIn('class="vocabulary-ref"', html)
+        self.assertIn('data-term="event channel"', html)
+        self.assertIn(">event channel</button>", html)
+        self.assertIn("Xen notification path.", html)
+        self.assertIn(">vCPU</button>", html)
+        self.assertIn("Virtual CPU.", html)
+
+    def test_format_text_does_not_highlight_inside_urls(self) -> None:
+        html = format_text(
+            "See https://example.test/vCPU and vCPU.",
+            (VocabularyTerm(term="vCPU", definition="Virtual CPU."),),
+        )
+
+        self.assertIn('href="https://example.test/vCPU"', html)
+        self.assertEqual(1, html.count('class="vocabulary-ref"'))
 
 
 if __name__ == "__main__":

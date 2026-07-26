@@ -134,7 +134,9 @@ def _render_summary_section(comments: ReviewComments) -> str:
     if comments.summary_blocks:
         for block in comments.summary_blocks:
             if block.kind == "text":
-                parts.append(f'    <p class="review-summary">{_format_text(block.text or "")}</p>\n')
+                parts.append(
+                    f'    <p class="review-summary">{_format_text(block.text or "", comments.vocabulary)}</p>\n'
+                )
             elif block.kind == "diagram":
                 parts.append(
                     '    <div class="summary-artifact-preview">'
@@ -148,7 +150,9 @@ def _render_summary_section(comments: ReviewComments) -> str:
                     "</div>\n"
                 )
     elif comments.summary:
-        parts.append(f'    <p class="review-summary">{_format_text(comments.summary)}</p>\n')
+        parts.append(
+            f'    <p class="review-summary">{_format_text(comments.summary, comments.vocabulary)}</p>\n'
+        )
     parts.append("  </div></section>\n")
     return "".join(parts)
 
@@ -261,7 +265,7 @@ def _render_story_section(comments: ReviewComments) -> str:
     )
     parts.append('    <ol class="story-steps">\n')
     for index, step in enumerate(comments.story):
-        attrs = _story_step_attrs(step, index)
+        attrs = _story_step_attrs(step, index, comments)
         parts.append(
             f'      <li><button type="button" class="story-step" id="{_story_anchor(step, index)}"'
             f'{attrs}><span class="story-step-index">{index + 1:02d}</span>'
@@ -295,11 +299,12 @@ def _render_to_top_button() -> str:
     return '  <button type="button" class="to-top-button" data-story-top aria-label="To top">↑</button>\n'
 
 
-def _story_step_attrs(step: StoryStep, index: int) -> str:
+def _story_step_attrs(step: StoryStep, index: int, comments: ReviewComments) -> str:
     attrs = [
         f' data-story-index="{index}"',
         f' data-story-title="{_esc(step.title)}"',
         f' data-story-body="{_esc(step.body)}"',
+        f' data-story-body-html="{_esc(_format_text(step.body, comments.vocabulary))}"',
     ]
     target = _story_target(step)
     if target is not None:

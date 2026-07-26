@@ -69,6 +69,7 @@ def stylesheet() -> str:
       --nav-width: 430px;
       --brand-height: 250px;
       --brand-top-padding: 16px;
+      --brand-scale: 1;
       --brand-mark-size: 172px;
       --brand-title-size: 80px;
       --brand-subtitle-size: 40px;
@@ -160,9 +161,9 @@ def stylesheet() -> str:
     html { scrollbar-gutter: stable; }
     body { margin: 0; padding-bottom: var(--story-nav-height); background: var(--bg); color: var(--text); font: var(--scaled-body-font)/1.52 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
     main { width: calc(100% - var(--nav-width) - (var(--page-gutter) * 3)); max-width: calc(100% - var(--nav-width) - (var(--page-gutter) * 3)); min-width: 0; margin: var(--page-gutter) var(--page-gutter) calc(16px + var(--story-nav-height)) calc(var(--nav-width) + (var(--page-gutter) * 2)); }
-    .report-brand { position: fixed; left: var(--page-gutter); top: var(--page-gutter); z-index: 12; display: flex; align-items: center; justify-content: center; width: var(--nav-width); height: var(--brand-height); padding-top: 0; pointer-events: none; color: var(--brand-text); }
+    .report-brand { position: fixed; left: var(--page-gutter); top: var(--page-gutter); z-index: 12; display: flex; align-items: center; justify-content: center; width: var(--nav-width); height: var(--brand-height); padding-top: 0; overflow: hidden; pointer-events: none; color: var(--brand-text); }
     .report-brand::before { content: ""; position: absolute; inset: 0; height: var(--brand-height); border-radius: 10px; background: var(--brand-panel); box-shadow: 0 10px 24px var(--shadow); }
-    .report-brand-inner { position: relative; display: grid; grid-template-columns: var(--brand-mark-size) max-content; align-items: center; justify-content: center; gap: var(--brand-gap); width: auto; max-width: 100%; min-height: 0; padding: 16px var(--brand-padding-x); font-weight: 800; letter-spacing: 0; }
+    .report-brand-inner { position: relative; display: grid; grid-template-columns: var(--brand-mark-size) max-content; align-items: center; justify-content: center; gap: var(--brand-gap); width: 430px; max-width: none; min-height: 0; padding: 16px var(--brand-padding-x); transform: scale(var(--brand-scale)); transform-origin: center; font-weight: 800; letter-spacing: 0; }
     .report-brand-mark { display: flex; align-items: center; justify-content: center; width: var(--brand-mark-size); height: var(--brand-mark-size); border-radius: 10px; background: #0969da; color: #fff; font: 800 calc(var(--brand-mark-size) * .64)/1 ui-monospace, SFMono-Regular, Consolas, monospace; }
     .report-brand-text { display: grid; gap: 2px; min-width: 0; line-height: 1.05; }
     .report-brand-title { font-size: var(--brand-title-size); white-space: nowrap; }
@@ -203,6 +204,14 @@ def stylesheet() -> str:
     h1 { font-size: 28px; }
     h2 { font-size: 20px; }
     p { margin: 0 0 10px; }
+    .vocabulary-ref-wrap { position: relative; display: inline-flex; align-items: baseline; max-width: 100%; vertical-align: baseline; }
+    .vocabulary-ref { display: inline-flex; align-items: center; justify-content: center; min-width: 0; max-width: 100%; padding: 1px 5px; border: 0; border-bottom: 1px dotted color-mix(in srgb, var(--link) 78%, var(--text)); border-radius: 4px; background: color-mix(in srgb, var(--button-hover-bg) 34%, transparent); color: var(--link); cursor: help; font: inherit; line-height: inherit; text-align: inherit; overflow-wrap: anywhere; }
+    .vocabulary-ref:hover, .vocabulary-ref:focus-visible { outline: none; border-color: var(--link); background: var(--button-hover-bg); color: var(--link); }
+    .vocabulary-popover { position: absolute; left: 0; top: calc(100% + 8px); z-index: 80; box-sizing: border-box; display: grid; gap: 5px; width: min(360px, calc(100vw - 32px)); max-width: calc(100vw - 32px); padding: 10px 12px; border: 1px solid var(--comment-panel-border); border-left: 4px solid var(--comment-border); border-radius: 6px; background: var(--comment-bg); color: var(--text); box-shadow: 0 12px 30px var(--shadow); font: var(--scaled-code-font)/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; opacity: 0; visibility: hidden; pointer-events: none; transform: translateY(4px); transition: opacity .14s ease, transform .14s ease, visibility 0s linear .14s; }
+    .vocabulary-ref-wrap.is-positioned .vocabulary-popover { position: fixed; left: var(--vocabulary-popover-left, 16px); top: var(--vocabulary-popover-top, 16px); right: auto; z-index: 1010; width: min(360px, calc(100vw - 32px)); }
+    .vocabulary-popover strong { font-size: 1.08em; }
+    .vocabulary-aliases { color: var(--muted); font-size: .92em; }
+    .vocabulary-ref-wrap:hover .vocabulary-popover, .vocabulary-ref-wrap:focus-within .vocabulary-popover { opacity: 1; visibility: visible; pointer-events: auto; transform: translateY(0); transition-delay: 0s; }
     .review-summary-blocks { display: grid; gap: 12px; }
     .review-summary { white-space: pre-line; overflow-wrap: anywhere; }
     .review-summary-blocks .review-summary { margin: 0; }
@@ -257,6 +266,8 @@ def stylesheet() -> str:
     body.is-resizing-review-nav { cursor: ew-resize; user-select: none; }
     .story { position: sticky; top: 0; z-index: 12; padding: 10px 12px; margin-bottom: 0; border-bottom: 0; border-bottom-left-radius: 0; border-bottom-right-radius: 0; box-shadow: 0 8px 22px rgba(31,35,40,.08); transition: left .18s ease, right .18s ease, top .18s ease, width .18s ease, max-width .18s ease; }
     body.has-pinned-story .story, body.has-diagram-open .story { position: fixed; left: calc(var(--nav-width) + var(--page-gutter) * 2); right: var(--page-gutter); top: 0; width: auto; max-width: none; max-height: 30vh; overflow: hidden; z-index: 12; }
+    body.has-pinned-story .story.has-vocabulary-popover, body.has-diagram-open .story.has-vocabulary-popover { overflow: visible; z-index: 1009; }
+    body.is-resizing-review-nav .story { transition: none; }
     body.has-diagram-open .story { transition: none; }
     .story h2 { margin: 0 0 6px; font-size: var(--scaled-code-font); }
     .to-top-button { position: fixed; right: max(8px, calc(var(--floating-content-gutter) - var(--floating-control-size) - var(--floating-control-gap))); bottom: calc(var(--story-nav-height) + 24px + var(--floating-control-size) + 10px); z-index: 32; display: inline-flex; align-items: center; justify-content: center; width: var(--floating-control-size); height: var(--floating-control-size); border: 1px solid var(--border); border-radius: 999px; background: var(--button-bg); color: var(--link); box-shadow: 0 10px 28px var(--shadow); cursor: pointer; opacity: 0; visibility: hidden; pointer-events: none; transform: translateY(10px) scale(.96); transition: opacity .18s ease, transform .18s ease, visibility 0s linear .18s, border-color .12s ease, box-shadow .12s ease; font-size: 0; }

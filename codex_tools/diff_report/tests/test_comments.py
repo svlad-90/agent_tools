@@ -29,6 +29,13 @@ class CommentsTests(unittest.TestCase):
                     {
                         "commit": {"id": "abc123", "message": "Subject\n\nBody"},
                         "summary": "Summary text",
+                        "vocabulary": {
+                            "vCPU": {
+                                "definition": "Virtual CPU exposed by Xen to the guest.",
+                                "aliases": ["vCPUs", "virtual CPU"],
+                            },
+                            "hypercall": "Controlled guest call into Xen.",
+                        },
                         "summary_blocks": [
                             "plain block",
                             {"type": "paragraph", "text": "paragraph block"},
@@ -85,6 +92,11 @@ class CommentsTests(unittest.TestCase):
         self.assertEqual("abc123", comments.commit_id)
         self.assertEqual("Subject\n\nBody", comments.commit_message)
         self.assertEqual("Summary text", comments.summary)
+        self.assertEqual("vCPU", comments.vocabulary[0].term)
+        self.assertEqual("Virtual CPU exposed by Xen to the guest.", comments.vocabulary[0].definition)
+        self.assertEqual(("vCPUs", "virtual CPU"), comments.vocabulary[0].aliases)
+        self.assertEqual("hypercall", comments.vocabulary[1].term)
+        self.assertEqual("Controlled guest call into Xen.", comments.vocabulary[1].definition)
         self.assertEqual("file note", comments.file_comments["app.py"])
         self.assertEqual(("flow",), comments.file_diagram_focus["app.py"])
         self.assertEqual(("PASS",), comments.file_log_focus["app.py"])
@@ -126,6 +138,9 @@ class CommentsTests(unittest.TestCase):
             ({"inline": [{"file": "app.py", "line": 1, "body": "note", "log": "missing"}]}, "unknown log"),
             ({"story": [{"title": "No target"}]}, "must target"),
             ({"summary_blocks": [{"type": "unknown"}]}, "unknown summary block type"),
+            ({"vocabulary": []}, "comments.vocabulary must be an object"),
+            ({"vocabulary": {"vCPU": {}}}, "definition"),
+            ({"vocabulary": {"vCPU": {"definition": "Virtual CPU", "aliases": {}}}}, "aliases"),
         ]
         for payload, message in cases:
             with self.subTest(message=message):

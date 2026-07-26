@@ -13,6 +13,7 @@ _PASSTHROUGH_KEYS = (
     "diagrams",
     "logs",
     "story",
+    "vocabulary",
 )
 
 _INLINE_OPTIONAL_KEYS = (

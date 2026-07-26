@@ -37,6 +37,95 @@ def story_script() -> str:
     history.scrollRestoration = "manual";
   }
 
+  function initVocabularyPopovers() {
+    const wraps = Array.from(document.querySelectorAll(".vocabulary-ref-wrap"));
+    if (!wraps.length) {
+      return;
+    }
+    let activeWrap = null;
+
+    function setStoryVocabularyPopover(wrap, open) {
+      const storyPanel = wrap ? wrap.closest(".story") : null;
+      if (storyPanel) {
+        storyPanel.classList.toggle("has-vocabulary-popover", open);
+      }
+    }
+
+    function clearVocabularyPopover(wrap) {
+      setStoryVocabularyPopover(wrap, false);
+      if (activeWrap === wrap) {
+        activeWrap = null;
+      }
+    }
+
+    function positionVocabularyPopover(wrap) {
+      const trigger = wrap.querySelector(".vocabulary-ref");
+      const popover = wrap.querySelector(".vocabulary-popover");
+      if (!trigger || !popover) {
+        return;
+      }
+      activeWrap = wrap;
+      wrap.classList.add("is-positioned");
+      setStoryVocabularyPopover(wrap, true);
+      popover.style.maxWidth = Math.max(180, Math.min(360, window.innerWidth - 32)) + "px";
+      const triggerRect = trigger.getBoundingClientRect();
+      const popoverRect = popover.getBoundingClientRect();
+      const margin = 16;
+      const popoverWidth = Math.min(popoverRect.width || 360, Math.max(180, window.innerWidth - (margin * 2)));
+      const popoverHeight = popoverRect.height || 120;
+      const leftBias = Math.min(72, Math.max(24, popoverWidth * 0.22));
+      const left = Math.max(margin, Math.min(triggerRect.left - leftBias, window.innerWidth - popoverWidth - margin));
+      let top = triggerRect.bottom + 8;
+      if (top + popoverHeight > window.innerHeight - margin) {
+        top = Math.max(margin, triggerRect.top - popoverHeight - 8);
+      }
+      wrap.style.setProperty("--vocabulary-popover-left", left.toFixed(0) + "px");
+      wrap.style.setProperty("--vocabulary-popover-top", top.toFixed(0) + "px");
+    }
+
+    wraps.forEach(function (wrap) {
+      const trigger = wrap.querySelector(".vocabulary-ref");
+      if (trigger) {
+        trigger.addEventListener("pointerdown", function (event) {
+          event.preventDefault();
+        });
+        trigger.addEventListener("click", function (event) {
+          event.preventDefault();
+          trigger.blur();
+        });
+      }
+      wrap.addEventListener("pointerenter", function () {
+        positionVocabularyPopover(wrap);
+      });
+      wrap.addEventListener("focusin", function () {
+        positionVocabularyPopover(wrap);
+      });
+      wrap.addEventListener("pointerleave", function () {
+        if (!wrap.matches(":focus-within")) {
+          clearVocabularyPopover(wrap);
+        }
+      });
+      wrap.addEventListener("focusout", function () {
+        window.setTimeout(function () {
+          if (!wrap.matches(":focus-within")) {
+            clearVocabularyPopover(wrap);
+          }
+        }, 0);
+      });
+    });
+
+    window.addEventListener("scroll", function () {
+      if (activeWrap && (activeWrap.matches(":hover") || activeWrap.matches(":focus-within"))) {
+        positionVocabularyPopover(activeWrap);
+      }
+    }, { passive: true });
+    window.addEventListener("resize", function () {
+      if (activeWrap && (activeWrap.matches(":hover") || activeWrap.matches(":focus-within"))) {
+        positionVocabularyPopover(activeWrap);
+      }
+    });
+  }
+
   function initReviewNavResize() {
     const nav = document.getElementById("review-comments");
     const resizer = nav ? nav.querySelector(".review-nav-resizer") : null;
@@ -44,12 +133,42 @@ def story_script() -> str:
       return;
     }
     let resizing = false;
+    let resizeLayoutRaf = 0;
+    let pendingResizeLayout = false;
     const defaultWidth = 430;
 
-    function applyWidth(width) {
+    function scheduleResizeLayout(flush) {
+      pendingResizeLayout = true;
+      if (resizeLayoutRaf) {
+        if (!flush) {
+          return;
+        }
+        window.cancelAnimationFrame(resizeLayoutRaf);
+        resizeLayoutRaf = 0;
+      }
+      const run = function () {
+        resizeLayoutRaf = 0;
+        if (!pendingResizeLayout) {
+          return;
+        }
+        pendingResizeLayout = false;
+        updateStoryOffset();
+        scheduleStoryPagerUpdate(false, "auto");
+        document.dispatchEvent(new CustomEvent("codex-review-story-layout"));
+      };
+      if (flush) {
+        run();
+      } else {
+        resizeLayoutRaf = window.requestAnimationFrame(run);
+      }
+    }
+
+    function applyWidth(width, flushLayout) {
       const maxWidth = Math.max(320, Math.min(window.innerWidth * 0.58, 820));
       const nextWidth = Math.max(280, Math.min(maxWidth, width));
       document.documentElement.style.setProperty("--nav-width", nextWidth + "px");
+      document.documentElement.style.setProperty("--brand-scale", String(Math.min(1, nextWidth / defaultWidth)));
+      scheduleResizeLayout(Boolean(flushLayout));
     }
 
     resizer.addEventListener("pointerdown", function (event) {
@@ -62,7 +181,7 @@ def story_script() -> str:
     });
 
     resizer.addEventListener("dblclick", function (event) {
-      applyWidth(defaultWidth);
+      applyWidth(defaultWidth, true);
       event.preventDefault();
     });
 
@@ -74,7 +193,7 @@ def story_script() -> str:
         stopResize();
         return;
       }
-      applyWidth(event.clientX - 8);
+      applyWidth(event.clientX - 8, false);
       event.preventDefault();
     });
 
@@ -84,6 +203,7 @@ def story_script() -> str:
       }
       resizing = false;
       document.body.classList.remove("is-resizing-review-nav");
+      scheduleResizeLayout(true);
     }
 
     document.addEventListener("pointerup", stopResize);
@@ -305,7 +425,7 @@ def story_script() -> str:
       detailsTitle.textContent = step.dataset.storyTitle || "Details";
     }
     if (detailsBody) {
-      detailsBody.textContent = step.dataset.storyBody || "";
+      detailsBody.innerHTML = step.dataset.storyBodyHtml || "";
     }
     updateStoryOffset();
     updateStoryMoveButtons();
@@ -950,6 +1070,7 @@ def story_script() -> str:
     }
   });
 
+  initVocabularyPopovers();
   initReviewNavResize();
   initReviewNavTree();
   initReviewNavActiveFile();

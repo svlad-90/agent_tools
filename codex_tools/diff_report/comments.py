@@ -13,6 +13,7 @@ from .models import (
     ReviewComments,
     StoryStep,
     SummaryBlock,
+    VocabularyTerm,
 )
 
 
@@ -110,6 +111,7 @@ def comments_from_payload(
             raise DiffReportError(f"unknown log referenced by file comment {file_path}: {log}")
     story = story_from_payload(payload, diagrams=diagrams, logs=logs)
     summary_blocks = summary_blocks_from_payload(payload, diagrams=diagrams, logs=logs)
+    vocabulary = vocabulary_from_payload(payload)
     return ReviewComments(
         file_comments=file_comments,
         inline_comments={key: tuple(value) for key, value in grouped.items()},
@@ -123,9 +125,56 @@ def comments_from_payload(
         file_diagram_notes=file_diagram_notes,
         summary=str(payload["summary"]) if "summary" in payload else None,
         summary_blocks=summary_blocks,
+        vocabulary=vocabulary,
         commit_id=commit_id,
         commit_message=commit_message,
     )
+
+
+def vocabulary_from_payload(payload: dict[str, Any]) -> tuple[VocabularyTerm, ...]:
+    raw_vocabulary = payload.get("vocabulary", {})
+    if raw_vocabulary in ({}, None):
+        return ()
+    if not isinstance(raw_vocabulary, dict):
+        raise DiffReportError("comments.vocabulary must be an object")
+
+    entries: list[VocabularyTerm] = []
+    for raw_term, raw_entry in raw_vocabulary.items():
+        term = str(raw_term).strip()
+        if not term:
+            raise DiffReportError("comments.vocabulary terms must be non-empty strings")
+        if isinstance(raw_entry, str):
+            definition = raw_entry
+            aliases: tuple[str, ...] = ()
+        elif isinstance(raw_entry, dict):
+            definition = str(required(raw_entry, "definition"))
+            aliases = vocabulary_aliases(raw_entry.get("aliases", ()), term=term)
+        else:
+            raise DiffReportError(f"comments.vocabulary.{term} must be a string or an object")
+        if not definition.strip():
+            raise DiffReportError(f"comments.vocabulary.{term}.definition must be non-empty")
+        entries.append(VocabularyTerm(term=term, definition=definition, aliases=aliases))
+    return tuple(entries)
+
+
+def vocabulary_aliases(value: Any, *, term: str) -> tuple[str, ...]:
+    if value in ((), [], None):
+        return ()
+    if isinstance(value, str):
+        value = [value]
+    if not isinstance(value, list):
+        raise DiffReportError(f"comments.vocabulary.{term}.aliases must be a string or a list")
+
+    aliases: list[str] = []
+    seen = {term}
+    for raw_alias in value:
+        alias = str(raw_alias).strip()
+        if not alias:
+            raise DiffReportError(f"comments.vocabulary.{term}.aliases entries must be non-empty")
+        if alias not in seen:
+            aliases.append(alias)
+            seen.add(alias)
+    return tuple(aliases)
 
 
 def summary_blocks_from_payload(

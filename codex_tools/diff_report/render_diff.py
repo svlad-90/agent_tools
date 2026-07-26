@@ -4,7 +4,7 @@ from collections.abc import Callable
 
 from .diff_parse import iter_diff_lines
 from .html_utils import anchor, comment_anchor, esc, format_text, line_anchor
-from .models import InlineComment, ReviewComments
+from .models import InlineComment, ReviewComments, VocabularyTerm
 from .render_state import (
     active_delete_target_after_line,
     comment_row_kind,
@@ -55,7 +55,7 @@ def render_diff(
             if current_file in comments.file_comments:
                 parts.append(
                     f'    <div class="file-comment"><strong>File review note:</strong> '
-                    f'{format_text(comments.file_comments[current_file])}'
+                    f'{format_text(comments.file_comments[current_file], comments.vocabulary)}'
                     f'{file_comment_assets(current_file)}'
                     "</div>\n"
                 )
@@ -96,6 +96,7 @@ def render_diff(
                     current_file,
                     line_no,
                     inline_comment_assets,
+                    comments.vocabulary,
                     "add" if target_range is not None else "ctx",
                 )
             )
@@ -130,6 +131,7 @@ def render_diff(
                     current_file,
                     line_no,
                     inline_comment_assets,
+                    comments.vocabulary,
                     "ctx",
                 )
             )
@@ -162,6 +164,7 @@ def _render_inline_comments(
     file_path: str,
     line: int,
     render_assets: InlineCommentAssetsRenderer,
+    vocabulary: tuple[VocabularyTerm, ...],
     target_kind: str = "ctx",
 ) -> str:
     rendered: list[str] = []
@@ -175,7 +178,7 @@ def _render_inline_comments(
             f' data-comment-file="{esc(file_path)}" data-comment-range-start="{start}"'
             f' data-comment-range-end="{end}">'
             f'<div class="title">{esc(comment.title)} on {esc(location)}</div>'
-            f'<div class="body">{format_text(comment.body)}'
+            f'<div class="body">{format_text(comment.body, vocabulary)}'
             f'{render_assets(comment)}</div>'
             "</div></td></tr>\n"
         )

@@ -82,8 +82,16 @@ class DiffReportBehaviorTests(unittest.TestCase):
                 json.dumps(
                     {
                         "summary": "Plain summary",
+                        "vocabulary": {
+                            "vCPU": {
+                                "definition": "Virtual CPU exposed by Xen.",
+                                "aliases": ["vCPUs"],
+                            },
+                            "event channel": "Xen notification path.",
+                            "hypercall": "Controlled call into Xen.",
+                        },
                         "summary_blocks": [
-                            "String summary block",
+                            "String summary block mentions vCPU",
                             {"type": "paragraph", "text": "Paragraph summary block"},
                             {
                                 "diagram": "flow",
@@ -109,7 +117,7 @@ class DiffReportBehaviorTests(unittest.TestCase):
                                 "line": 2,
                                 "range": [1, 3],
                                 "title": "Inline title",
-                                "body": "Inline body",
+                                "body": "Inline body uses a hypercall",
                                 "diagram": "flow",
                                 "diagram_focus": ["call()"],
                                 "diagram_notes": [
@@ -144,7 +152,7 @@ class DiffReportBehaviorTests(unittest.TestCase):
                             },
                         },
                         "story": [
-                            {"title": "File step", "file": "src/app.py"},
+                            {"title": "File step", "body": "Follow the event channel.", "file": "src/app.py"},
                             {"title": "Line step", "file": "src/app.py", "line": 2},
                             {
                                 "title": "Comment step",
@@ -180,11 +188,17 @@ class DiffReportBehaviorTests(unittest.TestCase):
             html = output.read_text(encoding="utf-8")
 
         expected_fragments = [
-            "String summary block",
+            "String summary block mentions",
             "Paragraph summary block",
             "File body",
             "Inline title",
-            "Inline body",
+            "Inline body uses a",
+            'class="vocabulary-ref"',
+            "vocabulary-popover",
+            "Virtual CPU exposed by Xen.",
+            "Xen notification path.",
+            "Controlled call into Xen.",
+            'data-story-body-html="Follow the &lt;span class=&quot;vocabulary-ref-wrap&quot;',
             'data-diagram-id="flow"',
             'data-log-id="runtime"',
             'data-diagram-focus="[&quot;call()&quot;]"',
