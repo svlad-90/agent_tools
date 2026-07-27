@@ -388,6 +388,8 @@ def diagram_code_links(raw: dict[str, Any], diagram_key: str) -> tuple[dict[str,
         }
         if "range" in raw_link:
             link["range"] = raw_link["range"]
+        if "target_info" in raw_link:
+            link["target_info"] = raw_link["target_info"]
         links.append(link)
     return tuple(links)
 

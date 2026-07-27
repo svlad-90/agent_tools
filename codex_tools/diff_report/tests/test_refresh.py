@@ -90,6 +90,90 @@ class RefreshTests(unittest.TestCase):
         self.assertEqual([4, 5], inline[2]["target"]["candidate_lines"])
         self.assertFalse(inline[3]["target"]["found"])
 
+    def test_enrich_comments_payload_moves_when_line_exists_but_content_changed(self) -> None:
+        diff_text = textwrap.dedent(
+            """\
+            diff --git a/app.py b/app.py
+            index 1111111..2222222 100644
+            --- a/app.py
+            +++ b/app.py
+            @@ -1,4 +1,5 @@
+             def run():
+                new_neighbor()
+                keep_target()
+                done()
+            """
+        )
+        payload = {
+            "inline": [
+                {
+                    "file": "app.py",
+                    "line": 2,
+                    "range": {"start": 2, "end": 2},
+                    "body": "semantic target",
+                    "target": {"content": "   keep_target()"},
+                },
+            ]
+        }
+
+        enriched = enrich_comments_payload(diff_text, payload)
+
+        inline = enriched["inline"]
+        self.assertEqual("moved", inline[0]["target"]["status"])
+        self.assertEqual(3, inline[0]["line"])
+        self.assertEqual({"start": 3, "end": 3}, inline[0]["range"])
+        self.assertEqual(2, inline[0]["target"]["previous_line"])
+
+    def test_enrich_comments_payload_refreshes_diagram_code_links_by_content(self) -> None:
+        diff_text = textwrap.dedent(
+            """\
+            diff --git a/app.py b/app.py
+            index 1111111..2222222 100644
+            --- a/app.py
+            +++ b/app.py
+            @@ -1,5 +1,6 @@
+             def run():
+                new_neighbor()
+                keep_target()
+                duplicate()
+                duplicate()
+            """
+        )
+        payload = {
+            "diagrams": {
+                "flow": {
+                    "title": "Flow",
+                    "svg_inline": "<svg></svg>",
+                    "code_links": [
+                        {
+                            "target": "call target",
+                            "file": "app.py",
+                            "line": 2,
+                            "title": "Moved link",
+                            "target_info": {"content": "   keep_target()"},
+                        },
+                        {
+                            "target": "ambiguous target",
+                            "file": "app.py",
+                            "line": 20,
+                            "title": "Ambiguous link",
+                            "target_info": {"content": "   duplicate()"},
+                        },
+                    ],
+                }
+            }
+        }
+
+        enriched = enrich_comments_payload(diff_text, payload)
+
+        links = enriched["diagrams"]["flow"]["code_links"]
+        self.assertEqual("call target", links[0]["target"])
+        self.assertEqual(3, links[0]["line"])
+        self.assertEqual("moved", links[0]["target_info"]["status"])
+        self.assertEqual(2, links[0]["target_info"]["previous_line"])
+        self.assertEqual("ambiguous", links[1]["target_info"]["status"])
+        self.assertEqual([4, 5], links[1]["target_info"]["candidate_lines"])
+
     def test_inline_sort_key_orders_statuses_before_file_line_title(self) -> None:
         items = [
             {"file": "b.py", "line": 1, "title": "b", "target": {"status": "not_found"}},
@@ -108,7 +192,41 @@ class RefreshTests(unittest.TestCase):
                 {"file": "app.py", "line": 3, "title": "Moved", "target": {"status": "moved"}},
                 {"file": "app.py", "line": 4, "title": "Ambiguous", "target": {"status": "ambiguous"}},
                 {"file": "app.py", "line": 5, "title": "Missing", "target": {"status": "not_found"}},
-            ]
+                {
+                    "file": "app.py",
+                    "line": 8,
+                    "title": "Wide",
+                    "range": {"start": 8, "end": 10},
+                    "target": {"status": "found"},
+                },
+                {
+                    "file": "app.py",
+                    "line": 10,
+                    "title": "Overlap",
+                    "range": {"start": 10, "end": 11},
+                    "target": {"status": "found"},
+                },
+            ],
+            "diagrams": {
+                "flow": {
+                    "code_links": [
+                        {
+                            "target": "node",
+                            "file": "app.py",
+                            "line": 12,
+                            "title": "Moved diagram link",
+                            "target_info": {"status": "moved"},
+                        },
+                        {
+                            "target": "other",
+                            "file": "app.py",
+                            "line": 13,
+                            "title": "Missing diagram link",
+                            "target_info": {"status": "not_found"},
+                        },
+                    ]
+                }
+            },
         }
         comments_json = json.dumps(payload, indent=2)
         stdout = io.StringIO()
@@ -119,10 +237,12 @@ class RefreshTests(unittest.TestCase):
                 print_refresh_attention(path, payload, comments_json)
 
         output = stdout.getvalue()
-        self.assertIn("moved=1 auto-updated", output)
-        self.assertIn("attention=2", output)
+        self.assertIn("moved=2 auto-updated", output)
+        self.assertIn("attention=4", output)
         self.assertIn("ambiguous app.py:4 Ambiguous", output)
         self.assertIn("not_found app.py:5 Missing", output)
+        self.assertIn("overlap app.py:8-10 Wide overlaps 10-11 Overlap", output)
+        self.assertIn("diagram flow: not_found app.py:13 Missing diagram link", output)
 
 
 if __name__ == "__main__":
