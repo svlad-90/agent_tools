@@ -236,7 +236,7 @@
       "body": "The previous cbz x0 secondary-CPU guard is not part of this FDT-only PR anymore. It belongs with the separate SMP/vCPU event-channel series, where secondary CPU entry is introduced and validated.",
       "range": {
         "start": 125,
-        "end": 134
+        "end": 126
       },
       "target": {
         "file": "arch/arm64/core/reset.S",
@@ -256,7 +256,7 @@
       "title": "Keep reset-time handoff internal",
       "body": "The assembly path stores Xen's x0 handoff pointer in z_arm64_xen_fdt_addr. The z_ prefix marks this as Zephyr-internal startup state, not a public runtime symbol. Runtime code should use get_xen_fdt_ptr() after xen_copy_fdt() has validated and copied the blob.",
       "range": {
-        "start": 125,
+        "start": 127,
         "end": 134
       },
       "diagram": "fdt-review-fix-api-flow",
@@ -335,7 +335,7 @@
       "body": "The code checks the FDT magic and maximum configured size before copying data. That prevents a bogus Xen handoff pointer or corrupt size field from becoming a trusted runtime FDT.",
       "range": {
         "start": 38,
-        "end": 56
+        "end": 54
       },
       "diagram": "fdt-review-fix-api-flow",
       "diagram_focus": [

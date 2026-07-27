@@ -147,6 +147,7 @@ def _validate_inline_comment_targets(diff_lines: list[DiffLine], comments: Revie
     for line in diff_lines:
         if line.file_path and line.kind in {"add", "context"} and line.new_line is not None:
             rendered_lines.setdefault(line.file_path, set()).add(line.new_line)
+    ranges_by_file: dict[str, list[tuple[int, int, InlineComment]]] = {}
     for (file_path, line), inline_comments in comments.inline_comments.items():
         file_lines = rendered_lines.get(file_path, set())
         if line not in file_lines:
@@ -162,6 +163,26 @@ def _validate_inline_comment_targets(diff_lines: list[DiffLine], comments: Revie
                     f"inline comment range is not fully rendered in diff: "
                     f"{file_path}:{start}-{end}; missing line(s): {missing_text}"
                 )
+            ranges_by_file.setdefault(file_path, []).append((start, end, comment))
+    _validate_inline_comment_ranges_do_not_overlap(ranges_by_file)
+
+
+def _validate_inline_comment_ranges_do_not_overlap(
+    ranges_by_file: dict[str, list[tuple[int, int, InlineComment]]],
+) -> None:
+    for file_path, ranges in ranges_by_file.items():
+        previous: tuple[int, int, InlineComment] | None = None
+        for start, end, comment in sorted(ranges, key=lambda item: (item[0], item[1])):
+            if previous is not None:
+                previous_start, previous_end, previous_comment = previous
+                if start <= previous_end:
+                    raise DiffReportError(
+                        "inline comment ranges overlap in diff: "
+                        f"{file_path}:{previous_start}-{previous_end} "
+                        f"({previous_comment.title!r}) overlaps "
+                        f"{file_path}:{start}-{end} ({comment.title!r})"
+                    )
+            previous = (start, end, comment)
 
 
 def _comment_line_ranges(comments: ReviewComments) -> dict[str, list[tuple[int, int]]]:

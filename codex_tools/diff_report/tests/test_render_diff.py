@@ -147,6 +147,60 @@ class RenderDiffTests(unittest.TestCase):
         with self.assertRaisesRegex(DiffReportError, "range is not fully rendered"):
             render_diff(diff_text, comments)
 
+    def test_render_diff_rejects_overlapping_inline_comment_ranges(self) -> None:
+        comments = ReviewComments(
+            summary="",
+            diagrams={},
+            logs={},
+            story=[],
+            file_comments={},
+            file_diagrams={},
+            file_logs={},
+            file_diagram_focus={},
+            file_log_focus={},
+            file_diagram_notes={},
+            inline_comments={
+                ("src/app.py", 3): [
+                    InlineComment(
+                        file_path="src/app.py",
+                        line=3,
+                        title="First block",
+                        body="Body",
+                        line_range=(2, 4),
+                    )
+                ],
+                ("src/app.py", 5): [
+                    InlineComment(
+                        file_path="src/app.py",
+                        line=5,
+                        title="Second block",
+                        body="Body",
+                        line_range=(4, 5),
+                    )
+                ],
+            },
+        )
+        diff_text = "\n".join(
+            [
+                "diff --git a/src/app.py b/src/app.py",
+                "--- a/src/app.py",
+                "+++ b/src/app.py",
+                "@@ -1 +1,5 @@",
+                "+one",
+                "+two",
+                "+three",
+                "+four",
+                "+five",
+                "",
+            ]
+        )
+
+        with self.assertRaisesRegex(
+            DiffReportError,
+            "inline comment ranges overlap in diff: src/app.py:2-4 .*src/app.py:4-5",
+        ):
+            render_diff(diff_text, comments)
+
 
 if __name__ == "__main__":
     unittest.main()

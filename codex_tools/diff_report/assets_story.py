@@ -598,22 +598,29 @@ def story_script() -> str:
 
     function resetHiddenActiveComment() {
       if (!activeCommentId) {
-        return;
+        return null;
       }
       const comment = document.getElementById(activeCommentId);
       if (!comment) {
         activeCommentId = "";
-        return;
+        return null;
       }
       const rect = commentTargetBox(comment) || comment.getBoundingClientRect();
-      if (rect.bottom >= scrollSafeTop() && rect.top <= window.innerHeight) {
-        return;
+      const visibleTop = scrollSafeTop();
+      const visibleBottom = Math.max(visibleTop, window.innerHeight - scrollSafeBottom());
+      if (rect.bottom > visibleTop && rect.top < visibleBottom) {
+        return null;
       }
       activeCommentId = "";
       const link = nav.querySelector('[data-review-comment-link="' + cssEscape(comment.id) + '"]');
       if (link) {
         link.classList.remove("is-current-comment");
       }
+      return {
+        id: comment.id,
+        top: rect.top + window.scrollY,
+        bottom: rect.bottom + window.scrollY,
+      };
     }
 
     function resetCommentTriggerBaseline() {
@@ -662,9 +669,11 @@ def story_script() -> str:
     }
 
     function currentCommentVisibleRange() {
+      const safeTop = scrollSafeTop();
+      const safeBottom = scrollSafeBottom();
       return {
-        top: window.scrollY + scrollSafeTop(),
-        bottom: window.scrollY + window.innerHeight,
+        top: window.scrollY + safeTop,
+        bottom: window.scrollY + Math.max(safeTop, window.innerHeight - safeBottom),
       };
     }
 
@@ -677,60 +686,78 @@ def story_script() -> str:
       return scrollY + topInset + Math.max(0, viewportHeight - topInset) / 2;
     }
 
-    function crossedDirectionalCenterEdge(previousCenterY, currentCenterY, scrollingDown, box) {
+    function crossedVisibleEntryBlock(previousRange, currentRange, scrollingDown, box) {
+      const wasVisible = box.bottom > previousRange.top && box.top < previousRange.bottom;
+      const isVisible = box.bottom > currentRange.top && box.top < currentRange.bottom;
+      if (wasVisible || !isVisible) {
+        return null;
+      }
       if (scrollingDown) {
-        if (previousCenterY <= box.top && box.top < currentCenterY) {
+        if (previousRange.bottom <= box.top && box.top < currentRange.bottom) {
           return {
             edge: "top",
-            progress: (box.top - previousCenterY) / (currentCenterY - previousCenterY || 1),
+            progress: (box.top - previousRange.bottom) / (currentRange.bottom - previousRange.bottom || 1),
           };
         }
-        return null;
+        return { edge: "visible", progress: 0 };
       }
-      if (currentCenterY < box.bottom && box.bottom <= previousCenterY) {
+      if (currentRange.top < box.bottom && box.bottom <= previousRange.top) {
         return {
           edge: "bottom",
-          progress: (previousCenterY - box.bottom) / (previousCenterY - currentCenterY || 1),
+          progress: (previousRange.top - box.bottom) / (previousRange.top - currentRange.top || 1),
         };
       }
-      return null;
+      return { edge: "visible", progress: 0 };
     }
 
-    function crossedFullyVisibleBlock(previousRange, currentRange, scrollingDown, box) {
-      const isFullyVisible = box.top >= currentRange.top && box.bottom <= currentRange.bottom;
-      if (!isFullyVisible) {
+    function visibleFallbackAfterActiveHidden(hiddenActive, currentRange, scrollingDown) {
+      if (!hiddenActive) {
         return null;
       }
-      const wasFullyVisible = box.top >= previousRange.top && box.bottom <= previousRange.bottom;
-      if (wasFullyVisible) {
-        return null;
-      }
-      if (scrollingDown) {
-        if (previousRange.bottom < box.bottom && box.bottom <= currentRange.bottom) {
-          return {
-            edge: "visible",
-            progress: (box.bottom - previousRange.bottom) / (currentRange.bottom - previousRange.bottom || 1),
-          };
+      let best = null;
+      let bestDistance = Infinity;
+      for (const comment of comments) {
+        if (comment.id === hiddenActive.id) {
+          continue;
         }
-        return null;
-      }
-      if (currentRange.top <= box.top && box.top < previousRange.top) {
-        return {
-          edge: "visible",
-          progress: (previousRange.top - box.top) / (previousRange.top - currentRange.top || 1),
+        const rect = comment.getBoundingClientRect();
+        const box = {
+          top: rect.top + window.scrollY,
+          bottom: rect.bottom + window.scrollY,
         };
+        const isVisible = box.bottom > currentRange.top && box.top < currentRange.bottom;
+        if (!isVisible) {
+          continue;
+        }
+        if (scrollingDown) {
+          if (box.top < hiddenActive.top) {
+            continue;
+          }
+          const distance = box.top - hiddenActive.top;
+          if (distance < bestDistance) {
+            best = comment;
+            bestDistance = distance;
+          }
+          continue;
+        }
+        if (box.bottom > hiddenActive.bottom) {
+          continue;
+        }
+        const distance = hiddenActive.bottom - box.bottom;
+        if (distance < bestDistance) {
+          best = comment;
+          bestDistance = distance;
+        }
       }
-      return null;
+      return best ? { comment: best, edge: "visible" } : null;
     }
 
     function updateCommentEdges(filePath, baseline) {
-      const currentCenterY = currentCommentCenterY();
-      const previousCenterY = baseline ? baseline.centerY : previousCommentCenterY;
       const currentVisibleRange = currentCommentVisibleRange();
       const previousVisibleRange = baseline ? baseline.visibleRange : previousCommentVisibleRange;
       const currentScrollY = window.scrollY;
       const scrollingDown = currentScrollY >= (baseline ? baseline.scrollY : previousCommentScrollY);
-      previousCommentCenterY = currentCenterY;
+      previousCommentCenterY = currentCommentCenterY();
       previousCommentVisibleRange = currentVisibleRange;
       previousCommentScrollY = currentScrollY;
       let best = null;
@@ -740,14 +767,23 @@ def story_script() -> str:
         if (filePath && comment.dataset.commentFile !== filePath) {
           continue;
         }
-        const rect = commentTargetBox(comment) || comment.getBoundingClientRect();
-        const box = {
-          top: rect.top + window.scrollY,
-          bottom: rect.bottom + window.scrollY,
-        };
+        const targetRect = commentTargetBox(comment);
+        const commentRect = comment.getBoundingClientRect();
+        const boxes = [];
+        if (targetRect) {
+          boxes.push({
+            top: targetRect.top + window.scrollY,
+            bottom: targetRect.bottom + window.scrollY,
+          });
+        }
+        boxes.push({
+          top: commentRect.top + window.scrollY,
+          bottom: commentRect.bottom + window.scrollY,
+        });
         const crossings = [
-          crossedDirectionalCenterEdge(previousCenterY, currentCenterY, scrollingDown, box),
-          crossedFullyVisibleBlock(previousVisibleRange, currentVisibleRange, scrollingDown, box),
+          ...boxes.map(function (box) {
+            return crossedVisibleEntryBlock(previousVisibleRange, currentVisibleRange, scrollingDown, box);
+          }),
         ];
         for (const crossing of crossings) {
           if (crossing && crossing.progress < bestCrossingProgress) {
@@ -760,53 +796,27 @@ def story_script() -> str:
       return best ? { comment: best, edge: bestEdge } : null;
     }
 
-    function commentContainingCenter(filePath, centerY) {
-      for (const comment of comments) {
-        if (filePath && comment.dataset.commentFile !== filePath) {
-          continue;
-        }
-        const rect = commentTargetBox(comment) || comment.getBoundingClientRect();
-        const top = rect.top + window.scrollY;
-        const bottom = rect.bottom + window.scrollY;
-        if (top <= centerY && centerY <= bottom) {
-          return comment;
-        }
-      }
-      return null;
-    }
-
-    function activeCommentContainsCenter(centerY) {
-      if (!activeCommentId) {
-        return false;
-      }
-      const comment = document.getElementById(activeCommentId);
-      if (!comment) {
-        return false;
-      }
-      const rect = commentTargetBox(comment) || comment.getBoundingClientRect();
-      const top = rect.top + window.scrollY;
-      const bottom = rect.bottom + window.scrollY;
-      return top <= centerY && centerY <= bottom;
-    }
-
     function updateActiveComment() {
       commentRaf = 0;
       if (suppressCommentUpdatesForFileJump || suppressCommentUpdatesForManualJump) {
         resetCommentTriggerBaseline();
         return;
       }
-      resetHiddenActiveComment();
+      const currentScrollY = window.scrollY;
+      const scrollingDown = currentScrollY >= previousCommentScrollY;
+      const hiddenActive = resetHiddenActiveComment();
       const crossing = updateCommentEdges();
       if (crossing) {
         setActiveComment(crossing.comment, crossing.edge);
         return;
       }
-      if (activeCommentContainsCenter(previousCommentCenterY)) {
-        return;
-      }
-      const centeredComment = commentContainingCenter(null, previousCommentCenterY);
-      if (centeredComment) {
-        setActiveComment(centeredComment, "center", false);
+      const fallback = visibleFallbackAfterActiveHidden(
+        hiddenActive,
+        previousCommentVisibleRange,
+        scrollingDown,
+      );
+      if (fallback) {
+        setActiveComment(fallback.comment, fallback.edge);
       }
     }
 
@@ -1257,6 +1267,19 @@ def story_script() -> str:
     return (Number.isFinite(storyOffset) ? storyOffset : 0) + 72;
   }
 
+  function scrollSafeBottom() {
+    const storyNav = document.querySelector(".diagram-story-nav");
+    if (storyNav) {
+      const rect = storyNav.getBoundingClientRect();
+      if (rect.height > 0 && rect.bottom > window.innerHeight - 2) {
+        return Math.max(0, window.innerHeight - rect.top);
+      }
+    }
+    const value = getComputedStyle(document.documentElement).getPropertyValue("--story-nav-height");
+    const storyNavHeight = Number.parseFloat(value || "0");
+    return Number.isFinite(storyNavHeight) ? Math.max(0, storyNavHeight) : 0;
+  }
+
   function scrollOffsetForElement(element) {
     if (element && element.classList && element.classList.contains("file-header")) {
       return fileHeaderNavigationTop();
@@ -1447,17 +1470,46 @@ def story_script() -> str:
   }
 
   function createCodeTargetFlashOverlay(targets) {
+    clearCodeTargetFlashOverlays();
+    const groups = contiguousFlashTargetGroups(targets);
+    for (const group of groups) {
+      createSingleCodeTargetFlashOverlay(group);
+    }
+  }
+
+  function createSingleCodeTargetFlashOverlay(targets) {
     const box = targetBlockClientRect(targets);
     if (!box) {
       return;
     }
+    const documentTop = Math.max(0, box.top + window.scrollY - 3);
     const overlay = document.createElement("div");
     overlay.className = "code-target-flash-overlay";
     overlay.style.left = Math.max(0, box.left + window.scrollX - 3) + "px";
-    overlay.style.top = Math.max(0, box.top + window.scrollY - 3) + "px";
+    overlay.style.top = documentTop + "px";
     overlay.style.width = Math.max(1, box.width + 6) + "px";
     overlay.style.height = Math.max(1, box.height + 6) + "px";
     document.body.appendChild(overlay);
+  }
+
+  function contiguousFlashTargetGroups(targets) {
+    const groups = [];
+    let current = [];
+    let previous = null;
+    for (const target of targets) {
+      if (previous && target.previousElementSibling !== previous) {
+        if (current.length) {
+          groups.push(current);
+        }
+        current = [];
+      }
+      current.push(target);
+      previous = target;
+    }
+    if (current.length) {
+      groups.push(current);
+    }
+    return groups;
   }
 
   function targetBlockClientRect(targets) {

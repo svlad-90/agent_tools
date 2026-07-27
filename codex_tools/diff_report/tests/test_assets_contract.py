@@ -210,6 +210,7 @@ class AssetContractTests(unittest.TestCase):
         for fragment in expected_fragments:
             with self.subTest(fragment=fragment):
                 self.assertIn(fragment, styles)
+        self.assertNotIn(".code-target-flash-shield", styles)
         self.assertIn(PINNED_PLANTUML_VERSION, plantuml_styles)
         self.assertEqual("1.2020.02", PINNED_PLANTUML_VERSION)
         self.assertEqual("Sun Mar 01 12:22:07 EET 2020", PINNED_PLANTUML_RELEASE_DATE)
@@ -337,21 +338,32 @@ class AssetContractTests(unittest.TestCase):
             'document.addEventListener("codex-review-file-jump-end"',
             "function currentCommentCenterY()",
             "function currentCommentVisibleRange()",
+            "const safeBottom = scrollSafeBottom();",
+            "bottom: window.scrollY + Math.max(safeTop, window.innerHeight - safeBottom)",
             "function visibleContentCenterY(scrollY, viewportHeight, safeTop, pinnedTop)",
             "viewportHeight * 0.35",
-            "function crossedDirectionalCenterEdge(previousCenterY, currentCenterY, scrollingDown, box)",
-            "function crossedFullyVisibleBlock(previousRange, currentRange, scrollingDown, box)",
-            "const wasFullyVisible = box.top >= previousRange.top && box.bottom <= previousRange.bottom;",
+            "function crossedVisibleEntryBlock(previousRange, currentRange, scrollingDown, box)",
+            "const wasVisible = box.bottom > previousRange.top && box.top < previousRange.bottom;",
+            "const isVisible = box.bottom > currentRange.top && box.top < currentRange.bottom;",
             "const scrollingDown = currentScrollY >= (baseline ? baseline.scrollY : previousCommentScrollY);",
             "edge: \"top\"",
             "edge: \"bottom\"",
             "edge: \"visible\"",
+            "function visibleFallbackAfterActiveHidden(hiddenActive, currentRange, scrollingDown)",
+            "if (comment.id === hiddenActive.id)",
+            "const rect = comment.getBoundingClientRect();",
+            "const isVisible = box.bottom > currentRange.top && box.top < currentRange.bottom;",
+            "return best ? { comment: best, edge: \"visible\" } : null;",
             "function updateCommentEdges(filePath, baseline)",
             "if (suppressCommentUpdatesForFileJump || suppressCommentUpdatesForManualJump)",
-            "function commentContainingCenter(filePath, centerY)",
-            "function activeCommentContainsCenter(centerY)",
-            "if (activeCommentContainsCenter(previousCommentCenterY))",
-            "setActiveComment(centeredComment, \"center\", false)",
+            "const hiddenActive = resetHiddenActiveComment();",
+            "const fallback = visibleFallbackAfterActiveHidden(",
+            "const targetRect = commentTargetBox(comment);",
+            "const commentRect = comment.getBoundingClientRect();",
+            "if (targetRect)",
+            "top: targetRect.top + window.scrollY",
+            "top: commentRect.top + window.scrollY",
+            "...boxes.map(function (box)",
             "function commentFlashTargets(comment)",
             'comment.closest("tr.comment-row")',
             "function commentRangeRows(comment)",
@@ -431,6 +443,8 @@ class AssetContractTests(unittest.TestCase):
             "function navigationTargetElement(target)",
             'target.querySelector(":scope > .file-header")',
             "function scrollOffsetForElement(element)",
+            "function scrollSafeBottom()",
+            'document.querySelector(".diagram-story-nav")',
             "return fileHeaderNavigationTop();",
             "function currentStoryHeight()",
             "function fileHeaderNavigationTop()",
@@ -447,7 +461,16 @@ class AssetContractTests(unittest.TestCase):
             "createCodeTargetFlashOverlay",
             "if (codeTargets.length)",
             "createCodeTargetFlashOverlay(codeTargets)",
+            "clearCodeTargetFlashOverlays();",
+            "const groups = contiguousFlashTargetGroups(targets);",
+            "for (const group of groups)",
+            "createSingleCodeTargetFlashOverlay(group);",
+            "function createSingleCodeTargetFlashOverlay(targets)",
             "const box = targetBlockClientRect(targets);",
+            "const documentTop = Math.max(0, box.top + window.scrollY - 3);",
+            'overlay.style.height = Math.max(1, box.height + 6) + "px";',
+            "function contiguousFlashTargetGroups(targets)",
+            "target.previousElementSibling !== previous",
             "function targetBlockClientRect(targets)",
             "bottom: box.bottom",
             "rowsWithIntermediateDeletes",
@@ -460,6 +483,8 @@ class AssetContractTests(unittest.TestCase):
         for fragment in expected_fragments:
             with self.subTest(fragment=fragment):
                 self.assertIn(fragment, script)
+        self.assertNotIn("clipPath", script)
+        self.assertNotIn("code-target-flash-shield", script)
         self.assertNotIn("lastOpenedStoryIndex", script)
 
     def test_diagram_script_exposes_search_export_and_code_link_contracts(self) -> None:
