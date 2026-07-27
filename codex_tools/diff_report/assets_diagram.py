@@ -215,7 +215,10 @@ def diagram_script() -> str:
       node.classList.remove("asset-focus-object");
     }
     for (const node of content.querySelectorAll(".asset-focus-match")) {
-      node.classList.remove("asset-focus-match", "asset-focus-related-hover");
+      node.classList.remove("asset-focus-match", "asset-focus-contained-text", "asset-focus-related-hover");
+    }
+    for (const node of content.querySelectorAll(".asset-focus-contained-text")) {
+      node.classList.remove("asset-focus-contained-text");
     }
     for (const node of content.querySelectorAll(".asset-focus-related-hover")) {
       node.classList.remove("asset-focus-related-hover");
@@ -269,6 +272,46 @@ def diagram_script() -> str:
     const shape = closestSvgObjectShape(labelNode);
     if (shape) {
       shape.classList.add("asset-focus-object");
+      markSvgTextInsideShape(shape, labelNode);
+    }
+  }
+
+  function markSvgTextInsideShape(shape, sourceLabel) {
+    const shapeBox = safeBBox(shape);
+    const sourceBox = safeBBox(sourceLabel);
+    const parent = shape.parentNode;
+    if (!shapeBox || !sourceBox || !parent || !parent.querySelectorAll) {
+      return;
+    }
+    const shapeArea = shapeBox.width * shapeBox.height;
+    const sourceArea = Math.max(sourceBox.width * sourceBox.height, 1);
+    if (shapeArea > Math.max(120000, sourceArea * 80)) {
+      return;
+    }
+    for (const textNode of parent.querySelectorAll("text")) {
+      if (textNode.classList.contains("diagram-code-link-badge-text")
+        || textNode.classList.contains("diagram-note-marker-text")) {
+        continue;
+      }
+      const textBox = safeBBox(textNode);
+      if (!textBox) {
+        continue;
+      }
+      const center = {
+        x: textBox.x + textBox.width / 2,
+        y: textBox.y + textBox.height / 2,
+      };
+      const insideShape = center.x >= shapeBox.x
+        && center.x <= shapeBox.x + shapeBox.width
+        && center.y >= shapeBox.y
+        && center.y <= shapeBox.y + shapeBox.height;
+      if (!insideShape) {
+        continue;
+      }
+      textNode.classList.add("asset-focus-match", "asset-focus-contained-text");
+      for (const child of textNode.querySelectorAll("tspan")) {
+        child.classList.add("asset-focus-match", "asset-focus-contained-text");
+      }
     }
   }
 
@@ -1410,6 +1453,10 @@ def diagram_script() -> str:
       return;
     }
     if (event.target.closest("button, input")) {
+      return;
+    }
+    if (event.target.closest("svg text, svg tspan")) {
+      clearCodeLinkHover();
       return;
     }
     if (event.target.closest(".diagram-code-link-badge, .diagram-note-hotspot, .diagram-code-overlay")) {

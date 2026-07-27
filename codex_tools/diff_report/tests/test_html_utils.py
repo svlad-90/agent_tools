@@ -65,6 +65,20 @@ class HtmlUtilsTests(unittest.TestCase):
         self.assertIn('href="https://example.test/vCPU"', html)
         self.assertEqual(1, html.count('class="vocabulary-ref"'))
 
+    def test_format_text_highlights_each_vocabulary_term_once_per_text_block(self) -> None:
+        html = format_text(
+            "A vCPU uses an event channel. The event channel targets the same virtual CPU.",
+            (
+                VocabularyTerm(term="event channel", definition="Xen notification path."),
+                VocabularyTerm(term="vCPU", definition="Virtual CPU.", aliases=("virtual CPU",)),
+            ),
+        )
+
+        self.assertEqual(2, html.count('class="vocabulary-ref"'))
+        self.assertEqual(1, html.count('data-term="event channel"'))
+        self.assertEqual(1, html.count('data-term="vCPU"'))
+        self.assertIn("The event channel targets the same virtual CPU.", html)
+
 
 if __name__ == "__main__":
     unittest.main()

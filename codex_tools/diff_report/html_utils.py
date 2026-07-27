@@ -29,10 +29,11 @@ def format_text(value: object, vocabulary: Sequence[VocabularyTerm] = ()) -> str
     parts: list[str] = []
     last = 0
     term_re, term_lookup = vocabulary_matcher(vocabulary)
+    seen_terms: set[str] = set()
 
     def repl(match: re.Match[str]) -> str:
         nonlocal last
-        parts.append(format_plain_text(text[last:match.start()], term_re, term_lookup))
+        parts.append(format_plain_text(text[last:match.start()], term_re, term_lookup, seen_terms))
         raw_url = match.group(0)
         url = raw_url.rstrip(".,);")
         suffix = raw_url[len(url):]
@@ -45,7 +46,7 @@ def format_text(value: object, vocabulary: Sequence[VocabularyTerm] = ()) -> str
         return ""
 
     url_re.sub(repl, text)
-    parts.append(format_plain_text(text[last:], term_re, term_lookup))
+    parts.append(format_plain_text(text[last:], term_re, term_lookup, seen_terms))
     return "".join(parts)
 
 
@@ -75,9 +76,11 @@ def format_plain_text(
     text: str,
     term_re: re.Pattern[str] | None,
     term_lookup: dict[str, VocabularyTerm],
+    seen_terms: set[str] | None = None,
 ) -> str:
     if term_re is None:
         return esc(text)
+    seen = seen_terms if seen_terms is not None else set()
     parts: list[str] = []
     last = 0
     for match in term_re.finditer(text):
@@ -86,7 +89,10 @@ def format_plain_text(
         entry = term_lookup.get(matched_text.casefold())
         if entry is None:
             parts.append(esc(matched_text))
+        elif entry.term.casefold() in seen:
+            parts.append(esc(matched_text))
         else:
+            seen.add(entry.term.casefold())
             parts.append(
                 '<span class="vocabulary-ref-wrap">'
                 f'<button type="button" class="vocabulary-ref" data-term="{esc(entry.term)}">'

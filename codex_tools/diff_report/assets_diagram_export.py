@@ -63,8 +63,10 @@ def diagram_export_helpers() -> str:
   function standaloneDiagramVariableMap(rootStyle) {
     const fallback = new Map([
       ["--diagram-bg", "#ffffff"],
+      ["--diagram-svg-bg", "#ffffff"],
       ["--diagram-svg-text", "#111827"],
       ["--diagram-svg-line", "#475569"],
+      ["--diagram-svg-arrow", "#334155"],
       ["--diagram-svg-box-bg", "#ffffff"],
       ["--diagram-svg-note-bg", "#fff8c5"],
       ["--diagram-focus", "#1d4ed8"],

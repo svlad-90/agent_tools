@@ -12,6 +12,14 @@ from codex_tools.diff_report.assets import (
 from codex_tools.diff_report.assets_diagram_code_popover import diagram_code_popover_helpers
 from codex_tools.diff_report.assets_diagram_export import diagram_export_helpers
 from codex_tools.diff_report.assets_diagram_notes import diagram_note_helpers
+from codex_tools.diff_report.assets_plantuml_svg import (
+    PINNED_GRAPHVIZ_DOT_VERSION,
+    PINNED_PLANTUML_HEADLESS_JAVA_OPTION,
+    PINNED_PLANTUML_RELEASE_DATE,
+    PINNED_PLANTUML_VERSION,
+    plantuml_preview_svg,
+    plantuml_svg_styles,
+)
 from codex_tools.diff_report.assets_styles import stylesheet
 
 
@@ -41,6 +49,7 @@ class AssetContractTests(unittest.TestCase):
 
     def test_stylesheet_exposes_layout_theme_and_search_contracts(self) -> None:
         styles = stylesheet()
+        plantuml_styles = plantuml_svg_styles()
 
         expected_fragments = [
             "--text-scale: 1",
@@ -119,6 +128,18 @@ class AssetContractTests(unittest.TestCase):
             ".diagram-toolbar { display: grid; grid-template-columns: minmax(180px, 1fr) minmax(0, auto);",
             ".diagram-search-tools, .diagram-action-tools { display: inline-flex;",
             ".diagram-action-tools { flex: 0 0 auto; justify-content: flex-end; }",
+            "--diagram-svg-bg:",
+            "--diagram-svg-arrow:",
+            "PlantUML SVG contract: PlantUML 1.2020.02",
+            ".diagram-preview-canvas svg,\n    .diagram-zoom-stage svg { background: var(--diagram-svg-bg) !important; }",
+            ".diagram-preview-canvas svg text:not(.diagram-note-text):not(.diagram-note-marker-text):not(.diagram-code-link-badge-text):not(.asset-focus-match):not(.asset-focus-related-hover)",
+            ".diagram-preview-canvas svg line:not(.asset-focus-connector):not(.diagram-code-link-connector):not(.diagram-note-link)",
+            ".diagram-preview-canvas svg path:not(.asset-focus-object):not(.asset-focus-connector):not(.diagram-note-box):not(.diagram-note-link):not(.diagram-code-link-connector)",
+            ".diagram-preview-canvas svg polyline:not(.asset-focus-connector):not(.diagram-code-link-connector)",
+            ".diagram-preview-canvas svg polygon:not(.asset-focus-connector):not(.asset-focus-object):not(.diagram-code-link-connector)",
+            "fill: var(--diagram-svg-arrow) !important; stroke: var(--diagram-svg-arrow) !important; stroke-width: 1.4px !important;",
+            "svg .asset-focus-object { fill: var(--diagram-svg-box-bg) !important; stroke: var(--diagram-focus) !important;",
+            "svg text.asset-focus-contained-text",
             ".asset-story-comment { position: fixed;",
             ".asset-story-comment.is-positioned",
             "background: var(--comment-bg); color: var(--text);",
@@ -147,6 +168,7 @@ class AssetContractTests(unittest.TestCase):
             "--asset-log-scale",
             "color: var(--hunk-text);",
             ".diagram-zoom-stage { transform-origin: 0 0; width: max-content; min-width: 100%; }",
+            ".diagram-zoom-stage svg text, .diagram-zoom-stage svg tspan { cursor: text; user-select: text; }",
             ".diagram-scroll.is-preparing-story-view .diagram-zoom-stage",
             "transition: font-size .16s ease;",
             "svg .asset-focus-object",
@@ -155,7 +177,14 @@ class AssetContractTests(unittest.TestCase):
             ".diagram-code-popover { position: fixed;",
             "width: min(1120px, calc(100vw - 32px)); height: min(86vh, calc(100vh - 32px));",
             'polygon[fill="#FFFFFF"]',
+            'path[fill="#FFFFFF"]',
             'path[fill="#FEFECE"]',
+            'polygon[fill="#2D2D30"]',
+            'path[fill="#3B3216"]',
+            'ellipse[fill="#FFFFFF"]',
+            'ellipse[fill="#D4D4D4"]',
+            'polygon[fill="#D4D4D4"]',
+            'polygon[fill="#FBFB77"]',
             ".summary-artifact-preview .diagram-preview { width: min(760px, 100%); }",
             ".asset-search-match",
             ".asset-search-current",
@@ -166,6 +195,11 @@ class AssetContractTests(unittest.TestCase):
         for fragment in expected_fragments:
             with self.subTest(fragment=fragment):
                 self.assertIn(fragment, styles)
+        self.assertIn(PINNED_PLANTUML_VERSION, plantuml_styles)
+        self.assertEqual("1.2020.02", PINNED_PLANTUML_VERSION)
+        self.assertEqual("Sun Mar 01 12:22:07 EET 2020", PINNED_PLANTUML_RELEASE_DATE)
+        self.assertEqual("-Djava.awt.headless=true", PINNED_PLANTUML_HEADLESS_JAVA_OPTION)
+        self.assertEqual("2.43.0", PINNED_GRAPHVIZ_DOT_VERSION)
 
     def test_theme_script_exposes_settings_and_text_scale_contracts(self) -> None:
         script = theme_script()
@@ -444,14 +478,18 @@ class AssetContractTests(unittest.TestCase):
 	            "detail: { status: \"closed\" }",
 	            "requestExtraPaint(modal)",
 	            "requestExtraPaint(document.body)",
-	            "function closestSvgObjectShape(labelNode)",
+            "function closestSvgObjectShape(labelNode)",
+            "function markSvgTextInsideShape(shape, sourceLabel)",
+            "asset-focus-contained-text",
             "codex-review-story-move",
             "asset-focus-object",
             "document.body.classList.add(\"has-diagram-open\")",
 	            "document.body.classList.remove(\"has-diagram-open\")",
 	            "function codeOverlayRoot()",
 	            "positionCodePopover(popover)",
-	            "requestExtraPaint(popover)",
+            "requestExtraPaint(popover)",
+            'event.target.closest("svg text, svg tspan")',
+            "clearCodeLinkHover();\n      return;",
         ]
         for fragment in expected_fragments:
             with self.subTest(fragment=fragment):
@@ -508,6 +546,8 @@ class AssetContractTests(unittest.TestCase):
             "standaloneCssRules(rules, includeDarkRules)",
             "standaloneSelector(rule.selectorText, includeDarkRules)",
             "resolveCssVariables(rule.style.cssText)",
+            "[\"--diagram-svg-bg\", \"#ffffff\"]",
+            "[\"--diagram-svg-arrow\", \"#334155\"]",
             "insertSvgBackground(clone)",
             "removeCodeLinkState(clone)",
             "downloadBlob(safeFileName(activeExportName, \"svg\")",
@@ -516,6 +556,26 @@ class AssetContractTests(unittest.TestCase):
         for fragment in expected_fragments:
             with self.subTest(fragment=fragment):
                 self.assertIn(fragment, script)
+
+    def test_plantuml_preview_svg_embeds_theme_specific_overrides(self) -> None:
+        source = (
+            '<svg style="background:#1F1F1F;">'
+            '<text fill="#D4D4D4">title</text>'
+            '<rect fill="#2D2D30" style="stroke: #D4D4D4;"/>'
+            '<path fill="#FFFFFF" style="stroke: #D4D4D4;"/>'
+            '<path fill="#3B3216" style="stroke: #D7BA7D;"/>'
+            "</svg>"
+        )
+
+        light = plantuml_preview_svg(source, "light")
+        dark = plantuml_preview_svg(source, "dark")
+
+        self.assertIn("svg { background: #ffffff !important; }", light)
+        self.assertIn("fill: #111827 !important; stroke: none !important;", light)
+        self.assertIn("fill: #ffffff !important; stroke: #475569 !important;", light)
+        self.assertIn("fill: #fff8c5 !important; stroke: #ca5010 !important;", light)
+        self.assertIn("svg { background: #1f1f1f !important; }", dark)
+        self.assertIn("fill: #d4d4d4 !important; stroke: none !important;", dark)
 
 
 if __name__ == "__main__":

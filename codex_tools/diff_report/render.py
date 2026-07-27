@@ -2,10 +2,10 @@ from __future__ import annotations
 
 import base64
 import json
-import re
 from typing import Any
 
 from .assets import copy_selection_script, diagram_script, html_header, story_script, theme_script
+from .assets_plantuml_svg import plantuml_preview_svg
 from .diff_source import diff_files, diff_stats
 from .html_utils import anchor as _anchor
 from .html_utils import comment_anchor as _comment_anchor
@@ -416,8 +416,8 @@ def _render_diagram_preview(
     safe_id = _anchor(diagram.diagram_id)
     focus_attr = _focus_attr("data-diagram-focus", focus_terms)
     notes_attr = _json_attr("data-diagram-notes", notes)
-    preview_src = _svg_data_uri(diagram.svg)
-    dark_preview_src = _svg_data_uri(_dark_preview_svg(diagram.svg))
+    preview_src = _svg_data_uri(plantuml_preview_svg(diagram.svg, "light"))
+    dark_preview_src = _svg_data_uri(plantuml_preview_svg(diagram.svg, "dark"))
     return (
         '<button type="button" class="diagram-preview" '
         f'data-diagram-id="{_esc(safe_id)}"{focus_attr}{notes_attr} aria-label="Open diagram: {_esc(diagram.title)}">'
@@ -431,25 +431,6 @@ def _render_diagram_preview(
 def _svg_data_uri(svg: str) -> str:
     encoded = base64.b64encode(svg.encode("utf-8")).decode("ascii")
     return f"data:image/svg+xml;base64,{encoded}"
-
-
-def _dark_preview_svg(svg: str) -> str:
-    style = """
-<style>
-svg text:not(.diagram-note-text):not(.diagram-note-marker-text):not(.diagram-code-link-badge-text):not(.asset-focus-match):not(.asset-focus-related-hover),
-svg tspan:not(.diagram-note-text):not(.diagram-note-marker-text):not(.asset-focus-match):not(.asset-focus-related-hover) { fill: #d4d4d4 !important; }
-svg line:not(.asset-focus-connector):not(.diagram-code-link-connector):not(.diagram-note-link),
-svg path:not(.diagram-note-box):not(.diagram-note-link),
-svg polyline:not(.asset-focus-connector):not(.diagram-code-link-connector) { stroke: #c5c5c5 !important; }
-svg polygon[fill="#FFFFFF"],
-svg polygon[fill="#FEFECE"],
-svg polygon[fill="#EEEEEE"],
-svg path[fill="#FEFECE"] { fill: #252526 !important; stroke: #c5c5c5 !important; }
-svg rect:not(.diagram-note-box):not(.diagram-code-link-badge-box) { fill: #252526 !important; stroke: #c5c5c5 !important; }
-svg path[fill="#FBFB77"] { fill: #3a3217 !important; stroke: #cca700 !important; }
-</style>
-"""
-    return re.sub(r"(<svg\b[^>]*>)", r"\1" + style, svg, count=1, flags=re.IGNORECASE)
 
 
 def _render_log_preview(log: LogAttachment, focus_terms: tuple[str, ...] = ()) -> str:
