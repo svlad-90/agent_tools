@@ -50,7 +50,8 @@ def render_html_report(
         parts.append(_render_note_section("Subject", subject))
     if commit_message:
         parts.append(_render_note_section("Commit Message", _commit_body_without_subject(commit_message)))
-    parts.append(_render_diff_stats_section(stats))
+    if source.diff_text.strip():
+        parts.append(_render_diff_stats_section(stats))
     if comments.summary or comments.summary_blocks:
         parts.append(_render_summary_section(comments))
     if comments.diagrams:

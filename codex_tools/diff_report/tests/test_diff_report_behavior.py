@@ -49,6 +49,28 @@ class DiffReportBehaviorTests(unittest.TestCase):
         self.assertIn("<strong>1</strong>", html)
         self.assertIn("print(&#x27;new&#x27;)", html)
 
+    def test_empty_diff_report_omits_diff_stats(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            diff_path = root / "empty.patch"
+            comments_path = root / "comments.json"
+            output = root / "report.html"
+            diff_path.write_text("", encoding="utf-8")
+            comments_path.write_text('{"summary": "Teaching summary"}\n', encoding="utf-8")
+
+            generate_report(
+                output_path=output,
+                title="Teaching report",
+                diff_file=diff_path,
+                comments_file=comments_path,
+            )
+
+            html = output.read_text(encoding="utf-8")
+
+        self.assertIn("Teaching summary", html)
+        self.assertNotIn("Diff Stats", html)
+        self.assertNotIn('<table class="diff"', html)
+
     def test_comment_artifact_and_story_variants_render(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)

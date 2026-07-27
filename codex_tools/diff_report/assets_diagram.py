@@ -325,6 +325,7 @@ def diagram_script() -> str:
       x: box.x + box.width / 2,
       y: box.y + box.height / 2,
     };
+    const sourceArea = Math.max(box.width * box.height, 1);
     let best = null;
     let bestArea = Infinity;
     for (const candidate of parent.querySelectorAll("rect, polygon, path")) {
@@ -336,6 +337,10 @@ def diagram_script() -> str:
       if (!candidateBox || candidateBox.width < box.width || candidateBox.height < box.height) {
         continue;
       }
+      const area = candidateBox.width * candidateBox.height;
+      if (area > Math.max(65000, sourceArea * 28)) {
+        continue;
+      }
       const containsCenter = center.x >= candidateBox.x
         && center.x <= candidateBox.x + candidateBox.width
         && center.y >= candidateBox.y
@@ -343,7 +348,6 @@ def diagram_script() -> str:
       if (!containsCenter) {
         continue;
       }
-      const area = candidateBox.width * candidateBox.height;
       if (area < bestArea) {
         best = candidate;
         bestArea = area;
@@ -383,6 +387,9 @@ def diagram_script() -> str:
 
   function isSvgConnector(node) {
     if (!node || !node.tagName) {
+      return false;
+    }
+    if (node.classList && node.classList.contains("diagram-note-link")) {
       return false;
     }
     const tag = node.tagName.toLowerCase();
@@ -796,14 +803,47 @@ def diagram_script() -> str:
     const margin = 18;
     const contentRect = content.getBoundingClientRect();
     const availableWidth = Math.max(180, contentRect.width - margin * 2);
-    const commentWidth = Math.min(520, availableWidth);
-    comment.style.width = commentWidth + "px";
+    const collapsed = comment.classList.contains("is-collapsed");
+    const commentWidth = collapsed ? 46 : Math.min(520, availableWidth);
+    if (collapsed) {
+      comment.style.removeProperty("width");
+    } else {
+      comment.style.width = commentWidth + "px";
+    }
     const sideMargin = mode === "log" ? margin + 30 : margin;
     const left = mode === "log"
       ? contentRect.right - commentWidth - sideMargin
       : contentRect.left + margin;
     const top = contentRect.top + margin;
     placeStoryComment(comment, left, top);
+  }
+
+  function toggleStoryComment(comment, toggle) {
+    const markerRect = toggle.getBoundingClientRect();
+    comment.classList.toggle("is-collapsed");
+    positionStoryComment(comment);
+    const nextMarkerRect = toggle.getBoundingClientRect();
+    const currentLeft = Number.parseFloat(comment.style.left || "0");
+    const currentTop = Number.parseFloat(comment.style.top || "0");
+    comment.style.left = (currentLeft + markerRect.left - nextMarkerRect.left) + "px";
+    comment.style.top = (currentTop + markerRect.top - nextMarkerRect.top) + "px";
+  }
+
+  function collapseOpenStoryComment(event) {
+    const comment = content.querySelector(".asset-story-comment:not(.is-collapsed)");
+    if (!comment || (event && event.target.closest(".asset-story-comment"))) {
+      return false;
+    }
+    const toggle = comment.querySelector(".asset-story-comment-toggle");
+    if (!toggle) {
+      comment.classList.add("is-collapsed");
+      positionStoryComment(comment);
+      requestExtraPaint(comment);
+      return true;
+    }
+    toggleStoryComment(comment, toggle);
+    requestExtraPaint(comment);
+    return true;
   }
 
   function placeStoryComment(comment, left, top) {
@@ -1240,13 +1280,29 @@ def diagram_script() -> str:
       return null;
     }
     const comment = document.createElement("div");
-    comment.className = "asset-story-comment";
+    comment.className = "asset-story-comment is-collapsed";
+    const toggle = document.createElement("button");
+    toggle.className = "asset-story-comment-toggle";
+    toggle.type = "button";
+    toggle.setAttribute("aria-label", "Toggle story note");
+    toggle.textContent = "?";
+    toggle.addEventListener("click", function (event) {
+      event.preventDefault();
+      event.stopPropagation();
+      toggleStoryComment(comment, toggle);
+      requestExtraPaint(comment);
+    });
+    const contentWrap = document.createElement("div");
+    contentWrap.className = "asset-story-comment-content";
     const label = document.createElement("strong");
     label.textContent = nextStoryContext.title || "Story note";
     const body = document.createElement("div");
+    body.className = "asset-story-comment-body";
     body.textContent = commentText;
-    comment.appendChild(label);
-    comment.appendChild(body);
+    contentWrap.appendChild(label);
+    contentWrap.appendChild(body);
+    comment.appendChild(toggle);
+    comment.appendChild(contentWrap);
     return comment;
   }
 
@@ -1450,6 +1506,11 @@ def diagram_script() -> str:
 
   content.addEventListener("pointerdown", function (event) {
     if (modal.hidden || mode !== "diagram" || event.button !== 0) {
+      return;
+    }
+    collapseOpenStoryComment(event);
+    if (event.target.closest(".asset-story-comment")) {
+      clearCodeLinkHover();
       return;
     }
     if (event.target.closest("button, input")) {

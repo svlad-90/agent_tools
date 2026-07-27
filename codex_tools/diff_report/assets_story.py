@@ -49,10 +49,6 @@ def story_script() -> str:
 	  }
 	
 	  function initVocabularyPopovers() {
-    const wraps = Array.from(document.querySelectorAll(".vocabulary-ref-wrap"));
-    if (!wraps.length) {
-      return;
-    }
     let activeWrap = null;
 
     function setStoryVocabularyPopover(wrap, open) {
@@ -135,20 +131,27 @@ def story_script() -> str:
       openVocabularyPopover(wrap);
     }
 
-    wraps.forEach(function (wrap) {
-      const trigger = wrap.querySelector(".vocabulary-ref");
-      if (trigger) {
-        trigger.addEventListener("click", function (event) {
-          event.preventDefault();
-          toggleVocabularyPopover(wrap);
-        });
-        trigger.addEventListener("keydown", function (event) {
-          if (event.key === "Enter" || event.key === " ") {
-            event.preventDefault();
-            toggleVocabularyPopover(wrap);
-          }
-        });
+    document.addEventListener("click", function (event) {
+      const trigger = event.target.closest(".vocabulary-ref");
+      const wrap = trigger ? trigger.closest(".vocabulary-ref-wrap") : null;
+      if (!wrap) {
+        return;
       }
+      event.preventDefault();
+      toggleVocabularyPopover(wrap);
+    });
+
+    document.addEventListener("keydown", function (event) {
+      if (event.key !== "Enter" && event.key !== " ") {
+        return;
+      }
+      const trigger = event.target.closest(".vocabulary-ref");
+      const wrap = trigger ? trigger.closest(".vocabulary-ref-wrap") : null;
+      if (!wrap) {
+        return;
+      }
+      event.preventDefault();
+      toggleVocabularyPopover(wrap);
     });
 
     document.addEventListener("pointerdown", function (event) {

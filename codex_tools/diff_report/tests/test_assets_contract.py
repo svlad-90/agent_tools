@@ -138,14 +138,31 @@ class AssetContractTests(unittest.TestCase):
             ".diagram-preview-canvas svg polyline:not(.asset-focus-connector):not(.diagram-code-link-connector)",
             ".diagram-preview-canvas svg polygon:not(.asset-focus-connector):not(.asset-focus-object):not(.diagram-code-link-connector)",
             "fill: var(--diagram-svg-arrow) !important; stroke: var(--diagram-svg-arrow) !important; stroke-width: 1.4px !important;",
-            "svg .asset-focus-object { fill: var(--diagram-svg-box-bg) !important; stroke: var(--diagram-focus) !important;",
+            "svg .asset-focus-connector { stroke: var(--diagram-focus) !important; stroke-width: 3px !important; opacity: .95; filter: none; }",
+            "svg polygon.asset-focus-connector { fill: var(--diagram-focus) !important; opacity: .95; filter: none; animation: none; }",
+            "svg line.asset-focus-connector, svg path.asset-focus-connector, svg polyline.asset-focus-connector { stroke-dasharray: 8 8; stroke-linecap: round; animation: focus-dash-flow 2.4s linear infinite; }",
+            "svg .asset-focus-object { fill: var(--diagram-focus) !important; fill-opacity: .08 !important; stroke: var(--diagram-focus) !important; stroke-width: 4px !important; stroke-dasharray: 8 8; stroke-linecap: round; stroke-linejoin: round; vector-effect: non-scaling-stroke; filter: drop-shadow(0 0 4px var(--diagram-focus-glow)); animation: focus-dash-flow 2.4s linear infinite; pointer-events: none; }",
+            "svg path.asset-focus-object, svg polyline.asset-focus-object, svg line.asset-focus-object { fill: none !important; fill-opacity: 0 !important; pointer-events: none; }",
+            "svg .asset-focus-match { fill: var(--diagram-focus) !important; stroke: none !important; filter: none; animation: none; }",
+            "svg .asset-focus-related-hover { stroke: var(--diagram-focus) !important; fill: var(--diagram-focus) !important; opacity: 1 !important; filter: none; }",
             "svg text.asset-focus-contained-text",
+            "svg .diagram-note-box.asset-focus-object { fill: var(--diagram-note-bg) !important; fill-opacity: 1 !important; stroke: var(--diagram-focus) !important; stroke-width: 4px !important; stroke-dasharray: 8 8; stroke-linecap: round; stroke-linejoin: round; vector-effect: non-scaling-stroke; filter: none; animation: focus-dash-flow 2.4s linear infinite; }",
+            "svg .diagram-note-link { fill: none; stroke: var(--diagram-focus); stroke-width: 1.4px; opacity: 0; filter: none; animation: none; }",
+            "svg .diagram-note-hover .diagram-note-link, svg .diagram-note-hotspot:hover .diagram-note-link { stroke: var(--diagram-focus); stroke-width: 1.4px; opacity: 0; filter: none; animation: none; }",
+            "svg .diagram-note-hover .diagram-note-box.asset-focus-object",
             ".asset-story-comment { position: fixed;",
+            "pointer-events: none; user-select: text;",
             ".asset-story-comment.is-positioned",
+            ".asset-story-comment.is-collapsed",
+            ".asset-story-comment.is-collapsed { width: 46px !important; height: 46px;",
+            ".asset-story-comment-toggle",
+            "width: 34px; height: 34px;",
+            "user-select: none;",
+            ".asset-story-comment-content",
             "background: var(--comment-bg); color: var(--text);",
             "opacity: 0; visibility: hidden; pointer-events: none;",
             "opacity: 1; visibility: visible; pointer-events: auto;",
-            ".asset-story-comment div { color: var(--text); font-size: clamp(17px, calc(var(--scaled-code-font) * 1.12), 21px);",
+            ".asset-story-comment-body { color: var(--text); font-size: clamp(17px, calc(var(--scaled-code-font) * 1.12), 21px);",
             ".diagram-story-nav { position: fixed;",
             "left: 0; right: 0; bottom: 0;",
             "grid-template-columns: minmax(0, 240px) 58px minmax(0, 240px);",
@@ -172,8 +189,6 @@ class AssetContractTests(unittest.TestCase):
             ".diagram-scroll.is-preparing-story-view .diagram-zoom-stage",
             "transition: font-size .16s ease;",
             "svg .asset-focus-object",
-            "focus-object-pulse",
-            "focus-label-pulse",
             ".diagram-code-popover { position: fixed;",
             "width: min(1120px, calc(100vw - 32px)); height: min(86vh, calc(100vh - 32px));",
             'polygon[fill="#FFFFFF"]',
@@ -200,6 +215,16 @@ class AssetContractTests(unittest.TestCase):
         self.assertEqual("Sun Mar 01 12:22:07 EET 2020", PINNED_PLANTUML_RELEASE_DATE)
         self.assertEqual("-Djava.awt.headless=true", PINNED_PLANTUML_HEADLESS_JAVA_OPTION)
         self.assertEqual("2.43.0", PINNED_GRAPHVIZ_DOT_VERSION)
+        self.assertNotIn("asset-focus-connector { stroke: var(--diagram-focus) !important; stroke-width: 3px !important; opacity: .95; filter: drop-shadow", styles)
+        self.assertNotIn("asset-focus-object { fill: var(--diagram-svg-box-bg)", styles)
+        self.assertNotIn("asset-focus-object { fill: var(--diagram-focus) !important; fill-opacity: .08 !important; stroke: var(--diagram-focus) !important; stroke-width: 4px !important; stroke-dasharray: 10 7; stroke-linecap: round; stroke-linejoin: round; vector-effect: non-scaling-stroke; filter: drop-shadow(0 0 4px rgba(255", styles)
+        self.assertNotIn("asset-focus-match { fill: var(--diagram-focus) !important; stroke: none !important; filter: drop-shadow", styles)
+        self.assertNotIn("asset-focus-related-hover { stroke: var(--diagram-focus) !important; fill: var(--diagram-focus) !important; opacity: 1 !important; filter: drop-shadow", styles)
+        self.assertNotIn("diagram-note-link { fill: none; stroke: var(--diagram-note-link); stroke-width: 1.8px; opacity: .95; filter: drop-shadow", styles)
+        self.assertNotIn("diagram-note-box.asset-focus-object { fill: var(--diagram-note-bg) !important; fill-opacity: 1 !important; stroke: var(--diagram-note-link)", styles)
+        self.assertNotIn("focus-object-pulse", styles)
+        self.assertNotIn("focus-label-pulse", styles)
+        self.assertNotIn("focus-arrow-pulse", styles)
 
     def test_theme_script_exposes_settings_and_text_scale_contracts(self) -> None:
         script = theme_script()
@@ -259,10 +284,13 @@ class AssetContractTests(unittest.TestCase):
         expected_fragments = [
 	            'document.querySelectorAll("[data-story-index]")',
 	            "function requestExtraPaint(node)",
-	            "function initVocabularyPopovers()",
+            "function initVocabularyPopovers()",
             "function openVocabularyPopover(wrap)",
             "function toggleVocabularyPopover(wrap)",
-            'document.querySelectorAll(".vocabulary-ref-wrap")',
+            'document.addEventListener("click", function (event)',
+            'document.addEventListener("keydown", function (event)',
+            'event.target.closest(".vocabulary-ref")',
+            'trigger.closest(".vocabulary-ref-wrap")',
             "function setStoryVocabularyPopover(wrap, open)",
             "storyPanel.classList.toggle(\"has-vocabulary-popover\", open);",
             "function closeActiveVocabularyPopover(exceptWrap)",
@@ -465,13 +493,27 @@ class AssetContractTests(unittest.TestCase):
             "modal.addEventListener(\"wheel\", function (event)",
             "content.scrollLeft += event.deltaX;",
             "mode !== \"diagram\" && mode !== \"log\"",
+            "collapseOpenStoryComment(event);",
+            "event.target.closest(\".asset-story-comment\")",
             "function scheduleFocusedArtifactView(target, storyZoom, storyComment)",
             "content.classList.remove(\"is-preparing-story-view\");",
             "const shouldCenterTarget = Boolean(target && (storyZoom || storyComment));",
             "function positionStoryComment(comment)",
             "const availableWidth = Math.max(180, contentRect.width - margin * 2);",
+            "const collapsed = comment.classList.contains(\"is-collapsed\");",
+            "const commentWidth = collapsed ? 46 : Math.min(520, availableWidth);",
+            "comment.style.removeProperty(\"width\");",
             "mode === \"log\"",
             "function createAssetStoryComment(nextStoryContext)",
+            "comment.className = \"asset-story-comment is-collapsed\";",
+            "toggle.className = \"asset-story-comment-toggle\";",
+            "toggle.textContent = \"?\";",
+            "function toggleStoryComment(comment, toggle)",
+            "const markerRect = toggle.getBoundingClientRect();",
+            "comment.classList.toggle(\"is-collapsed\");",
+            "comment.style.left = (currentLeft + markerRect.left - nextMarkerRect.left) + \"px\";",
+            "function collapseOpenStoryComment(event)",
+            "content.querySelector(\".asset-story-comment:not(.is-collapsed)\")",
             "comment.classList.add(\"is-positioned\");",
             "content.classList.toggle(\"is-preparing-story-view\", Boolean(nextStoryContext || storyZoom));",
             "detail: { status: \"open\", index: nextStoryContext.index }",
@@ -479,8 +521,11 @@ class AssetContractTests(unittest.TestCase):
 	            "requestExtraPaint(modal)",
 	            "requestExtraPaint(document.body)",
             "function closestSvgObjectShape(labelNode)",
+            "const sourceArea = Math.max(box.width * box.height, 1);",
+            "if (area > Math.max(65000, sourceArea * 28))",
             "function markSvgTextInsideShape(shape, sourceLabel)",
             "asset-focus-contained-text",
+            'node.classList.contains("diagram-note-link")',
             "codex-review-story-move",
             "asset-focus-object",
             "document.body.classList.add(\"has-diagram-open\")",

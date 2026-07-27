@@ -52,7 +52,8 @@ def stylesheet() -> str:
       --diagram-code-target-bg: rgba(255,232,166,.9);
       --diagram-code-target-border: #ca5010;
       --diagram-code-file: #0969da;
-      --diagram-focus: #1d4ed8;
+      --diagram-focus: #52657f;
+      --diagram-focus-glow: rgba(82,101,127,.32);
       --diagram-link: #107c10;
       --diagram-link-bg: #e9f5e9;
       --diagram-link-hover-bg: #deecf9;
@@ -146,6 +147,7 @@ def stylesheet() -> str:
       --diagram-code-target-border: #3794ff;
       --diagram-code-file: #9cdcfe;
       --diagram-focus: #9cdcfe;
+      --diagram-focus-glow: rgba(156,220,254,.42);
       --diagram-link: #4ec9b0;
       --diagram-link-bg: #173f3a;
       --diagram-link-hover-bg: #094771;
@@ -220,7 +222,7 @@ def stylesheet() -> str:
     .vocabulary-ref-wrap.is-open .vocabulary-ref { background: color-mix(in srgb, var(--comment-bg) 74%, var(--button-hover-bg)); box-shadow: 0 0 0 2px color-mix(in srgb, var(--comment-border) 28%, transparent); color: var(--link); }
     .vocabulary-ref-wrap.is-open .vocabulary-popover { opacity: 1; visibility: visible; pointer-events: auto; transform: translateY(0); transition-delay: 0s; }
     .review-summary-blocks { display: grid; gap: 12px; }
-    .review-summary { white-space: pre-line; overflow-wrap: anywhere; }
+    .review-summary { white-space: pre-line; overflow-wrap: anywhere; font-size: calc(var(--scaled-code-font) * 1.16); line-height: 1.58; }
     .review-summary-blocks .review-summary { margin: 0; }
     .summary-artifact-preview .diagram-preview-wrap { margin-top: 0; }
     .summary-artifact-preview .diagram-preview { width: min(760px, 100%); }
@@ -381,10 +383,15 @@ def stylesheet() -> str:
     .diagram-tools button { display: inline-flex; align-items: center; justify-content: center; min-width: 36px; height: 32px; padding: 0 10px; border: 1px solid var(--border); border-radius: 6px; background: var(--button-bg); color: var(--text); cursor: pointer; font: inherit; line-height: 1; }
     .diagram-tools button:hover { border-color: var(--link); color: var(--link); }
     .diagram-scroll { position: relative; flex: 1; min-height: 0; overflow: auto; padding: 18px; background: var(--diagram-bg); }
-    .asset-story-comment { position: fixed; left: 18px; top: 18px; z-index: 11; width: min(520px, calc(100% - 36px)); margin: 0; padding: 10px 12px; border: 1px solid var(--comment-panel-border); border-left: 4px solid var(--comment-border); border-radius: 6px; background: var(--comment-bg); color: var(--text); box-shadow: 0 8px 22px var(--shadow); opacity: 0; visibility: hidden; pointer-events: none; }
+    .asset-story-comment { position: fixed; left: 18px; top: 18px; z-index: 11; width: min(520px, calc(100% - 36px)); margin: 0; padding: 10px 12px 10px 48px; border: 1px solid var(--comment-panel-border); border-left: 4px solid var(--comment-border); border-radius: 6px; background: var(--comment-bg); color: var(--text); box-shadow: 0 8px 22px var(--shadow); opacity: 0; visibility: hidden; pointer-events: none; user-select: text; }
     .asset-story-comment.is-positioned { opacity: 1; visibility: visible; pointer-events: auto; }
+    .asset-story-comment.is-collapsed { width: 46px !important; height: 46px; padding: 0; border-left-width: 1px; border-color: var(--comment-border); border-radius: 999px; background: transparent; box-shadow: none; overflow: hidden; }
+    .asset-story-comment-toggle { position: absolute; left: 5px; top: 5px; display: inline-flex; align-items: center; justify-content: center; width: 34px; height: 34px; padding: 0; border: 2px solid var(--comment-border); border-radius: 999px; background: var(--comment-bg); color: var(--link); cursor: pointer; font: 900 24px/1 ui-monospace, SFMono-Regular, Consolas, monospace; box-shadow: 0 2px 8px var(--shadow); user-select: none; }
+    .asset-story-comment-toggle:hover { background: var(--button-hover-bg); color: var(--link); border-color: var(--link); }
+    .asset-story-comment-content { min-width: 0; }
+    .asset-story-comment.is-collapsed .asset-story-comment-content { display: none; }
     .asset-story-comment strong { display: block; margin-bottom: 4px; }
-    .asset-story-comment div { color: var(--text); font-size: clamp(17px, calc(var(--scaled-code-font) * 1.12), 21px); line-height: 1.48; white-space: pre-line; overflow-wrap: anywhere; }
+    .asset-story-comment-body { color: var(--text); font-size: clamp(17px, calc(var(--scaled-code-font) * 1.12), 21px); line-height: 1.48; white-space: pre-line; overflow-wrap: anywhere; }
     .diagram-story-nav { position: fixed; left: 0; right: 0; bottom: 0; z-index: 1004; display: grid; grid-template-columns: minmax(0, 240px) 58px minmax(0, 240px); justify-content: center; gap: 14px; width: auto; min-height: var(--story-nav-height); padding: 12px max(16px, env(safe-area-inset-right)) calc(12px + env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left)); border: 0; border-top: 1px solid var(--story-step-active-border); border-radius: 0; background: color-mix(in srgb, var(--panel) 90%, var(--story-step-active-bg)); box-shadow: 0 -16px 36px rgba(1, 4, 9, .42), 0 -1px 0 color-mix(in srgb, var(--story-step-active-border) 34%, transparent); }
     .diagram-story-nav button { display: inline-flex; align-items: center; justify-content: center; width: 100%; min-width: 0; height: 50px; padding: 0 18px; overflow: hidden; border: 1px solid var(--story-step-active-border); border-radius: 6px; background: var(--story-step-active-bg); color: var(--text); cursor: pointer; font: 800 clamp(18px, var(--scaled-body-font), 22px)/1.08 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; white-space: nowrap; text-overflow: ellipsis; box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--story-step-active-border) 22%, transparent); }
     .diagram-story-nav button:hover { border-color: var(--link); color: var(--link); background: var(--button-hover-bg); }
