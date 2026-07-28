@@ -7,21 +7,21 @@ running.
 
 ## Quick Start
 
-For the workspace Zephyr/Xen validation product, use the preset:
+For the workspace Zephyr/Xen validation product, keep the scenario in the task
+directory and pass it to the harness:
 
 ```sh
-python -m codex_tools.xen_harness.xen_qemu_harness \
-  --preset zephyr-xen-qemu \
-  --timeout-sec 10 \
-  --log-file zephyr-hypercalls/report/xen-wdt.log \
-  --dom0-bin zephyr-xenstore-client/dev/qemu-xen-zephyr-dom0-validation/zephyr_dom0/build-xenstore-srv-runtime-harness3/zephyr/zephyr.bin \
-  --domu-bin zephyr-hypercalls/dev/zephyr-xen-hypercalls/build-pr136-xen-wdt-fail-ch0/zephyr/zephyr.bin \
-  --expect domu1:'xen-wdt: fail channel 0' \
-  --expect xen:'Watchdog timer fired for domain 1'
+codex_tools/xen_harness/scripts/run-scenario.sh \
+  task/scripts/xen-harness-scenarios/scenario-name.json
 ```
 
-The preset supplies the Docker image, mounts, workdir, QEMU binary path, command
-line, and these defaults:
+The scenario file describes task-specific paths, build commands, expected
+markers, preflight ABI values, and runtime environment variables. The harness
+does not keep a built-in registry of task scenarios.
+
+Scenario files may use the `zephyr-xen-qemu` preset. The preset supplies the
+Docker image, mounts, workdir, QEMU binary path, command line, and these
+defaults:
 
 ```text
 XEN_STATIC_DOMU=0
@@ -32,6 +32,27 @@ DOMU_LOAD_ADDR=0x59000000
 `0x59000000` is inside the current Dom0 RAM bank. Keep
 `-DXEN_HARNESS_DOMU_IMAGE_LOAD_ADDR` in the Dom0 build matched to the same
 address.
+
+## Preflight
+
+Before QEMU starts, a scenario file can make the harness check:
+
+- the Dom0 and DomU `zephyr.bin` paths exist;
+- the DomU image size matches `XEN_HARNESS_DOMU_IMAGE_SIZE` in the Dom0
+  `CMakeCache.txt`;
+- the DomU load address matches `XEN_HARNESS_DOMU_IMAGE_LOAD_ADDR`;
+- the Dom0 control ABI matches the Xen runtime selected by the task scenario.
+
+For the current Xen 4.19 validation product, the expected ABI is:
+
+```text
+CONFIG_XEN_DOMCTL_INTERFACE_VERSION=0x17
+CONFIG_XEN_SYSCTL_INTERFACE_VERSION=0x15
+```
+
+If any configured preflight check fails, the harness exits before starting
+QEMU. That is intentional: ABI or image-size mismatches make runtime failures
+misleading.
 
 ## Output
 
