@@ -5,3 +5,7 @@ zephyr_library_sources_ifdef(
   CONFIG_XEN_HARNESS_DOMU_CONSOLE_COLLECTOR
   log_collector.c
 )
+zephyr_library_sources_ifdef(
+  CONFIG_XEN_HARNESS_DOMU_AUTOSTART
+  autostart_domain.c
+)

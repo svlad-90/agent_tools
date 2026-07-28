@@ -12,7 +12,7 @@ config XEN_HARNESS
 
 config XEN_HARNESS_DOMU_CONSOLE_COLLECTOR
 	bool "Collect DomU PV console output from Dom0"
-	depends on XEN_HARNESS && XEN_DOM0
+	depends on XEN_HARNESS && XEN_DOM0 && XEN_CONSOLE_SRV
 	help
 	  Starts a Dom0-side collector for DomU Xen PV console rings. DomU guests
 	  using the regular xen,hvc-uart console write to a shared Xen console
@@ -23,10 +23,19 @@ config XEN_HARNESS_DOMU_CONSOLE_COLLECTOR
 config XEN_HARNESS_DOMU_CONSOLE_SCAN_INTERVAL_MS
 	int "DomU console scan interval"
 	depends on XEN_HARNESS_DOMU_CONSOLE_COLLECTOR
-	default 100
+	default 20
 	help
 	  Period, in milliseconds, used by the collector thread when polling for
 	  new domain console data.
+
+config XEN_HARNESS_DOMU_CONSOLE_MAX_DOMAINS
+	int "Highest DomU domain ID scanned by the console collector"
+	depends on XEN_HARNESS_DOMU_CONSOLE_COLLECTOR
+	default 8
+	help
+	  Highest Xen domain ID the Dom0 collector polls for PV console output.
+	  Domain 0 is Dom0 itself, so the collector scans DomU domains 1 through
+	  this value.
 
 config XEN_HARNESS_DOMU_CONSOLE_STACK_SIZE
 	int "DomU console collector stack size"
@@ -37,5 +46,57 @@ config XEN_HARNESS_DOMU_CONSOLE_PRIORITY
 	int "DomU console collector thread priority"
 	depends on XEN_HARNESS_DOMU_CONSOLE_COLLECTOR
 	default 7
+
+config XEN_HARNESS_DOMU_AUTOSTART
+	bool "Create a DomU from Zephyr Dom0 during boot"
+	depends on XEN_HARNESS_DOMU_CONSOLE_COLLECTOR && XEN_DOMAIN_MANAGEMENT
+	help
+	  Creates one test DomU through xenlib after Zephyr Dom0 starts. This is
+	  intended for validation products that need normal Xenlib-created DomU
+	  resources such as XenStore and PV console rings instead of static
+	  dom0less domains described directly in Xen's boot device tree.
+
+config XEN_HARNESS_DOMU_AUTOSTART_NAME
+	string "Autostart DomU name"
+	depends on XEN_HARNESS_DOMU_AUTOSTART
+	default "xen-harness-domu"
+
+config XEN_HARNESS_DOMU_AUTOSTART_MEMORY_KB
+	int "Autostart DomU memory in KiB"
+	depends on XEN_HARNESS_DOMU_AUTOSTART
+	default 16384
+
+config XEN_HARNESS_DOMU_AUTOSTART_VCPUS
+	int "Autostart DomU vCPU count"
+	depends on XEN_HARNESS_DOMU_AUTOSTART
+	default 1
+
+config XEN_HARNESS_DOMU_AUTOSTART_DOMID
+	int "Autostart DomU domain ID"
+	depends on XEN_HARNESS_DOMU_AUTOSTART
+	default 1
+	help
+	  Domain ID passed to Xen's create-domain control operation. The runtime
+	  smoke disables Xen static DomU creation, so domain 1 is normally free.
+
+config XEN_HARNESS_DOMU_AUTOSTART_SSIDREF
+	int "Autostart DomU XSM security label ID"
+	depends on XEN_HARNESS_DOMU_AUTOSTART
+	default 12
+	help
+	  Xen Security Modules identify domain labels by a numeric SSID value.
+	  Zephyr-xenlib does not translate FLASK label strings, so this value must
+	  match the Xen build's generated flask.h. The default follows the
+	  zephyr-xenlib README example for domU_t, where SECINITSID_DOMU is 12.
+
+config XEN_HARNESS_DOMU_AUTOSTART_DELAY_MS
+	int "Autostart DomU boot delay"
+	depends on XEN_HARNESS_DOMU_AUTOSTART
+	default 500
+
+config XEN_HARNESS_DOMU_AUTOSTART_CMDLINE
+	string "Autostart DomU kernel command line"
+	depends on XEN_HARNESS_DOMU_AUTOSTART
+	default "console=hvc0"
 
 endmenu

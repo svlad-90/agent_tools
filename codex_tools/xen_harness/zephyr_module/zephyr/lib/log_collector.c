@@ -2,13 +2,122 @@
 
 #include <zephyr/kernel.h>
 #include <zephyr/sys/printk.h>
+#include <zephyr/sys/util.h>
+#include <zephyr/xen/generic.h>
+
+#include <domain.h>
+#include <xen_console.h>
 
 #include <xen_harness/log_collector.h>
+
+#ifndef CONFIG_XEN_HARNESS_DOMU_CONSOLE_MAX_DOMAINS
+#define CONFIG_XEN_HARNESS_DOMU_CONSOLE_MAX_DOMAINS 8
+#endif
+
+#define DOMU_FIRST_DOMID 1
+#define DOMU_MAX_DOMID CONFIG_XEN_HARNESS_DOMU_CONSOLE_MAX_DOMAINS
+#define DOMU_COUNT (DOMU_MAX_DOMID - DOMU_FIRST_DOMID + 1)
+#define LOG_LINE_BUFFER_SIZE 256
+
+BUILD_ASSERT(DOMU_MAX_DOMID >= DOMU_FIRST_DOMID);
+
+struct domu_console {
+	domid_t domid;
+	struct xencons_interface *intf;
+	char line[LOG_LINE_BUFFER_SIZE];
+	size_t line_len;
+	bool attached;
+};
 
 static K_THREAD_STACK_DEFINE(collector_stack,
 			     CONFIG_XEN_HARNESS_DOMU_CONSOLE_STACK_SIZE);
 static struct k_thread collector_thread;
 static bool collector_started;
+static struct domu_console domu_consoles[DOMU_COUNT];
+
+static struct domu_console *domu_console_for_id(domid_t domid)
+{
+	if (domid < DOMU_FIRST_DOMID || domid > DOMU_MAX_DOMID) {
+		return NULL;
+	}
+
+	return &domu_consoles[domid - DOMU_FIRST_DOMID];
+}
+
+static void flush_line(struct domu_console *console)
+{
+	if (console->line_len == 0) {
+		return;
+	}
+
+	console->line[console->line_len] = '\0';
+	printk("[xen-harness][domu%u] %s\n", console->domid, console->line);
+	console->line_len = 0;
+}
+
+static void append_char(struct domu_console *console, char ch)
+{
+	if (ch == '\r') {
+		return;
+	}
+
+	if (ch == '\n') {
+		flush_line(console);
+		return;
+	}
+
+	if (console->line_len == (sizeof(console->line) - 1)) {
+		flush_line(console);
+	}
+
+	console->line[console->line_len++] = ch;
+}
+
+static void console_feed_cb(char ch, void *cb_data)
+{
+	struct domu_console *console = cb_data;
+
+	append_char(console, ch);
+}
+
+static void attach_console(domid_t domid)
+{
+	struct domu_console *console = domu_console_for_id(domid);
+	struct xen_domain *domain;
+	int ret;
+
+	if (console == NULL || console->attached) {
+		return;
+	}
+
+	domain = get_domain(domid);
+	if (domain == NULL) {
+		return;
+	}
+
+	if (domain->console.ext_tid == NULL) {
+		put_domain(domain);
+		return;
+	}
+
+	console->domid = domid;
+	if (domain->f_dom0less) {
+		put_domain(domain);
+		return;
+	}
+
+	ret = set_console_feed_cb(domain, console_feed_cb, console);
+	if (ret < 0) {
+		printk("[xen-harness][dom0] failed to attach DomU%u console: %d\n",
+		       domid, ret);
+		put_domain(domain);
+		return;
+	}
+
+	console->attached = true;
+	printk("[xen-harness][dom0] attached DomU%u console\n", domid);
+	put_domain(domain);
+}
 
 static void collector_main(void *arg1, void *arg2, void *arg3)
 {
@@ -19,11 +128,10 @@ static void collector_main(void *arg1, void *arg2, void *arg3)
 	printk("[xen-harness][dom0] DomU console collector started\n");
 
 	while (true) {
-		/*
-		 * TODO: Drain DomU xencons_interface rings here. This module is
-		 * intentionally workspace-local so the implementation can use
-		 * Dom0-only Xen control ABI without touching upstream samples.
-		 */
+		for (domid_t domid = DOMU_FIRST_DOMID; domid <= DOMU_MAX_DOMID; domid++) {
+			attach_console(domid);
+		}
+
 		k_msleep(CONFIG_XEN_HARNESS_DOMU_CONSOLE_SCAN_INTERVAL_MS);
 	}
 }

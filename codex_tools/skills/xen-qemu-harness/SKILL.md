@@ -1,6 +1,6 @@
 ---
 name: xen-qemu-harness
-description: Run Xen/QEMU runtime checks through an externally supplied Docker runtime product while collecting raw, combined, Xen, Dom0, and DomU logs. Use when testing Zephyr or Xen changes that boot Xen with Dom0 and one or more DomU guests, need repeatable marker assertions across domains, or must keep samples free of test-only console workarounds.
+description: Run Xen/QEMU runtime checks through an externally supplied Docker runtime product while streaming one domain-prefixed log. Use when testing Zephyr or Xen changes that boot Xen with Dom0 and one or more DomU guests, need live marker assertions across domains, or must keep samples free of test-only console workarounds.
 ---
 
 # Xen QEMU Harness
@@ -11,6 +11,11 @@ APIs (`printk()` or `LOG_*`). Domain log collection belongs in this harness or
 in the runtime product, never in upstream sample code.
 
 ## Workflow
+
+0. Follow the workspace Xen/Zephyr ABI rule before runtime debugging:
+   `codex_tools/rules/xen-zephyr-abi.md`. The ABI check is mandatory before
+   investigating XSM, FLASK labels, domids, magic pages, console rings, image
+   loading, FDT generation, or hypercall behavior.
 
 1. Build the Dom0/DomU images with the task's normal build scripts.
    For Zephyr Dom0 runtimes, enable the workspace extra module instead of
@@ -31,58 +36,59 @@ in the runtime product, never in upstream sample code.
    codex_tools/xen_harness/zephyr_module/scripts/zephyr-extra-module-args.sh
    ```
 
-2. Run the bundled harness from the workspace root:
+2. Run the bundled harness from the workspace root. Prefer the reusable
+   Zephyr/Xen preset and one combined log:
 
    ```sh
    python -m codex_tools.xen_harness.xen_qemu_harness \
-     --out-dir task/report/runtime/name \
-     --docker-image image-name:tag \
-     --mount /host/runtime:/home/builder/workspace \
-     --mount /home/user/workspace:/workspace \
-     --docker-workdir /home/builder/workspace \
-     --env QEMU_BIN=/path/in/container/qemu-system-aarch64 \
-     --env DOMU_BIN=/workspace/task/dev/build/zephyr/zephyr.bin \
-     --cmd 'bash ./scripts/gen-xen-dtb.sh /tmp/run.yaml >/dev/null && ./run/run-qemu.sh' \
+     --preset zephyr-xen-qemu \
+     --timeout-sec 10 \
+     --log-file task/report/runtime.log \
+     --dom0-bin path/to/dom0/zephyr.bin \
+     --domu-bin path/to/domu/zephyr.bin \
      --expect xen:'Watchdog timer fired for domain 1'
    ```
 
-3. Inspect generated logs in `--out-dir`:
-   `raw.log`, `combined.log`, `xen.log`, `dom0.log`, `domu<N>.log`,
-   `unknown.log`, and `summary.json`.
+3. Inspect the generated `--log-file`. The harness streams this file while the
+   process is running and stops the process early once all requested markers
+   and required sources have been observed. Use `--no-stop-on-match` when the
+   process must continue until it exits or reaches `--timeout-sec`.
 
 ## Log Model
 
-The harness always captures the complete process stdout/stderr as `raw.log`.
-It then creates a best-effort split of the shared Xen serial stream:
+The harness streams process stdout/stderr directly into the configured
+`--log-file`. It does a best-effort classification for each line as it arrives:
 
-- lines prefixed by `(XEN)` go to `xen.log`;
+- lines prefixed by `(XEN)` are tagged `[xen]`;
+- QEMU or host process lines are tagged `[host]`;
 - Xen `Serial input to DOM<N>` notices update the active guest for following
   non-Xen serial lines;
-- non-Xen lines go to the active guest log, or `unknown.log` when no active
-  guest is known;
-- `combined.log` prefixes every line with its inferred source.
+- lines emitted by the workspace Dom0 collector, such as
+  `[xen-harness][domu1]`, are tagged from that embedded domain marker;
+- non-Xen lines are tagged with the active guest, or `[unknown]` when no active
+  guest is known.
 
-This split is useful but not magic. If the runtime product does not expose a
-DomU console on stdout or a separate file, DomU `printk()` markers will remain
-absent. Treat that as a runtime/harness visibility issue, not a reason to add
+This classification is useful but not magic. If the runtime product does not
+expose a DomU console on stdout, DomU `printk()` markers will remain absent.
+Treat that as a runtime/harness visibility issue, not a reason to add
 `HYPERVISOR_console_io()` calls to the sample.
 
 For Zephyr Dom0 validation products, DomU output must be collected by the
 workspace Zephyr module under `codex_tools/xen_harness/zephyr_module`. The
 module is the local equivalent of Linux Dom0 `xenconsoled`: it drains DomU Xen
-PV console rings and emits domain-tagged lines that the host harness can split
-into `domu<N>.log`. Runtime products should enable or disable the module by
-configuration only.
-
-When the runtime product can emit separate console files, pass them with
-`--source name=/host/path.log`; those logs are copied into `--out-dir` and
-included in marker checks.
+PV console rings and emits domain-tagged lines that the host harness preserves
+in the streamed combined log. Runtime products should enable or disable the
+module by configuration only.
 
 ## Assertions
 
 Use `--expect source:text` for required markers. Sources are `raw`, `combined`,
-`xen`, `dom0`, `domu1`, `unknown`, or a custom `--source` name. A missing
-marker makes the harness exit non-zero after writing `summary.json`.
+`host`, `xen`, `dom0`, `domu1`, or `unknown`. A missing marker makes the
+harness exit non-zero after `--timeout-sec`.
+
+Use `--require-source SOURCE` when the test must prove that a source log is
+non-empty, for example `--require-source domu1`. This is useful for separating
+"Xen observed the behavior" from "the harness can actually see DomU output".
 
 For manual Xen serial input switching, use `--xen-switch-at SECONDS`. The
 harness writes the doubled QEMU stdio-mux escape sequence needed to deliver

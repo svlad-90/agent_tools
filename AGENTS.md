@@ -15,6 +15,7 @@ Current rule files:
 - `codex_tools/rules/git-commits.md`
 - `codex_tools/rules/diff-reports.md`
 - `codex_tools/rules/workspace-skills.md`
+- `codex_tools/rules/xen-zephyr-abi.md`
 
 Workspace-local skills live under `codex_tools/skills/`. When a task matches a
 workspace-local skill, read that skill's `SKILL.md` before acting and follow it
