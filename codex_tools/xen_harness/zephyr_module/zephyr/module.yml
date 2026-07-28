@@ -1,0 +1,4 @@
+name: xen-harness
+build:
+  cmake: zephyr
+  kconfig: zephyr/Kconfig

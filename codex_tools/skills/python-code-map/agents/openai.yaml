@@ -1,0 +1,4 @@
+interface:
+  display_name: "Python Code Map"
+  short_description: "Inspect and safely edit Python with AST maps"
+  default_prompt: "Use $python-code-map to inspect a Python file, edit a guarded symbol, and validate it with parse-check."

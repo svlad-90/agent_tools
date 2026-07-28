@@ -1,0 +1,4 @@
+interface:
+  display_name: "Xen QEMU Harness"
+  short_description: "Run Xen/QEMU and collect domain logs"
+  default_prompt: "Use $xen-qemu-harness to run a Xen/QEMU runtime test and collect per-domain logs."

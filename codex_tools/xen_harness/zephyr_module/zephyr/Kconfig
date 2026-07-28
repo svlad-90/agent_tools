@@ -1,0 +1,41 @@
+# SPDX-License-Identifier: Apache-2.0
+
+menu "Xen runtime harness"
+
+config XEN_HARNESS
+	bool "Xen runtime harness support"
+	depends on XEN
+	help
+	  Enables reusable helpers for Xen/QEMU validation products. This module
+	  belongs to the workspace harness layer; it must not be enabled by
+	  upstream samples just to make local logs easier to collect.
+
+config XEN_HARNESS_DOMU_CONSOLE_COLLECTOR
+	bool "Collect DomU PV console output from Dom0"
+	depends on XEN_HARNESS && XEN_DOM0
+	help
+	  Starts a Dom0-side collector for DomU Xen PV console rings. DomU guests
+	  using the regular xen,hvc-uart console write to a shared Xen console
+	  page, not directly to QEMU serial. A normal Linux Dom0 would run
+	  xenconsoled to drain those rings. This option provides the equivalent
+	  validation-product hook for Zephyr Dom0 runtime images.
+
+config XEN_HARNESS_DOMU_CONSOLE_SCAN_INTERVAL_MS
+	int "DomU console scan interval"
+	depends on XEN_HARNESS_DOMU_CONSOLE_COLLECTOR
+	default 100
+	help
+	  Period, in milliseconds, used by the collector thread when polling for
+	  new domain console data.
+
+config XEN_HARNESS_DOMU_CONSOLE_STACK_SIZE
+	int "DomU console collector stack size"
+	depends on XEN_HARNESS_DOMU_CONSOLE_COLLECTOR
+	default 2048
+
+config XEN_HARNESS_DOMU_CONSOLE_PRIORITY
+	int "DomU console collector thread priority"
+	depends on XEN_HARNESS_DOMU_CONSOLE_COLLECTOR
+	default 7
+
+endmenu

@@ -1,0 +1,4 @@
+interface:
+  display_name: "YAML Map"
+  short_description: "Inspect and safely edit YAML by path"
+  default_prompt: "Use $yaml-map to inspect a YAML file, apply a guarded path edit, and validate it with parse-check."

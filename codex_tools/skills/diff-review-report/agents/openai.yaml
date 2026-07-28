@@ -1,0 +1,4 @@
+interface:
+  display_name: "Diff Review Report"
+  short_description: "Generate annotated HTML diff reports"
+  default_prompt: "Use $diff-review-report to generate an annotated HTML review report for this repository diff."

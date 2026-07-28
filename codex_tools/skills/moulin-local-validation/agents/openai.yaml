@@ -1,0 +1,4 @@
+interface:
+  display_name: "Moulin Local Validation"
+  short_description: "Run Moulin CI locally with act"
+  default_prompt: "Use $moulin-local-validation to run the Moulin pull_request build workflow locally."

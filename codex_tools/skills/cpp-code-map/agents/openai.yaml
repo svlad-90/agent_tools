@@ -1,0 +1,4 @@
+interface:
+  display_name: "C++ Code Map"
+  short_description: "Inspect and safely edit C/C++ with libclang"
+  default_prompt: "Use $cpp-code-map to inspect a C++ file, edit a guarded symbol, and validate it with parse-check."

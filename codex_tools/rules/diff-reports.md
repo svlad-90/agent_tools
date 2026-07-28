@@ -142,7 +142,7 @@ directories.
       "summary_blocks": [
         {"type": "text", "body": "What changed and why the evidence below matters."},
         {"type": "diagram", "diagram": "after-flow", "diagram_focus": ["registered selector"]},
-        {"type": "text", "body": "What the runtime proof demonstrates."},
+        {"type": "text", "body": "What the runtime evidence shows."},
         {"type": "log", "log": "runtime", "log_focus": ["PASS"]}
       ]
     }
@@ -151,6 +151,24 @@ directories.
     Summary artifact previews should behave like the same artifacts attached to
     file-level or inline comments: clicking a diagram opens the diagram modal,
     clicking a log opens the log modal, and any focus fields apply only to that
-    preview. Use this format for validation evidence such as build logs,
+    preview. This format is appropriate for validation evidence such as build logs,
     runtime logs, trace captures, and diagrams that explain why the observed
     result proves the reviewed change works.
+15. Write report prose in a human mentoring voice, as if patiently explaining
+    the change to a capable reader who is learning this subsystem. Avoid
+    mechanical navigation labels and process phrases such as "before the diff",
+    "before the runtime proof", "use this summary", or "proof anchor" in the
+    rendered report. Prefer direct, kind explanations of what the reader is
+    seeing, why it matters, what could break without it, and then the exact
+    symbol, file, or API name.
+16. Future extension idea: diff reports could offer an optional local
+    "Ask about this selection" assistant bridge. Keep this out of generated
+    reports until intentionally implemented. A reasonable design is:
+    selection-aware report UI collects selected text plus nearby file, line,
+    comment, diagram, or log context; a task-local server bound only to
+    `127.0.0.1` receives questions through POST; the server requires a random
+    session token; the first implementation can append requests to a
+    task-local JSONL queue; a later implementation can own a separate Codex or
+    model subprocess and stream replies back through SSE or WebSocket. Do not
+    embed API keys in self-contained HTML, and do not try to write into an
+    existing interactive terminal session from browser JavaScript.
