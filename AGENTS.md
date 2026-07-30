@@ -10,8 +10,8 @@ Current rule files:
 
 - `codex_tools/rules/python-code.md`
 - `codex_tools/rules/cpp-code.md`
+- `codex_tools/rules/task-workflow.md`
 - `codex_tools/rules/reusable-environments.md`
-- `codex_tools/rules/findings.md`
 - `codex_tools/rules/git-commits.md`
 - `codex_tools/rules/diff-reports.md`
 - `codex_tools/rules/workspace-skills.md`
@@ -20,6 +20,10 @@ Current rule files:
 Workspace-local skills live under `codex_tools/skills/`. When a task matches a
 workspace-local skill, read that skill's `SKILL.md` before acting and follow it
 in addition to the rule files above.
+
+Recurring findings live under `codex_tools/knowledge/`. Before starting a task,
+read `codex_tools/knowledge/README.md`, identify matching topic files, and scan
+those findings for known patterns that could save investigation time.
 
 ## Task layout
 
@@ -41,11 +45,10 @@ workspace root. Each task directory must use this layout:
   `.puml` diagram added or changed for a task must be rendered to an adjacent
   `.svg` file before the task is considered complete.
 
-Diff/review reports must be delivered as GitHub-style HTML generated with
-`python -m codex_tools.diff_report`. Place the generated HTML, the comments
-JSON used by the tool, and the source diff/patch under `report/diff/`.
-Markdown files may be used for short notes or navigation, but they are not a
-substitute for the HTML diff review report.
+Diff/review reports must be delivered as GitHub-style HTML under
+`report/diff/`; follow `codex_tools/rules/diff-reports.md` for the artifact
+set and generation workflow. Markdown files may be used for short notes or
+navigation, but they are not a substitute for the HTML diff review report.
 
 Comments in diff reports, diagrams, and explanatory notes must be written for a
 reader with strong application, middleware, and architecture experience but
@@ -58,13 +61,15 @@ and only then name the exact variable, register, constant, or API. When several
 low-level terms are involved, repeat the role of each term locally instead of
 assuming the reader remembers it from earlier comments.
 
-When updating an existing diff/review report for the same task or review scope,
-replace the old artifacts instead of keeping stale alternatives. Remove any
-superseded HTML, JSON, diff, or patch files for the old version once the new
-report has been generated and verified.
-
 Before working inside a task directory, read that task's `TASK_CONTEXT.md` and
 keep it updated as the task progresses.
+
+Keep `TASK_CONTEXT.md` as active working context, not an indefinite historical
+log. By default it should contain the current goal, current repository state,
+important decisions, validation status, blockers, and enough recent detail from
+roughly the last 2-3 days to continue work reliably. Move long history,
+superseded attempts, and old investigation details into `report/` artifacts
+when they still need to be preserved.
 
 Move repeated routine work into `scripts/` when doing so is useful. The decision
 to create or use a script is left to the model's judgment; prefer scripts when

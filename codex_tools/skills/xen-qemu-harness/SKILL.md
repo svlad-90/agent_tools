@@ -17,9 +17,15 @@ in the runtime product, never in upstream sample code.
    investigating XSM, FLASK labels, domids, magic pages, console rings, image
    loading, FDT generation, or hypercall behavior.
 
-1. Build the Dom0/DomU images with the task's normal build scripts.
-   For Zephyr Dom0 runtimes, enable the workspace extra module instead of
-   copying collector code into the task:
+1. Build Xen, QEMU runtime inputs, Dom0, DomU images, generated device trees,
+   initramfs images, launch scripts, and helper binaries through the task's
+   Moulin product under `task/dev/` by default. Run the build inside the
+   matching Docker-backed environment from `codex_tools/environments/`.
+   If no suitable environment exists, extend the closest one or create a new
+   reusable environment before treating runtime results as reproducible.
+
+   For Zephyr Dom0 runtimes, enable the workspace extra module from the Moulin
+   product or build script instead of copying collector code into the task:
 
    ```sh
    west build ... -- \
@@ -36,21 +42,26 @@ in the runtime product, never in upstream sample code.
    codex_tools/xen_harness/zephyr_module/scripts/zephyr-extra-module-args.sh
    ```
 
-2. Run the bundled harness from the workspace root. Prefer task-owned scenario
-   files for workspace validations:
+2. Run the bundled harness from the workspace root through a task-owned
+   scenario file. The scenario is the stable launch contract between the Moulin
+   product and the harness:
 
    ```sh
    codex_tools/xen_harness/scripts/run-scenario.sh \
      task/scripts/xen-harness-scenarios/scenario-name.json
    ```
 
-   A scenario file lives with the task, not in the harness. It can build the
-   DomU image, normalize workspace paths, check Dom0/DomU image-size and
-   load-address compatibility, check the Dom0 control ABI expected by the
-   selected Xen/QEMU product, then run the one-log harness.
+   A scenario file lives with the task, not in the harness. It should normalize
+   workspace paths, identify the Docker environment, consume the Moulin-built
+   target artifacts, check Dom0/DomU image-size and load-address compatibility,
+   check the Dom0 control ABI expected by the selected Xen/QEMU product, then
+   run QEMU with Xen and the selected target domains through the one-log
+   harness.
 
-3. Use the reusable Zephyr/Xen preset directly only for one-off validation
-   where a task scenario file would add more overhead than clarity:
+3. Use the reusable Zephyr/Xen preset directly only for explicitly scoped
+   one-off validation where a task scenario file would add more overhead than
+   clarity. Record the exception and the exact artifact paths in
+   `TASK_CONTEXT.md`:
 
    ```sh
    python -m codex_tools.xen_harness.xen_qemu_harness \

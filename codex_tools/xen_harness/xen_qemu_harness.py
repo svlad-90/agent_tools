@@ -18,6 +18,7 @@ from pathlib import Path
 
 
 XEN_SWITCH_BYTES = b"\x01\x01\x01\x01\x01\x01"
+XEN_SWITCH_TEXT = XEN_SWITCH_BYTES.decode("latin1")
 SERIAL_INPUT_RE = re.compile(r"\(XEN\) \*\*\* Serial input to DOM(\d+)")
 HARNESS_DOMAIN_RE = re.compile(r"\[xen-harness\]\[(dom0|domu\d+|xen|host)\]")
 XEN_GUEST_PREFIX_RE = re.compile(r"^\(d(\d+)\) ")
@@ -497,7 +498,7 @@ def write_stdin_events(
         if delay > 0:
             time.sleep(delay)
         try:
-            stdin.write(XEN_SWITCH_BYTES)
+            stdin.write(XEN_SWITCH_TEXT)
             stdin.flush()
         except BrokenPipeError:
             return

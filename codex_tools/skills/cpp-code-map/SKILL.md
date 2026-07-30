@@ -1,6 +1,6 @@
 ---
 name: cpp-code-map
-description: Navigate, inspect, safely edit, validate, and audit C/C++ source files with the workspace codex_tools.cpp_code_map libclang-based tool. Use when Codex works on C or C++ code, needs symbol maps, guarded symbol/body edits, compile_commands.json based parsing, include insertion, batch edits, parse-check validation, or DMA_Plantuml puml-audit checks.
+description: Navigate, inspect, safely edit, and audit C/C++ source files with the workspace codex_tools.cpp_code_map libclang-based tool. Use when Codex works on C or C++ code, needs exact symbol maps, guarded symbol/body edits, compile_commands.json based parsing, include insertion, batch edits, or DMA_Plantuml puml-audit checks in the real build environment.
 ---
 
 # C++ Code Map
@@ -69,9 +69,10 @@ python -m codex_tools.cpp_code_map replace-symbol-body path/to/file.c \
 
 Use `--check-only` first for risky edits or large translation units.
 
-## Validation
+## Fast Parse Feedback
 
-After every C/C++ edit, run parse-check on each changed source file:
+Use parse-check when it gives useful fast feedback in the same build
+environment:
 
 ```sh
 python -m codex_tools.cpp_code_map parse-check path/to/file.c --compile-db build
@@ -84,6 +85,9 @@ database is unavailable or incomplete.
 For Docker or cross builds, run `cpp_code_map` inside the same environment that
 created `compile_commands.json` so compiler paths, generated headers, sysroots,
 and module paths exist.
+
+The authoritative validation remains the project's normal build, test, or
+runtime workflow. `parse-check` does not replace that validation.
 
 ## DMA_Plantuml Audit
 

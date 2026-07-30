@@ -1,23 +1,29 @@
 # Xen QEMU Harness
 
 Reusable Xen/QEMU runtime harness for Zephyr and zephyr-xenlib tests. It runs a
-QEMU command directly or through Docker, streams stdout and stderr into one
+QEMU command through a task-owned scenario, streams stdout and stderr into one
 domain-prefixed log file, and checks markers while the process is still
-running.
+running. Workspace runtime validations should consume target artifacts built by
+a task-owned Moulin product and run QEMU/Xen inside the matching Docker-backed
+environment.
 
 ## Quick Start
 
-For the workspace Zephyr/Xen validation product, keep the scenario in the task
-directory and pass it to the harness:
+For a workspace Zephyr/Xen validation product, build the target artifacts with
+the task-owned Moulin product under `task/dev/`, then keep the launch scenario
+in the task directory and pass it to the harness:
 
 ```sh
 codex_tools/xen_harness/scripts/run-scenario.sh \
   task/scripts/xen-harness-scenarios/scenario-name.json
 ```
 
-The scenario file describes task-specific paths, build commands, expected
+The scenario file describes task-specific paths to Moulin-built artifacts, the
+Docker environment used to run QEMU/Xen, selected target domains, expected
 markers, preflight ABI values, and runtime environment variables. The harness
 does not keep a built-in registry of task scenarios.
+See `codex_tools/xen_harness/SCENARIO_SCHEMA.md` for the recommended scenario
+contract.
 
 Scenario files may use the `zephyr-xen-qemu` preset. The preset supplies the
 Docker image, mounts, workdir, QEMU binary path, command line, and these
@@ -106,7 +112,8 @@ loading is reached.
 
 ## Generic Mode
 
-For other Xen/QEMU products, pass the command explicitly:
+For other Xen/QEMU products or explicitly scoped one-off experiments, pass the
+command explicitly:
 
 ```sh
 python -m codex_tools.xen_harness.xen_qemu_harness \
@@ -116,5 +123,7 @@ python -m codex_tools.xen_harness.xen_qemu_harness \
   --expect xen:'Booting domain'
 ```
 
-Use `--docker-image`, `--mount`, `--docker-workdir`, and `--env KEY=VALUE` only
-when the command needs Docker.
+Use `--docker-image`, `--mount`, `--docker-workdir`, and `--env KEY=VALUE` to
+run that command in the same Docker image that owns the runtime product. Record
+one-off direct artifact paths in the task `TASK_CONTEXT.md` so later validation
+does not accidentally depend on stale host outputs.

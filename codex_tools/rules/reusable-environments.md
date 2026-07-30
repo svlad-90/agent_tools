@@ -58,11 +58,21 @@ context.
    to generate a usable `compile_commands.json` for `cpp_code_map`. For Zephyr
    work this includes the Zephyr SDK, `west`, generated headers, and any QEMU,
    Xen, or board-specific tooling needed by the validation workflow.
-9. Document the exact commands for checking, building, entering, and validating
+9. For tasks that need a reusable build or runtime environment, first look for
+   an existing matching directory under `codex_tools/environments/`. If none
+   fits, extend the closest existing environment when the dependency set and
+   workflow are the same, or create a new environment when the task needs a
+   distinct toolchain, SDK, emulator, hypervisor, CI runner, or runtime product.
+   Do not leave required target-build tooling only in task-local shell history.
+10. Docker-backed environments that build target artifacts must provide a
+    stable way to run workspace tools inside the image, including
+    `cpp_code_map` against the generated compile database when C/C++ source
+    analysis is needed.
+11. Document the exact commands for checking, building, entering, and validating
    the environment. The README should also describe expected mount points and
    repository layout, for example which task directory is mounted as work
    input, where Zephyr repositories live, where generated build directories are
    written, and where logs are stored.
-10. Agent-only notes are allowed in the README, but only as secondary guidance:
+12. Agent-only notes are allowed in the README, but only as secondary guidance:
    they may explain recommended mount folders, repository placement, or common
    task layouts. They are not a substitute for runnable scripts.

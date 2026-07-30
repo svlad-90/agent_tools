@@ -1,0 +1,58 @@
+# Copy this template into a task's dev/ tree for runtime products that combine
+# multiple target artifacts. Keep paths task-relative when practical.
+
+product:
+  name:
+  moulin_path:
+  environment:
+  build_command:
+
+sources:
+  xen:
+    path:
+    revision:
+  qemu:
+    path:
+    revision:
+  zephyr:
+    path:
+    revision:
+  modules: []
+  yocto_layers: []
+
+artifacts:
+  xen_image:
+  qemu_binary:
+  device_trees: []
+  initramfs: []
+  launch_scripts: []
+  helpers: []
+
+domains:
+  - name: dom0
+    role: control
+    image:
+    config:
+    compile_database:
+  - name: domu1
+    role: tested-client
+    image:
+    config:
+    compile_database:
+
+harness:
+  scenario:
+  runtime_command:
+  log:
+  expected_markers: []
+
+validation:
+  static:
+    status: not run
+    evidence:
+  build:
+    status: not run
+    evidence:
+  runtime:
+    status: not run
+    evidence:

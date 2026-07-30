@@ -344,3 +344,18 @@ Use `log_focus` on a specific file-level or inline comment link when the same
 reusable log should open with context-specific lines highlighted. The focus
 terms are matched against full log lines and are applied only when the log is
 opened from that particular comment link.
+
+## Future Ideas
+
+A future report version could offer an optional local "Ask about this
+selection" assistant bridge. Keep this out of generated reports until it is
+intentionally implemented.
+
+A reasonable design would let selection-aware report UI collect selected text
+plus nearby file, line, comment, diagram, or log context. A task-local server
+bound only to `127.0.0.1` could receive questions through `POST`, require a
+random session token, and append the first implementation's requests to a
+task-local JSONL queue. A later implementation could own a separate Codex or
+model subprocess and stream replies back through SSE or WebSocket. Do not
+embed API keys in self-contained HTML, and do not try to write into an existing
+interactive terminal session from browser JavaScript.
