@@ -62,8 +62,12 @@ misleading.
 
 ## Output
 
-`--log-file` is the only harness output. It writes one combined log and does
-not create split logs or `summary.json`.
+`--log-file` writes the combined harness log. By default QEMU stdout/stderr is
+the only input stream. For products that can route consoles to separate QEMU
+chardev files, pass `--follow-log SOURCE:PATH` for each sidecar log. The
+harness tails those files while QEMU is still running, prefixes each line with
+the configured source, and applies `--expect SOURCE:...` live instead of
+waiting for post-run analysis.
 
 Each line is prefixed with the inferred source:
 
@@ -78,6 +82,108 @@ The harness checks `--expect` and `--require-source` while streaming. Once all
 requested markers and sources are present, it terminates the QEMU process group
 instead of waiting for `--timeout-sec`. Pass `--no-stop-on-match` when a run
 must continue after markers are found.
+
+Example for a QEMU primary serial routed to a file:
+
+```sh
+QEMU_CONSOLE_BACKEND=file \
+QEMU_CONSOLE_LOG=report/runtime/qemu-primary.log \
+python -m codex_tools.xen_harness.xen_qemu_harness \
+  --cmd './run/run-qemu.sh' \
+  --timeout-sec 60 \
+  --follow-log xen:report/runtime/qemu-primary.log \
+  --expect xen:'PR103 REVIEW PROBE PASS' \
+  --log-file report/runtime/harness-combined.log
+```
+
+For interactive console tests, prefer a QEMU Unix socket chardev when the
+product supports it. The harness connects to the socket, reads it as a named
+source, and sends timed input to the same bidirectional endpoint:
+
+```sh
+QEMU_CONSOLE_BACKEND=socket \
+QEMU_CONSOLE_SOCKET=report/runtime/qemu-primary.sock \
+python -m codex_tools.xen_harness.xen_qemu_harness \
+  --cmd './run/run-qemu.sh' \
+  --timeout-sec 60 \
+  --console-socket primary:report/runtime/qemu-primary.sock \
+  --send-xen-switch-at 4 \
+  --expect primary:'PR103 REVIEW PROBE PASS' \
+  --log-file report/runtime/harness-combined.log
+```
+
+## Scripted Input
+
+The harness can send timed input to QEMU stdin. This is useful for switching
+the Xen console to Dom0 and running shell diagnostics while a guest test is
+still running.
+
+```sh
+python -m codex_tools.xen_harness.xen_qemu_harness \
+  --cmd './run/run-qemu.sh' \
+  --timeout-sec 60 \
+  --send-xen-switch-at 9 \
+  --send-line-at '11:root' \
+  --send-line-at '13:systemctl status xenstore-init-dom0less.service --no-pager' \
+  --send-line-at '15:xenstore-ls -fp /local/domain/1/device || true' \
+  --log-file task/report/runtime/dom0-diag.log
+```
+
+`--send-at TIME:TEXT` sends decoded text exactly as provided.
+`--send-line-at TIME:TEXT` appends a newline. Both decode common escape
+sequences such as `\n` and `\x01`. `--send-xen-switch-at TIME` sends the Xen
+console-switch control sequence. The older `--xen-switch-at TIME` option is
+kept as a compatibility alias.
+
+## Product Integrations
+
+The reusable console contract is:
+
+```text
+[xen-harness][domu<N>] guest log line
+```
+
+The Python harness maps those records to source `domu<N>` while streaming the
+combined log. This keeps Linux Dom0, Zephyr Dom0, and arbitrary DomU guests on
+one test-facing convention: guests write to their Xen PV console, and the Dom0
+side collector exports the per-domain records.
+
+### Linux Dom0
+
+Use the reusable Yocto layer at
+`codex_tools/xen_harness/linux_yocto_layer/meta-xen-harness`. Add the layer to
+the product `bblayers.conf`, then add:
+
+```bitbake
+IMAGE_INSTALL:append = " xen-harness-console"
+```
+
+The package installs `xen-harness-console.service`, which runs after
+`xenconsoled` and emits framed harness records. In `auto` mode it starts both
+the standard `xenconsole <domid>` collector for toolstack-created PV consoles
+and an `xl dmesg` collector for dom0less ARM guests whose VPL011 output appears
+as `(XEN) DOM<N>:` hypervisor-log records. Configure domain IDs and backend
+selection through `/etc/default/xen-harness-console`. For deterministic shell
+proofs, run the installed script with `XEN_HARNESS_CONSOLE_BACKEND=xen-dmesg`
+and `XEN_HARNESS_CONSOLE_ONESHOT=1` to dump the current Xen ring once and
+return to the shell.
+
+### Zephyr Dom0
+
+Use `codex_tools/xen_harness/zephyr_module` as a Zephyr extra module and enable:
+
+```text
+CONFIG_XEN_HARNESS=y
+CONFIG_XEN_HARNESS_DOMU_CONSOLE_COLLECTOR=y
+```
+
+The Zephyr collector reads DomU Xen PV console rings through zephyr-xenlib. Its
+default sink prints the same framed records to Dom0 printk. Products with a
+separate host-visible transport can install another sink with
+`xen_harness_log_collector_set_sink()` before the collector starts. For that
+case disable `CONFIG_XEN_HARNESS_DOMU_CONSOLE_COLLECTOR_AUTOSTART`, install
+the sink from product initialization code, then call
+`xen_harness_log_collector_start()`.
 
 ## Zephyr DomU Console Collection
 

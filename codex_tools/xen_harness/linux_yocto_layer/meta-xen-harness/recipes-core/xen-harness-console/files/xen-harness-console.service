@@ -1,0 +1,16 @@
+[Unit]
+Description=Xen harness DomU console collector
+After=xenconsoled.service xenstored.service
+Wants=xenconsoled.service
+
+[Service]
+Type=simple
+EnvironmentFile=-/etc/default/xen-harness-console
+ExecStart=/usr/libexec/xen-harness/collect-consoles.sh
+Restart=always
+RestartSec=1
+StandardOutput=journal+console
+StandardError=journal+console
+
+[Install]
+WantedBy=multi-user.target

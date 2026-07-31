@@ -1,5 +1,7 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 
+#include <errno.h>
+
 #include <zephyr/kernel.h>
 #include <zephyr/sys/printk.h>
 #include <zephyr/sys/util.h>
@@ -32,8 +34,25 @@ struct domu_console {
 static K_THREAD_STACK_DEFINE(collector_stack,
 			     CONFIG_XEN_HARNESS_DOMU_CONSOLE_STACK_SIZE);
 static struct k_thread collector_thread;
+static struct xen_harness_console_sink active_sink;
 static bool collector_started;
 static struct domu_console domu_consoles[DOMU_COUNT];
+
+static int printk_sink_write_line(xen_harness_domid_t domid, const char *line,
+				  size_t len, void *user_data)
+{
+	ARG_UNUSED(user_data);
+
+	printk("[xen-harness][domu%u] %.*s\n", domid, (int)len, line);
+	return 0;
+}
+
+static void ensure_default_sink(void)
+{
+	if (active_sink.write_line == NULL) {
+		active_sink.write_line = printk_sink_write_line;
+	}
+}
 
 static struct domu_console *domu_console_for_id(domid_t domid)
 {
@@ -51,7 +70,10 @@ static void flush_line(struct domu_console *console)
 	}
 
 	console->line[console->line_len] = '\0';
-	printk("[xen-harness][domu%u] %s\n", console->domid, console->line);
+	ensure_default_sink();
+	(void)active_sink.write_line((xen_harness_domid_t)console->domid,
+				     console->line, console->line_len,
+				     active_sink.user_data);
 	console->line_len = 0;
 }
 
@@ -142,6 +164,7 @@ int xen_harness_log_collector_start(void)
 		return 0;
 	}
 
+	ensure_default_sink();
 	collector_started = true;
 	k_thread_create(&collector_thread, collector_stack,
 			K_THREAD_STACK_SIZEOF(collector_stack), collector_main,
@@ -152,5 +175,27 @@ int xen_harness_log_collector_start(void)
 	return 0;
 }
 
+int xen_harness_log_collector_set_sink(const struct xen_harness_console_sink *sink)
+{
+	if (collector_started) {
+		return -EALREADY;
+	}
+
+	if (sink == NULL) {
+		active_sink.write_line = printk_sink_write_line;
+		active_sink.user_data = NULL;
+		return 0;
+	}
+
+	if (sink->write_line == NULL) {
+		return -EINVAL;
+	}
+
+	active_sink = *sink;
+	return 0;
+}
+
+#if defined(CONFIG_XEN_HARNESS_DOMU_CONSOLE_COLLECTOR_AUTOSTART)
 SYS_INIT(xen_harness_log_collector_start, APPLICATION,
 	 CONFIG_APPLICATION_INIT_PRIORITY);
+#endif

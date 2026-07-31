@@ -65,6 +65,22 @@ specific field:
     {"source": "xen", "text": "Booting domain"},
     {"source": "domu1", "text": "PASS"}
   ],
+  "stdin_events": [
+    {"at": 9.0, "type": "xen-switch"},
+    {"at": 11.0, "type": "line", "text": "root"},
+    {
+      "at": 13.0,
+      "type": "line",
+      "text": "systemctl status xenstore-init-dom0less.service --no-pager"
+    }
+  ],
+  "follow_logs": [
+    {"source": "xen", "path": "report/runtime/qemu-primary.log"}
+  ],
+  "console_sockets": [
+    {"source": "primary", "path": "report/runtime/qemu-primary.sock"}
+  ],
+  "stdin_file": "report/runtime/qemu-primary.in",
   "require_source": ["xen", "dom0", "domu1"],
   "timeout_sec": 30,
   "log_file": "report/runtime/scenario-name.log"
@@ -79,5 +95,18 @@ specific field:
 - Keep domain roles explicit: examples are `control`, `hardware`,
   `xenstore-server`, `console-collector`, `backend-provider`, and
   `tested-client`.
+- `stdin_events` is optional. Event `type` may be `text`, `line`, or
+  `xen-switch`; `line` appends a newline after decoding escape sequences in
+  `text`.
+- `follow_logs` is optional. Each item tails a host-visible file while the
+  command runs and injects its lines into the live expectation stream under
+  `source`. Relative paths are resolved from the workspace root.
+- `console_sockets` is optional. Each item connects to a bidirectional Unix
+  socket and injects received lines into the live expectation stream under
+  `source`. Timed `stdin_events` are sent to the same socket. Relative paths
+  are used as provided so they can stay below Unix socket path length limits.
+- `stdin_file` is optional. When set, timed `stdin_events` and
+  `--send-*` compatibility events are written to that host-visible file or
+  FIFO instead of the QEMU process stdin.
 - If a direct one-off artifact path is used, record the exception in
   `TASK_CONTEXT.md`.

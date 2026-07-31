@@ -28,6 +28,16 @@ config XEN_HARNESS_DOMU_CONSOLE_SCAN_INTERVAL_MS
 	  Period, in milliseconds, used by the collector thread when polling for
 	  new domain console data.
 
+config XEN_HARNESS_DOMU_CONSOLE_COLLECTOR_AUTOSTART
+	bool "Start the DomU console collector during boot"
+	depends on XEN_HARNESS_DOMU_CONSOLE_COLLECTOR
+	default y
+	help
+	  Starts the collector through SYS_INIT with the default Dom0 printk sink.
+	  Products that need to install a custom host-visible sink should disable
+	  this option, call xen_harness_log_collector_set_sink(), and then call
+	  xen_harness_log_collector_start() from their own initialization code.
+
 config XEN_HARNESS_DOMU_CONSOLE_MAX_DOMAINS
 	int "Highest DomU domain ID scanned by the console collector"
 	depends on XEN_HARNESS_DOMU_CONSOLE_COLLECTOR

@@ -8,7 +8,9 @@ import json
 import os
 import queue
 import re
+import select
 import signal
+import socket
 import subprocess
 import sys
 import threading
@@ -19,6 +21,7 @@ from pathlib import Path
 
 XEN_SWITCH_BYTES = b"\x01\x01\x01\x01\x01\x01"
 XEN_SWITCH_TEXT = XEN_SWITCH_BYTES.decode("latin1")
+XEN_SWITCH_BYTE_DELAY_SEC = 0.05
 SERIAL_INPUT_RE = re.compile(r"\(XEN\) \*\*\* Serial input to DOM(\d+)")
 HARNESS_DOMAIN_RE = re.compile(r"\[xen-harness\]\[(dom0|domu\d+|xen|host)\]")
 XEN_GUEST_PREFIX_RE = re.compile(r"^\(d(\d+)\) ")
@@ -40,6 +43,30 @@ DEFAULT_DOMU_LOAD_ADDR = "0x59000000"
 class Expectation:
     source: str
     text: str
+
+
+@dataclass(frozen=True)
+class StdinEvent:
+    at: float
+    text: str
+
+
+@dataclass(frozen=True)
+class FollowLog:
+    source: str
+    path: Path
+
+
+@dataclass(frozen=True)
+class ConsoleSocket:
+    source: str
+    path: Path
+
+
+@dataclass(frozen=True)
+class QueuedLine:
+    source: str | None
+    line: str
 
 
 @dataclass
@@ -90,6 +117,10 @@ class Scenario:
     preset: str | None = None
     expect: tuple[Expectation, ...] = ()
     require_source: tuple[str, ...] = ()
+    stdin_events: tuple[StdinEvent, ...] = ()
+    stdin_file: Path | None = None
+    follow_logs: tuple[FollowLog, ...] = ()
+    console_sockets: tuple[ConsoleSocket, ...] = ()
     domu_build: ZephyrBuild | None = None
     expected_abi: AbiExpectation | None = None
     domu_load_addr: str = DEFAULT_DOMU_LOAD_ADDR
@@ -108,6 +139,51 @@ def parse_expectation(value: str) -> Expectation:
     if not sep or not source or not text:
         raise argparse.ArgumentTypeError("--expect must use SOURCE:TEXT")
     return Expectation(source=source, text=text)
+
+
+def decode_stdin_text(text: str) -> str:
+    return text.encode("utf-8").decode("unicode_escape")
+
+
+def parse_stdin_event(value: str, option: str, *, append_newline: bool = False) -> StdinEvent:
+    at_text, sep, text = value.partition(":")
+    if not sep or not at_text:
+        raise argparse.ArgumentTypeError(f"{option} must use TIME:TEXT")
+    try:
+        at = float(at_text)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError(f"{option} TIME must be a number") from exc
+    if at < 0:
+        raise argparse.ArgumentTypeError(f"{option} TIME must be non-negative")
+
+    decoded = decode_stdin_text(text)
+    if append_newline:
+        decoded += "\n"
+    return StdinEvent(at=at, text=decoded)
+
+
+def parse_xen_switch_event(value: str) -> StdinEvent:
+    try:
+        at = float(value)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError("--send-xen-switch-at TIME must be a number") from exc
+    if at < 0:
+        raise argparse.ArgumentTypeError("--send-xen-switch-at TIME must be non-negative")
+    return StdinEvent(at=at, text=XEN_SWITCH_TEXT)
+
+
+def parse_follow_log(value: str) -> FollowLog:
+    source, sep, path = value.partition(":")
+    if not sep or not source or not path:
+        raise argparse.ArgumentTypeError("--follow-log must use SOURCE:PATH")
+    return FollowLog(source=source, path=Path(path))
+
+
+def parse_console_socket(value: str) -> ConsoleSocket:
+    source, sep, path = value.partition(":")
+    if not sep or not source or not path:
+        raise argparse.ArgumentTypeError("--console-socket must use SOURCE:PATH")
+    return ConsoleSocket(source=source, path=Path(path))
 
 
 def require_string(data: dict[str, object], key: str) -> str:
@@ -143,6 +219,74 @@ def load_expectations(values: object) -> tuple[Expectation, ...]:
             )
         )
     return tuple(expectations)
+
+
+def load_stdin_events(values: object) -> tuple[StdinEvent, ...]:
+    if values is None:
+        return ()
+    if not isinstance(values, list):
+        raise ValueError("scenario field 'stdin_events' must be a list")
+
+    events: list[StdinEvent] = []
+    for index, value in enumerate(values):
+        if not isinstance(value, dict):
+            raise ValueError(f"scenario stdin_events[{index}] must be an object")
+
+        at = value.get("at")
+        if not isinstance(at, (int, float)) or at < 0:
+            raise ValueError(f"scenario stdin_events[{index}].at must be a non-negative number")
+
+        event_type = optional_string(value, "type") or "text"
+        if event_type == "xen-switch":
+            text = XEN_SWITCH_TEXT
+        elif event_type == "line":
+            text = decode_stdin_text(require_string(value, "text")) + "\n"
+        elif event_type == "text":
+            text = decode_stdin_text(require_string(value, "text"))
+        else:
+            raise ValueError(
+                f"scenario stdin_events[{index}].type must be text, line, or xen-switch"
+            )
+        events.append(StdinEvent(at=float(at), text=text))
+    return tuple(events)
+
+
+def load_follow_logs(values: object) -> tuple[FollowLog, ...]:
+    if values is None:
+        return ()
+    if not isinstance(values, list):
+        raise ValueError("scenario field 'follow_logs' must be a list")
+
+    logs: list[FollowLog] = []
+    for index, value in enumerate(values):
+        if not isinstance(value, dict):
+            raise ValueError(f"scenario follow_logs[{index}] must be an object")
+        logs.append(
+            FollowLog(
+                source=require_string(value, "source"),
+                path=Path(require_string(value, "path")),
+            )
+        )
+    return tuple(logs)
+
+
+def load_console_sockets(values: object) -> tuple[ConsoleSocket, ...]:
+    if values is None:
+        return ()
+    if not isinstance(values, list):
+        raise ValueError("scenario field 'console_sockets' must be a list")
+
+    sockets: list[ConsoleSocket] = []
+    for index, value in enumerate(values):
+        if not isinstance(value, dict):
+            raise ValueError(f"scenario console_sockets[{index}] must be an object")
+        sockets.append(
+            ConsoleSocket(
+                source=require_string(value, "source"),
+                path=Path(require_string(value, "path")),
+            )
+        )
+    return tuple(sockets)
 
 
 def load_string_list(data: dict[str, object], key: str) -> tuple[str, ...]:
@@ -217,6 +361,10 @@ def load_scenario(path: Path) -> Scenario:
         preset=optional_string(data, "preset"),
         expect=load_expectations(data.get("expect")),
         require_source=load_string_list(data, "require_source"),
+        stdin_events=load_stdin_events(data.get("stdin_events")),
+        stdin_file=Path(stdin_file) if (stdin_file := optional_string(data, "stdin_file")) else None,
+        follow_logs=load_follow_logs(data.get("follow_logs")),
+        console_sockets=load_console_sockets(data.get("console_sockets")),
         domu_build=load_zephyr_build(data.get("domu_build")),
         expected_abi=load_abi_expectation(data.get("expected_abi")),
         domu_load_addr=optional_string(data, "domu_load_addr") or DEFAULT_DOMU_LOAD_ADDR,
@@ -241,6 +389,18 @@ def append_expectations(
         if key not in existing:
             args.expect.append(expectation)
             existing.add(key)
+
+
+def append_stdin_events(args: argparse.Namespace, events: tuple[StdinEvent, ...]) -> None:
+    args.stdin_event.extend(events)
+
+
+def append_follow_logs(args: argparse.Namespace, logs: tuple[FollowLog, ...]) -> None:
+    args.follow_log.extend(logs)
+
+
+def append_console_sockets(args: argparse.Namespace, sockets: tuple[ConsoleSocket, ...]) -> None:
+    args.console_socket.extend(sockets)
 
 
 def workspace_root(args: argparse.Namespace) -> Path:
@@ -287,6 +447,11 @@ def apply_scenario(args: argparse.Namespace) -> None:
     for source in scenario.require_source:
         if source not in args.require_source:
             args.require_source.append(source)
+    append_stdin_events(args, scenario.stdin_events)
+    if scenario.stdin_file is not None:
+        args.stdin_file = scenario.stdin_file
+    append_follow_logs(args, scenario.follow_logs)
+    append_console_sockets(args, scenario.console_sockets)
 
 
 def apply_scenario_env(args: argparse.Namespace) -> None:
@@ -489,17 +654,23 @@ def all_markers_found(
 
 def write_stdin_events(
     stdin: object,
-    switch_times: list[float],
+    events: list[StdinEvent],
     timeout_sec: float,
 ) -> None:
     started = time.monotonic()
-    for switch_time in sorted(switch_times):
-        delay = started + switch_time - time.monotonic()
+    for event in sorted(events, key=lambda item: item.at):
+        delay = started + event.at - time.monotonic()
         if delay > 0:
             time.sleep(delay)
         try:
-            stdin.write(XEN_SWITCH_TEXT)
-            stdin.flush()
+            if event.text == XEN_SWITCH_TEXT:
+                for char in event.text:
+                    stdin.write(char)
+                    stdin.flush()
+                    time.sleep(XEN_SWITCH_BYTE_DELAY_SEC)
+            else:
+                stdin.write(event.text)
+                stdin.flush()
         except BrokenPipeError:
             return
 
@@ -512,9 +683,106 @@ def write_stdin_events(
         pass
 
 
-def enqueue_output(stdout: object, lines: queue.Queue[str]) -> None:
+def write_stdin_file_events(
+    path: Path,
+    events: list[StdinEvent],
+    timeout_sec: float,
+) -> None:
+    deadline = time.monotonic() + timeout_sec
+    while True:
+        try:
+            with path.open("w", buffering=1, errors="replace") as output:
+                write_stdin_events(output, events, timeout_sec)
+                return
+        except FileNotFoundError:
+            if time.monotonic() >= deadline:
+                return
+            time.sleep(0.05)
+
+
+def send_stdin_event_to_socket(sock: socket.socket, event: StdinEvent) -> None:
+    if event.text == XEN_SWITCH_TEXT:
+        for char in event.text:
+            sock.sendall(char.encode("latin1"))
+            time.sleep(XEN_SWITCH_BYTE_DELAY_SEC)
+        return
+    sock.sendall(event.text.encode())
+
+
+def enqueue_output(stdout: object, lines: queue.Queue[QueuedLine]) -> None:
     for line in stdout:
-        lines.put(line)
+        lines.put(QueuedLine(source=None, line=line))
+
+
+def enqueue_follow_log(
+    source: str,
+    path: Path,
+    lines: queue.Queue[QueuedLine],
+    stop_event: threading.Event,
+) -> None:
+    offset = 0
+    while not stop_event.is_set():
+        try:
+            with path.open("r", errors="replace") as input_file:
+                input_file.seek(offset)
+                while not stop_event.is_set():
+                    line = input_file.readline()
+                    if line:
+                        offset = input_file.tell()
+                        lines.put(QueuedLine(source=source, line=line))
+                        continue
+                    time.sleep(0.05)
+        except FileNotFoundError:
+            time.sleep(0.05)
+
+
+def enqueue_console_socket(
+    source: str,
+    path: Path,
+    events: list[StdinEvent],
+    timeout_sec: float,
+    lines: queue.Queue[QueuedLine],
+    stop_event: threading.Event,
+) -> None:
+    deadline = time.monotonic() + timeout_sec
+    sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    try:
+        while not stop_event.is_set():
+            try:
+                sock.connect(str(path))
+                break
+            except (FileNotFoundError, ConnectionRefusedError):
+                if time.monotonic() >= deadline:
+                    return
+                time.sleep(0.05)
+        sock.setblocking(False)
+
+        started = time.monotonic()
+        pending_events = sorted(events, key=lambda item: item.at)
+        event_index = 0
+        pending = ""
+        while not stop_event.is_set() and time.monotonic() < deadline:
+            now = time.monotonic()
+            while event_index < len(pending_events) and started + pending_events[event_index].at <= now:
+                send_stdin_event_to_socket(sock, pending_events[event_index])
+                event_index += 1
+
+            readable, _, _ = select.select([sock], [], [], 0.05)
+            if not readable:
+                continue
+
+            chunk = sock.recv(4096)
+            if not chunk:
+                break
+            pending += chunk.decode(errors="replace")
+            while "\n" in pending:
+                line, pending = pending.split("\n", 1)
+                lines.put(QueuedLine(source=source, line=f"{line}\n"))
+
+        if pending:
+            lines.put(QueuedLine(source=source, line=pending))
+    finally:
+        sock.close()
 
 
 def terminate_process(process: subprocess.Popen[object]) -> int:
@@ -541,11 +809,13 @@ def run_command(args: argparse.Namespace) -> RunResult:
     active_guest: str | None = None
     source_stats: dict[str, SourceStats] = {}
     expectation_results = [ExpectationResult(expectation) for expectation in args.expect]
-    line_queue: queue.Queue[str] = queue.Queue()
+    line_queue: queue.Queue[QueuedLine] = queue.Queue()
+    stop_event = threading.Event()
     deadline = time.monotonic() + args.timeout_sec
 
     args.log_file.parent.mkdir(parents=True, exist_ok=True)
     with args.log_file.open("w", errors="replace") as output:
+        auxiliary_threads = []
         process = subprocess.Popen(
             command,
             cwd=cwd,
@@ -560,22 +830,63 @@ def run_command(args: argparse.Namespace) -> RunResult:
         )
         assert process.stdin is not None
         assert process.stdout is not None
-        stdin_thread = threading.Thread(
-            target=write_stdin_events,
-            args=(process.stdin, args.xen_switch_at, args.timeout_sec),
-            daemon=True,
-        )
+        stdin_thread = None
+        if args.console_socket:
+            process.stdin.close()
+        else:
+            stdin_target = process.stdin
+            stdin_thread_target = write_stdin_events
+            stdin_thread_args: tuple[object, list[StdinEvent], float]
+            if args.stdin_file is not None:
+                stdin_path = args.stdin_file
+                if not stdin_path.is_absolute():
+                    stdin_path = workspace_root(args) / stdin_path
+                stdin_target = stdin_path
+                stdin_thread_target = write_stdin_file_events
+            stdin_thread_args = (stdin_target, args.stdin_event, args.timeout_sec)
+            stdin_thread = threading.Thread(
+                target=stdin_thread_target,
+                args=stdin_thread_args,
+                daemon=True,
+            )
+            stdin_thread.start()
         stdout_thread = threading.Thread(
             target=enqueue_output,
             args=(process.stdout, line_queue),
             daemon=True,
         )
-        stdin_thread.start()
         stdout_thread.start()
+        for console_socket in args.console_socket:
+            socket_path = console_socket.path
+            socket_thread = threading.Thread(
+                target=enqueue_console_socket,
+                args=(
+                    console_socket.source,
+                    socket_path,
+                    args.stdin_event,
+                    args.timeout_sec,
+                    line_queue,
+                    stop_event,
+                ),
+                daemon=True,
+            )
+            socket_thread.start()
+            auxiliary_threads.append(socket_thread)
+        for follow_log in args.follow_log:
+            follow_path = follow_log.path
+            if not follow_path.is_absolute():
+                follow_path = workspace_root(args) / follow_path
+            follow_thread = threading.Thread(
+                target=enqueue_follow_log,
+                args=(follow_log.source, follow_path, line_queue, stop_event),
+                daemon=True,
+            )
+            follow_thread.start()
+            auxiliary_threads.append(follow_thread)
 
         while True:
             try:
-                line = line_queue.get(timeout=0.1)
+                queued = line_queue.get(timeout=0.1)
             except queue.Empty:
                 if process.poll() is not None and line_queue.empty():
                     return_code = process.returncode
@@ -586,7 +897,11 @@ def run_command(args: argparse.Namespace) -> RunResult:
                     break
                 continue
 
-            source, active_guest = source_for_line(line, active_guest)
+            line = queued.line
+            if queued.source is None:
+                source, active_guest = source_for_line(line, active_guest)
+            else:
+                source = queued.source
             prefixed_line = f"[{source}] {line}"
             output.write(prefixed_line)
             output.flush()
@@ -613,8 +928,12 @@ def run_command(args: argparse.Namespace) -> RunResult:
                 return_code = terminate_process(process)
                 break
 
-        stdin_thread.join(timeout=1)
+        if stdin_thread is not None:
+            stdin_thread.join(timeout=1)
         stdout_thread.join(timeout=1)
+        stop_event.set()
+        for auxiliary_thread in auxiliary_threads:
+            auxiliary_thread.join(timeout=1)
 
     if timed_out:
         return_code = 124
@@ -690,6 +1009,47 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
         type=parse_expectation,
     )
     parser.add_argument("--require-source", action="append", default=[])
+    parser.add_argument(
+        "--send-at",
+        action="append",
+        default=[],
+        dest="stdin_event",
+        type=lambda value: parse_stdin_event(value, "--send-at"),
+        help="Send decoded TEXT to QEMU stdin at TIME seconds; format TIME:TEXT.",
+    )
+    parser.add_argument(
+        "--send-line-at",
+        action="append",
+        dest="stdin_event",
+        type=lambda value: parse_stdin_event(value, "--send-line-at", append_newline=True),
+        help="Send decoded TEXT plus newline to QEMU stdin at TIME seconds; format TIME:TEXT.",
+    )
+    parser.add_argument(
+        "--send-xen-switch-at",
+        action="append",
+        dest="stdin_event",
+        type=parse_xen_switch_event,
+        help="Send the Xen console-switch control sequence at TIME seconds.",
+    )
+    parser.add_argument(
+        "--follow-log",
+        action="append",
+        default=[],
+        type=parse_follow_log,
+        help="Tail a sidecar log as SOURCE while QEMU runs; format SOURCE:PATH.",
+    )
+    parser.add_argument(
+        "--console-socket",
+        action="append",
+        default=[],
+        type=parse_console_socket,
+        help="Use a bidirectional Unix console socket as SOURCE; format SOURCE:PATH.",
+    )
+    parser.add_argument(
+        "--stdin-file",
+        type=Path,
+        help="Send timed input events to a host-visible file or FIFO instead of process stdin.",
+    )
     parser.add_argument("--xen-switch-at", action="append", default=[], type=float)
     parser.add_argument("--skip-build", action="store_true")
     parser.add_argument("--skip-preflight", action="store_true")
@@ -698,6 +1058,8 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     args = parser.parse_args(argv)
     args.scenario_config = None
     apply_presets(args)
+    for switch_time in args.xen_switch_at:
+        args.stdin_event.append(StdinEvent(at=switch_time, text=XEN_SWITCH_TEXT))
     if args.timeout_sec is None:
         args.timeout_sec = 60.0
     if args.domu_load_addr is None:

@@ -77,8 +77,7 @@ static struct xen_domain_cfg harness_domu_cfg = {
 	.name = CONFIG_XEN_HARNESS_DOMU_AUTOSTART_NAME,
 	.domain_name = CONFIG_XEN_HARNESS_DOMU_AUTOSTART_NAME,
 	.mem_kb = CONFIG_XEN_HARNESS_DOMU_AUTOSTART_MEMORY_KB,
-	.flags = XEN_DOMCTL_CDF_hvm | XEN_DOMCTL_CDF_hap |
-		 XEN_DOMCTL_CDF_trap_unmapped_accesses,
+	.flags = XEN_DOMCTL_CDF_hvm | XEN_DOMCTL_CDF_hap,
 	.max_vcpus = CONFIG_XEN_HARNESS_DOMU_AUTOSTART_VCPUS,
 	.max_evtchns = 1024,
 	.gnt_frames = 1,

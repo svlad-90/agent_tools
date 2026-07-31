@@ -1,0 +1,19 @@
+# Space-separated DomU IDs to collect.
+XEN_HARNESS_CONSOLE_DOMIDS="1"
+
+# "console" writes framed records to the service stdout. systemd routes that
+# to the journal and the active console through the unit's StandardOutput.
+XEN_HARNESS_CONSOLE_OUTPUT="console"
+
+# "auto" starts both xenconsole and Xen dmesg collectors. xenconsole is the
+# normal path for toolstack-created PV consoles with /console/tty in XenStore.
+# Xen dmesg is useful for dom0less ARM guests that write VPL011 output into
+# the hypervisor log as "(XEN) DOM<N>:" records.
+XEN_HARNESS_CONSOLE_BACKEND="auto"
+
+# Set to 1 for one-shot xen-dmesg proof runs. The systemd service keeps the
+# default streaming mode.
+XEN_HARNESS_CONSOLE_ONESHOT="0"
+
+# Used only when XEN_HARNESS_CONSOLE_OUTPUT="file".
+XEN_HARNESS_CONSOLE_LOG_DIR="/run/xen-harness/console"
