@@ -73,23 +73,27 @@ Example:
 
 ```sh
 codex_tools/paf_workspace/run-paf.sh \
-  zephyr-xenstore-client/scripts/paf/pr103-xenstore-client-validation.xml
+  codex_tools/paf_workspace/domains/xen-zephyr/scenarios/build-run-harness.xml \
+  default \
+  --config zephyr-xenstore-client/scripts/paf/pr103-xenstore-client-validation.xml
 ```
 
 Run another scenario from the same config:
 
 ```sh
 codex_tools/paf_workspace/run-paf.sh \
-  zephyr-xenstore-client/scripts/paf/pr103-xenstore-client-validation.xml \
-  run-only
+  codex_tools/paf_workspace/domains/xen-zephyr/scenarios/build-run-harness.xml \
+  run-only \
+  --config zephyr-xenstore-client/scripts/paf/pr103-xenstore-client-validation.xml
 ```
 
 Override target-specific parameters without editing the XML:
 
 ```sh
 codex_tools/paf_workspace/run-paf.sh \
-  zephyr-xenstore-client/scripts/paf/pr103-xenstore-client-validation.xml \
+  codex_tools/paf_workspace/domains/xen-zephyr/scenarios/build-run-harness.xml \
   default \
+  --config zephyr-xenstore-client/scripts/paf/pr103-xenstore-client-validation.xml \
   --parameter XEN_VERSION=4.21 \
   --parameter ZEPHYR_REF=v4.2.0 \
   --parameter ZEPHYR_XENLIB_REF=codex/pr103-client-local-fixes

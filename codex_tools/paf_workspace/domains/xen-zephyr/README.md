@@ -35,3 +35,31 @@ ARTIFACT_MANIFEST
 
 Use task-local PAF XML while a case is still experimental. Promote it into
 `scenarios/` or `templates/` when it becomes a reusable proof pattern.
+
+## Generic Build/Run Harness Scenario
+
+`scenarios/build-run-harness.xml` provides the standard Xen/Zephyr
+build-and-run shape:
+
+```text
+prepare -> build -> run
+```
+
+It defines these scenarios:
+
+- `default`: check/build environment, build product artifacts, write an
+  artifact manifest, and run the harness.
+- `build-only`: check/build environment, build product artifacts, and write an
+  artifact manifest.
+- `run-only`: check/build environment and run the harness against existing
+  artifacts.
+- `check-only`: validate workspace/product paths without building or running.
+
+Pass task-specific values through a second PAF XML config:
+
+```sh
+codex_tools/paf_workspace/run-paf.sh \
+  codex_tools/paf_workspace/domains/xen-zephyr/scenarios/build-run-harness.xml \
+  default \
+  --config zephyr-xenstore-client/scripts/paf/pr103-xenstore-client-validation.xml
+```
