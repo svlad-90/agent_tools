@@ -3,6 +3,16 @@
 Task-owned scenario files are the stable launch contract between a task's
 Moulin-built runtime product and `codex_tools/xen_harness`.
 
+For full build-and-run validation, keep this JSON focused on the Xen/QEMU
+runtime step and invoke it from a PAF scenario. PAF should own target
+environment selection, Docker image checks/builds, Moulin product builds,
+artifact manifests, and report collection.
+
+Use separate PAF XML scenarios or command-line `--parameter KEY=VALUE`
+overrides for different Xen, Zephyr, and `zephyr-xenlib` revisions. Do not add
+revision-selection logic to the runtime JSON unless it changes how QEMU must be
+launched.
+
 Keep scenario files under the task directory, usually:
 
 ```text

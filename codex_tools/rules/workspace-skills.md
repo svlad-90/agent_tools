@@ -24,6 +24,13 @@ environments, and recurring workflows.
 6. If a new recurring workspace workflow depends on an installed/global Codex
    skill, add or update a workspace-local `codex_tools/skills/` wrapper before
    treating the workflow as reusable.
+7. Keep reusable PAF automation under `codex_tools/paf_workspace/domains/`.
+   Model those directories as automation spheres, similar to the historical
+   `/home/vladyslav_goncharuk/Projects/tools/aasig_dev_platform/build/`
+   layout: a domain may contain PAF task modules, runnable scenarios, target
+   profiles, and templates for task-local customization. Do not leave a
+   repeatable build, orchestration, or test workflow only inside one task
+   directory once it is useful for multiple tasks.
 
 Use this routing table for common workspace task types:
 
@@ -32,6 +39,7 @@ C/C++ source analysis or guarded edits -> cpp-code-map
 Python source analysis or guarded edits -> python-code-map
 YAML configuration edits -> yaml-map
 Xen/QEMU runtime validation -> xen-qemu-harness
+Multi-stage validation orchestration -> PAF plus xen-qemu-harness
 Moulin CI or local workflow validation -> moulin-local-validation
 Diff or patch review reports -> diff-review-report
 Commit message formatting -> commit-message-format

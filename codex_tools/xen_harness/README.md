@@ -7,6 +7,13 @@ running. Workspace runtime validations should consume target artifacts built by
 a task-owned Moulin product and run QEMU/Xen inside the matching Docker-backed
 environment.
 
+For multi-stage validation that must build Docker images, build Moulin
+products, resolve artifacts, run one or more Xen/QEMU scenarios, and publish
+reports, use PAF as the outer orchestration layer. The harness remains the
+runtime executor for the Xen/QEMU step. See `codex_tools/paf/README.md`.
+The workspace PAF wrapper can fetch PAF automatically when `PAF_ROOT` does not
+point at an existing checkout.
+
 ## Quick Start
 
 For a workspace Zephyr/Xen validation product, build the target artifacts with
