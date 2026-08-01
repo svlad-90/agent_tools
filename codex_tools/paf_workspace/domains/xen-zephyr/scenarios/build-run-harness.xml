@@ -4,21 +4,21 @@
     <param name="HARNESS_TIMEOUT_SEC" value="90"/>
 
     <phase name="workspace_check">
-        <task name="paf_workspace.tasks.check_workspace_environment"/>
+        <task name="paf_workspace.xen_zephyr.tasks.check_workspace_environment"/>
     </phase>
 
     <phase name="prepare">
-        <task name="paf_workspace.tasks.check_workspace_environment"/>
-        <task name="paf_workspace.tasks.ensure_runtime_environment"/>
+        <task name="paf_workspace.xen_zephyr.tasks.check_workspace_environment"/>
+        <task name="paf_workspace.xen_zephyr.tasks.ensure_runtime_environment"/>
     </phase>
 
     <phase name="build">
-        <task name="paf_workspace.tasks.build_product"/>
-        <task name="paf_workspace.tasks.write_artifact_manifest"/>
+        <task name="paf_workspace.xen_zephyr.tasks.build_product"/>
+        <task name="paf_workspace.xen_zephyr.tasks.write_artifact_manifest"/>
     </phase>
 
     <phase name="run">
-        <task name="paf_workspace.tasks.run_xen_harness_scenario"/>
+        <task name="paf_workspace.xen_zephyr.tasks.run_xen_harness_scenario"/>
     </phase>
 
     <scenario name="default">

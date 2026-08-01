@@ -13,10 +13,10 @@ task modules for typical recurring work.
 ```text
 run-paf.sh              # generic workspace entry point for PAF
 tasks.py                # generic task classes shared by multiple domains
+xen_zephyr/             # importable task namespace for the xen-zephyr domain
 domains/
   <domain>/
     README.md           # domain scope and supported flows
-    tasks.py            # optional domain-specific PAF task classes
     scenarios/          # runnable PAF XML scenarios
     profiles/           # XML fragments or scenario configs for target variants
     templates/          # starting points for task-local scenarios
@@ -33,3 +33,27 @@ Use domains for recurring areas of work, for example:
 Task-local scenario files may still live under the task directory while a flow
 is being developed. Once the same shape is useful for more than one task, move
 the reusable version here and keep only task-specific overrides in the task.
+
+## PAF-First Validation
+
+Use PAF as the outer entry point for repeatable validation. A domain scenario
+should own environment checks, product build commands, artifact manifests,
+runtime harness invocation, and generated evidence. Lower-level tools such as
+`codex_tools/xen_harness/scripts/run-scenario.sh` remain useful runtime
+executors, but direct calls are for narrow debug steps. Once the command shape
+is reused, promote it into a PAF domain scenario or profile.
+
+Minimal smoke for the Xen/Zephyr domain:
+
+```sh
+codex_tools/paf_workspace/run-paf.sh \
+  codex_tools/paf_workspace/domains/xen-zephyr/scenarios/build-run-harness.xml \
+  check-only \
+  --yaml-config codex_tools/paf_workspace/domains/xen-zephyr/profiles/check-only.yaml \
+  --parameter PRODUCT_DIR=. \
+  --parameter HARNESS_CMD=true
+```
+
+This validates PAF checkout discovery, workspace task imports, Xen/Zephyr
+domain discovery, YAML schema validation, and domain default projection without
+building a product or starting QEMU.

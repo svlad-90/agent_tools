@@ -42,23 +42,35 @@ in the runtime product, never in upstream sample code.
    codex_tools/xen_harness/zephyr_module/scripts/zephyr-extra-module-args.sh
    ```
 
-2. Run the bundled harness from the workspace root through a task-owned
-   scenario file. The scenario is the stable launch contract between the Moulin
-   product and the harness:
+2. For repeatable validation, run the bundled harness through the Xen/Zephyr
+   PAF domain scenario. PAF owns environment checks, product build commands,
+   artifact manifests, and log/report paths; the harness remains the runtime
+   executor:
+
+   ```sh
+   codex_tools/paf_workspace/run-paf.sh \
+     codex_tools/paf_workspace/domains/xen-zephyr/scenarios/build-run-harness.xml \
+     default \
+     --config task/scripts/paf/product-validation.xml \
+     --yaml-config task/scripts/paf/product-validation.yaml
+   ```
+
+   The task-owned harness scenario is still the stable launch contract between
+   the Moulin product and the runtime step. It should normalize workspace
+   paths, identify the Docker environment, consume the Moulin-built target
+   artifacts, check Dom0/DomU image-size and load-address compatibility, check
+   the Dom0 control ABI expected by the selected Xen/QEMU product, then run
+   QEMU with Xen and the selected target domains through the one-log harness.
+
+3. Call the harness directly only for a narrow runtime debug step where PAF
+   would add more ceremony than evidence:
 
    ```sh
    codex_tools/xen_harness/scripts/run-scenario.sh \
      task/scripts/xen-harness-scenarios/scenario-name.json
    ```
 
-   A scenario file lives with the task, not in the harness. It should normalize
-   workspace paths, identify the Docker environment, consume the Moulin-built
-   target artifacts, check Dom0/DomU image-size and load-address compatibility,
-   check the Dom0 control ABI expected by the selected Xen/QEMU product, then
-   run QEMU with Xen and the selected target domains through the one-log
-   harness.
-
-3. Use the reusable Zephyr/Xen preset directly only for explicitly scoped
+4. Use the reusable Zephyr/Xen preset directly only for explicitly scoped
    one-off validation where a task scenario file would add more overhead than
    clarity. Record the exception and the exact artifact paths in
    `TASK_CONTEXT.md`:
@@ -73,7 +85,7 @@ in the runtime product, never in upstream sample code.
      --expect xen:'Watchdog timer fired for domain 1'
    ```
 
-4. Inspect the generated `--log-file`. The harness streams this file while the
+5. Inspect the generated `--log-file`. The harness streams this file while the
    process is running and stops the process early once all requested markers
    and required sources have been observed. Use `--no-stop-on-match` when the
    process must continue until it exits or reaches `--timeout-sec`.

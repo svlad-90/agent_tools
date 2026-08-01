@@ -19,6 +19,10 @@ Keep the Xen/QEMU runtime details in `codex_tools/xen_harness` JSON or task
 scripts. Keep target selection, environment selection, artifact production, and
 multi-phase orchestration in PAF.
 
+The importable PAF task namespace for this domain is
+`paf_workspace.xen_zephyr.tasks`. The public domain name remains
+`xen-zephyr` in YAML metadata and profiles.
+
 Typical parameters that should stay overrideable:
 
 ```text
@@ -103,11 +107,30 @@ It defines these scenarios:
   artifacts.
 - `check-only`: validate workspace/product paths without building or running.
 
-Pass task-specific values through a second PAF XML config:
+Minimal domain smoke:
+
+```sh
+codex_tools/paf_workspace/run-paf.sh \
+  codex_tools/paf_workspace/domains/xen-zephyr/scenarios/build-run-harness.xml \
+  check-only \
+  --yaml-config codex_tools/paf_workspace/domains/xen-zephyr/profiles/check-only.yaml \
+  --parameter PRODUCT_DIR=. \
+  --parameter HARNESS_CMD=true
+```
+
+Pass task-specific values through a second PAF XML config, through a YAML
+profile, or through command-line overrides:
 
 ```sh
 codex_tools/paf_workspace/run-paf.sh \
   codex_tools/paf_workspace/domains/xen-zephyr/scenarios/build-run-harness.xml \
   default \
-  --config zephyr-xenstore-client/scripts/paf/pr103-xenstore-client-validation.xml
+  --config zephyr-xenstore-client/scripts/paf/pr103-xenstore-client-validation.xml \
+  --yaml-config zephyr-xenstore-client/scripts/paf/pr103-xenstore-client.yaml
 ```
+
+The lower-level `codex_tools/xen_harness/scripts/run-scenario.sh` remains the
+runtime executor used by `run_xen_harness_scenario`. Call it directly only for
+short runtime debugging. Repeatable evidence should flow through this PAF
+scenario so the product build, artifact manifest, harness command, logs, and
+overrides are captured in one place.

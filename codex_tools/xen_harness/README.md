@@ -10,15 +10,30 @@ environment.
 For multi-stage validation that must build Docker images, build Moulin
 products, resolve artifacts, run one or more Xen/QEMU scenarios, and publish
 reports, use PAF as the outer orchestration layer. The harness remains the
-runtime executor for the Xen/QEMU step. See `codex_tools/paf/README.md`.
+runtime executor for the Xen/QEMU step. See
+`codex_tools/paf_workspace/README.md` and
+`codex_tools/paf_workspace/domains/xen-zephyr/README.md`.
 The workspace PAF wrapper can fetch PAF automatically when `PAF_ROOT` does not
 point at an existing checkout.
 
 ## Quick Start
 
-For a workspace Zephyr/Xen validation product, build the target artifacts with
-the task-owned Moulin product under `task/dev/`, then keep the launch scenario
-in the task directory and pass it to the harness:
+For repeatable workspace Zephyr/Xen validation, run the Xen/Zephyr PAF domain
+scenario. It checks or builds the reusable environment, builds product
+artifacts when requested, writes an artifact manifest, and then invokes this
+harness for the runtime step:
+
+```sh
+codex_tools/paf_workspace/run-paf.sh \
+  codex_tools/paf_workspace/domains/xen-zephyr/scenarios/build-run-harness.xml \
+  default \
+  --config task/scripts/paf/product-validation.xml \
+  --yaml-config task/scripts/paf/product-validation.yaml
+```
+
+For a narrow runtime debug step, build the target artifacts with the task-owned
+Moulin product under `task/dev/`, then keep the launch scenario in the task
+directory and pass it directly to the harness:
 
 ```sh
 codex_tools/xen_harness/scripts/run-scenario.sh \

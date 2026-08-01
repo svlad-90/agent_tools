@@ -31,6 +31,18 @@ environments, and recurring workflows.
    profiles, and templates for task-local customization. Do not leave a
    repeatable build, orchestration, or test workflow only inside one task
    directory once it is useful for multiple tasks.
+8. Use PAF as the default entry point for repeatable multi-stage validation.
+   A task that must fetch or select sources, build Docker environments, build
+   Moulin products, resolve artifacts, run a harness, and collect evidence
+   should provide or reuse a PAF scenario/profile. Directly invoking a lower
+   level tool such as `codex_tools/xen_harness/scripts/run-scenario.sh` is
+   acceptable for a tightly scoped runtime debug step, but the reproducible
+   validation path should be promoted back into a PAF domain scenario before
+   the task is considered repeatable.
+9. For Xen/QEMU validation, model the old standalone harness as the runtime
+   executor inside the `xen-zephyr` PAF domain. Keep runtime JSON scenario
+   files task-owned, but let PAF own Docker image checks/builds, product build
+   commands, artifact manifests, scenario selection, and log/report output.
 
 Use this routing table for common workspace task types:
 

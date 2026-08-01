@@ -1,0 +1,10 @@
+case:
+  name: xen-zephyr-check-only
+  domain: xen-zephyr
+  workspace: .
+
+xen_zephyr:
+  product: workspace-smoke
+
+validation:
+  timeout_sec: 1
