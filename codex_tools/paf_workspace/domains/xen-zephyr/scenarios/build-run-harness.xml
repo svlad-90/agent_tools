@@ -21,15 +21,21 @@
         <task name="paf_workspace.xen_zephyr.tasks.run_xen_harness_scenario"/>
     </phase>
 
+    <phase name="validate">
+        <task name="paf_workspace.xen_zephyr.tasks.validate_runtime_log"/>
+    </phase>
+
     <scenario name="default">
         <phase name="prepare"/>
         <phase name="build"/>
         <phase name="run"/>
+        <phase name="validate"/>
     </scenario>
 
     <scenario name="run-only">
         <phase name="prepare"/>
         <phase name="run"/>
+        <phase name="validate"/>
     </scenario>
 
     <scenario name="build-only">

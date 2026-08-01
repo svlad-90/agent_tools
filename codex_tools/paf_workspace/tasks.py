@@ -210,3 +210,37 @@ class run_xen_harness_scenario(WorkspaceTask):
                 "The command output contains sensitive information",
             ),
         )
+
+
+class validate_runtime_log(WorkspaceTask):
+    """Validate runtime log markers declared by the YAML case profile."""
+
+    def __init__(self):
+        super().__init__()
+        self.set_name(validate_runtime_log.__name__)
+
+    def execute(self):
+        log_path = self.path_param("RUNTIME_LOG_FILE")
+        self.assertion(
+            log_path.exists(),
+            f"RUNTIME_LOG_FILE does not exist: {log_path}",
+        )
+
+        validation = self.get_yaml_config().get("validation", {})
+        expected = validation.get("expected", [])
+        forbidden = validation.get("forbidden", [])
+        log_content = log_path.read_text(encoding="utf-8", errors="replace")
+
+        for marker in expected:
+            self.assertion(
+                marker in log_content,
+                f"Expected runtime marker was not found: {marker}",
+            )
+            logger.info(f"Found expected runtime marker: {marker}")
+
+        for marker in forbidden:
+            self.assertion(
+                marker not in log_content,
+                f"Forbidden runtime marker was found: {marker}",
+            )
+            logger.info(f"Forbidden runtime marker is absent: {marker}")

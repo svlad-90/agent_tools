@@ -9,4 +9,5 @@ from paf_workspace.tasks import build_product
 from paf_workspace.tasks import check_workspace_environment
 from paf_workspace.tasks import ensure_runtime_environment
 from paf_workspace.tasks import run_xen_harness_scenario
+from paf_workspace.tasks import validate_runtime_log
 from paf_workspace.tasks import write_artifact_manifest

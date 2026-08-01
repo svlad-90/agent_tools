@@ -94,18 +94,24 @@ domain-specific `xen-zephyr` schema.
 build-and-run shape:
 
 ```text
-prepare -> build -> run
+prepare -> build -> run -> validate
 ```
 
 It defines these scenarios:
 
 - `default`: check/build environment, build product artifacts, write an
-  artifact manifest, and run the harness.
+  artifact manifest, run the harness, and validate runtime markers from the
+  YAML profile.
 - `build-only`: check/build environment, build product artifacts, and write an
   artifact manifest.
-- `run-only`: check/build environment and run the harness against existing
-  artifacts.
+- `run-only`: check/build environment, run the harness against existing
+  artifacts, and validate runtime markers from the YAML profile.
 - `check-only`: validate workspace/product paths without building or running.
+
+Set `RUNTIME_LOG_FILE` in the task-local XML when using `default` or
+`run-only`. The `validate_runtime_log` task reads `validation.expected` and
+`validation.forbidden` from the YAML case profile and checks them against that
+log file after the harness returns.
 
 Minimal domain smoke:
 
