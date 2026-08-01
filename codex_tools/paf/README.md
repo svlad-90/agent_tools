@@ -117,6 +117,29 @@ validated before execution. Validated YAML values are projected into
 `YAML_CONF_*` environment variables, and the expanded structured config is
 available to tasks through `YAML_CONF_FILE` and `self.get_yaml_config()`.
 
+Domain descriptors can declare required Docker image aliases. PAF merges those
+aliases into `docker.images` defaults and lets tasks execute commands through a
+container alias:
+
+```yaml
+docker:
+  containers:
+    zephyr-build:
+      image: zephyr-xen
+      workdir: /workspace
+      mounts:
+        - source: ${WORKSPACE_ROOT}
+          target: /workspace
+          mode: rw
+```
+
+Use `--domain-yaml-parameter` for per-run domain descriptor overrides, for
+example:
+
+```sh
+--domain-yaml-parameter xen-zephyr.requires.images.zephyr-xen.image=my/zephyr-xen:debug
+```
+
 Use `PAF_REF=<branch-or-tag>` to select the PAF revision. Existing cached PAF
 checkouts are reused; set `PAF_UPDATE=1` when the wrapper must fetch and
 checkout `PAF_REF` again.

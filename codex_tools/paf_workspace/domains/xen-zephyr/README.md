@@ -61,6 +61,25 @@ When such a YAML case is passed with `--yaml-config`, PAF validates it, writes
 the expanded structured config to `YAML_CONF_FILE`, and projects scalar values
 into replayable `YAML_CONF_*` environment variables.
 
+The domain descriptor also declares a default Docker image alias:
+
+```yaml
+requires:
+  images:
+    zephyr-xen:
+      image: codex/zephyr-xen:latest
+      dockerfile: codex_tools/environments/zephyr-xen/Dockerfile
+      context: codex_tools/environments/zephyr-xen
+```
+
+PAF merges that alias into `docker.images` as a default. A case file can
+override it with its own `docker.images.zephyr-xen` entry, or a run can override
+the domain descriptor directly:
+
+```sh
+--domain-yaml-parameter xen-zephyr.requires.images.zephyr-xen.image=my/zephyr-xen:debug
+```
+
 ## Generic Build/Run Harness Scenario
 
 `scenarios/build-run-harness.xml` provides the standard Xen/Zephyr
