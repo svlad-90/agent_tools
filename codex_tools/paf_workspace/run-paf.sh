@@ -16,13 +16,14 @@ if [ "$#" -lt 1 ]; then
 fi
 
 paf_url="${PAF_URL:-https://github.com/svlad-90/paf.git}"
-paf_ref="${PAF_REF:-main}"
+paf_ref="${PAF_REF:-7b84022dfff93a9bc7f643a5d74bd2d06f457bb4}"
 paf_root="${PAF_ROOT:-${workspace_root}/codex_tools/.cache/paf}"
 log_dir="${PAF_LOG_DIR:-${workspace_root}/report/paf}"
 
 if [ ! -f "${paf_root}/paf_main.py" ]; then
   mkdir -p "$(dirname "${paf_root}")"
-  git clone --branch "${paf_ref}" "${paf_url}" "${paf_root}"
+  git clone "${paf_url}" "${paf_root}"
+  git -C "${paf_root}" checkout "${paf_ref}"
 fi
 
 if [ "${PAF_UPDATE:-0}" = "1" ]; then

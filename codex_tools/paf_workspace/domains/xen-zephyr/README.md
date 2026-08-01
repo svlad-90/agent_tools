@@ -132,7 +132,7 @@ codex_tools/paf_workspace/run-paf.sh \
   codex_tools/paf_workspace/domains/xen-zephyr/scenarios/build-run-harness.xml \
   default \
   --config zephyr-xenstore-client/scripts/paf/pr103-xenstore-client-validation.xml \
-  --yaml-config zephyr-xenstore-client/scripts/paf/pr103-xenstore-client.yaml
+  --yaml-config zephyr-xenstore-client/scripts/paf/pr103-xenstore-client-validation.yaml
 ```
 
 The lower-level `codex_tools/xen_harness/scripts/run-scenario.sh` remains the
