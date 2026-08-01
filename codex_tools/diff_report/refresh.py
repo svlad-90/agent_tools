@@ -329,13 +329,13 @@ def print_refresh_attention(
         title = str(item.get("title", "Review comment"))
         line_range = f"{start}-{end}" if start and end else "unknown"
         print(f"  lines {line_range}: {status} {location} {title}")
-    for previous_item, previous_range, item, line_range in overlaps:
+    for previous_item, previous_range, item, overlap_range in overlaps:
         file_path = str(item.get("file", ""))
         previous_title = str(previous_item.get("title", "Review comment"))
         title = str(item.get("title", "Review comment"))
         print(
             f"  overlap {file_path}:{previous_range[0]}-{previous_range[1]} "
-            f"{previous_title} overlaps {line_range[0]}-{line_range[1]} {title}"
+            f"{previous_title} overlaps {overlap_range[0]}-{overlap_range[1]} {title}"
         )
     for diagram_key, status, link in code_link_attention:
         location = f"{link.get('file')}:{link.get('line')}"

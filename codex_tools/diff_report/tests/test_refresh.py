@@ -7,6 +7,7 @@ import tempfile
 import textwrap
 import unittest
 from pathlib import Path
+from typing import Any
 
 from codex_tools.diff_report.refresh import (
     diff_line_targets,
@@ -175,7 +176,7 @@ class RefreshTests(unittest.TestCase):
         self.assertEqual([4, 5], links[1]["target_info"]["candidate_lines"])
 
     def test_inline_sort_key_orders_statuses_before_file_line_title(self) -> None:
-        items = [
+        items: list[dict[str, Any]] = [
             {"file": "b.py", "line": 1, "title": "b", "target": {"status": "not_found"}},
             {"file": "a.py", "line": 2, "title": "a", "target": {"status": "found"}},
             {"file": "a.py", "line": 1, "title": "a", "target": {"status": "ambiguous"}},

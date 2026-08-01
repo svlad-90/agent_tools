@@ -36,5 +36,10 @@ jobs:
         run: >
           python -m mypy
           --explicit-package-bases
+          code_map
+          commit_msg
+          diff_report
           paf_workspace
-          diff_report/render_diff.py
+          task_check
+          xen_harness
+          yaml_map

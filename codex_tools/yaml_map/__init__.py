@@ -4,6 +4,7 @@ import argparse
 import json
 import sys
 from pathlib import Path
+from typing import Any, Callable, cast
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
@@ -148,7 +149,8 @@ def main(argv: list[str] | None = None) -> int:
         parser.print_help()
         return 0
     try:
-        return int(args.handler(args) or 0)
+        handler = cast(Callable[[argparse.Namespace], int], args.handler)
+        return int(handler(args) or 0)
     except YamlMapEditError as error:
         if getattr(args, "json", False):
             print(render_error_json(error, PROJECT_ROOT))
@@ -175,7 +177,11 @@ def _resolve_target(path_text: str) -> Path:
     return target
 
 
-def _render_map(args: argparse.Namespace, render_yaml_map: object, render_yaml_map_json: object) -> int:
+def _render_map(
+    args: argparse.Namespace,
+    render_yaml_map: Callable[..., Any],
+    render_yaml_map_json: Callable[..., Any],
+) -> int:
     target = _resolve_target(args.file_path)
     print(render_yaml_map_json(target, PROJECT_ROOT) if args.json else render_yaml_map(target, PROJECT_ROOT))
     return 0
@@ -183,9 +189,9 @@ def _render_map(args: argparse.Namespace, render_yaml_map: object, render_yaml_m
 
 def _render_project_map(
     args: argparse.Namespace,
-    project_map: object,
-    render_project_map: object,
-    render_project_map_json: object,
+    project_map: Callable[..., Any],
+    render_project_map: Callable[..., Any],
+    render_project_map_json: Callable[..., Any],
 ) -> int:
     target = _resolve_target(args.target_path)
     report = project_map(target, PROJECT_ROOT, deep=args.deep)
@@ -195,9 +201,9 @@ def _render_project_map(
 
 def _render_path_get(
     args: argparse.Namespace,
-    path_get: object,
-    render_path_snapshot: object,
-    render_path_snapshot_json: object,
+    path_get: Callable[..., Any],
+    render_path_snapshot: Callable[..., Any],
+    render_path_snapshot_json: Callable[..., Any],
 ) -> int:
     target = _resolve_target(args.file_path)
     snapshot = path_get(target, args.path)
@@ -207,9 +213,9 @@ def _render_path_get(
 
 def _apply_path_set(
     args: argparse.Namespace,
-    path_set: object,
-    render_edit_result: object,
-    render_edit_result_json: object,
+    path_set: Callable[..., Any],
+    render_edit_result: Callable[..., Any],
+    render_edit_result_json: Callable[..., Any],
 ) -> int:
     target = _resolve_target(args.file_path)
     result = path_set(
@@ -225,9 +231,9 @@ def _apply_path_set(
 
 def _apply_insert(
     args: argparse.Namespace,
-    insert_item: object,
-    render_edit_result: object,
-    render_edit_result_json: object,
+    insert_item: Callable[..., Any],
+    render_edit_result: Callable[..., Any],
+    render_edit_result_json: Callable[..., Any],
 ) -> int:
     target = _resolve_target(args.file_path)
     result = insert_item(
@@ -245,9 +251,9 @@ def _apply_insert(
 
 def _apply_delete(
     args: argparse.Namespace,
-    path_delete: object,
-    render_edit_result: object,
-    render_edit_result_json: object,
+    path_delete: Callable[..., Any],
+    render_edit_result: Callable[..., Any],
+    render_edit_result_json: Callable[..., Any],
 ) -> int:
     target = _resolve_target(args.file_path)
     result = path_delete(
@@ -272,9 +278,9 @@ def _load_value_payload(args: argparse.Namespace) -> object:
 
 def _render_parse_check(
     args: argparse.Namespace,
-    parse_check: object,
-    render_parse_check: object,
-    render_parse_check_json: object,
+    parse_check: Callable[..., Any],
+    render_parse_check: Callable[..., Any],
+    render_parse_check_json: Callable[..., Any],
 ) -> int:
     target = _resolve_target(args.file_path)
     result = parse_check(target)

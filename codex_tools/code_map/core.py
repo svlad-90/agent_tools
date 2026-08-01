@@ -10,6 +10,7 @@ import textwrap
 from collections import defaultdict
 from dataclasses import dataclass
 from pathlib import Path
+from typing import cast
 from uuid import uuid4
 
 
@@ -451,7 +452,7 @@ def apply_batch_edits(
 ) -> BatchEditResult:
     plan_payload = _normalized_batch_plan(plan)
     effective_check_only = check_only or bool(plan_payload.get("check_only", False))
-    operations_payload = plan_payload["operations"]
+    operations_payload = cast(list[dict[str, object]], plan_payload["operations"])
     staged_sources: dict[Path, tuple[str, str]] = {}
     results: list[EditResult] = []
     for index, operation_payload in enumerate(operations_payload):
@@ -1456,7 +1457,7 @@ def _normalized_batch_plan(plan: object) -> dict[str, object]:
         operations = plan
         check_only = False
     elif isinstance(plan, dict):
-        operations = plan.get("operations")
+        operations = plan.get("operations", [])
         check_only = plan.get("check_only", False)
     else:
         raise ValueError("batch plan must be a JSON object or array")
@@ -1767,7 +1768,8 @@ def _class_fields(class_node: ast.ClassDef) -> list[ClassField]:
             continue
         for inner in ast.walk(statement):
             if isinstance(inner, ast.AnnAssign) and _is_self_attribute(inner.target):
-                field_name = inner.target.attr
+                target = cast(ast.Attribute, inner.target)
+                field_name = target.attr
                 annotation = _render_expr(inner.annotation)
                 fields.setdefault(
                     field_name,
@@ -1909,11 +1911,11 @@ def _delegation_for_call(
             target = f"{helper_target}.{expression.func.attr}" if helper_target else None
         elif _is_self_expression(receiver):
             kind = "self_call"
-            receiver_target = _render_expr(receiver)
-            target = f"{receiver_target}.{expression.func.attr}" if receiver_target else None
+            rendered_receiver = _render_expr(receiver)
+            target = f"{rendered_receiver}.{expression.func.attr}" if rendered_receiver else None
         else:
-            receiver_target = _resolve_reference(receiver, imports, module_name)
-            target = f"{receiver_target}.{expression.func.attr}" if receiver_target else None
+            resolved_receiver = _resolve_reference(receiver, imports, module_name)
+            target = f"{resolved_receiver}.{expression.func.attr}" if resolved_receiver else None
         return FacadeDelegation(
             kind=kind,
             expression=expression_text,
@@ -2177,7 +2179,8 @@ def _is_property(function_node: ast.FunctionDef | ast.AsyncFunctionDef) -> bool:
 def _infer_self_assignment(statement: ast.Assign) -> tuple[str, str] | None:
     if len(statement.targets) != 1 or not _is_self_attribute(statement.targets[0]):
         return None
-    field_name = statement.targets[0].attr
+    target = cast(ast.Attribute, statement.targets[0])
+    field_name = target.attr
     annotation = _inferred_type_from_value(statement.value)
     if annotation is None:
         return None

@@ -17,6 +17,7 @@ import threading
 import time
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Iterable, TextIO
 
 
 XEN_SWITCH_BYTES = b"\x01\x01\x01\x01\x01\x01"
@@ -653,7 +654,7 @@ def all_markers_found(
 
 
 def write_stdin_events(
-    stdin: object,
+    stdin: TextIO,
     events: list[StdinEvent],
     timeout_sec: float,
 ) -> None:
@@ -709,7 +710,7 @@ def send_stdin_event_to_socket(sock: socket.socket, event: StdinEvent) -> None:
     sock.sendall(event.text.encode())
 
 
-def enqueue_output(stdout: object, lines: queue.Queue[QueuedLine]) -> None:
+def enqueue_output(stdout: Iterable[str], lines: queue.Queue[QueuedLine]) -> None:
     for line in stdout:
         lines.put(QueuedLine(source=None, line=line))
 
@@ -785,7 +786,7 @@ def enqueue_console_socket(
         sock.close()
 
 
-def terminate_process(process: subprocess.Popen[object]) -> int:
+def terminate_process(process: subprocess.Popen[str]) -> int:
     try:
         os.killpg(process.pid, signal.SIGTERM)
     except ProcessLookupError:
@@ -815,7 +816,7 @@ def run_command(args: argparse.Namespace) -> RunResult:
 
     args.log_file.parent.mkdir(parents=True, exist_ok=True)
     with args.log_file.open("w", errors="replace") as output:
-        auxiliary_threads = []
+        auxiliary_threads: list[threading.Thread] = []
         process = subprocess.Popen(
             command,
             cwd=cwd,
@@ -834,21 +835,21 @@ def run_command(args: argparse.Namespace) -> RunResult:
         if args.console_socket:
             process.stdin.close()
         else:
-            stdin_target = process.stdin
-            stdin_thread_target = write_stdin_events
-            stdin_thread_args: tuple[object, list[StdinEvent], float]
             if args.stdin_file is not None:
                 stdin_path = args.stdin_file
                 if not stdin_path.is_absolute():
                     stdin_path = workspace_root(args) / stdin_path
-                stdin_target = stdin_path
-                stdin_thread_target = write_stdin_file_events
-            stdin_thread_args = (stdin_target, args.stdin_event, args.timeout_sec)
-            stdin_thread = threading.Thread(
-                target=stdin_thread_target,
-                args=stdin_thread_args,
-                daemon=True,
-            )
+                stdin_thread = threading.Thread(
+                    target=write_stdin_file_events,
+                    args=(stdin_path, args.stdin_event, args.timeout_sec),
+                    daemon=True,
+                )
+            else:
+                stdin_thread = threading.Thread(
+                    target=write_stdin_events,
+                    args=(process.stdin, args.stdin_event, args.timeout_sec),
+                    daemon=True,
+                )
             stdin_thread.start()
         stdout_thread = threading.Thread(
             target=enqueue_output,

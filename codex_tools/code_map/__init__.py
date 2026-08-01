@@ -5,6 +5,7 @@ import json
 import os
 import sys
 from pathlib import Path
+from typing import Any, Callable, cast
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
@@ -286,7 +287,8 @@ def main(argv: list[str] | None = None) -> int:
         parser.print_help()
         return 0
     try:
-        return int(args.handler(args) or 0)
+        handler = cast(Callable[[argparse.Namespace], int], args.handler)
+        return int(handler(args) or 0)
     except CodeMapEditError as error:
         if getattr(args, "json", False):
             print(render_error_json(error, PROJECT_ROOT))
@@ -313,7 +315,11 @@ def _resolve_target(path_text: str) -> Path:
     return target
 
 
-def _render_code_map(args: argparse.Namespace, render_code_map: object, render_code_map_json: object) -> int:
+def _render_code_map(
+    args: argparse.Namespace,
+    render_code_map: Callable[..., Any],
+    render_code_map_json: Callable[..., Any],
+) -> int:
     target = _resolve_target(args.file_path)
     if args.json:
         print(render_code_map_json(target, PROJECT_ROOT))
@@ -322,7 +328,7 @@ def _render_code_map(args: argparse.Namespace, render_code_map: object, render_c
     return 0
 
 
-def _render_class_diagram(args: argparse.Namespace, render_class_diagram: object) -> int:
+def _render_class_diagram(args: argparse.Namespace, render_class_diagram: Callable[..., Any]) -> int:
     target = _resolve_target(args.target_path)
     output = render_class_diagram(target, PROJECT_ROOT)
     if args.output:
@@ -336,9 +342,9 @@ def _render_class_diagram(args: argparse.Namespace, render_class_diagram: object
 
 def _render_facade_audit(
     args: argparse.Namespace,
-    build_facade_audit: object,
-    render_facade_audit: object,
-    render_facade_audit_json: object,
+    build_facade_audit: Callable[..., Any],
+    render_facade_audit: Callable[..., Any],
+    render_facade_audit_json: Callable[..., Any],
 ) -> int:
     target = _resolve_target(args.file_path)
     caller_roots = tuple(_resolve_target(path_text) for path_text in args.callers)
@@ -358,9 +364,9 @@ def _render_facade_audit(
 
 def _render_protocol_audit(
     args: argparse.Namespace,
-    build_protocol_audit: object,
-    render_protocol_audit: object,
-    render_protocol_audit_json: object,
+    build_protocol_audit: Callable[..., Any],
+    render_protocol_audit: Callable[..., Any],
+    render_protocol_audit_json: Callable[..., Any],
 ) -> int:
     target = _resolve_target(args.target_path)
     facade_file_path = None if args.facade_file is None else _resolve_target(args.facade_file)
@@ -381,8 +387,8 @@ def _render_protocol_audit(
 
 def _render_symbol_snapshot(
     args: argparse.Namespace,
-    render_symbol_snapshot: object,
-    render_symbol_snapshot_json: object,
+    render_symbol_snapshot: Callable[..., Any],
+    render_symbol_snapshot_json: Callable[..., Any],
 ) -> int:
     target = _resolve_target(args.file_path)
     if args.json:
@@ -394,9 +400,9 @@ def _render_symbol_snapshot(
 
 def _apply_symbol_edit_command(
     args: argparse.Namespace,
-    edit_function: object,
-    render_edit_result: object,
-    render_edit_result_json: object,
+    edit_function: Callable[..., Any],
+    render_edit_result: Callable[..., Any],
+    render_edit_result_json: Callable[..., Any],
     *,
     env_arg: str,
     file_arg: str,
@@ -459,9 +465,9 @@ def _resolve_inline_or_file_text(
 
 def _apply_batch_edit_command(
     args: argparse.Namespace,
-    apply_batch_edits: object,
-    render_batch_edit_result: object,
-    render_batch_edit_result_json: object,
+    apply_batch_edits: Callable[..., Any],
+    render_batch_edit_result: Callable[..., Any],
+    render_batch_edit_result_json: Callable[..., Any],
 ) -> int:
     plan = _load_batch_plan(args)
     result = apply_batch_edits(plan, PROJECT_ROOT, check_only=args.check_only)
@@ -489,9 +495,9 @@ def _load_batch_plan(args: argparse.Namespace) -> object:
 
 def _render_parse_check(
     args: argparse.Namespace,
-    parse_check: object,
-    render_parse_check: object,
-    render_parse_check_json: object,
+    parse_check: Callable[..., Any],
+    render_parse_check: Callable[..., Any],
+    render_parse_check_json: Callable[..., Any],
 ) -> int:
     target = _resolve_target(args.file_path)
     result = parse_check(target)
@@ -502,9 +508,9 @@ def _render_parse_check(
 
 def _imports_add(
     args: argparse.Namespace,
-    add_import_statement: object,
-    render_edit_result: object,
-    render_edit_result_json: object,
+    add_import_statement: Callable[..., Any],
+    render_edit_result: Callable[..., Any],
+    render_edit_result_json: Callable[..., Any],
 ) -> int:
     target = _resolve_target(args.file_path)
     result = add_import_statement(
