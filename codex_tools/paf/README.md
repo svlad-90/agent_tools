@@ -99,6 +99,24 @@ codex_tools/paf_workspace/run-paf.sh \
   --parameter ZEPHYR_XENLIB_REF=codex/pr103-client-local-fixes
 ```
 
+Structured YAML case files can be layered on top of the XML execution graph:
+
+```sh
+codex_tools/paf_workspace/run-paf.sh \
+  codex_tools/paf_workspace/domains/xen-zephyr/scenarios/build-run-harness.xml \
+  run-only \
+  --yaml-config zephyr-xenstore-client/cases/base.yaml \
+  --yaml-config zephyr-xenstore-client/cases/pr103-xenstore-client.yaml \
+  --yaml-parameter validation.timeout_sec=120
+```
+
+PAF discovers optional `domain.yaml` files under imported module directories.
+The `xen-zephyr` domain declares a JSON Schema stored as YAML, so case files
+that use `case.domain: xen-zephyr` or `uses: [{domain: xen-zephyr}]` are
+validated before execution. Validated YAML values are projected into
+`YAML_CONF_*` environment variables, and the expanded structured config is
+available to tasks through `YAML_CONF_FILE` and `self.get_yaml_config()`.
+
 Use `PAF_REF=<branch-or-tag>` to select the PAF revision. Existing cached PAF
 checkouts are reused; set `PAF_UPDATE=1` when the wrapper must fetch and
 checkout `PAF_REF` again.

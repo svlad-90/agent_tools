@@ -5,7 +5,7 @@ script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 workspace_root="$(cd "${script_dir}/../.." && pwd)"
 
 if [ "$#" -lt 1 ]; then
-  echo "usage: $0 CONFIG_XML [SCENARIO] [--parameter KEY=VALUE ...]" >&2
+  echo "usage: $0 CONFIG_XML [SCENARIO] [--parameter KEY=VALUE ...] [--yaml-config CASE.yaml ...]" >&2
   exit 2
 fi
 

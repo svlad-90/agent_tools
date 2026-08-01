@@ -1,0 +1,77 @@
+$schema: https://json-schema.org/draft/2020-12/schema
+type: object
+required:
+  - case
+properties:
+  case:
+    type: object
+    required:
+      - name
+    properties:
+      name:
+        type: string
+        minLength: 1
+      domain:
+        type: string
+      workspace:
+        type: string
+    additionalProperties: true
+  uses:
+    type: array
+    items:
+      type: object
+      required:
+        - domain
+      properties:
+        domain:
+          type: string
+      additionalProperties: true
+  xen_zephyr:
+    type: object
+    properties:
+      product:
+        type: string
+      xen:
+        type: string
+      dom0:
+        enum:
+          - linux
+          - zephyr
+      guests:
+        type: array
+        items:
+          type: object
+          required:
+            - name
+            - kind
+          properties:
+            name:
+              type: string
+            kind:
+              enum:
+                - zephyr
+                - linux
+            board:
+              type: string
+            app:
+              type: string
+            artifact:
+              type: string
+          additionalProperties: true
+    additionalProperties: true
+  validation:
+    type: object
+    properties:
+      timeout_sec:
+        type: integer
+        minimum: 1
+      expected:
+        type: array
+        items:
+          type: string
+      forbidden:
+        type: array
+        items:
+          type: string
+    additionalProperties: true
+additionalProperties: true

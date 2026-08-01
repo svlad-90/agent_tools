@@ -1,0 +1,4 @@
+name: xen-zephyr
+schema: schema.yaml
+projection:
+  prefix: YAML_CONF_
