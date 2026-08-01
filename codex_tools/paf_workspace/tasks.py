@@ -31,6 +31,7 @@ class WorkspaceTask(SSHLocalClient):
         value = self.param(name, default)
         if value is None:
             self.fail(f"Missing required parameter: {name}")
+            raise AssertionError("unreachable")
         path = Path(value)
         if path.is_absolute():
             return path
@@ -146,7 +147,7 @@ class write_artifact_manifest(WorkspaceTask):
 
     def execute(self):
         manifest_path = self.path_param("ARTIFACT_MANIFEST")
-        artifact_names = self.param("ARTIFACTS", "")
+        artifact_names = self.param("ARTIFACTS", "") or ""
         artifacts = []
         root = self.workspace_root()
 

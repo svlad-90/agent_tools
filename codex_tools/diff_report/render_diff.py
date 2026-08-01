@@ -35,7 +35,7 @@ def render_diff(
     active_delete_target: tuple[int, int] | None = None
 
     def close_file() -> None:
-        nonlocal table_open, current_file, active_delete_target
+        nonlocal table_open, active_delete_target
         if table_open:
             parts.append("      </tbody>\n    </table>\n")
             table_open = False
@@ -148,14 +148,14 @@ def _validate_inline_comment_targets(diff_lines: list[DiffLine], comments: Revie
         if line.file_path and line.kind in {"add", "context"} and line.new_line is not None:
             rendered_lines.setdefault(line.file_path, set()).add(line.new_line)
     ranges_by_file: dict[str, list[tuple[int, int, InlineComment]]] = {}
-    for (file_path, line), inline_comments in comments.inline_comments.items():
+    for (file_path, target_line), inline_comments in comments.inline_comments.items():
         file_lines = rendered_lines.get(file_path, set())
-        if line not in file_lines:
+        if target_line not in file_lines:
             raise DiffReportError(
-                f"inline comment target is not rendered in diff: {file_path}:{line}"
+                f"inline comment target is not rendered in diff: {file_path}:{target_line}"
             )
         for comment in inline_comments:
-            start, end = comment.line_range or (line, line)
+            start, end = comment.line_range or (target_line, target_line)
             missing = [line_no for line_no in (start, end) if line_no not in file_lines]
             if missing:
                 missing_text = ", ".join(str(line_no) for line_no in missing)
