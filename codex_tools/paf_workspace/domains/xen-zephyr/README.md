@@ -80,6 +80,10 @@ the domain descriptor directly:
 --domain-yaml-parameter xen-zephyr.requires.images.zephyr-xen.image=my/zephyr-xen:debug
 ```
 
+The domain schema intentionally does not define `docker.images` or
+`docker.containers`; PAF validates those built-in sections before applying the
+domain-specific `xen-zephyr` schema.
+
 ## Generic Build/Run Harness Scenario
 
 `scenarios/build-run-harness.xml` provides the standard Xen/Zephyr
