@@ -1,0 +1,12 @@
+case:
+  name: codex-tools-act-environment
+  domain: environments
+  workspace: .
+
+environments:
+  codex_tools_act:
+    image: codex-tools-act
+    container: codex-tools-act-workspace
+    workflow: .github/workflows/diff-report.yml
+    runner_image: ghcr.io/catthehacker/ubuntu:act-latest
+    build_network: host

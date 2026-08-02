@@ -6,6 +6,7 @@
 !.github/
 !.github/workflows/
 !.github/workflows/diff-report.yml
+!.github/workflows/paf-workspace.yml
 !codex_tools/
 !codex_tools/**
 !.gitignore

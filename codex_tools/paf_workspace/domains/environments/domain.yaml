@@ -9,6 +9,21 @@ requires:
       dockerfile: codex_tools/paf_workspace/domains/environments/assets/zephyr-xen/Dockerfile
       context: codex_tools/paf_workspace/domains/environments/assets/zephyr-xen
       network: host
+    codex-tools-act:
+      image: codex-tools-act:24.04
+      dockerfile: codex_tools/paf_workspace/domains/environments/assets/codex-tools-act/Dockerfile
+      context: codex_tools/paf_workspace/domains/environments/assets/codex-tools-act
+      network: host
+    moulin-act:
+      image: moulin-act:22.04
+      dockerfile: codex_tools/paf_workspace/domains/environments/assets/moulin-act/Dockerfile
+      context: codex_tools/paf_workspace/domains/environments/assets/moulin-act
+      network: host
+    zephyr-xenlib-act:
+      image: zephyr-xenlib-act:22.04
+      dockerfile: codex_tools/paf_workspace/domains/environments/assets/zephyr-xenlib-act/Dockerfile
+      context: codex_tools/paf_workspace/domains/environments/assets/zephyr-xenlib-act
+      network: host
   containers:
     zephyr-xen-workspace:
       image: zephyr-xen
@@ -16,4 +31,28 @@ requires:
       mounts:
         - source: ${WORKSPACE_ROOT}
           target: /home/builder/workspace
+          mode: rw
+    codex-tools-act-workspace:
+      image: codex-tools-act
+      workdir: ${WORKSPACE_ROOT}
+      mounts:
+        - source: /var/run/docker.sock
+          target: /var/run/docker.sock
+          mode: rw
+        - source: ${WORKSPACE_ROOT}
+          target: ${WORKSPACE_ROOT}
+          mode: rw
+    moulin-act-workspace:
+      image: moulin-act
+      workdir: ${WORKSPACE_ROOT}
+      mounts:
+        - source: ${WORKSPACE_ROOT}
+          target: ${WORKSPACE_ROOT}
+          mode: rw
+    zephyr-xenlib-act-workspace:
+      image: zephyr-xenlib-act
+      workdir: ${WORKSPACE_ROOT}
+      mounts:
+        - source: ${WORKSPACE_ROOT}
+          target: ${WORKSPACE_ROOT}
           mode: rw

@@ -1,0 +1,11 @@
+case:
+  name: moulin-act-environment
+  domain: environments
+  workspace: .
+
+environments:
+  moulin_act:
+    image: moulin-act
+    container: moulin-act-workspace
+    repo_root: ${WORKSPACE_ROOT}/moulin-svlad-90
+    build_network: host

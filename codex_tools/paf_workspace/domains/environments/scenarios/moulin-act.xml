@@ -1,0 +1,27 @@
+<paf_config>
+    <phase name="ensure">
+        <task name="paf_workspace.domains.environments.tasks.ensure_moulin_act_image"/>
+    </phase>
+
+    <phase name="image_check">
+        <task name="paf_workspace.domains.environments.tasks.check_moulin_act_image"/>
+    </phase>
+
+    <phase name="check">
+        <task name="paf_workspace.domains.environments.tasks.check_moulin_act_tools"/>
+    </phase>
+
+    <phase name="validate">
+        <task name="paf_workspace.domains.environments.tasks.validate_moulin_act"/>
+    </phase>
+
+    <scenario name="check-only">
+        <phase name="image_check"/>
+        <phase name="check"/>
+    </scenario>
+
+    <scenario name="validate">
+        <phase name="ensure"/>
+        <phase name="validate"/>
+    </scenario>
+</paf_config>

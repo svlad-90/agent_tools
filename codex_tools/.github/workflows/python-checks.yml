@@ -42,3 +42,6 @@ jobs:
           paf_workspace
           task_check
           yaml_map
+
+      - name: Run pytest
+        run: python -m pytest tests/paf_workspace

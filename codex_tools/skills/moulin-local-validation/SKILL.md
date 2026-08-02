@@ -9,34 +9,52 @@ Use the reusable runner stored in this workspace instead of reconstructing the
 `act` command manually. Do not depend on a globally installed Codex skill for
 this workflow.
 
-Read `codex_tools/environments/moulin-act/README.md` when environment details,
-image rebuilds, or forwarded `act` arguments matter.
+Read `codex_tools/paf_workspace/domains/environments/README.md` and
+`codex_tools/paf_workspace/domains/environments/assets/moulin-act/README.md`
+when environment details, image rebuilds, or forwarded `act` arguments matter.
 
 ## Commands
 
 Default validation from the workspace root:
 
 ```sh
-codex_tools/environments/moulin-act/scripts/validate.sh moulin-svlad-90
+codex_tools/paf_workspace/run-paf.sh \
+  codex_tools/paf_workspace/domains/environments/scenarios/moulin-act.xml \
+  validate \
+  --yaml-config codex_tools/paf_workspace/domains/environments/profiles/moulin-act.yaml \
+  --parameter MOULIN_REPO_ROOT=moulin-svlad-90
 ```
 
 For a different Moulin checkout, pass that checkout path as the first argument:
 
 ```sh
-codex_tools/environments/moulin-act/scripts/validate.sh path/to/moulin
+codex_tools/paf_workspace/run-paf.sh \
+  codex_tools/paf_workspace/domains/environments/scenarios/moulin-act.xml \
+  validate \
+  --yaml-config codex_tools/paf_workspace/domains/environments/profiles/moulin-act.yaml \
+  --parameter MOULIN_REPO_ROOT=path/to/moulin
 ```
 
-After changing the local act Dockerfile, rebuild the runner image first:
+After changing the local act Dockerfile, run the validate scenario; the PAF
+environment task ensures the runner image first:
 
 ```sh
-codex_tools/environments/moulin-act/scripts/build.sh
-codex_tools/environments/moulin-act/scripts/validate.sh path/to/moulin
+codex_tools/paf_workspace/run-paf.sh \
+  codex_tools/paf_workspace/domains/environments/scenarios/moulin-act.xml \
+  validate \
+  --yaml-config codex_tools/paf_workspace/domains/environments/profiles/moulin-act.yaml \
+  --parameter MOULIN_REPO_ROOT=path/to/moulin
 ```
 
 Additional arguments after `--` are forwarded to `act`:
 
 ```sh
-codex_tools/environments/moulin-act/scripts/validate.sh path/to/moulin -- --verbose
+codex_tools/paf_workspace/run-paf.sh \
+  codex_tools/paf_workspace/domains/environments/scenarios/moulin-act.xml \
+  validate \
+  --yaml-config codex_tools/paf_workspace/domains/environments/profiles/moulin-act.yaml \
+  --parameter MOULIN_REPO_ROOT=path/to/moulin \
+  --parameter MOULIN_ACT_ARGS=--verbose
 ```
 
 The environment maps the GitHub Actions `ubuntu-22.04` runner to the local
