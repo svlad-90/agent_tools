@@ -9,10 +9,12 @@ from pathlib import Path
 ZEPHYR_XEN_TOOL_CHECK_COMMAND = """
 set -euo pipefail
 west --version
+python3 --version
+python3 -m west --version
 cmake --version | head -1
 ninja --version
 qemu-system-aarch64 --version | head -1
-"${ZEPHYR_SDK_INSTALL_DIR}/gnu/aarch64-zephyr-elf/bin/aarch64-zephyr-elf-gcc" --version | head -1
+"$${ZEPHYR_SDK_INSTALL_DIR}/gnu/aarch64-zephyr-elf/bin/aarch64-zephyr-elf-gcc" --version | head -1
 python3 - <<'PY'
 import clang.cindex
 print("clang.cindex ok")

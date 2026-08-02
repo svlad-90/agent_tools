@@ -23,6 +23,32 @@ class build_product(XenZephyrTask):
         if self.bool_param("SKIP_PRODUCT_BUILD"):
             logger.info("Skip product build: SKIP_PRODUCT_BUILD is enabled")
             return
+        split_steps = (
+            (
+                "PRODUCT_BUILD_YOCTO",
+                self.param("PRODUCT_BUILD_YOCTO_CMD", "") or "",
+                self.param("PRODUCT_BUILD_YOCTO_CONTAINER_ALIAS", "") or "",
+            ),
+            (
+                "PRODUCT_BUILD_ZEPHYR",
+                self.param("PRODUCT_BUILD_ZEPHYR_CMD", "") or "",
+                self.param("PRODUCT_BUILD_ZEPHYR_CONTAINER_ALIAS", "") or "",
+            ),
+        )
+        ran_split_step = False
+        for prefix, command, container_alias in split_steps:
+            if not command:
+                continue
+            ran_split_step = True
+            self.run_domain_command(
+                command,
+                timeout_param=f"{prefix}_CMD_TIMEOUT_SEC",
+                hide_prefix=f"{prefix}_CMD",
+                container_alias=container_alias,
+            )
+        if ran_split_step:
+            return
+
         command = self.param("PRODUCT_BUILD_CMD")
         if not command:
             logger.info("Skip product build: PRODUCT_BUILD_CMD is empty")
@@ -31,6 +57,7 @@ class build_product(XenZephyrTask):
             command,
             timeout_param="PRODUCT_BUILD_CMD_TIMEOUT_SEC",
             hide_prefix="PRODUCT_BUILD_CMD",
+            container_alias=self.param("PRODUCT_BUILD_CONTAINER_ALIAS", "") or "",
         )
 
 

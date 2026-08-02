@@ -101,8 +101,30 @@ class XenZephyrTask(WorkspaceTask):
         *,
         timeout_param: str,
         hide_prefix: str,
+        container_alias: str = "",
         substitute_params: bool = True,
     ) -> None:
+        if container_alias:
+            self.docker_subprocess_must_succeed(
+                container_alias,
+                command,
+                timeout=int(self.param(timeout_param, "0") or "0"),
+                substitute_params=substitute_params,
+                communication_mode=CommunicationMode.PIPE_OUTPUT,
+                interaction_mode=InteractionMode.IGNORE_INPUT,
+                avoid_printing_command=self.bool_param(f"{hide_prefix}_HIDE_COMMAND"),
+                avoid_printing_command_reason=self.param(
+                    f"{hide_prefix}_HIDE_COMMAND_REASON",
+                    "The command contains sensitive information",
+                ),
+                avoid_printing_command_output=self.bool_param(f"{hide_prefix}_HIDE_OUTPUT"),
+                avoid_printing_command_output_reason=self.param(
+                    f"{hide_prefix}_HIDE_OUTPUT_REASON",
+                    "The command output contains sensitive information",
+                ),
+            )
+            return
+
         self.subprocess_must_succeed(
             command,
             timeout=int(self.param(timeout_param, "0") or "0"),

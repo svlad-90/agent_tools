@@ -116,7 +116,11 @@ class ensure_environment_image(EnvironmentTask):
         if self.bool_param("SKIP_ENVIRONMENT_IMAGE_ENSURE"):
             logger.info("Skip environment image ensure: SKIP_ENVIRONMENT_IMAGE_ENSURE is enabled")
             return
-        self.ensure_image_alias(self.image_alias())
+        aliases = (self.param("ENVIRONMENT_IMAGE_ALIASES", "") or "").split()
+        if not aliases:
+            aliases = [self.image_alias()]
+        for alias in aliases:
+            self.ensure_image_alias(alias)
 
 
 class check_environment_image(EnvironmentTask):
