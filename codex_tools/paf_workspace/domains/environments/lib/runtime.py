@@ -91,7 +91,7 @@ def docker_dns_preflight_command(*, network: str) -> list[str]:
 def zephyr_validate_command(build: ZephyrBuild) -> str:
     cmake_args = " ".join(_quote(arg) for arg in build.cmake_args)
     if cmake_args:
-        cmake_args = " " + cmake_args
+        cmake_args = " -- " + cmake_args
 
     zephyr = _quote(build.zephyr)
     app = _quote(build.app)
@@ -102,21 +102,10 @@ def zephyr_validate_command(build: ZephyrBuild) -> str:
 set -euo pipefail
 cd {zephyr}
 source ./zephyr-env.sh
-mkdir -p {build_dir}/Kconfig
-python3 scripts/zephyr_module.py \\
-  --zephyr-base="$PWD" \\
-  --kconfig-out {build_dir}/Kconfig/Kconfig.modules \\
-  --cmake-out {build_dir}/zephyr_modules.txt \\
-  --sysbuild-kconfig-out {build_dir}/Kconfig/Kconfig.sysbuild.modules \\
-  --sysbuild-cmake-out {build_dir}/sysbuild_modules.txt \\
-  --settings-out {build_dir}/zephyr_settings.txt
-cmake -GNinja \\
-  -B {build_dir} \\
-  -S {app} \\
-  -DBOARD={board} \\
-  -DZEPHYR_BASE="$PWD" \\
-  -DCMAKE_EXPORT_COMPILE_COMMANDS=ON{cmake_args}
-cmake --build {build_dir}
+west build -p auto \\
+  -b {board} \\
+  -d {build_dir} \\
+  {app}{cmake_args}
 """.strip()
 
 

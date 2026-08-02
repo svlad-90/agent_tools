@@ -23,7 +23,12 @@ Environment entries:
 
 - `zephyr-xen` provides a Zephyr SDK, west, CMake, Ninja, QEMU, and Python
   clang bindings. The default container alias is `zephyr-xen-workspace`, with
-  the host workspace mounted at `/home/builder/workspace`.
+  the host workspace mounted at `/home/builder/workspace`. Keep this image on
+  Ubuntu 24.04 unless its Dockerfile installs Python 3.12 explicitly; current
+  Zephyr checkouts require Python 3.12.
+- `yocto-xen` provides the Poky/kirkstone Xen product build environment. Keep
+  this image on Ubuntu 22.04 so kirkstone uses its expected Python 3.10 host
+  baseline.
 - `codex-tools-act` provides an act driver image for running this repository's
   GitHub Actions workflows locally. It mounts the host Docker socket and the
   workspace.
