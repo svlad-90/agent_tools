@@ -110,6 +110,19 @@ properties:
                 text:
                   type: string
               additionalProperties: false
+          fail_expect:
+            type: array
+            items:
+              type: object
+              required:
+                - source
+                - text
+              properties:
+                source:
+                  type: string
+                text:
+                  type: string
+              additionalProperties: false
           require_source:
             type: array
             items:

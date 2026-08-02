@@ -84,7 +84,9 @@ class RunResult:
     return_code: int
     timed_out: bool
     stopped_on_match: bool
+    stopped_on_fail: bool
     expectation_results: list[ExpectationResult]
+    fail_expectation_results: list[ExpectationResult]
     source_stats: dict[str, SourceStats]
 
 
@@ -114,6 +116,7 @@ class Scenario:
     timeout_sec: float | None = None
     preset: str | None = None
     expect: tuple[Expectation, ...] = ()
+    fail_expect: tuple[Expectation, ...] = ()
     require_source: tuple[str, ...] = ()
     stdin_events: tuple[StdinEvent, ...] = ()
     stdin_file: Path | None = None
@@ -357,6 +360,7 @@ def load_scenario_data(data: object) -> Scenario:
         timeout_sec=float(timeout) if timeout is not None else None,
         preset=optional_string(data, "preset"),
         expect=load_expectations(data.get("expect")),
+        fail_expect=load_expectations(data.get("fail_expect")),
         require_source=load_string_list(data, "require_source"),
         stdin_events=load_stdin_events(data.get("stdin_events")),
         stdin_file=Path(stdin_file) if (stdin_file := optional_string(data, "stdin_file")) else None,
@@ -417,6 +421,8 @@ def args_from_scenario(
         no_stop_on_match=no_stop_on_match,
     )
     append_expectations(args, scenario.expect)
+    args.fail_expect = []
+    append_expectations_to(args.fail_expect, scenario.fail_expect)
     args.require_source.extend(scenario.require_source)
     append_stdin_events(args, scenario.stdin_events)
     append_follow_logs(args, scenario.follow_logs)
@@ -442,11 +448,18 @@ def append_expectations(
     args: argparse.Namespace,
     expectations: tuple[Expectation, ...],
 ) -> None:
-    existing = {(item.source, item.text) for item in args.expect}
+    append_expectations_to(args.expect, expectations)
+
+
+def append_expectations_to(
+    target: list[Expectation],
+    expectations: tuple[Expectation, ...],
+) -> None:
+    existing = {(item.source, item.text) for item in target}
     for expectation in expectations:
         key = (expectation.source, expectation.text)
         if key not in existing:
-            args.expect.append(expectation)
+            target.append(expectation)
             existing.add(key)
 
 
@@ -833,9 +846,13 @@ def run_command(args: argparse.Namespace) -> RunResult:
     cwd = args.cwd if shell else None
     timed_out = False
     stopped_on_match = False
+    stopped_on_fail = False
     active_guest: str | None = None
     source_stats: dict[str, SourceStats] = {}
     expectation_results = [ExpectationResult(expectation) for expectation in args.expect]
+    fail_expectation_results = [
+        ExpectationResult(expectation) for expectation in args.fail_expect
+    ]
     line_queue: queue.Queue[QueuedLine] = queue.Queue()
     stop_event = threading.Event()
     deadline = time.monotonic() + args.timeout_sec
@@ -946,6 +963,20 @@ def run_command(args: argparse.Namespace) -> RunResult:
                 if expectation.source == "raw" and expectation.text in line:
                     result.found = True
 
+            for result in fail_expectation_results:
+                expectation = result.expectation
+                if expectation.source == source and expectation.text in line:
+                    result.found = True
+                if expectation.source == "combined" and expectation.text in prefixed_line:
+                    result.found = True
+                if expectation.source == "raw" and expectation.text in line:
+                    result.found = True
+
+            if any(result.found for result in fail_expectation_results):
+                stopped_on_fail = True
+                return_code = terminate_process(process)
+                break
+
             if not args.no_stop_on_match and all_markers_found(
                 expectation_results,
                 args.require_source,
@@ -968,7 +999,9 @@ def run_command(args: argparse.Namespace) -> RunResult:
         return_code=return_code,
         timed_out=timed_out,
         stopped_on_match=stopped_on_match,
+        stopped_on_fail=stopped_on_fail,
         expectation_results=expectation_results,
+        fail_expectation_results=fail_expectation_results,
         source_stats=source_stats,
     )
 
@@ -997,12 +1030,13 @@ def source_for_line(line: str, active_guest: str | None) -> tuple[str, str | Non
 
 def evaluate_result(args: argparse.Namespace, result: RunResult) -> int:
     missing = [item for item in result.expectation_results if not item.found]
+    failed_markers = [item for item in result.fail_expectation_results if item.found]
     missing_sources = [
         source
         for source in args.require_source
         if result.source_stats.get(source, SourceStats()).bytes == 0
     ]
-    failed = bool(missing or missing_sources)
+    failed = bool(missing or failed_markers or missing_sources)
     if args.fail_on_timeout and result.timed_out:
         failed = True
     if (
@@ -1016,12 +1050,18 @@ def evaluate_result(args: argparse.Namespace, result: RunResult) -> int:
         expectation = item.expectation
         status = "found" if item.found else "missing"
         print(f"{status}: {expectation.source}:{expectation.text}")
+    for item in result.fail_expectation_results:
+        expectation = item.expectation
+        status = "failed" if item.found else "absent"
+        print(f"{status}: fail:{expectation.source}:{expectation.text}")
     for source in args.require_source:
         stats = result.source_stats.get(source, SourceStats())
         status = "found" if stats.bytes > 0 else "missing"
         print(f"{status}: source {source} ({stats.lines} lines, {stats.bytes} bytes)")
     if result.stopped_on_match:
         print("stopped: all requested markers were found")
+    if result.stopped_on_fail:
+        print("stopped: failure marker was found")
     print(f"log: {args.log_file}")
     return 1 if failed else 0
 
