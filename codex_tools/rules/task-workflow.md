@@ -7,7 +7,7 @@ These rules apply to every task directory under the workspace root.
    review work, create the standard layout from `AGENTS.md`.
 2. Before working inside an existing task directory, read `TASK_CONTEXT.md`.
    If it is missing or too sparse to continue safely, create or refresh it from
-   `codex_tools/templates/TASK_CONTEXT.md`.
+   `codex_tools/paf_workspace/templates/TASK_CONTEXT.md`.
 3. Identify the task topics before deep work. Read
    `codex_tools/knowledge/README.md` and every matching topic file under
    `codex_tools/knowledge/topics/`, for example Xen/QEMU work reads
@@ -21,18 +21,19 @@ These rules apply to every task directory under the workspace root.
    product path, compile databases, runtime harness, validation path, blockers
    ```
 
-   Use `python -m codex_tools.task_check <task-dir>` for a quick check of the
-   task layout and workflow metadata. Use
-   `python -m codex_tools.task_check <task-dir> --init-layout` to create a
-   missing task layout from workspace templates.
-   Use `python -m codex_tools.task_check <task-dir> --init-runtime-product` for
-   Xen/QEMU/Moulin runtime tasks that need a starter artifact manifest and
-   harness scenario.
-   Before a long environment build or runtime run, use
-   `python -m codex_tools.task_check <task-dir> --env-check-command` to print
-   the reusable environment preflight command. Use `--run-env-check` only when
-   the task should actually execute the environment domain's safe PAF
-   check-only scenario.
+   Use this command for a quick check of the task layout and workflow metadata:
+
+   ```sh
+   python -m codex_tools.paf_workspace.task_check <task-dir>
+   ```
+
+   Use `--init-layout` to create a missing task layout from workspace
+   templates. Use `--init-runtime-product` for Xen/QEMU/Moulin runtime tasks
+   that need a starter artifact manifest and harness scenario.
+   Before a long environment build or runtime run, use `--env-check-command`
+   to print the reusable environment preflight command.
+   Use `--run-env-check` only when the task should actually execute the
+   environment domain's safe PAF check-only scenario.
 
 5. For tasks that need a reusable environment, choose the environment before
    building or validating. Record the selected
@@ -60,9 +61,9 @@ These rules apply to every task directory under the workspace root.
    patching.
 9. For runtime products that combine multiple target artifacts, maintain a
    task-owned artifact manifest based on
-   `codex_tools/templates/product-artifacts.yaml`. Keep it under the task's
-   `dev/` tree and update it when artifact paths, domain roles, or compile
-   databases change.
+   `codex_tools/paf_workspace/templates/product-artifacts.yaml`. Keep it under
+   the task's `dev/` tree and update it when artifact paths, domain roles, or
+   compile databases change.
 10. Keep commit-ready source/tooling changes separate from review/report
    artifacts unless the user asks to include both. Review tasks place reports
    under `report/`; source tasks should not accumulate report output as a side

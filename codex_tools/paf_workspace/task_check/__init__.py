@@ -26,9 +26,10 @@ TASK_CONTEXT_SECTIONS = (
 )
 VALIDATION_LEVELS = ("static", "build", "runtime", "review")
 RUNTIME_HINTS = ("xen", "qemu", "moulin", "dom0", "domu", "hypervisor")
-PROJECT_ROOT = Path(__file__).resolve().parents[2]
-TASK_CONTEXT_TEMPLATE = PROJECT_ROOT / "codex_tools" / "templates" / "TASK_CONTEXT.md"
-PRODUCT_ARTIFACTS_TEMPLATE = PROJECT_ROOT / "codex_tools" / "templates" / "product-artifacts.yaml"
+PROJECT_ROOT = Path(__file__).resolve().parents[3]
+PAF_WORKSPACE_ROOT = PROJECT_ROOT / "codex_tools" / "paf_workspace"
+TASK_CONTEXT_TEMPLATE = PAF_WORKSPACE_ROOT / "templates" / "TASK_CONTEXT.md"
+PRODUCT_ARTIFACTS_TEMPLATE = PAF_WORKSPACE_ROOT / "templates" / "product-artifacts.yaml"
 DEFAULT_RUNTIME_YAML_NAME = "xen-zephyr-runtime.yaml"
 
 

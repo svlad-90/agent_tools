@@ -40,7 +40,7 @@ jobs:
           commit_msg
           diff_report
           paf_workspace
-          task_check
+          paf_workspace/task_check
           yaml_map
 
       - name: Run pytest

@@ -58,7 +58,7 @@ Multi-stage validation orchestration -> PAF plus xen-qemu-harness
 Moulin CI or local workflow validation -> moulin-local-validation
 Diff or patch review reports -> diff-review-report
 Commit message formatting -> commit-message-format
-Task layout and workflow metadata checks -> python -m codex_tools.task_check
+Task layout and workflow metadata checks -> python -m codex_tools.paf_workspace.task_check
 ```
 
 When more than one row applies, read the rules first, then the minimal matching
