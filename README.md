@@ -9,13 +9,21 @@ workspace root, put task directories next to `codex_tools/`, and Codex will have
 the same rules, helper commands, review-report tooling, and validation
 conventions available in every task.
 
-## What belongs in this repository
+## Repository Map
 
 This repository tracks reusable workspace infrastructure only:
 
 - `AGENTS.md` - workspace-level instructions that apply to the root and all
   task directories.
-- `codex_tools/` - local helper modules, rule files, and workflow utilities.
+- `codex_tools/tools/` - standalone CLI tools such as `code_map`,
+  `cpp_code_map`, `yaml_map`, `diff_report`, and `commit_msg`.
+- `codex_tools/paf_workspace/` - PAF orchestration assets, domains,
+  reusable environments, task bootstrap templates, task workflow checks, and
+  PAF workspace tests.
+- `codex_tools/rules/` - mandatory workspace policy loaded through
+  `AGENTS.md`.
+- `codex_tools/skills/` - operating manuals for specific tools and workflows.
+- `codex_tools/knowledge/` - durable findings that should inform future tasks.
 - `.gitignore` - keeps task directories, build outputs, caches, and local
   artifacts out of this setup repository.
 
@@ -62,17 +70,23 @@ Current rule files:
 - `reusable-environments.md` - keep reusable container environments under
   `codex_tools/paf_workspace/domains/environments/` and task-specific runtime
   material under the task directory.
-- `findings.md` - write review findings with clear severity, references, and
-  actionable explanation.
+- `task-workflow.md` - keep task directories, context, validation status, and
+  runtime metadata consistent.
 - `diff-reports.md` - keep diff review artifacts consistent, self-contained,
   and evidence-led when validation artifacts matter.
 - `git-commits.md` - keep commit messages wrapped and include the required
   `Signed-off-by` trailer.
+- `workspace-skills.md` and `xen-zephyr-abi.md` - define workspace skill
+  routing and Xen/Zephyr ABI review expectations.
 
 More specific `AGENTS.md` files inside task directories may override the root
 instructions for their subtree.
 
 ## Included tools
+
+Standalone CLI tools live under `codex_tools/tools/`. The old module paths
+such as `codex_tools.code_map` and `codex_tools.diff_report` are intentionally
+not kept as compatibility shims.
 
 ### `codex_tools.tools.code_map`
 
@@ -126,10 +140,15 @@ python -m codex_tools.tools.diff_report \
 
 YAML structure inspection helpers for workflows and configuration files.
 
-### `codex_tools.moulin`
+### `codex_tools.paf_workspace`
 
-Moulin-specific local validation helpers, including an `act` Dockerfile and
-runner script for reproducing GitHub Actions workflows locally.
+PAF orchestration for reusable workflow automation. This owns domain scenarios,
+profiles, templates, reusable environment definitions, PAF-specific tests, and
+the task workflow checker:
+
+```sh
+python -m codex_tools.paf_workspace.task_check <task-dir>
+```
 
 ## Deployment model
 
@@ -161,7 +180,9 @@ managed by their own nested repositories.
 ## Maintenance notes
 
 - Keep workspace-wide behavior in the root `AGENTS.md`.
-- Keep reusable Codex helper behavior in `codex_tools/`.
+- Keep standalone CLI tools in `codex_tools/tools/`.
+- Keep PAF orchestration and PAF workflow helpers in
+  `codex_tools/paf_workspace/`.
 - Keep language-specific and workflow-specific requirements in
   `codex_tools/rules/`.
 - Keep generated caches, task outputs, downloaded repositories, and local

@@ -5,7 +5,12 @@ from pathlib import Path
 import jsonschema
 import yaml
 
+from paf_workspace.structure import assert_codex_tools_structure
 from paf_workspace.structure import assert_paf_workspace_structure
+
+
+def test_codex_tools_structure() -> None:
+    assert_codex_tools_structure(Path(__file__).resolve().parents[2])
 
 
 def test_paf_workspace_structure() -> None:

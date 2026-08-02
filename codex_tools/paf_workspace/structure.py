@@ -1,4 +1,4 @@
-"""Structural checks for the workspace PAF layout."""
+"""Structural checks for codex_tools and the workspace PAF layout."""
 
 from __future__ import annotations
 
@@ -8,6 +8,27 @@ from xml.etree import ElementTree
 
 REQUIRED_DOMAIN_FILES = ("README.md", "__init__.py", "domain.yaml", "schema.yaml")
 REQUIRED_DOMAIN_DIRS = ("lib", "scenarios", "profiles")
+REQUIRED_CODEX_TOOLS_DIRS = ("knowledge", "paf_workspace", "rules", "skills", "tools")
+ALLOWED_CODEX_TOOLS_DIRS = {
+    *REQUIRED_CODEX_TOOLS_DIRS,
+    ".cache",
+    ".github",
+    ".mypy_cache",
+    ".pytest_cache",
+}
+FORBIDDEN_CODEX_TOOLS_DIRS = (
+    "code_map",
+    "commit_msg",
+    "cpp_code_map",
+    "diff_report",
+    "environments",
+    "moulin",
+    "paf",
+    "task_check",
+    "templates",
+    "yaml_map",
+)
+REQUIRED_TOOL_PACKAGES = ("code_map", "commit_msg", "cpp_code_map", "diff_report", "yaml_map")
 
 
 class StructureIssue:
@@ -124,6 +145,60 @@ def check_paf_workspace_structure(root: Path) -> list[StructureIssue]:
         issues.extend(_check_domain(root, domain))
 
     return issues
+
+
+def check_codex_tools_structure(root: Path) -> list[StructureIssue]:
+    """Return structural issues for the codex_tools workspace layout."""
+
+    root = root.resolve()
+    issues: list[StructureIssue] = []
+
+    for dirname in REQUIRED_CODEX_TOOLS_DIRS:
+        if not (root / dirname).is_dir():
+            issues.append(StructureIssue(root / dirname, "missing required codex_tools directory"))
+
+    for dirname in FORBIDDEN_CODEX_TOOLS_DIRS:
+        if (root / dirname).exists():
+            issues.append(
+                StructureIssue(root / dirname, "legacy codex_tools path must move into the owning namespace")
+            )
+
+    for path in sorted(root.iterdir()):
+        if not path.is_dir() or path.name.startswith("."):
+            continue
+        if path.name not in ALLOWED_CODEX_TOOLS_DIRS:
+            issues.append(StructureIssue(path, "unexpected top-level codex_tools directory"))
+
+    tools = root / "tools"
+    if tools.is_dir():
+        if not (tools / "README.md").is_file():
+            issues.append(StructureIssue(tools / "README.md", "missing tools directory README"))
+        for tool_name in REQUIRED_TOOL_PACKAGES:
+            tool = tools / tool_name
+            if not (tool / "__init__.py").is_file():
+                issues.append(StructureIssue(tool / "__init__.py", "missing tool package entry point"))
+            if not (tool / "__main__.py").is_file():
+                issues.append(StructureIssue(tool / "__main__.py", "missing tool CLI entry point"))
+
+    if not (root / "paf_workspace" / "task_check" / "__main__.py").is_file():
+        issues.append(StructureIssue(root / "paf_workspace" / "task_check", "missing PAF workspace task_check CLI"))
+    task_context_template = root / "paf_workspace" / "templates" / "TASK_CONTEXT.md"
+    product_artifacts_template = root / "paf_workspace" / "templates" / "product-artifacts.yaml"
+    if not task_context_template.is_file():
+        issues.append(StructureIssue(task_context_template, "missing task context template"))
+    if not product_artifacts_template.is_file():
+        issues.append(StructureIssue(product_artifacts_template, "missing product artifact template"))
+    if (root / "knowledge" / "findings.md").exists():
+        issues.append(StructureIssue(root / "knowledge" / "findings.md", "legacy findings pointer must move into knowledge/topics"))
+
+    return issues
+
+
+def assert_codex_tools_structure(root: Path) -> None:
+    issues = check_codex_tools_structure(root)
+    if issues:
+        formatted = "\n".join(issue.format(root) for issue in issues)
+        raise AssertionError(f"codex_tools structure check failed:\n{formatted}")
 
 
 def assert_paf_workspace_structure(root: Path) -> None:
