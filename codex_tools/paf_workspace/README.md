@@ -7,6 +7,8 @@ The default checked-out PAF revision is
 baseline with full repository mypy coverage for PAF's core, CLI entry point,
 and tests. Override it with `PAF_REF` only when a task intentionally validates
 a different PAF revision.
+Existing cached PAF checkouts are reused; set `PAF_UPDATE=1` when the wrapper
+must fetch and checkout `PAF_REF` again.
 
 The purpose of this directory is to collect reusable automation work in the
 same spirit as `/home/vladyslav_goncharuk/Projects/tools/aasig_dev_platform/build/`:
@@ -61,3 +63,9 @@ codex_tools/paf_workspace/run-paf.sh \
 This validates PAF checkout discovery, workspace task imports, Xen/Zephyr
 domain discovery, YAML schema validation, and domain default projection without
 building a product or starting QEMU.
+
+When a task uses the PAF Docker helpers, PAF expands the container alias to the
+actual `docker run ... /bin/bash -lc <command>` invocation and logs it through
+the same subprocess command and command-after-substitution output used for
+host commands. Use the normal `avoid_printing_command` flags only when the
+command text itself is sensitive.

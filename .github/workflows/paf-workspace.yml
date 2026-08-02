@@ -6,13 +6,11 @@ on:
       - ".github/workflows/paf-workspace.yml"
       - "codex_tools/paf_workspace/**"
       - "codex_tools/tests/paf_workspace/**"
-      - "codex_tools/paf/**"
   pull_request:
     paths:
       - ".github/workflows/paf-workspace.yml"
       - "codex_tools/paf_workspace/**"
       - "codex_tools/tests/paf_workspace/**"
-      - "codex_tools/paf/**"
   workflow_dispatch:
 
 jobs:
