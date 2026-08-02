@@ -5,13 +5,13 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from codex_tools.diff_report.comments import (
+from codex_tools.tools.diff_report.comments import (
     comment_line_range,
     comments_from_payload,
     load_comments,
     normalize_svg,
 )
-from codex_tools.diff_report.models import DiffReportError
+from codex_tools.tools.diff_report.models import DiffReportError
 
 
 class CommentsTests(unittest.TestCase):

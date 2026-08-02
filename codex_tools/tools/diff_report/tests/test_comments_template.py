@@ -3,7 +3,7 @@ from __future__ import annotations
 import textwrap
 import unittest
 
-from codex_tools.diff_report.comments_template import build_comments_template
+from codex_tools.tools.diff_report.comments_template import build_comments_template
 
 
 class CommentsTemplateTests(unittest.TestCase):

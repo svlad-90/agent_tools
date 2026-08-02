@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import unittest
 
-from codex_tools.diff_report.models import DiffReportError, InlineComment, ReviewComments
-from codex_tools.diff_report.render_diff import diff_row, render_diff
+from codex_tools.tools.diff_report.models import DiffReportError, InlineComment, ReviewComments
+from codex_tools.tools.diff_report.render_diff import diff_row, render_diff
 
 
 class RenderDiffTests(unittest.TestCase):

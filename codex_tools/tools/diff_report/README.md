@@ -6,7 +6,7 @@ review comments.
 ## Usage
 
 ```sh
-python -m codex_tools.diff_report \
+python -m codex_tools.tools.diff_report \
   --repo path/to/repo \
   --range HEAD^..HEAD \
   --comments comments.json \
@@ -16,7 +16,7 @@ python -m codex_tools.diff_report \
 You can also render an already prepared unified git diff:
 
 ```sh
-python -m codex_tools.diff_report \
+python -m codex_tools.tools.diff_report \
   --diff-file change.patch \
   --comments comments.json \
   --output review.html
@@ -26,7 +26,7 @@ For reports where comment anchors should be refreshed while regenerating the
 HTML, enable target refresh:
 
 ```sh
-python -m codex_tools.diff_report \
+python -m codex_tools.tools.diff_report \
   --diff-file change.patch \
   --comments comments.json \
   --output review.html \
@@ -45,7 +45,7 @@ To reduce manual anchor lookup before writing review notes, initialize a starter
 comments JSON from the diff:
 
 ```sh
-python -m codex_tools.diff_report \
+python -m codex_tools.tools.diff_report \
   --diff-file change.patch \
   --init-comments comments.json
 ```
@@ -77,7 +77,7 @@ canonical comments JSON with target anchors:
 ```
 
 ```sh
-python -m codex_tools.diff_report \
+python -m codex_tools.tools.diff_report \
   --diff-file change.patch \
   --findings findings.json \
   --output-comments comments.json
@@ -91,7 +91,7 @@ rendering or `--refresh-targets`.
 To compose and render in one command, add `--output`:
 
 ```sh
-python -m codex_tools.diff_report \
+python -m codex_tools.tools.diff_report \
   --diff-file change.patch \
   --findings findings.json \
   --output-comments comments.json \

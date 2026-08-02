@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import unittest
 
-from codex_tools.diff_report.render_state import (
+from codex_tools.tools.diff_report.render_state import (
     active_delete_target_after_line,
     comment_row_kind,
     delete_target_classes,

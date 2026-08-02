@@ -1,11 +1,11 @@
 ---
 name: cpp-code-map
-description: Navigate, inspect, safely edit, and audit C/C++ source files with the workspace codex_tools.cpp_code_map libclang-based tool. Use when Codex works on C or C++ code, needs exact symbol maps, guarded symbol/body edits, compile_commands.json based parsing, include insertion, batch edits, or DMA_Plantuml puml-audit checks in the real build environment.
+description: Navigate, inspect, safely edit, and audit C/C++ source files with the workspace codex_tools.tools.cpp_code_map libclang-based tool. Use when Codex works on C or C++ code, needs exact symbol maps, guarded symbol/body edits, compile_commands.json based parsing, include insertion, batch edits, or DMA_Plantuml puml-audit checks in the real build environment.
 ---
 
 # C++ Code Map
 
-Use the workspace implementation at `codex_tools/cpp_code_map`. Do not depend
+Use the workspace implementation at `codex_tools/tools/cpp_code_map`. Do not depend
 on a globally installed Codex skill for this workflow.
 
 Also follow `codex_tools/rules/cpp-code.md`; that rule is stricter than this
@@ -18,13 +18,13 @@ Run commands from the repository or workspace root where `codex_tools` is
 importable:
 
 ```sh
-python -m codex_tools.cpp_code_map <command> ...
+python -m codex_tools.tools.cpp_code_map <command> ...
 ```
 
 Prefer a real compile database:
 
 ```sh
-python -m codex_tools.cpp_code_map map path/to/file.c --compile-db path/to/build
+python -m codex_tools.tools.cpp_code_map map path/to/file.c --compile-db path/to/build
 ```
 
 For CMake projects, generate one first when missing:
@@ -42,13 +42,13 @@ module paths, and toolchain settings.
 Before reading or changing a C/C++ file, inspect its symbol map:
 
 ```sh
-python -m codex_tools.cpp_code_map map path/to/file.c --compile-db build
+python -m codex_tools.tools.cpp_code_map map path/to/file.c --compile-db build
 ```
 
 Before changing a symbol, get a guarded snapshot:
 
 ```sh
-python -m codex_tools.cpp_code_map symbol-get path/to/file.c \
+python -m codex_tools.tools.cpp_code_map symbol-get path/to/file.c \
   --symbol function_or_Class::method --compile-db build --json
 ```
 
@@ -60,7 +60,7 @@ Prefer guarded edits when replacing or inserting code so stale snapshots fail
 before writing:
 
 ```sh
-python -m codex_tools.cpp_code_map replace-symbol-body path/to/file.c \
+python -m codex_tools.tools.cpp_code_map replace-symbol-body path/to/file.c \
   --symbol function_name \
   --expect-hash <body_hash> \
   --replacement-text $'\n\treturn 0;\n' \
@@ -75,7 +75,7 @@ Use parse-check when it gives useful fast feedback in the same build
 environment:
 
 ```sh
-python -m codex_tools.cpp_code_map parse-check path/to/file.c --compile-db build
+python -m codex_tools.tools.cpp_code_map parse-check path/to/file.c --compile-db build
 ```
 
 If parsing fails, fix the build context before treating diagnostics as
@@ -95,5 +95,5 @@ For projects using `DMA_Plantuml`, use `puml-audit` instead of generating an
 independent class diagram:
 
 ```sh
-python -m codex_tools.cpp_code_map puml-audit path/to/file.cpp --compile-db build
+python -m codex_tools.tools.cpp_code_map puml-audit path/to/file.cpp --compile-db build
 ```

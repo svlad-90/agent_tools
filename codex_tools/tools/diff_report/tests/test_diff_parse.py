@@ -3,7 +3,7 @@ from __future__ import annotations
 import textwrap
 import unittest
 
-from codex_tools.diff_report.diff_parse import (
+from codex_tools.tools.diff_report.diff_parse import (
     DiffLine,
     file_from_diff_header,
     is_diff_metadata,

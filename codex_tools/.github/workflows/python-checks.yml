@@ -36,12 +36,12 @@ jobs:
         run: >
           python -m mypy
           --explicit-package-bases
-          code_map
-          commit_msg
-          diff_report
+          tools/code_map
+          tools/commit_msg
+          tools/diff_report
           paf_workspace
           paf_workspace/task_check
-          yaml_map
+          tools/yaml_map
 
       - name: Run pytest
         run: python -m pytest paf_workspace/tests

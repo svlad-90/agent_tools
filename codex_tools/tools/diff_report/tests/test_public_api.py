@@ -4,10 +4,10 @@ import contextlib
 import io
 import unittest
 
-import codex_tools.diff_report as diff_report
-from codex_tools.diff_report.cli import main as cli_main
-from codex_tools.diff_report.core import generate_report
-from codex_tools.diff_report.models import DiffReportError
+import codex_tools.tools.diff_report as diff_report
+from codex_tools.tools.diff_report.cli import main as cli_main
+from codex_tools.tools.diff_report.core import generate_report
+from codex_tools.tools.diff_report.models import DiffReportError
 
 
 class PublicApiTests(unittest.TestCase):

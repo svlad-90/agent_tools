@@ -2,17 +2,17 @@ from __future__ import annotations
 
 import unittest
 
-from codex_tools.diff_report.assets import (
+from codex_tools.tools.diff_report.assets import (
     copy_selection_script,
     diagram_script,
     html_header,
     story_script,
     theme_script,
 )
-from codex_tools.diff_report.assets_diagram_code_popover import diagram_code_popover_helpers
-from codex_tools.diff_report.assets_diagram_export import diagram_export_helpers
-from codex_tools.diff_report.assets_diagram_notes import diagram_note_helpers
-from codex_tools.diff_report.assets_plantuml_svg import (
+from codex_tools.tools.diff_report.assets_diagram_code_popover import diagram_code_popover_helpers
+from codex_tools.tools.diff_report.assets_diagram_export import diagram_export_helpers
+from codex_tools.tools.diff_report.assets_diagram_notes import diagram_note_helpers
+from codex_tools.tools.diff_report.assets_plantuml_svg import (
     PINNED_GRAPHVIZ_DOT_VERSION,
     PINNED_PLANTUML_HEADLESS_JAVA_OPTION,
     PINNED_PLANTUML_RELEASE_DATE,
@@ -20,7 +20,7 @@ from codex_tools.diff_report.assets_plantuml_svg import (
     plantuml_preview_svg,
     plantuml_svg_styles,
 )
-from codex_tools.diff_report.assets_styles import stylesheet
+from codex_tools.tools.diff_report.assets_styles import stylesheet
 
 
 class AssetContractTests(unittest.TestCase):

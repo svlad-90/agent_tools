@@ -23,7 +23,7 @@ def format_message(repo: Path, draft: Path, output: Path, width: int) -> None:
         [
             sys.executable,
             "-m",
-            "codex_tools.commit_msg",
+            "codex_tools.tools.commit_msg",
             "--repo",
             str(repo),
             "--width",

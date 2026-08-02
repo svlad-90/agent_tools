@@ -9,7 +9,7 @@ import unittest
 from pathlib import Path
 from typing import Any
 
-from codex_tools.diff_report.refresh import (
+from codex_tools.tools.diff_report.refresh import (
     diff_line_targets,
     enrich_comments_payload,
     inline_sort_key,

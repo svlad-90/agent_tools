@@ -8,7 +8,7 @@ import textwrap
 import unittest
 from pathlib import Path
 
-from codex_tools.diff_report.cli import main
+from codex_tools.tools.diff_report.cli import main
 
 
 class CliTests(unittest.TestCase):

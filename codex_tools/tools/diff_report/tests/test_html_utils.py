@@ -2,14 +2,14 @@ from __future__ import annotations
 
 import unittest
 
-from codex_tools.diff_report.html_utils import (
+from codex_tools.tools.diff_report.html_utils import (
     anchor,
     comment_anchor,
     esc,
     format_text,
     line_anchor,
 )
-from codex_tools.diff_report.models import VocabularyTerm
+from codex_tools.tools.diff_report.models import VocabularyTerm
 
 
 class HtmlUtilsTests(unittest.TestCase):

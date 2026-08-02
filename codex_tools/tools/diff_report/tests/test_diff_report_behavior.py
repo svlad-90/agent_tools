@@ -9,8 +9,8 @@ import textwrap
 import unittest
 from pathlib import Path
 
-from codex_tools.diff_report.core import generate_report
-from codex_tools.diff_report.models import DiffReportError
+from codex_tools.tools.diff_report.core import generate_report
+from codex_tools.tools.diff_report.models import DiffReportError
 
 
 class DiffReportBehaviorTests(unittest.TestCase):

@@ -55,13 +55,13 @@ The root `AGENTS.md` requires Codex to read and follow all rule files in
 
 Current rule files:
 
-- `python-code.md` - use `python -m codex_tools.code_map` when inspecting,
+- `python-code.md` - use `python -m codex_tools.tools.code_map` when inspecting,
   editing, or validating Python code.
-- `cpp-code.md` - use `python -m codex_tools.cpp_code_map` when inspecting,
+- `cpp-code.md` - use `python -m codex_tools.tools.cpp_code_map` when inspecting,
   editing, or validating C and C++ code.
 - `reusable-environments.md` - keep reusable container environments under
-  `codex_tools/environments/` and task-specific runtime material under the
-  task directory.
+  `codex_tools/paf_workspace/domains/environments/` and task-specific runtime
+  material under the task directory.
 - `findings.md` - write review findings with clear severity, references, and
   actionable explanation.
 - `diff-reports.md` - keep diff review artifacts consistent, self-contained,
@@ -74,7 +74,7 @@ instructions for their subtree.
 
 ## Included tools
 
-### `codex_tools.code_map`
+### `codex_tools.tools.code_map`
 
 Python source inspection and guarded editing support. It can map file structure,
 resolve symbols, inspect exact spans, and parse-check changed Python files.
@@ -82,12 +82,12 @@ resolve symbols, inspect exact spans, and parse-check changed Python files.
 Typical commands:
 
 ```sh
-python -m codex_tools.code_map map path/to/file.py
-python -m codex_tools.code_map symbol-get path/to/file.py --symbol Name
-python -m codex_tools.code_map parse-check path/to/file.py
+python -m codex_tools.tools.code_map map path/to/file.py
+python -m codex_tools.tools.code_map symbol-get path/to/file.py --symbol Name
+python -m codex_tools.tools.code_map parse-check path/to/file.py
 ```
 
-### `codex_tools.cpp_code_map`
+### `codex_tools.tools.cpp_code_map`
 
 C and C++ source inspection and validation support built around libclang and
 compile databases. It helps map C++ files, inspect symbols, and parse-check
@@ -96,14 +96,14 @@ changes with explicit build context.
 Typical commands:
 
 ```sh
-python -m codex_tools.cpp_code_map map path/to/file.cpp --compile-db build
-python -m codex_tools.cpp_code_map symbol-get path/to/file.cpp \
+python -m codex_tools.tools.cpp_code_map map path/to/file.cpp --compile-db build
+python -m codex_tools.tools.cpp_code_map symbol-get path/to/file.cpp \
   --symbol Namespace::Name --compile-db build
-python -m codex_tools.cpp_code_map parse-check path/to/file.cpp \
+python -m codex_tools.tools.cpp_code_map parse-check path/to/file.cpp \
   --compile-db build
 ```
 
-### `codex_tools.diff_report`
+### `codex_tools.tools.diff_report`
 
 GitHub-style HTML diff review report generation. Review artifacts should live
 under a task's `report/diff/` directory, including the source diff, comments
@@ -116,13 +116,13 @@ diagram and log previews, diagram-to-code links, and evidence-led
 Typical command:
 
 ```sh
-python -m codex_tools.diff_report \
+python -m codex_tools.tools.diff_report \
   --diff-file report/diff/changes.diff \
   --comments report/diff/comments.json \
   --output report/diff/review.html
 ```
 
-### `codex_tools.yaml_map`
+### `codex_tools.tools.yaml_map`
 
 YAML structure inspection helpers for workflows and configuration files.
 

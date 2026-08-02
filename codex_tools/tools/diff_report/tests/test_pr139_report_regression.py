@@ -8,8 +8,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from codex_tools.diff_report.comments_compose import compose_comments_payload
-from codex_tools.diff_report.core import generate_report
+from codex_tools.tools.diff_report.comments_compose import compose_comments_payload
+from codex_tools.tools.diff_report.core import generate_report
 
 
 FIXTURE_ROOT = Path(__file__).resolve().parent / "fixtures" / "pr139"

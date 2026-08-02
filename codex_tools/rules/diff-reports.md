@@ -3,7 +3,7 @@
 These rules apply to diff/review reports generated under task `report/diff/`
 directories.
 
-1. Generate review reports with `python -m codex_tools.diff_report`. Put the
+1. Generate review reports with `python -m codex_tools.tools.diff_report`. Put the
    generated HTML, canonical comments JSON, and source diff or patch under the
    task's `report/diff/` directory.
 2. Use stable commit indexes instead of commit hashes in human-facing report
@@ -36,6 +36,6 @@ directories.
    learning the subsystem. Explain what the reader is seeing, why it matters,
    what would break without it, and then name the exact symbol, file, or API.
 10. Detailed comments JSON fields and generated viewer behavior are tool
-    documentation, not workspace policy. Consult `codex_tools/diff_report/README.md`
+    documentation, not workspace policy. Consult `codex_tools/tools/diff_report/README.md`
     when authoring reports that use diagrams, logs, focused highlights, code
     links, or story navigation.

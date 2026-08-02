@@ -18,7 +18,7 @@ matching `Signed-off-by` line, and checks rewritten series.
 2. Format and commit through the script from the workspace root:
 
    ```sh
-   python -m codex_tools.commit_msg.workflow \
+   python -m codex_tools.tools.commit_msg.workflow \
      --repo path/to/repo \
      --draft draft-message.txt \
      --commit
@@ -27,7 +27,7 @@ matching `Signed-off-by` line, and checks rewritten series.
 3. For amend:
 
    ```sh
-   python -m codex_tools.commit_msg.workflow \
+   python -m codex_tools.tools.commit_msg.workflow \
      --repo path/to/repo \
      --draft draft-message.txt \
      --amend
@@ -43,7 +43,7 @@ matching `Signed-off-by` line, and checks rewritten series.
 - Run this final check on the resulting series:
 
   ```sh
-  python -m codex_tools.commit_msg.workflow \
+  python -m codex_tools.tools.commit_msg.workflow \
     --repo path/to/repo \
     --check-series base..HEAD
   ```

@@ -19,7 +19,7 @@ These rules apply to every repository under the workspace root.
    formatter before committing:
 
    ```sh
-   python -m codex_tools.commit_msg --repo path/to/repo draft-message.txt \
+   python -m codex_tools.tools.commit_msg --repo path/to/repo draft-message.txt \
      --output formatted-message.txt --check
    git -C path/to/repo commit -F formatted-message.txt
    ```

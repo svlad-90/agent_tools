@@ -3,11 +3,11 @@ from __future__ import annotations
 import textwrap
 import unittest
 
-from codex_tools.diff_report.comments_compose import (
+from codex_tools.tools.diff_report.comments_compose import (
     compose_comments_payload,
     compose_comments_payload_with_diagnostics,
 )
-from codex_tools.diff_report.models import DiffReportError
+from codex_tools.tools.diff_report.models import DiffReportError
 
 
 class CommentsComposeTests(unittest.TestCase):

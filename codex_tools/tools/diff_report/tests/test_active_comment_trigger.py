@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import unittest
 
-from codex_tools.diff_report.active_comment_trigger import (
+from codex_tools.tools.diff_report.active_comment_trigger import (
     CommentBlock,
     CommentCrossing,
     first_directional_crossing,

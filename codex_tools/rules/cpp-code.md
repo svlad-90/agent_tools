@@ -10,20 +10,20 @@ When explaining C/C++ or assembly changes, follow the workspace guidance in
 `AGENTS.md` for introducing low-level systems concepts in plain language before
 naming exact symbols or APIs.
 
-1. Use `codex_tools/cpp_code_map` when exact C or C++ structure matters:
+1. Use `codex_tools/tools/cpp_code_map` when exact C or C++ structure matters:
    before non-trivial reading, symbol-level analysis, edits, review comments,
    or diagram/audit work. It is a precision tool for understanding and scoped
    editing; it is not the normal build-validation mechanism.
 2. Run commands from the workspace root with:
 
    ```sh
-   python -m codex_tools.cpp_code_map <command> ...
+   python -m codex_tools.tools.cpp_code_map <command> ...
    ```
 
 3. Prefer passing the build directory or compile database explicitly:
 
    ```sh
-   python -m codex_tools.cpp_code_map map path/to/file.cpp \
+   python -m codex_tools.tools.cpp_code_map map path/to/file.cpp \
      --compile-db path/to/build
    ```
 
@@ -46,7 +46,7 @@ naming exact symbols or APIs.
    structure:
 
    ```sh
-   python -m codex_tools.cpp_code_map map path/to/file.cpp \
+   python -m codex_tools.tools.cpp_code_map map path/to/file.cpp \
      --compile-db path/to/build
    ```
 
@@ -54,7 +54,7 @@ naming exact symbols or APIs.
    its exact span and current hash:
 
    ```sh
-   python -m codex_tools.cpp_code_map symbol-get path/to/file.cpp \
+   python -m codex_tools.tools.cpp_code_map symbol-get path/to/file.cpp \
      --symbol Qualified::Name --compile-db path/to/build
    ```
 
@@ -64,7 +64,7 @@ naming exact symbols or APIs.
    not treat it as a substitute for the build.
 
    ```sh
-   python -m codex_tools.cpp_code_map parse-check path/to/file.cpp \
+   python -m codex_tools.tools.cpp_code_map parse-check path/to/file.cpp \
      --compile-db path/to/build
    ```
 
