@@ -12,14 +12,6 @@ import yaml
 
 
 REQUIRED_DIRS = ("dev", "Dockerfile", "scripts", "report", "report/diff", "report/puml")
-ENVIRONMENT_FILES = (
-    "Dockerfile",
-    "README.md",
-    "scripts/check.sh",
-    "scripts/build.sh",
-    "scripts/run.sh",
-    "scripts/validate.sh",
-)
 TASK_CONTEXT_SECTIONS = (
     "## Goal",
     "## Repositories",
@@ -95,12 +87,12 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--env-check-command",
         action="store_true",
-        help="Print discovered environment check.sh commands without running them.",
+        help="Print the PAF environment-domain check command without running it.",
     )
     parser.add_argument(
         "--run-env-check",
         action="store_true",
-        help="Run discovered environment check.sh commands. This does not build images.",
+        help="Run the PAF environment-domain check command. This does not build images.",
     )
     args = parser.parse_args(sys.argv[1:] if argv is None else argv)
 
@@ -256,27 +248,34 @@ def initialize_runtime_product(task_dir: Path, *, workspace: Path) -> list[Check
 
 def check_environment_commands(task_dir: Path, *, workspace: Path, run: bool) -> list[Check]:
     harness_profiles = _find_xen_zephyr_harness_profiles(task_dir)
-    environment_paths = _scenario_environment_paths(harness_profiles, workspace)
-    if not environment_paths:
+    if not _uses_environment_domain(harness_profiles):
         return [
             Check(
                 "WARN",
                 "environment-check-none",
-                "no environment check commands found from Xen/Zephyr runtime YAML",
+                "no environments domain usage found from Xen/Zephyr runtime YAML",
                 str(task_dir / "scripts"),
             )
         ]
 
-    checks: list[Check] = []
-    for environment_path in environment_paths:
-        check_script = environment_path / "scripts" / "check.sh"
-        if not check_script.exists():
-            checks.append(Check("WARN", "environment-check-missing", "environment check.sh is missing", str(check_script)))
-            continue
-        command = str(check_script)
-        checks.append(Check("PASS", "environment-check-command", f"run: {command}", str(check_script)))
-        if run:
-            checks.append(_run_environment_check(check_script))
+    command = [
+        "codex_tools/paf_workspace/run-paf.sh",
+        "codex_tools/paf_workspace/domains/environments/scenarios/zephyr-xen.xml",
+        "check-only",
+        "--yaml-config",
+        "codex_tools/paf_workspace/domains/environments/profiles/zephyr-xen.yaml",
+    ]
+    command_text = " ".join(command)
+    checks = [
+        Check(
+            "PASS",
+            "environment-check-command",
+            f"run: {command_text}",
+            str(workspace / "codex_tools/paf_workspace/domains/environments/scenarios/zephyr-xen.xml"),
+        )
+    ]
+    if run:
+        checks.append(_run_environment_check(workspace, command))
     return checks
 
 
@@ -498,44 +497,7 @@ def _check_optional_path(workspace: Path, value: Any, label: str, source_path: P
     return [Check("WARN", "artifact-path-missing", f"artifact path is filled but missing: {label}={value}", str(source_path))]
 
 
-def _check_environment_path(workspace: Path, environment: str, source_path: Path) -> list[Check]:
-    environment_path = Path(environment)
-    if not environment_path.is_absolute():
-        environment_path = workspace / environment_path
-    environment_path = environment_path.resolve()
-
-    if not environment_path.exists():
-        return [
-            Check(
-                "WARN",
-                "environment-missing",
-                f"referenced environment does not exist: {environment}",
-                str(source_path),
-            )
-        ]
-    if not environment_path.is_dir():
-        return [
-            Check(
-                "WARN",
-                "environment-not-directory",
-                f"referenced environment is not a directory: {environment}",
-                str(environment_path),
-            )
-        ]
-
-    checks = [Check("PASS", "environment", f"referenced environment exists: {environment}", str(environment_path))]
-    for rel_path in ENVIRONMENT_FILES:
-        path = environment_path / rel_path
-        if path.exists():
-            checks.append(Check("PASS", "environment-file", f"environment file exists: {rel_path}", str(path)))
-        else:
-            checks.append(Check("WARN", "environment-file-missing", f"environment file missing: {rel_path}", str(path)))
-    return checks
-
-
-def _scenario_environment_paths(profiles: list[Path], workspace: Path) -> list[Path]:
-    paths: list[Path] = []
-    seen: set[Path] = set()
+def _uses_environment_domain(profiles: list[Path]) -> bool:
     for profile in profiles:
         try:
             data = yaml.safe_load(profile.read_text(encoding="utf-8"))
@@ -543,46 +505,36 @@ def _scenario_environment_paths(profiles: list[Path], workspace: Path) -> list[P
             continue
         if not isinstance(data, dict):
             continue
-        docker = data.get("docker")
-        if not isinstance(docker, dict):
-            continue
-        images = docker.get("images")
-        if not isinstance(images, dict):
-            continue
-        image = images.get("zephyr-xen")
-        if not isinstance(image, dict):
-            continue
-        environment = image.get("context")
-        if not isinstance(environment, str) or not environment:
-            continue
-        path = Path(environment)
-        if not path.is_absolute():
-            path = workspace / path
-        path = path.resolve()
-        if path not in seen:
-            paths.append(path)
-            seen.add(path)
-    return paths
+        uses = data.get("uses")
+        if isinstance(uses, list):
+            for entry in uses:
+                if isinstance(entry, dict) and entry.get("domain") == "environments":
+                    return True
+        case = data.get("case")
+        if isinstance(case, dict) and case.get("domain") == "environments":
+            return True
+    return False
 
 
-def _run_environment_check(check_script: Path) -> Check:
+def _run_environment_check(workspace: Path, command: list[str]) -> Check:
     try:
         completed = subprocess.run(
-            [str(check_script)],
+            command,
+            cwd=workspace,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True,
             timeout=120,
         )
     except subprocess.TimeoutExpired:
-        return Check("WARN", "environment-check-timeout", "check.sh timed out after 120 seconds", str(check_script))
+        return Check("WARN", "environment-check-timeout", "PAF environment check timed out after 120 seconds")
     except OSError as error:
-        return Check("WARN", "environment-check-error", f"could not run check.sh: {error}", str(check_script))
+        return Check("WARN", "environment-check-error", f"could not run PAF environment check: {error}")
     output = "\n".join(part.strip() for part in (completed.stdout, completed.stderr) if part.strip())
     summary = _first_line(output) or "no output"
     if completed.returncode == 0:
-        return Check("PASS", "environment-check-run", f"check.sh passed: {summary}", str(check_script))
-    return Check("WARN", "environment-check-run-failed", f"check.sh failed ({completed.returncode}): {summary}", str(check_script))
+        return Check("PASS", "environment-check-run", f"PAF environment check passed: {summary}")
+    return Check("WARN", "environment-check-run-failed", f"PAF environment check failed ({completed.returncode}): {summary}")
 
 
 def _first_line(text: str) -> str:

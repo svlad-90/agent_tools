@@ -28,9 +28,8 @@ python -m codex_tools.task_check task-name --init-runtime-product
 This also creates the base task layout when needed. It adds
 `dev/product-artifacts.yaml`, `scripts/paf/xen-zephyr-runtime.yaml`, and
 `report/runtime/` without overwriting existing files.
-When runtime YAML references a `codex_tools/environments/...` directory,
-`task_check` verifies that the environment's Dockerfile, README, and standard
-scripts are present without running Docker.
+When runtime YAML uses the `environments` PAF domain, `task_check` can print or
+run the domain's safe check-only PAF scenario.
 
 Use JSON output when another script should consume the result:
 
@@ -60,7 +59,7 @@ run:
 python -m codex_tools.task_check task-name --env-check-command
 ```
 
-Run the discovered `scripts/check.sh` commands explicitly:
+Run the PAF environment-domain check command explicitly:
 
 ```sh
 python -m codex_tools.task_check task-name --run-env-check

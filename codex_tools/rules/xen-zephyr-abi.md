@@ -46,10 +46,10 @@ validation.
    task. Use direct ad hoc build directories only for explicitly scoped
    one-off experiments, and record that exception in `TASK_CONTEXT.md`.
 8. Build and run that Moulin product inside a reusable Docker-backed
-   environment from `codex_tools/environments/`. If no suitable environment
+   environment from the `environments` PAF domain. If no suitable environment
    exists, extend the closest matching environment or create a new one before
    treating runtime results as reproducible.
-9. The runtime harness must expose a stable task-facing scenario or script that
+9. The runtime harness must expose a stable task-facing PAF scenario that
    launches QEMU with Xen and the selected target domains from inside the
    Docker environment. The scenario must declare the target artifacts and domain
    roles it consumes instead of relying on manual host paths or stale local

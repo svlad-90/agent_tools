@@ -14,11 +14,11 @@ harness_run
 validate
 ```
 
-Implementation lives under `tasks/`:
+Implementation lives under the domain's PAF entry point and support library:
 
 ```text
-tasks.py          PAF task classes and phase entry points
-runtime_tasks.py  runtime parsing, preflight, QEMU process, log streaming
+tasks.py        PAF task classes and phase entry points
+lib/runtime.py  runtime parsing, preflight, QEMU process, log streaming
 ```
 
 Support assets used by runtime products live beside the tasks:

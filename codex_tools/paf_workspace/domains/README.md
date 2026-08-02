@@ -15,6 +15,7 @@ domains/<domain>/
   scenarios/*.xml       # runnable scenario definitions
   profiles/*            # optional target/environment presets
   templates/*           # optional task-local starting points
+  lib/                  # reusable Python implementation used by PAF tasks
   assets/               # non-PAF support code/assets owned by the domain
 ```
 
@@ -26,6 +27,10 @@ Use `assets/` for support code that is not itself a PAF task, scenario,
 profile, or template, for example Zephyr modules, Yocto layers, policy
 snippets, fixtures, or target-side helpers. Do not create ad hoc sibling
 directories such as `harness/` for support material.
+
+Use `lib/` for ordinary Python implementation that PAF tasks call through
+static imports. Keep `tasks.py` as the PAF-facing entry point instead of
+placing scenario execution logic in shell scripts.
 
 Scenarios should be runnable through:
 

@@ -3,6 +3,9 @@ case:
   domain: xen-zephyr
   workspace: .
 
+uses:
+  - domain: environments
+
 xen_zephyr:
   product: workspace-smoke
 

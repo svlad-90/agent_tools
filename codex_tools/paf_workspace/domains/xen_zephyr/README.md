@@ -21,7 +21,7 @@ Target selection, environment selection, artifact production, runtime launch,
 and marker validation are domain PAF tasks and phases.
 
 The importable PAF task namespace for this domain is
-`paf_workspace.domains.xen-zephyr.tasks`. The public domain name remains
+`paf_workspace.domains.xen_zephyr.tasks`. The public domain name remains
 `xen-zephyr` in YAML metadata and profiles.
 
 Typical parameters that should stay overrideable:
@@ -71,23 +71,31 @@ When such a YAML case is passed with `--yaml-config`, PAF validates it, writes
 the expanded structured config to `YAML_CONF_FILE`, and projects scalar values
 into replayable `YAML_CONF_*` environment variables.
 
-The domain descriptor also declares a default Docker image alias:
+The `environments` domain descriptor declares the default Docker image and
+container aliases used by this domain:
 
 ```yaml
+uses:
+  - domain: environments
+
 requires:
   images:
     zephyr-xen:
       image: codex/zephyr-xen:latest
-      dockerfile: codex_tools/environments/zephyr-xen/Dockerfile
-      context: codex_tools/environments/zephyr-xen
+      dockerfile: codex_tools/paf_workspace/domains/environments/assets/zephyr-xen/Dockerfile
+      context: codex_tools/paf_workspace/domains/environments/assets/zephyr-xen
+  containers:
+    zephyr-xen-workspace:
+      image: zephyr-xen
+      workdir: /home/builder/workspace
 ```
 
-PAF merges that alias into `docker.images` as a default. A case file can
-override it with its own `docker.images.zephyr-xen` entry, or a run can override
-the domain descriptor directly:
+PAF merges those aliases into `docker.images` and `docker.containers` as
+defaults. A case file can override them in its own `docker` section, or a run
+can override the environment domain descriptor directly:
 
 ```sh
---domain-yaml-parameter xen-zephyr.requires.images.zephyr-xen.image=my/zephyr-xen:debug
+--domain-yaml-parameter environments.requires.images.zephyr-xen.image=my/zephyr-xen:debug
 ```
 
 The domain schema intentionally does not define `docker.images` or
@@ -124,9 +132,9 @@ Minimal domain smoke:
 
 ```sh
 codex_tools/paf_workspace/run-paf.sh \
-  codex_tools/paf_workspace/domains/xen-zephyr/scenarios/build-run-harness.xml \
+  codex_tools/paf_workspace/domains/xen_zephyr/scenarios/build-run-harness.xml \
   check-only \
-  --yaml-config codex_tools/paf_workspace/domains/xen-zephyr/profiles/check-only.yaml \
+  --yaml-config codex_tools/paf_workspace/domains/xen_zephyr/profiles/check-only.yaml \
   --parameter PRODUCT_DIR=.
 ```
 
@@ -135,7 +143,7 @@ profile, or through command-line overrides:
 
 ```sh
 codex_tools/paf_workspace/run-paf.sh \
-  codex_tools/paf_workspace/domains/xen-zephyr/scenarios/build-run-harness.xml \
+  codex_tools/paf_workspace/domains/xen_zephyr/scenarios/build-run-harness.xml \
   default \
   --config zephyr-xenstore-client/scripts/paf/pr103-xenstore-client-validation.xml \
   --yaml-config zephyr-xenstore-client/scripts/paf/pr103-xenstore-client-validation.yaml

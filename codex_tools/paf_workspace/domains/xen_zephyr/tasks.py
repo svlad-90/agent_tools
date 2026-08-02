@@ -6,27 +6,20 @@ import hashlib
 import json
 from datetime import datetime
 from datetime import timezone
-from importlib import import_module
 from pathlib import Path
 
+from paf import docker_runtime
 from paf.paf_impl import CommunicationMode
 from paf.paf_impl import InteractionMode
 from paf.paf_impl import logger
 
+from paf_workspace.domains.environments.lib import runtime as environment_runtime
 from paf_workspace.tasks import WorkspaceTask
+from .lib import runtime as harness_runtime
 
 
 class XenZephyrTask(WorkspaceTask):
     """Base task for Xen/Zephyr domain orchestration."""
-
-    def zephyr_xen_environment_root(self) -> Path:
-        return self.path_param("ZEPHYR_XEN_ENV_DIR", "codex_tools/environments/zephyr-xen")
-
-    def environment_script(self, name: str) -> Path:
-        return self.zephyr_xen_environment_root() / "scripts" / name
-
-    def harness_module(self):
-        return import_module("paf_workspace.domains.xen-zephyr.runtime_tasks")
 
     def harness_config(self) -> dict[str, object]:
         xen_zephyr = self.get_yaml_config().get("xen_zephyr", {})
@@ -40,9 +33,8 @@ class XenZephyrTask(WorkspaceTask):
         return harness
 
     def harness_args(self):
-        harness = self.harness_module()
         config = self.harness_config()
-        scenario = harness.load_scenario_data(config)
+        scenario = harness_runtime.load_scenario_data(config)
 
         product_dir = self.param("PRODUCT_DIR")
         product_path = self.path_param("PRODUCT_DIR") if product_dir else None
@@ -51,24 +43,43 @@ class XenZephyrTask(WorkspaceTask):
         if log_path is None and isinstance(log_file, str):
             log_path = self.path_param_from_text(log_file)
 
-        return harness.args_from_scenario(
+        container_alias = self.harness_container_alias(config)
+        container_workdir = self.container_workdir(container_alias)
+
+        return harness_runtime.args_from_scenario(
             scenario,
             root=self.workspace_root(),
             product_dir=product_path,
             log_file=log_path,
             command=config.get("command") if isinstance(config.get("command"), str) else None,
-            docker_image=config.get("docker_image") if isinstance(config.get("docker_image"), str) else None,
-            docker_workdir=(
-                config.get("docker_workdir")
-                if isinstance(config.get("docker_workdir"), str)
-                else None
-            ),
-            mounts=self.load_string_tuple(config.get("mounts"), "xen_zephyr.harness.mounts"),
+            container_alias=container_alias,
+            container_workdir=container_workdir,
             qemu_bin=config.get("qemu_bin") if isinstance(config.get("qemu_bin"), str) else None,
             xen_dtb=config.get("xen_dtb") if isinstance(config.get("xen_dtb"), str) else None,
             fail_on_timeout=bool(config.get("fail_on_timeout", False)),
             no_stop_on_match=bool(config.get("no_stop_on_match", False)),
         )
+
+    def harness_container_alias(self, config: dict[str, object]) -> str:
+        container = config.get("container")
+        if isinstance(container, str) and container:
+            return container
+        return self.param("XEN_ZEPHYR_RUNTIME_CONTAINER", "zephyr-xen-workspace") or "zephyr-xen-workspace"
+
+    def container_workdir(self, container_alias: str) -> str:
+        config = docker_runtime.container_config(self, container_alias)
+        workdir = config.get("workdir")
+        if isinstance(workdir, str) and workdir:
+            return workdir
+        return "/home/builder/workspace"
+
+    def prepare_harness_launch_command(self, args) -> None:
+        if args.container_alias:
+            args.launch_command = docker_runtime.docker_run_command(
+                self,
+                args.container_alias,
+                harness_runtime.command_with_exports(args),
+            )
 
     def path_param_from_text(self, value: str) -> Path:
         path = Path(value)
@@ -133,56 +144,6 @@ class check_workspace_environment(XenZephyrTask):
 
         paf_root = self.path_param("PAF_ROOT")
         self.assertion((paf_root / "paf_main.py").exists(), f"PAF is incomplete: {paf_root}")
-
-
-class ensure_zephyr_xen_environment(XenZephyrTask):
-    """Check or build the Docker-backed Zephyr/Xen tool environment."""
-
-    def __init__(self):
-        super().__init__()
-        self.set_name(ensure_zephyr_xen_environment.__name__)
-
-    def execute(self):
-        check_command = self.param(
-            "ZEPHYR_XEN_ENV_CHECK_CMD",
-            str(self.environment_script("check.sh")),
-        )
-        check_result = self.exec_subprocess(
-            check_command,
-            timeout=int(self.param("ZEPHYR_XEN_ENV_CHECK_TIMEOUT_SEC", "0") or "0"),
-            shell=True,
-            substitute_params=True,
-            communication_mode=CommunicationMode.PIPE_OUTPUT,
-            interaction_mode=InteractionMode.IGNORE_INPUT,
-            avoid_printing_command=self.bool_param("ZEPHYR_XEN_ENV_CHECK_HIDE_COMMAND"),
-            avoid_printing_command_reason=self.param(
-                "ZEPHYR_XEN_ENV_CHECK_HIDE_COMMAND_REASON",
-                "The command contains sensitive information",
-            ),
-            avoid_printing_command_output=self.bool_param("ZEPHYR_XEN_ENV_CHECK_HIDE_OUTPUT"),
-            avoid_printing_command_output_reason=self.param(
-                "ZEPHYR_XEN_ENV_CHECK_HIDE_OUTPUT_REASON",
-                "The command output contains sensitive information",
-            ),
-        )
-        if check_result.exit_code == 0:
-            logger.info("Zephyr/Xen environment check passed")
-            return
-
-        if self.bool_param("SKIP_ZEPHYR_XEN_ENV_BUILD"):
-            self.fail("Zephyr/Xen environment check failed and SKIP_ZEPHYR_XEN_ENV_BUILD is enabled")
-            return
-
-        logger.warning("Zephyr/Xen environment check failed; build/update will be attempted")
-        build_command = self.param(
-            "ZEPHYR_XEN_ENV_BUILD_CMD",
-            str(self.environment_script("build.sh")),
-        )
-        self.run_domain_command(
-            build_command,
-            timeout_param="ZEPHYR_XEN_ENV_BUILD_TIMEOUT_SEC",
-            hide_prefix="ZEPHYR_XEN_ENV_BUILD",
-        )
 
 
 class build_product(XenZephyrTask):
@@ -254,8 +215,7 @@ class load_harness_scenario(XenZephyrTask):
         self.set_name(load_harness_scenario.__name__)
 
     def execute(self):
-        harness = self.harness_module()
-        scenario = harness.load_scenario_data(self.harness_config())
+        scenario = harness_runtime.load_scenario_data(self.harness_config())
         logger.info(f"Loaded Xen/QEMU harness scenario: {scenario.name}")
 
 
@@ -267,28 +227,20 @@ class prepare_harness_inputs(XenZephyrTask):
         self.set_name(prepare_harness_inputs.__name__)
 
     def execute(self):
-        harness = self.harness_module()
         args = self.harness_args()
         scenario = getattr(args, "scenario_config", None)
         if scenario and scenario.domu_build and not args.skip_build:
-            build_command = [
-                str(self.workspace_root() / "codex_tools/environments/zephyr-xen/scripts/validate.sh"),
-                "--zephyr",
-                scenario.domu_build.zephyr,
-                "--app",
-                scenario.domu_build.app,
-                "--board",
-                scenario.domu_build.board,
-                "--build-dir",
-                scenario.domu_build.build_dir,
-            ]
-            for cmake_arg in scenario.domu_build.cmake_args:
-                build_command.extend(["--cmake-arg", cmake_arg])
-            self.subprocess_must_succeed(
-                build_command,
+            build = environment_runtime.ZephyrBuild(
+                zephyr=scenario.domu_build.zephyr,
+                app=scenario.domu_build.app,
+                board=scenario.domu_build.board,
+                build_dir=scenario.domu_build.build_dir,
+                cmake_args=scenario.domu_build.cmake_args,
+            )
+            self.docker_subprocess_must_succeed(
+                args.container_alias,
+                environment_runtime.zephyr_validate_command(build),
                 timeout=int(self.param("HARNESS_PREPARE_TIMEOUT_SEC", "0") or "0"),
-                shell=False,
-                substitute_params=True,
                 communication_mode=CommunicationMode.PIPE_OUTPUT,
                 interaction_mode=InteractionMode.IGNORE_INPUT,
                 avoid_printing_command=self.bool_param("HARNESS_PREPARE_HIDE_COMMAND"),
@@ -303,7 +255,7 @@ class prepare_harness_inputs(XenZephyrTask):
                 ),
             )
             args.skip_build = True
-        result = harness.prepare_inputs(args)
+        result = harness_runtime.prepare_inputs(args)
         self.assertion(result == 0, f"Xen/QEMU harness prepare failed: {result}")
 
 
@@ -315,12 +267,12 @@ class run_harness_command(XenZephyrTask):
         self.set_name(run_harness_command.__name__)
 
     def execute(self):
-        harness = self.harness_module()
         args = self.harness_args()
         args.skip_build = True
         args.skip_preflight = True
-        self.log_expanded_command("HARNESS_RUN", harness.shell_command(args))
-        result = harness.run_prepared_args(args)
+        self.prepare_harness_launch_command(args)
+        self.log_expanded_command("HARNESS_RUN", harness_runtime.shell_command(args))
+        result = harness_runtime.run_prepared_args(args)
         self.assertion(result == 0, f"Xen/QEMU harness run failed: {result}")
 
 

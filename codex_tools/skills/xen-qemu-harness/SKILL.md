@@ -20,17 +20,17 @@ in the runtime product, never in upstream sample code.
 1. Build Xen, QEMU runtime inputs, Dom0, DomU images, generated device trees,
    initramfs images, launch scripts, and helper binaries through the task's
    Moulin product under `task/dev/` by default. Run the build inside the
-   matching Docker-backed environment from `codex_tools/environments/`.
-   If no suitable environment exists, extend the closest one or create a new
-   reusable environment before treating runtime results as reproducible.
+   matching Docker-backed container alias from the PAF `environments` domain.
+   If no suitable environment exists, extend the closest environment asset and
+   PAF task support before treating runtime results as reproducible.
 
    For Zephyr Dom0 runtimes, enable the workspace extra module from the Moulin
    product or build script instead of copying collector code into the task:
 
    ```sh
    west build ... -- \
-     -DZEPHYR_MODULES=/workspace/codex_tools/paf_workspace/domains/xen-zephyr/assets/zephyr_module \
-     -DOVERLAY_CONFIG=/workspace/codex_tools/paf_workspace/domains/xen-zephyr/assets/zephyr_module/configs/dom0-console-collector.conf
+     -DZEPHYR_MODULES=/workspace/codex_tools/paf_workspace/domains/xen_zephyr/assets/zephyr_module \
+     -DOVERLAY_CONFIG=/workspace/codex_tools/paf_workspace/domains/xen_zephyr/assets/zephyr_module/configs/dom0-console-collector.conf
    ```
 
    Use `ZEPHYR_MODULES` when the runtime build does not discover modules
@@ -39,7 +39,7 @@ in the runtime product, never in upstream sample code.
    both modes:
 
    ```sh
-   codex_tools/paf_workspace/domains/xen-zephyr/assets/zephyr_module/scripts/zephyr-extra-module-args.sh
+   codex_tools/paf_workspace/domains/xen_zephyr/assets/zephyr_module/scripts/zephyr-extra-module-args.sh
    ```
 
 2. For repeatable validation, run the Xen/Zephyr PAF domain scenario. PAF owns
@@ -48,7 +48,7 @@ in the runtime product, never in upstream sample code.
 
    ```sh
    codex_tools/paf_workspace/run-paf.sh \
-     codex_tools/paf_workspace/domains/xen-zephyr/scenarios/build-run-harness.xml \
+     codex_tools/paf_workspace/domains/xen_zephyr/scenarios/build-run-harness.xml \
      default \
      --config task/scripts/paf/product-validation.xml \
      --yaml-config task/scripts/paf/product-validation.yaml
@@ -88,7 +88,7 @@ Treat that as a runtime/harness visibility issue, not a reason to add
 `HYPERVISOR_console_io()` calls to the sample.
 
 For Zephyr Dom0 validation products, DomU output must be collected by the
-workspace Zephyr module under `codex_tools/paf_workspace/domains/xen-zephyr/assets/zephyr_module`. The
+workspace Zephyr module under `codex_tools/paf_workspace/domains/xen_zephyr/assets/zephyr_module`. The
 module is the local equivalent of Linux Dom0 `xenconsoled`: it drains DomU Xen
 PV console rings and emits domain-tagged lines that the host harness preserves
 in the streamed combined log. Runtime products should enable or disable the

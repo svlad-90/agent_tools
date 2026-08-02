@@ -52,9 +52,9 @@ Minimal smoke for the Xen/Zephyr domain:
 
 ```sh
 codex_tools/paf_workspace/run-paf.sh \
-  codex_tools/paf_workspace/domains/xen-zephyr/scenarios/build-run-harness.xml \
+  codex_tools/paf_workspace/domains/xen_zephyr/scenarios/build-run-harness.xml \
   check-only \
-  --yaml-config codex_tools/paf_workspace/domains/xen-zephyr/profiles/check-only.yaml \
+  --yaml-config codex_tools/paf_workspace/domains/xen_zephyr/profiles/check-only.yaml \
   --parameter PRODUCT_DIR=.
 ```
 

@@ -12,7 +12,7 @@ environments, and recurring workflows.
    `codex_tools/`, instead of assuming external installation.
 3. Keep reusable executable code in normal workspace tool or environment
    locations, for example `codex_tools/<tool_name>/` or
-   `codex_tools/environments/<environment_name>/`. Do not put executable
+   `codex_tools/paf_workspace/domains/environments/`. Do not put executable
    implementation under `codex_tools/skills/<skill-name>/scripts/`.
 4. Keep human/tool documentation in `README.md` files beside the reusable tool
    or environment. Do not add `README.md` inside skill directories; `SKILL.md`
@@ -43,8 +43,9 @@ environments, and recurring workflows.
 10. Put domain-owned support code that is not a PAF task under
    `codex_tools/paf_workspace/domains/<domain>/assets/`. Examples include
    Zephyr modules, Yocto layers, target-side helper sources, and fixtures.
-   Keep PAF entry points in `tasks.py`, `runtime_tasks.py`, `scenarios/`,
-   `profiles/`, and `templates/`, not in ad hoc support directories.
+   Keep PAF entry points in `tasks.py`, `scenarios/`, `profiles/`, and
+   `templates/`. Put Python implementation used by those tasks in the standard
+   `lib/` package, not in ad hoc support directories.
 
 Use this routing table for common workspace task types:
 

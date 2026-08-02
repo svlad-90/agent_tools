@@ -41,7 +41,7 @@ PAF owns high-level orchestration:
 Workspace tools own domain-specific execution:
 
 - Xen/Zephyr domain PAF runtime tasks run Xen/QEMU and stream tagged logs;
-- `codex_tools/environments/*` builds and runs reusable Docker environments;
+- the `environments` PAF domain builds and runs reusable Docker environments;
 - task-local Moulin products produce Xen, Linux, Zephyr, initramfs, DTB, and
   helper artifacts;
 - task-local scenario files describe concrete runtime topology and expected
@@ -73,7 +73,7 @@ Example:
 
 ```sh
 codex_tools/paf_workspace/run-paf.sh \
-  codex_tools/paf_workspace/domains/xen-zephyr/scenarios/build-run-harness.xml \
+  codex_tools/paf_workspace/domains/xen_zephyr/scenarios/build-run-harness.xml \
   default \
   --config zephyr-xenstore-client/scripts/paf/pr103-xenstore-client-validation.xml
 ```
@@ -82,7 +82,7 @@ Run another scenario from the same config:
 
 ```sh
 codex_tools/paf_workspace/run-paf.sh \
-  codex_tools/paf_workspace/domains/xen-zephyr/scenarios/build-run-harness.xml \
+  codex_tools/paf_workspace/domains/xen_zephyr/scenarios/build-run-harness.xml \
   run-only \
   --config zephyr-xenstore-client/scripts/paf/pr103-xenstore-client-validation.xml
 ```
@@ -91,7 +91,7 @@ Override target-specific parameters without editing the XML:
 
 ```sh
 codex_tools/paf_workspace/run-paf.sh \
-  codex_tools/paf_workspace/domains/xen-zephyr/scenarios/build-run-harness.xml \
+  codex_tools/paf_workspace/domains/xen_zephyr/scenarios/build-run-harness.xml \
   default \
   --config zephyr-xenstore-client/scripts/paf/pr103-xenstore-client-validation.xml \
   --parameter XEN_VERSION=4.21 \
@@ -103,7 +103,7 @@ Structured YAML case files can be layered on top of the XML execution graph:
 
 ```sh
 codex_tools/paf_workspace/run-paf.sh \
-  codex_tools/paf_workspace/domains/xen-zephyr/scenarios/build-run-harness.xml \
+  codex_tools/paf_workspace/domains/xen_zephyr/scenarios/build-run-harness.xml \
   run-only \
   --yaml-config zephyr-xenstore-client/cases/base.yaml \
   --yaml-config zephyr-xenstore-client/cases/pr103-xenstore-client.yaml \
@@ -143,7 +143,7 @@ Use `--domain-yaml-parameter` for per-run domain descriptor overrides, for
 example:
 
 ```sh
---domain-yaml-parameter xen-zephyr.requires.images.zephyr-xen.image=my/zephyr-xen:debug
+--domain-yaml-parameter environments.requires.images.zephyr-xen.image=my/zephyr-xen:debug
 ```
 
 Use `PAF_REF=<branch-or-tag>` to select the PAF revision. Existing cached PAF

@@ -31,12 +31,14 @@ These rules apply to every task directory under the workspace root.
    Before a long environment build or runtime run, use
    `python -m codex_tools.task_check <task-dir> --env-check-command` to print
    the reusable environment preflight command. Use `--run-env-check` only when
-   the task should actually execute the environment's safe `scripts/check.sh`.
+   the task should actually execute the environment domain's safe PAF
+   check-only scenario.
 
 5. For tasks that need a reusable environment, choose the environment before
-   building or validating. Record the selected `codex_tools/environments/...`
-   directory, reason for choosing it, entrypoint script, and validation command
-   in `TASK_CONTEXT.md`.
+   building or validating. Record the selected
+   `codex_tools/paf_workspace/domains/environments/...` profile/scenario,
+   reason for choosing it, PAF scenario/task entry point, and validation
+   command in `TASK_CONTEXT.md`.
 6. Track validation by level instead of using one ambiguous "validated" note:
 
    ```text

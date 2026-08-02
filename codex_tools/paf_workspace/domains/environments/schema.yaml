@@ -1,0 +1,42 @@
+$schema: https://json-schema.org/draft/2020-12/schema
+type: object
+properties:
+  case:
+    type: object
+    properties:
+      name:
+        type: string
+        minLength: 1
+      domain:
+        type: string
+      workspace:
+        type: string
+    additionalProperties: false
+  uses:
+    type: array
+    items:
+      type: object
+      required:
+        - domain
+      properties:
+        domain:
+          type: string
+      additionalProperties: false
+  environments:
+    type: object
+    properties:
+      zephyr_xen:
+        type: object
+        properties:
+          image:
+            type: string
+            default: zephyr-xen
+          container:
+            type: string
+            default: zephyr-xen-workspace
+          build_network:
+            type: string
+            default: host
+        additionalProperties: false
+    additionalProperties: false
+additionalProperties: true

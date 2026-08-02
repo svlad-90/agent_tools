@@ -29,10 +29,10 @@ naming exact symbols or APIs.
 
 4. Run `cpp_code_map` in the project's real build environment. If the project
    is built in Docker or another container, run the tool inside that same
-   image or through the environment's `scripts/run.sh` so compiler paths,
-   generated headers, sysroots, and module paths match the build. A host-side
-   copy of `compile_commands.json` with container paths is not a complete
-   substitute for the build environment.
+   image or through the PAF `environments` domain container alias so compiler
+   paths, generated headers, sysroots, and module paths match the build. A
+   host-side copy of `compile_commands.json` with container paths is not a
+   complete substitute for the build environment.
 
 5. For a task that is mainly about C or C++ code, establish a working
    `cpp_code_map` context before continuing with implementation, review, or

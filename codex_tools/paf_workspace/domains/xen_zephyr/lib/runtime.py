@@ -27,7 +27,6 @@ XEN_GUEST_PREFIX_RE = re.compile(r"^\(d(\d+)\) ")
 HOST_LINE_PREFIXES = (
     "qemu-system-",
 )
-ZEPHYR_XEN_QEMU_IMAGE = "xtbuilder-moulin-task-zephyr0163:latest"
 ZEPHYR_XEN_QEMU_PRODUCT = Path(
     "zephyr-xenstore-client/dev/qemu-xen-zephyr-dom0-validation"
 )
@@ -377,9 +376,8 @@ def args_from_scenario(
     product_dir: Path | None = None,
     log_file: Path | None = None,
     command: str | None = None,
-    docker_image: str | None = None,
-    docker_workdir: str | None = None,
-    mounts: tuple[str, ...] = (),
+    container_alias: str | None = None,
+    container_workdir: str | None = None,
     qemu_bin: str | None = None,
     xen_dtb: str | None = None,
     fail_on_timeout: bool = False,
@@ -393,9 +391,9 @@ def args_from_scenario(
         cmd=command,
         timeout_sec=scenario.timeout_sec,
         cwd=None,
-        docker_image=docker_image,
-        docker_workdir=docker_workdir,
-        mount=list(mounts),
+        container_alias=container_alias,
+        container_workdir=container_workdir or "/home/builder/workspace",
+        launch_command=None,
         workspace_root=root,
         product_dir=product_dir or ZEPHYR_XEN_QEMU_PRODUCT,
         qemu_bin=qemu_bin,
@@ -477,16 +475,17 @@ def resolve_workspace_path(path_text: str, root: Path) -> Path:
     return (root / path).resolve()
 
 
-def docker_path(path_text: str, root: Path, product_dir: Path) -> str:
+def container_path(path_text: str, root: Path, product_dir: Path, container_workdir: str) -> str:
     path = resolve_workspace_path(path_text, root)
+    container_root = Path(container_workdir)
 
     try:
-        return str(Path("/home/builder/workspace") / path.relative_to(product_dir))
+        return str(container_root / product_dir.relative_to(root) / path.relative_to(product_dir))
     except ValueError:
         pass
 
     try:
-        return str(Path("/workspace") / path.relative_to(root))
+        return str(container_root / path.relative_to(root))
     except ValueError:
         return path_text
 
@@ -503,19 +502,15 @@ def apply_scenario_env(args: argparse.Namespace) -> None:
 def apply_zephyr_xen_qemu_preset(args: argparse.Namespace) -> None:
     root = workspace_root(args)
     product_dir = (root / args.product_dir).resolve()
+    container_workdir = args.container_workdir or "/home/builder/workspace"
+    container_product_dir = container_path(str(product_dir), root, product_dir, container_workdir)
 
-    if not args.docker_image:
-        args.docker_image = ZEPHYR_XEN_QEMU_IMAGE
-    if not args.docker_workdir:
-        args.docker_workdir = "/home/builder/workspace"
     if not args.cmd:
-        args.cmd = "bash ./scripts/gen-xen-dtb.sh /tmp/xen-qemu-harness.yaml >/dev/null && ./run/run-qemu.sh"
-
-    product_mount = f"{product_dir}:/home/builder/workspace"
-    workspace_mount = f"{root}:/workspace"
-    for mount in (product_mount, workspace_mount):
-        if mount not in args.mount:
-            args.mount.append(mount)
+        args.cmd = (
+            f"cd {shlex.quote(container_product_dir)} && "
+            "bash ./scripts/gen-xen-dtb.sh /tmp/xen-qemu-harness.yaml >/dev/null && "
+            "./run/run-qemu.sh"
+        )
 
     append_env(args, "QEMU_BIN", args.qemu_bin or ZEPHYR_XEN_QEMU_QEMU_BIN)
     append_env(args, "XEN_STATIC_DOMU", args.xen_static_domu)
@@ -523,11 +518,11 @@ def apply_zephyr_xen_qemu_preset(args: argparse.Namespace) -> None:
     append_env(args, "DOMU_LOAD_ADDR", args.domu_load_addr)
 
     if args.dom0_bin:
-        append_env(args, "DOM0_BIN", docker_path(args.dom0_bin, root, product_dir))
+        append_env(args, "DOM0_BIN", container_path(args.dom0_bin, root, product_dir, container_workdir))
     if args.domu_bin:
-        append_env(args, "DOMU_BIN", docker_path(args.domu_bin, root, product_dir))
+        append_env(args, "DOMU_BIN", container_path(args.domu_bin, root, product_dir, container_workdir))
     if args.xen_dtb:
-        append_env(args, "XEN_DTB", docker_path(args.xen_dtb, root, product_dir))
+        append_env(args, "XEN_DTB", container_path(args.xen_dtb, root, product_dir, container_workdir))
 
 
 def apply_presets(args: argparse.Namespace) -> None:
@@ -537,22 +532,12 @@ def apply_presets(args: argparse.Namespace) -> None:
 
 
 def run_zephyr_build(build: ZephyrBuild, root: Path) -> int:
-    command = [
-        str(root / "codex_tools/environments/zephyr-xen/scripts/validate.sh"),
-        "--zephyr",
-        build.zephyr,
-        "--app",
-        build.app,
-        "--board",
-        build.board,
-        "--build-dir",
-        build.build_dir,
-    ]
-    for cmake_arg in build.cmake_args:
-        command.extend(["--cmake-arg", cmake_arg])
-
-    print("build: " + " ".join(command), flush=True)
-    return subprocess.run(command, cwd=root).returncode
+    print(
+        "build: Zephyr builds are executed by the environments PAF domain; "
+        "set skip_build after the PAF task completes",
+        file=sys.stderr,
+    )
+    return 2
 
 
 def read_config_value(path: Path, name: str) -> str | None:
@@ -660,19 +645,18 @@ def prepare_inputs(args: argparse.Namespace) -> int:
     return preflight(args)
 
 
-def build_command(args: argparse.Namespace) -> list[str] | str:
-    if not args.docker_image:
-        return args.cmd
-
-    command = ["docker", "run", "--rm", "-i"]
-    for mount in args.mount:
-        command.extend(["-v", mount])
-    if args.docker_workdir:
-        command.extend(["-w", args.docker_workdir])
+def command_with_exports(args: argparse.Namespace) -> str:
+    exports = []
     for key, value in args.env:
-        command.extend(["-e", f"{key}={value}"])
-    command.extend([args.docker_image, "bash", "-lc", args.cmd])
-    return command
+        exports.append(f"export {key}={shlex.quote(value)}")
+    exports.append(args.cmd)
+    return "\n".join(exports)
+
+
+def build_command(args: argparse.Namespace) -> list[str] | str:
+    if args.launch_command is not None:
+        return args.launch_command
+    return command_with_exports(args)
 
 
 def shell_command(args: argparse.Namespace) -> str:
@@ -845,8 +829,8 @@ def terminate_process(process: subprocess.Popen[str]) -> int:
 
 def run_command(args: argparse.Namespace) -> RunResult:
     command = build_command(args)
-    shell = not args.docker_image
-    cwd = args.cwd if not args.docker_image else None
+    shell = isinstance(command, str)
+    cwd = args.cwd if shell else None
     timed_out = False
     stopped_on_match = False
     active_guest: str | None = None

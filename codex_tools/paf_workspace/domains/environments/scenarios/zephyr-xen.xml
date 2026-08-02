@@ -1,0 +1,27 @@
+<paf_config>
+    <phase name="ensure">
+        <task name="paf_workspace.domains.environments.tasks.ensure_environment_image"/>
+    </phase>
+
+    <phase name="image_check">
+        <task name="paf_workspace.domains.environments.tasks.check_environment_image"/>
+    </phase>
+
+    <phase name="check">
+        <task name="paf_workspace.domains.environments.tasks.check_zephyr_xen_tools"/>
+    </phase>
+
+    <phase name="validate">
+        <task name="paf_workspace.domains.environments.tasks.validate_zephyr_build"/>
+    </phase>
+
+    <scenario name="check-only">
+        <phase name="image_check"/>
+        <phase name="check"/>
+    </scenario>
+
+    <scenario name="validate">
+        <phase name="ensure"/>
+        <phase name="validate"/>
+    </scenario>
+</paf_config>

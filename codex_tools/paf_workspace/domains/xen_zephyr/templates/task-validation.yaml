@@ -3,6 +3,9 @@ case:
   domain: xen-zephyr
   workspace: task
 
+uses:
+  - domain: environments
+
 xen_zephyr:
   product: task-product
   xen: task-xen
@@ -15,6 +18,7 @@ xen_zephyr:
     name: task-runtime
     description: Task-local Xen/QEMU runtime validation.
     preset: zephyr-xen-qemu
+    container: zephyr-xen-workspace
     log_file: task/report/runtime/harness.log
     timeout_sec: 90
     dom0_bin: task/dev/product/path/to/dom0/zephyr.bin

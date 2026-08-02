@@ -14,7 +14,7 @@ if [ "$#" -lt 1 ]; then
 fi
 
 paf_url="${PAF_URL:-https://github.com/svlad-90/paf.git}"
-paf_ref="${PAF_REF:-7b84022dfff93a9bc7f643a5d74bd2d06f457bb4}"
+paf_ref="${PAF_REF:-26ac9d11c2cd5862ad8401695e405aca7435a6fc}"
 paf_root="${PAF_ROOT:-${workspace_root}/codex_tools/.cache/paf}"
 log_dir="${PAF_LOG_DIR:-${workspace_root}/report/paf}"
 

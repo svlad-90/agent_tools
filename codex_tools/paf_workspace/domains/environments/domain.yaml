@@ -1,0 +1,19 @@
+name: environments
+schema: schema.yaml
+projection:
+  prefix: YAML_CONF_
+requires:
+  images:
+    zephyr-xen:
+      image: codex/zephyr-xen:latest
+      dockerfile: codex_tools/paf_workspace/domains/environments/assets/zephyr-xen/Dockerfile
+      context: codex_tools/paf_workspace/domains/environments/assets/zephyr-xen
+      network: host
+  containers:
+    zephyr-xen-workspace:
+      image: zephyr-xen
+      workdir: /home/builder/workspace
+      mounts:
+        - source: ${WORKSPACE_ROOT}
+          target: /home/builder/workspace
+          mode: rw

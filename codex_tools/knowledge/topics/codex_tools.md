@@ -26,8 +26,8 @@ Practical checklist:
 - Keep the raw Ctrl-A byte sequence for documentation and exactness, but decode
   it with a single-byte encoding such as Latin-1 before writing to text-mode
   `stdin`.
-- If scheduled switching breaks, validate the runtime task file with:
-  `python -m codex_tools.code_map parse-check codex_tools/paf_workspace/domains/xen-zephyr/runtime_tasks.py`.
+- If scheduled switching breaks, validate the runtime support file with:
+  `python -m codex_tools.code_map parse-check codex_tools/paf_workspace/domains/xen_zephyr/lib/runtime.py`.
 - After the fix, verify the runtime log contains Xen switch markers such as
   `Serial input to DOM1` and `Serial input to DOM2` before relying on guest
   console conclusions.
