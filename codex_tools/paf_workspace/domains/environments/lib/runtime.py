@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import shlex
-from dataclasses import dataclass
 from pathlib import Path
 
 
@@ -21,37 +20,52 @@ PY
 """.strip()
 
 
-@dataclass(frozen=True)
 class ZephyrBuild:
-    zephyr: str
-    app: str
-    board: str
-    build_dir: str
-    cmake_args: tuple[str, ...] = ()
+    def __init__(
+        self,
+        zephyr: str,
+        app: str,
+        board: str,
+        build_dir: str,
+        cmake_args: tuple[str, ...] = (),
+    ) -> None:
+        self.zephyr = zephyr
+        self.app = app
+        self.board = board
+        self.build_dir = build_dir
+        self.cmake_args = cmake_args
 
 
-@dataclass(frozen=True)
 class CodexToolsActRun:
-    workflow: str
-    runner_image: str
-    extra_args: tuple[str, ...] = ()
+    def __init__(self, workflow: str, runner_image: str, extra_args: tuple[str, ...] = ()) -> None:
+        self.workflow = workflow
+        self.runner_image = runner_image
+        self.extra_args = extra_args
 
 
-@dataclass(frozen=True)
 class MoulinActRun:
-    repo_root: str
-    runner_image: str
-    extra_args: tuple[str, ...] = ()
+    def __init__(self, repo_root: str, runner_image: str, extra_args: tuple[str, ...] = ()) -> None:
+        self.repo_root = repo_root
+        self.runner_image = runner_image
+        self.extra_args = extra_args
 
 
-@dataclass(frozen=True)
 class ZephyrXenlibActRun:
-    repo_root: str
-    runner_image: str
-    token_file: str
-    targets: tuple[str, ...]
-    project: str = "zephyr-dom0-xt"
-    extra_args: tuple[str, ...] = ()
+    def __init__(
+        self,
+        repo_root: str,
+        runner_image: str,
+        token_file: str,
+        targets: tuple[str, ...],
+        project: str = "zephyr-dom0-xt",
+        extra_args: tuple[str, ...] = (),
+    ) -> None:
+        self.repo_root = repo_root
+        self.runner_image = runner_image
+        self.token_file = token_file
+        self.targets = targets
+        self.project = project
+        self.extra_args = extra_args
 
 
 def _quote(value: str | Path) -> str:

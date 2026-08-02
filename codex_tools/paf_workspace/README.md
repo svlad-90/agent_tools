@@ -21,7 +21,8 @@ tasks.py                # generic base task helpers, not domain workflows
 domains/
   <domain>/
     README.md           # domain scope and supported flows
-    tasks.py            # domain-owned PAF task classes when needed
+    tasks.py            # domain-owned PAF task classes for small domains
+    tasks/              # optional package for larger task families
     domain.yaml         # optional domain metadata and defaults
     schema.yaml         # optional domain YAML schema
     scenarios/          # runnable PAF XML scenarios

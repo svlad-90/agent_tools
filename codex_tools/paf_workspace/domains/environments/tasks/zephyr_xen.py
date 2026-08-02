@@ -6,10 +6,10 @@ from paf.paf_impl import CommunicationMode
 from paf.paf_impl import InteractionMode
 from paf.paf_impl import logger
 
-from paf_workspace.domains.environments.base_tasks import EnvironmentTask
-from paf_workspace.domains.environments.base_tasks import check_environment_image
-from paf_workspace.domains.environments.base_tasks import ensure_environment_image
 from paf_workspace.domains.environments.lib import runtime
+from paf_workspace.domains.environments.tasks.base import EnvironmentTask
+from paf_workspace.domains.environments.tasks.base import check_environment_image
+from paf_workspace.domains.environments.tasks.base import ensure_environment_image
 
 
 class check_zephyr_xen_tools(EnvironmentTask):

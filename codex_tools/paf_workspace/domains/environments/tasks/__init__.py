@@ -1,0 +1,46 @@
+"""Compatibility exports for reusable environment PAF tasks.
+
+New scenarios should import task classes from the environment-specific modules:
+`tasks.base`, `tasks.zephyr_xen`, and `tasks.act`.
+"""
+
+from __future__ import annotations
+
+from paf_workspace.domains.environments.tasks.act import check_codex_tools_act_image
+from paf_workspace.domains.environments.tasks.act import check_codex_tools_act_tools
+from paf_workspace.domains.environments.tasks.act import check_moulin_act_image
+from paf_workspace.domains.environments.tasks.act import check_moulin_act_tools
+from paf_workspace.domains.environments.tasks.act import check_zephyr_xenlib_act_image
+from paf_workspace.domains.environments.tasks.act import check_zephyr_xenlib_act_tools
+from paf_workspace.domains.environments.tasks.act import ensure_codex_tools_act_image
+from paf_workspace.domains.environments.tasks.act import ensure_moulin_act_image
+from paf_workspace.domains.environments.tasks.act import ensure_zephyr_xenlib_act_image
+from paf_workspace.domains.environments.tasks.act import validate_codex_tools_act
+from paf_workspace.domains.environments.tasks.act import validate_moulin_act
+from paf_workspace.domains.environments.tasks.act import validate_zephyr_xenlib_act
+from paf_workspace.domains.environments.tasks.base import EnvironmentTask
+from paf_workspace.domains.environments.tasks.base import check_environment_image
+from paf_workspace.domains.environments.tasks.base import ensure_environment_image
+from paf_workspace.domains.environments.tasks.zephyr_xen import check_zephyr_xen_tools
+from paf_workspace.domains.environments.tasks.zephyr_xen import validate_zephyr_build
+
+
+__all__ = [
+    "EnvironmentTask",
+    "ensure_environment_image",
+    "check_environment_image",
+    "ensure_codex_tools_act_image",
+    "check_codex_tools_act_image",
+    "ensure_moulin_act_image",
+    "check_moulin_act_image",
+    "ensure_zephyr_xenlib_act_image",
+    "check_zephyr_xenlib_act_image",
+    "check_zephyr_xen_tools",
+    "validate_zephyr_build",
+    "check_codex_tools_act_tools",
+    "validate_codex_tools_act",
+    "check_moulin_act_tools",
+    "validate_moulin_act",
+    "check_zephyr_xenlib_act_tools",
+    "validate_zephyr_xenlib_act",
+]

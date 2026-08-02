@@ -6,7 +6,7 @@ from pathlib import Path
 from xml.etree import ElementTree
 
 
-REQUIRED_DOMAIN_FILES = ("README.md", "__init__.py", "tasks.py", "domain.yaml", "schema.yaml")
+REQUIRED_DOMAIN_FILES = ("README.md", "__init__.py", "domain.yaml", "schema.yaml")
 REQUIRED_DOMAIN_DIRS = ("lib", "scenarios", "profiles")
 
 
@@ -40,6 +40,13 @@ def _check_domain(root: Path, domain: Path) -> list[StructureIssue]:
     for filename in REQUIRED_DOMAIN_FILES:
         if not (domain / filename).is_file():
             issues.append(StructureIssue(domain / filename, "missing required domain file"))
+
+    tasks_file = domain / "tasks.py"
+    tasks_package = domain / "tasks" / "__init__.py"
+    if tasks_file.exists() and tasks_package.exists():
+        issues.append(StructureIssue(domain / "tasks", "domain must not define both tasks.py and tasks/ package"))
+    if not tasks_file.is_file() and not tasks_package.is_file():
+        issues.append(StructureIssue(domain / "tasks.py", "missing tasks.py or tasks/__init__.py entry point"))
 
     for dirname in REQUIRED_DOMAIN_DIRS:
         if not (domain / dirname).is_dir():
@@ -83,22 +90,13 @@ def _check_domain(root: Path, domain: Path) -> list[StructureIssue]:
         if "import_module(" in text:
             issues.append(StructureIssue(py_file, "domain code must use static imports instead of import_module"))
 
-    tasks_file = domain / "tasks.py"
-    if tasks_file.is_file():
-        task_modules = [
-            path
-            for path in domain.glob("*_tasks.py")
-            if path.name != "tasks.py" and not path.name.startswith("__")
-        ]
-        if task_modules:
-            text = tasks_file.read_text(encoding="utf-8")
-            if "class " in text:
-                issues.append(
-                    StructureIssue(
-                        tasks_file,
-                        "domains with *_tasks.py modules should keep tasks.py as compatibility exports only",
-                    )
-                )
+    for old_task_module in domain.glob("*_tasks.py"):
+        issues.append(StructureIssue(old_task_module, "split large task families into tasks/ package modules"))
+
+    if tasks_package.is_file():
+        text = tasks_package.read_text(encoding="utf-8")
+        if "class " in text:
+            issues.append(StructureIssue(tasks_package, "tasks package __init__.py must be compatibility exports only"))
 
     return issues
 

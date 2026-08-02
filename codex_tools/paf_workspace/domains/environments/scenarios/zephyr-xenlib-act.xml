@@ -1,18 +1,18 @@
 <paf_config>
     <phase name="ensure">
-        <task name="paf_workspace.domains.environments.act_tasks.ensure_zephyr_xenlib_act_image"/>
+        <task name="paf_workspace.domains.environments.tasks.act.ensure_zephyr_xenlib_act_image"/>
     </phase>
 
     <phase name="image_check">
-        <task name="paf_workspace.domains.environments.act_tasks.check_zephyr_xenlib_act_image"/>
+        <task name="paf_workspace.domains.environments.tasks.act.check_zephyr_xenlib_act_image"/>
     </phase>
 
     <phase name="check">
-        <task name="paf_workspace.domains.environments.act_tasks.check_zephyr_xenlib_act_tools"/>
+        <task name="paf_workspace.domains.environments.tasks.act.check_zephyr_xenlib_act_tools"/>
     </phase>
 
     <phase name="validate">
-        <task name="paf_workspace.domains.environments.act_tasks.validate_zephyr_xenlib_act"/>
+        <task name="paf_workspace.domains.environments.tasks.act.validate_zephyr_xenlib_act"/>
     </phase>
 
     <scenario name="check-only">

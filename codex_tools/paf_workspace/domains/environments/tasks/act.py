@@ -8,8 +8,8 @@ from paf.paf_impl import CommunicationMode
 from paf.paf_impl import InteractionMode
 from paf.paf_impl import logger
 
-from paf_workspace.domains.environments.base_tasks import EnvironmentTask
 from paf_workspace.domains.environments.lib import runtime
+from paf_workspace.domains.environments.tasks.base import EnvironmentTask
 
 
 class ensure_codex_tools_act_image(EnvironmentTask):

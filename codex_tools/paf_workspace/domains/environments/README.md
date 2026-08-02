@@ -8,9 +8,11 @@ instead of calling shell scripts under `codex_tools/environments`.
 The domain exposes:
 
 ```text
-tasks.py      compatibility exports for existing task names
-base_tasks.py shared image/container helpers
-*_tasks.py    environment-specific PAF task classes
+tasks/        PAF task package
+  __init__.py compatibility exports for existing task names
+  base.py     shared image/container helpers
+  zephyr_xen.py
+  act.py
 lib/          Python command builders used by tasks
 assets/       Dockerfiles and environment source assets
 scenarios/    runnable environment checks
