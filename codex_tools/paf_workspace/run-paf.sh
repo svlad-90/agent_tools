@@ -7,11 +7,9 @@ workspace_root="$(cd "${script_dir}/../.." && pwd)"
 if [ "$#" -lt 1 ]; then
   echo "usage: $0 CONFIG_XML [SCENARIO] [PAF_ARGS ...]" >&2
   echo "example:" >&2
-  echo "  $0 codex_tools/paf_workspace/domains/xen-zephyr/scenarios/build-run-harness.xml \\" >&2
-  echo "    check-only \\" >&2
-  echo "    --yaml-config codex_tools/paf_workspace/domains/xen-zephyr/profiles/check-only.yaml \\" >&2
-  echo "    --parameter PRODUCT_DIR=. \\" >&2
-  echo "    --parameter HARNESS_CMD=true" >&2
+  echo "  $0 codex_tools/paf_workspace/domains/<domain>/scenarios/<scenario>.xml default \\" >&2
+  echo "    --yaml-config path/to/profile.yaml \\" >&2
+  echo "    --parameter KEY=VALUE" >&2
   exit 2
 fi
 

@@ -1,15 +1,13 @@
 #!/usr/bin/env python3
 """Run Xen/QEMU commands and collect domain-oriented logs."""
 
-from __future__ import annotations
-
 import argparse
-import json
 import os
 import queue
 import re
 import select
 import signal
+import shlex
 import socket
 import subprocess
 import sys
@@ -343,10 +341,9 @@ def load_abi_expectation(data: object) -> AbiExpectation | None:
     )
 
 
-def load_scenario(path: Path) -> Scenario:
-    data = json.loads(path.read_text(encoding="utf-8"))
+def load_scenario_data(data: object) -> Scenario:
     if not isinstance(data, dict):
-        raise ValueError("scenario file must contain a JSON object")
+        raise ValueError("scenario must be an object")
 
     timeout = data.get("timeout_sec")
     if timeout is not None and not isinstance(timeout, (int, float)):
@@ -371,6 +368,69 @@ def load_scenario(path: Path) -> Scenario:
         domu_load_addr=optional_string(data, "domu_load_addr") or DEFAULT_DOMU_LOAD_ADDR,
         env=load_env(data.get("env")),
     )
+
+
+def args_from_scenario(
+    scenario: Scenario,
+    *,
+    root: Path,
+    product_dir: Path | None = None,
+    log_file: Path | None = None,
+    command: str | None = None,
+    docker_image: str | None = None,
+    docker_workdir: str | None = None,
+    mounts: tuple[str, ...] = (),
+    qemu_bin: str | None = None,
+    xen_dtb: str | None = None,
+    fail_on_timeout: bool = False,
+    no_stop_on_match: bool = False,
+) -> argparse.Namespace:
+    args = argparse.Namespace(
+        scenario_file=None,
+        scenario_config=scenario,
+        log_file=log_file or (Path(scenario.log_file) if scenario.log_file else None),
+        preset=scenario.preset,
+        cmd=command,
+        timeout_sec=scenario.timeout_sec,
+        cwd=None,
+        docker_image=docker_image,
+        docker_workdir=docker_workdir,
+        mount=list(mounts),
+        workspace_root=root,
+        product_dir=product_dir or ZEPHYR_XEN_QEMU_PRODUCT,
+        qemu_bin=qemu_bin,
+        dom0_bin=scenario.dom0_bin,
+        domu_bin=scenario.domu_bin,
+        xen_dtb=xen_dtb,
+        domu_load_addr=scenario.domu_load_addr,
+        xen_static_domu="0",
+        xen_load_domu_image="1",
+        env=[],
+        expect=[],
+        require_source=[],
+        stdin_event=[],
+        follow_log=[],
+        console_socket=[],
+        stdin_file=scenario.stdin_file,
+        xen_switch_at=[],
+        skip_build=False,
+        skip_preflight=False,
+        fail_on_timeout=fail_on_timeout,
+        no_stop_on_match=no_stop_on_match,
+    )
+    append_expectations(args, scenario.expect)
+    args.require_source.extend(scenario.require_source)
+    append_stdin_events(args, scenario.stdin_events)
+    append_follow_logs(args, scenario.follow_logs)
+    append_console_sockets(args, scenario.console_sockets)
+    apply_presets(args)
+    if args.timeout_sec is None:
+        args.timeout_sec = 60.0
+    if args.log_file is None:
+        raise ValueError("harness scenario requires log_file")
+    if not args.cmd:
+        raise ValueError("harness scenario requires command or preset")
+    return args
 
 
 def append_env(args: argparse.Namespace, key: str, value: str | None) -> None:
@@ -431,30 +491,6 @@ def docker_path(path_text: str, root: Path, product_dir: Path) -> str:
         return path_text
 
 
-def apply_scenario(args: argparse.Namespace) -> None:
-    if not args.scenario_file:
-        return
-
-    scenario = load_scenario(args.scenario_file)
-    args.scenario_config = scenario
-    args.preset = args.preset or scenario.preset
-    if not args.log_file and scenario.log_file:
-        args.log_file = Path(scenario.log_file)
-    args.timeout_sec = args.timeout_sec or scenario.timeout_sec
-    args.dom0_bin = args.dom0_bin or scenario.dom0_bin
-    args.domu_bin = args.domu_bin or scenario.domu_bin
-    args.domu_load_addr = args.domu_load_addr or scenario.domu_load_addr
-    append_expectations(args, scenario.expect)
-    for source in scenario.require_source:
-        if source not in args.require_source:
-            args.require_source.append(source)
-    append_stdin_events(args, scenario.stdin_events)
-    if scenario.stdin_file is not None:
-        args.stdin_file = scenario.stdin_file
-    append_follow_logs(args, scenario.follow_logs)
-    append_console_sockets(args, scenario.console_sockets)
-
-
 def apply_scenario_env(args: argparse.Namespace) -> None:
     scenario = getattr(args, "scenario_config", None)
     if scenario is None:
@@ -495,7 +531,6 @@ def apply_zephyr_xen_qemu_preset(args: argparse.Namespace) -> None:
 
 
 def apply_presets(args: argparse.Namespace) -> None:
-    apply_scenario(args)
     if args.preset == "zephyr-xen-qemu":
         apply_zephyr_xen_qemu_preset(args)
     apply_scenario_env(args)
@@ -637,6 +672,13 @@ def build_command(args: argparse.Namespace) -> list[str] | str:
     for key, value in args.env:
         command.extend(["-e", f"{key}={value}"])
     command.extend([args.docker_image, "bash", "-lc", args.cmd])
+    return command
+
+
+def shell_command(args: argparse.Namespace) -> str:
+    command = build_command(args)
+    if isinstance(command, list):
+        return shlex.join(command)
     return command
 
 
@@ -969,116 +1011,7 @@ def source_for_line(line: str, active_guest: str | None) -> tuple[str, str | Non
     return "unknown", next_guest
 
 
-def parse_args(argv: list[str]) -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument(
-        "--scenario-file",
-        type=Path,
-        help="Load task-owned Xen/Zephyr scenario JSON.",
-    )
-    parser.add_argument("--log-file", type=Path)
-    parser.add_argument(
-        "--preset",
-        choices=["zephyr-xen-qemu"],
-        help="Fill Docker/QEMU defaults for the reusable Zephyr Xen validation product.",
-    )
-    parser.add_argument("--cmd")
-    parser.add_argument("--timeout-sec", type=float)
-    parser.add_argument("--cwd")
-    parser.add_argument("--docker-image")
-    parser.add_argument("--docker-workdir")
-    parser.add_argument("--mount", action="append", default=[])
-    parser.add_argument("--workspace-root", type=Path)
-    parser.add_argument("--product-dir", type=Path, default=ZEPHYR_XEN_QEMU_PRODUCT)
-    parser.add_argument("--qemu-bin")
-    parser.add_argument("--dom0-bin")
-    parser.add_argument("--domu-bin")
-    parser.add_argument("--xen-dtb")
-    parser.add_argument("--domu-load-addr")
-    parser.add_argument("--xen-static-domu", default="0")
-    parser.add_argument("--xen-load-domu-image", default="1")
-    parser.add_argument(
-        "--env",
-        action="append",
-        default=[],
-        type=lambda value: parse_key_value(value, "--env"),
-    )
-    parser.add_argument(
-        "--expect",
-        action="append",
-        default=[],
-        type=parse_expectation,
-    )
-    parser.add_argument("--require-source", action="append", default=[])
-    parser.add_argument(
-        "--send-at",
-        action="append",
-        default=[],
-        dest="stdin_event",
-        type=lambda value: parse_stdin_event(value, "--send-at"),
-        help="Send decoded TEXT to QEMU stdin at TIME seconds; format TIME:TEXT.",
-    )
-    parser.add_argument(
-        "--send-line-at",
-        action="append",
-        dest="stdin_event",
-        type=lambda value: parse_stdin_event(value, "--send-line-at", append_newline=True),
-        help="Send decoded TEXT plus newline to QEMU stdin at TIME seconds; format TIME:TEXT.",
-    )
-    parser.add_argument(
-        "--send-xen-switch-at",
-        action="append",
-        dest="stdin_event",
-        type=parse_xen_switch_event,
-        help="Send the Xen console-switch control sequence at TIME seconds.",
-    )
-    parser.add_argument(
-        "--follow-log",
-        action="append",
-        default=[],
-        type=parse_follow_log,
-        help="Tail a sidecar log as SOURCE while QEMU runs; format SOURCE:PATH.",
-    )
-    parser.add_argument(
-        "--console-socket",
-        action="append",
-        default=[],
-        type=parse_console_socket,
-        help="Use a bidirectional Unix console socket as SOURCE; format SOURCE:PATH.",
-    )
-    parser.add_argument(
-        "--stdin-file",
-        type=Path,
-        help="Send timed input events to a host-visible file or FIFO instead of process stdin.",
-    )
-    parser.add_argument("--xen-switch-at", action="append", default=[], type=float)
-    parser.add_argument("--skip-build", action="store_true")
-    parser.add_argument("--skip-preflight", action="store_true")
-    parser.add_argument("--fail-on-timeout", action="store_true")
-    parser.add_argument("--no-stop-on-match", action="store_true")
-    args = parser.parse_args(argv)
-    args.scenario_config = None
-    apply_presets(args)
-    for switch_time in args.xen_switch_at:
-        args.stdin_event.append(StdinEvent(at=switch_time, text=XEN_SWITCH_TEXT))
-    if args.timeout_sec is None:
-        args.timeout_sec = 60.0
-    if args.domu_load_addr is None:
-        args.domu_load_addr = DEFAULT_DOMU_LOAD_ADDR
-    if not args.log_file:
-        parser.error("--log-file is required unless --scenario-file supplies it")
-    if not args.cmd:
-        parser.error("--cmd is required unless --preset supplies it")
-    return args
-
-
-def main(argv: list[str]) -> int:
-    args = parse_args(argv)
-    prepare_rc = prepare_inputs(args)
-    if prepare_rc != 0:
-        return prepare_rc
-
-    result = run_command(args)
+def evaluate_result(args: argparse.Namespace, result: RunResult) -> int:
     missing = [item for item in result.expectation_results if not item.found]
     missing_sources = [
         source
@@ -1109,5 +1042,12 @@ def main(argv: list[str]) -> int:
     return 1 if failed else 0
 
 
-if __name__ == "__main__":
-    raise SystemExit(main(sys.argv[1:]))
+def run_prepared_args(args: argparse.Namespace) -> int:
+    return evaluate_result(args, run_command(args))
+
+
+def run_harness_args(args: argparse.Namespace) -> int:
+    prepare_rc = prepare_inputs(args)
+    if prepare_rc != 0:
+        return prepare_rc
+    return run_prepared_args(args)

@@ -11,7 +11,7 @@ python -m codex_tools.task_check task-name
 
 Run from the workspace root. The command checks the standard task layout,
 `TASK_CONTEXT.md` sections, validation-level tracking, product artifact
-manifests, and Xen harness scenario metadata.
+manifests, and Xen/Zephyr runtime YAML metadata.
 
 Create a missing task layout without overwriting an existing context file:
 
@@ -26,13 +26,11 @@ python -m codex_tools.task_check task-name --init-runtime-product
 ```
 
 This also creates the base task layout when needed. It adds
-`dev/product-artifacts.yaml`, `scripts/xen-harness-scenarios/scenario-name.json`,
-and `report/runtime/` without overwriting existing files.
-When a scenario references a `codex_tools/environments/...` directory,
+`dev/product-artifacts.yaml`, `scripts/paf/xen-zephyr-runtime.yaml`, and
+`report/runtime/` without overwriting existing files.
+When runtime YAML references a `codex_tools/environments/...` directory,
 `task_check` verifies that the environment's Dockerfile, README, and standard
 scripts are present without running Docker.
-It also checks filled artifact paths in the scenario; empty values and obvious
-placeholders are reported as not filled yet instead of failures.
 
 Use JSON output when another script should consume the result:
 
@@ -47,7 +45,7 @@ the task should be complete before a long build or runtime run:
 python -m codex_tools.task_check task-name --strict-warnings
 ```
 
-Runtime-product and Xen scenario checks are enabled automatically when
+Runtime-product and Xen runtime YAML checks are enabled automatically when
 `TASK_CONTEXT.md` contains Xen/QEMU/Moulin hints or matching files already
 exist. Force those checks explicitly before setting up a new runtime task:
 

@@ -41,5 +41,4 @@ jobs:
           diff_report
           paf_workspace
           task_check
-          xen_harness
           yaml_map

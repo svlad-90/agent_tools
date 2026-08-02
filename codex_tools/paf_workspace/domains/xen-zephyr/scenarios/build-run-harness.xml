@@ -1,46 +1,62 @@
 <paf_config>
-    <param name="ENV_CHECK_CMD" value="codex_tools/environments/zephyr-xen/scripts/check.sh"/>
-    <param name="ENV_BUILD_CMD" value="codex_tools/environments/zephyr-xen/scripts/build.sh"/>
+    <param name="ZEPHYR_XEN_ENV_DIR" value="codex_tools/environments/zephyr-xen"/>
     <param name="HARNESS_TIMEOUT_SEC" value="90"/>
 
     <phase name="workspace_check">
-        <task name="paf_workspace.xen_zephyr.tasks.check_workspace_environment"/>
+        <task name="paf_workspace.domains.xen-zephyr.tasks.check_workspace_environment"/>
     </phase>
 
     <phase name="prepare">
-        <task name="paf_workspace.xen_zephyr.tasks.check_workspace_environment"/>
-        <task name="paf_workspace.xen_zephyr.tasks.ensure_runtime_environment"/>
+        <task name="paf_workspace.domains.xen-zephyr.tasks.check_workspace_environment"/>
+        <task name="paf_workspace.domains.xen-zephyr.tasks.ensure_zephyr_xen_environment"/>
     </phase>
 
     <phase name="build">
-        <task name="paf_workspace.xen_zephyr.tasks.build_product"/>
-        <task name="paf_workspace.xen_zephyr.tasks.write_artifact_manifest"/>
+        <task name="paf_workspace.domains.xen-zephyr.tasks.build_product"/>
+        <task name="paf_workspace.domains.xen-zephyr.tasks.write_artifact_manifest"/>
     </phase>
 
-    <phase name="run">
-        <task name="paf_workspace.xen_zephyr.tasks.run_xen_harness_scenario"/>
+    <phase name="harness_scenario">
+        <task name="paf_workspace.domains.xen-zephyr.tasks.load_harness_scenario"/>
+    </phase>
+
+    <phase name="harness_prepare">
+        <task name="paf_workspace.domains.xen-zephyr.tasks.prepare_harness_inputs"/>
+    </phase>
+
+    <phase name="harness_run">
+        <task name="paf_workspace.domains.xen-zephyr.tasks.run_harness_command"/>
     </phase>
 
     <phase name="validate">
-        <task name="paf_workspace.xen_zephyr.tasks.validate_runtime_log"/>
+        <task name="paf_workspace.domains.xen-zephyr.tasks.validate_runtime_log"/>
     </phase>
 
     <scenario name="default">
         <phase name="prepare"/>
         <phase name="build"/>
-        <phase name="run"/>
+        <phase name="harness_scenario"/>
+        <phase name="harness_prepare"/>
+        <phase name="harness_run"/>
         <phase name="validate"/>
     </scenario>
 
     <scenario name="run-only">
         <phase name="prepare"/>
-        <phase name="run"/>
+        <phase name="harness_scenario"/>
+        <phase name="harness_prepare"/>
+        <phase name="harness_run"/>
         <phase name="validate"/>
     </scenario>
 
     <scenario name="build-only">
         <phase name="prepare"/>
         <phase name="build"/>
+    </scenario>
+
+    <scenario name="harness-check">
+        <phase name="workspace_check"/>
+        <phase name="harness_scenario"/>
     </scenario>
 
     <scenario name="check-only">

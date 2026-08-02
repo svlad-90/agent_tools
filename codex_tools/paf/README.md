@@ -40,7 +40,7 @@ PAF owns high-level orchestration:
 
 Workspace tools own domain-specific execution:
 
-- `codex_tools/xen_harness` runs Xen/QEMU scenarios and streams tagged logs;
+- Xen/Zephyr domain PAF runtime tasks run Xen/QEMU and stream tagged logs;
 - `codex_tools/environments/*` builds and runs reusable Docker environments;
 - task-local Moulin products produce Xen, Linux, Zephyr, initramfs, DTB, and
   helper artifacts;
@@ -59,7 +59,7 @@ PAF scenario
   -> ensure Docker environment exists
   -> build Moulin product
   -> verify artifact manifest
-  -> run codex_tools/xen_harness scenario
+  -> run Xen/Zephyr domain runtime phases
   -> check runtime markers
   -> collect report artifacts
 ```
@@ -133,6 +133,12 @@ docker:
           mode: rw
 ```
 
+When a task uses the PAF Docker helpers, PAF expands the container alias to the
+actual `docker run ... /bin/bash -lc <command>` invocation and logs it through
+the same subprocess command and command-after-substitution output used for
+host commands. Use the normal `avoid_printing_command` flags only when the
+command text itself is sensitive.
+
 Use `--domain-yaml-parameter` for per-run domain descriptor overrides, for
 example:
 
@@ -144,10 +150,9 @@ Use `PAF_REF=<branch-or-tag>` to select the PAF revision. Existing cached PAF
 checkouts are reused; set `PAF_UPDATE=1` when the wrapper must fetch and
 checkout `PAF_REF` again.
 
-The generic workspace PAF tasks accept either `HARNESS_CMD` or
-`SCENARIO_FILE`. Use `HARNESS_CMD` for existing task scripts that already wrap
-`python -m codex_tools.xen_harness.xen_qemu_harness`. Use `SCENARIO_FILE` for
-pure JSON scenarios consumed by `codex_tools/xen_harness/scripts/run-scenario.sh`.
+The Xen/Zephyr domain describes runtime launches in YAML under
+`xen_zephyr.harness`. Repeatable domain validation should flow through PAF
+task phases instead of legacy shell or sidecar scenario contracts.
 
 ## Data Formats
 

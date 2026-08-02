@@ -17,14 +17,16 @@ task modules for typical recurring work.
 
 ```text
 run-paf.sh              # generic workspace entry point for PAF
-tasks.py                # generic task classes shared by multiple domains
-xen_zephyr/             # importable task namespace for the xen-zephyr domain
+tasks.py                # generic base task helpers, not domain workflows
 domains/
   <domain>/
     README.md           # domain scope and supported flows
+    tasks.py            # domain-owned PAF task classes when needed
+    domain.yaml         # optional domain metadata and defaults
+    schema.yaml         # optional domain YAML schema
     scenarios/          # runnable PAF XML scenarios
-    profiles/           # XML fragments or scenario configs for target variants
-    templates/          # starting points for task-local scenarios
+    profiles/           # reusable case/profile presets for target variants
+    templates/          # starting points for task-local customization
 ```
 
 Use domains for recurring areas of work, for example:
@@ -42,11 +44,9 @@ the reusable version here and keep only task-specific overrides in the task.
 ## PAF-First Validation
 
 Use PAF as the outer entry point for repeatable validation. A domain scenario
-should own environment checks, product build commands, artifact manifests,
-runtime harness invocation, and generated evidence. Lower-level tools such as
-`codex_tools/xen_harness/scripts/run-scenario.sh` remain useful runtime
-executors, but direct calls are for narrow debug steps. Once the command shape
-is reused, promote it into a PAF domain scenario or profile.
+should own environment selection/checks, product build commands, artifact
+manifests, runtime task phases, and generated evidence. Runtime launch
+descriptions should be domain YAML, not separate shell scripts.
 
 Minimal smoke for the Xen/Zephyr domain:
 
@@ -55,8 +55,7 @@ codex_tools/paf_workspace/run-paf.sh \
   codex_tools/paf_workspace/domains/xen-zephyr/scenarios/build-run-harness.xml \
   check-only \
   --yaml-config codex_tools/paf_workspace/domains/xen-zephyr/profiles/check-only.yaml \
-  --parameter PRODUCT_DIR=. \
-  --parameter HARNESS_CMD=true
+  --parameter PRODUCT_DIR=.
 ```
 
 This validates PAF checkout discovery, workspace task imports, Xen/Zephyr

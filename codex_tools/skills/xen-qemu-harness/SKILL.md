@@ -29,8 +29,8 @@ in the runtime product, never in upstream sample code.
 
    ```sh
    west build ... -- \
-     -DZEPHYR_MODULES=/workspace/codex_tools/xen_harness/zephyr_module \
-     -DOVERLAY_CONFIG=/workspace/codex_tools/xen_harness/zephyr_module/configs/dom0-console-collector.conf
+     -DZEPHYR_MODULES=/workspace/codex_tools/paf_workspace/domains/xen-zephyr/assets/zephyr_module \
+     -DOVERLAY_CONFIG=/workspace/codex_tools/paf_workspace/domains/xen-zephyr/assets/zephyr_module/configs/dom0-console-collector.conf
    ```
 
    Use `ZEPHYR_MODULES` when the runtime build does not discover modules
@@ -39,13 +39,12 @@ in the runtime product, never in upstream sample code.
    both modes:
 
    ```sh
-   codex_tools/xen_harness/zephyr_module/scripts/zephyr-extra-module-args.sh
+   codex_tools/paf_workspace/domains/xen-zephyr/assets/zephyr_module/scripts/zephyr-extra-module-args.sh
    ```
 
-2. For repeatable validation, run the bundled harness through the Xen/Zephyr
-   PAF domain scenario. PAF owns environment checks, product build commands,
-   artifact manifests, and log/report paths; the harness remains the runtime
-   executor:
+2. For repeatable validation, run the Xen/Zephyr PAF domain scenario. PAF owns
+   environment checks, product build commands, artifact manifests, runtime
+   launch, and log/report paths:
 
    ```sh
    codex_tools/paf_workspace/run-paf.sh \
@@ -55,40 +54,19 @@ in the runtime product, never in upstream sample code.
      --yaml-config task/scripts/paf/product-validation.yaml
    ```
 
-   The task-owned harness scenario is still the stable launch contract between
-   the Moulin product and the runtime step. It should normalize workspace
-   paths, identify the Docker environment, consume the Moulin-built target
-   artifacts, check Dom0/DomU image-size and load-address compatibility, check
-   the Dom0 control ABI expected by the selected Xen/QEMU product, then run
-   QEMU with Xen and the selected target domains through the one-log harness.
+   The domain YAML block `xen_zephyr.harness` is the stable launch contract
+   between the Moulin product and the runtime step. It should normalize
+   workspace paths, identify the Docker environment, consume the Moulin-built
+   target artifacts, check Dom0/DomU image-size and load-address compatibility,
+   check the Dom0 control ABI expected by the selected Xen/QEMU product, then
+   run QEMU with Xen and the selected target domains through the domain runtime
+   tasks.
 
-3. Call the harness directly only for a narrow runtime debug step where PAF
-   would add more ceremony than evidence:
-
-   ```sh
-   codex_tools/xen_harness/scripts/run-scenario.sh \
-     task/scripts/xen-harness-scenarios/scenario-name.json
-   ```
-
-4. Use the reusable Zephyr/Xen preset directly only for explicitly scoped
-   one-off validation where a task scenario file would add more overhead than
-   clarity. Record the exception and the exact artifact paths in
-   `TASK_CONTEXT.md`:
-
-   ```sh
-   python -m codex_tools.xen_harness.xen_qemu_harness \
-     --preset zephyr-xen-qemu \
-     --timeout-sec 10 \
-     --log-file task/report/runtime.log \
-     --dom0-bin path/to/dom0/zephyr.bin \
-     --domu-bin path/to/domu/zephyr.bin \
-     --expect xen:'Watchdog timer fired for domain 1'
-   ```
-
-5. Inspect the generated `--log-file`. The harness streams this file while the
+3. Inspect the generated runtime log. The domain runtime task streams this file while the
    process is running and stops the process early once all requested markers
-   and required sources have been observed. Use `--no-stop-on-match` when the
-   process must continue until it exits or reaches `--timeout-sec`.
+   and required sources have been observed. Set
+   `xen_zephyr.harness.no_stop_on_match: true` when the process must continue
+   until it exits or reaches `xen_zephyr.harness.timeout_sec`.
 
 ## Log Model
 
@@ -110,7 +88,7 @@ Treat that as a runtime/harness visibility issue, not a reason to add
 `HYPERVISOR_console_io()` calls to the sample.
 
 For Zephyr Dom0 validation products, DomU output must be collected by the
-workspace Zephyr module under `codex_tools/xen_harness/zephyr_module`. The
+workspace Zephyr module under `codex_tools/paf_workspace/domains/xen-zephyr/assets/zephyr_module`. The
 module is the local equivalent of Linux Dom0 `xenconsoled`: it drains DomU Xen
 PV console rings and emits domain-tagged lines that the host harness preserves
 in the streamed combined log. Runtime products should enable or disable the
@@ -118,14 +96,14 @@ module by configuration only.
 
 ## Assertions
 
-Use `--expect source:text` for required markers. Sources are `raw`, `combined`,
-`host`, `xen`, `dom0`, `domu1`, or `unknown`. A missing marker makes the
-harness exit non-zero after `--timeout-sec`.
+Use `xen_zephyr.harness.expect` for required markers. Sources are `raw`,
+`combined`, `host`, `xen`, `dom0`, `domu1`, or `unknown`. A missing marker
+makes the runtime phase fail after `xen_zephyr.harness.timeout_sec`.
 
-Use `--require-source SOURCE` when the test must prove that a source log is
-non-empty, for example `--require-source domu1`. This is useful for separating
-"Xen observed the behavior" from "the harness can actually see DomU output".
+Use `xen_zephyr.harness.require_source` when the test must prove that a source
+log is non-empty, for example `domu1`. This is useful for separating "Xen
+observed the behavior" from "the runtime task can actually see DomU output".
 
-For manual Xen serial input switching, use `--xen-switch-at SECONDS`. The
-harness writes the doubled QEMU stdio-mux escape sequence needed to deliver
-three Ctrl-A bytes to Xen.
+For manual Xen serial input switching, add a `stdin_events` entry with
+`type: xen-switch`. The runtime task writes the doubled QEMU stdio-mux escape
+sequence needed to deliver three Ctrl-A bytes to Xen.

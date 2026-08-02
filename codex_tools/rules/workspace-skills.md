@@ -28,21 +28,23 @@ environments, and recurring workflows.
    Model those directories as automation spheres, similar to the historical
    `/home/vladyslav_goncharuk/Projects/tools/aasig_dev_platform/build/`
    layout: a domain may contain PAF task modules, runnable scenarios, target
-   profiles, and templates for task-local customization. Do not leave a
+   profiles, templates for task-local customization, and an `assets/`
+   directory for non-PAF support code owned by that domain. Do not leave a
    repeatable build, orchestration, or test workflow only inside one task
    directory once it is useful for multiple tasks.
 8. Use PAF as the default entry point for repeatable multi-stage validation.
    A task that must fetch or select sources, build Docker environments, build
    Moulin products, resolve artifacts, run a harness, and collect evidence
-   should provide or reuse a PAF scenario/profile. Directly invoking a lower
-   level tool such as `codex_tools/xen_harness/scripts/run-scenario.sh` is
-   acceptable for a tightly scoped runtime debug step, but the reproducible
-   validation path should be promoted back into a PAF domain scenario before
-   the task is considered repeatable.
-9. For Xen/QEMU validation, model the old standalone harness as the runtime
-   executor inside the `xen-zephyr` PAF domain. Keep runtime JSON scenario
-   files task-owned, but let PAF own Docker image checks/builds, product build
-   commands, artifact manifests, scenario selection, and log/report output.
+   should provide or reuse a PAF scenario/profile.
+9. For Xen/QEMU validation, model runtime launch and log collection as PAF
+   tasks inside the `xen-zephyr` domain. Keep runtime settings in the
+   domain-specific YAML under `xen_zephyr.harness`; do not use task-owned shell
+   wrappers or separate JSON scenario files for repeatable validation.
+10. Put domain-owned support code that is not a PAF task under
+   `codex_tools/paf_workspace/domains/<domain>/assets/`. Examples include
+   Zephyr modules, Yocto layers, target-side helper sources, and fixtures.
+   Keep PAF entry points in `tasks.py`, `runtime_tasks.py`, `scenarios/`,
+   `profiles/`, and `templates/`, not in ad hoc support directories.
 
 Use this routing table for common workspace task types:
 

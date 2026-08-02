@@ -1,0 +1,28 @@
+case:
+  name: task-xen-zephyr-validation
+  domain: xen-zephyr
+  workspace: task
+
+xen_zephyr:
+  product: task-product
+  xen: task-xen
+  dom0: zephyr
+  guests:
+    - name: domu1
+      kind: zephyr
+      board: xenvm
+  harness:
+    name: task-runtime
+    description: Task-local Xen/QEMU runtime validation.
+    preset: zephyr-xen-qemu
+    log_file: task/report/runtime/harness.log
+    timeout_sec: 90
+    dom0_bin: task/dev/product/path/to/dom0/zephyr.bin
+    domu_bin: task/dev/product/path/to/domu/zephyr.bin
+    expect: []
+    require_source: []
+
+validation:
+  timeout_sec: 90
+  expected: []
+  forbidden: []

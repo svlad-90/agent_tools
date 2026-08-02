@@ -58,6 +58,151 @@ properties:
             artifact:
               type: string
           additionalProperties: true
+      harness:
+        type: object
+        required:
+          - name
+        properties:
+          name:
+            type: string
+          description:
+            type: string
+          preset:
+            enum:
+              - zephyr-xen-qemu
+          command:
+            type: string
+          log_file:
+            type: string
+          timeout_sec:
+            type: number
+            minimum: 1
+          dom0_bin:
+            type: string
+          domu_bin:
+            type: string
+          domu_load_addr:
+            type: string
+          qemu_bin:
+            type: string
+          xen_dtb:
+            type: string
+          docker_image:
+            type: string
+          docker_workdir:
+            type: string
+          mounts:
+            type: array
+            items:
+              type: string
+          env:
+            type: object
+            additionalProperties:
+              type: string
+          expect:
+            type: array
+            items:
+              type: object
+              required:
+                - source
+                - text
+              properties:
+                source:
+                  type: string
+                text:
+                  type: string
+              additionalProperties: false
+          require_source:
+            type: array
+            items:
+              type: string
+          stdin_events:
+            type: array
+            items:
+              type: object
+              required:
+                - at
+                - type
+              properties:
+                at:
+                  type: number
+                  minimum: 0
+                type:
+                  enum:
+                    - text
+                    - line
+                    - xen-switch
+                text:
+                  type: string
+              additionalProperties: false
+          follow_logs:
+            type: array
+            items:
+              type: object
+              required:
+                - source
+                - path
+              properties:
+                source:
+                  type: string
+                path:
+                  type: string
+              additionalProperties: false
+          console_sockets:
+            type: array
+            items:
+              type: object
+              required:
+                - source
+                - path
+              properties:
+                source:
+                  type: string
+                path:
+                  type: string
+              additionalProperties: false
+          stdin_file:
+            type: string
+          domu_build:
+            type: object
+            required:
+              - zephyr
+              - app
+              - board
+              - build_dir
+            properties:
+              zephyr:
+                type: string
+              app:
+                type: string
+              board:
+                type: string
+              build_dir:
+                type: string
+              cmake_args:
+                type: array
+                items:
+                  type: string
+            additionalProperties: false
+          expected_abi:
+            type: object
+            required:
+              - domctl
+              - sysctl
+              - source
+            properties:
+              domctl:
+                type: string
+              sysctl:
+                type: string
+              source:
+                type: string
+            additionalProperties: false
+          fail_on_timeout:
+            type: boolean
+          no_stop_on_match:
+            type: boolean
+        additionalProperties: false
     additionalProperties: true
   validation:
     type: object

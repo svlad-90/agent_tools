@@ -8,6 +8,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+import yaml
+
 
 REQUIRED_DIRS = ("dev", "Dockerfile", "scripts", "report", "report/diff", "report/puml")
 ENVIRONMENT_FILES = (
@@ -35,7 +37,7 @@ RUNTIME_HINTS = ("xen", "qemu", "moulin", "dom0", "domu", "hypervisor")
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 TASK_CONTEXT_TEMPLATE = PROJECT_ROOT / "codex_tools" / "templates" / "TASK_CONTEXT.md"
 PRODUCT_ARTIFACTS_TEMPLATE = PROJECT_ROOT / "codex_tools" / "templates" / "product-artifacts.yaml"
-DEFAULT_SCENARIO_NAME = "scenario-name.json"
+DEFAULT_RUNTIME_YAML_NAME = "xen-zephyr-runtime.yaml"
 
 
 @dataclass(frozen=True)
@@ -78,7 +80,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--xen-runtime",
         action="store_true",
-        help="Require Xen harness scenario metadata even if no scenario files exist yet.",
+        help="Require Xen/Zephyr runtime YAML metadata even if no profile exists yet.",
     )
     parser.add_argument(
         "--init-layout",
@@ -150,12 +152,11 @@ def check_task(
         checks.extend(_check_task_context(task_dir, context_text))
 
     manifests = sorted((task_dir / "dev").rglob("product-artifacts.yaml")) if (task_dir / "dev").exists() else []
-    scenarios = sorted((task_dir / "scripts").rglob("*.json")) if (task_dir / "scripts").exists() else []
-    harness_scenarios = [path for path in scenarios if "xen-harness-scenarios" in path.parts]
+    harness_profiles = _find_xen_zephyr_harness_profiles(task_dir)
 
     has_runtime_hints = _has_runtime_hints(context_text or "")
-    should_check_manifest = require_runtime_product or has_runtime_hints or bool(manifests) or bool(harness_scenarios)
-    should_check_scenarios = require_xen_runtime or bool(harness_scenarios) or _has_xen_hints(context_text or "")
+    should_check_manifest = require_runtime_product or has_runtime_hints or bool(manifests) or bool(harness_profiles)
+    should_check_scenarios = require_xen_runtime or bool(harness_profiles) or _has_xen_hints(context_text or "")
 
     if should_check_manifest:
         checks.extend(_check_artifact_manifests(task_dir, manifests))
@@ -170,13 +171,13 @@ def check_task(
         )
 
     if should_check_scenarios:
-        checks.extend(_check_harness_scenarios(task_dir, workspace, harness_scenarios, manifests))
+        checks.extend(_check_harness_profiles(task_dir, harness_profiles, manifests))
     else:
         checks.append(
             Check(
                 "PASS",
-                "xen-scenario-not-required",
-                "no Xen/QEMU runtime hints found; harness scenario check skipped",
+                "xen-runtime-not-required",
+                "no Xen/QEMU runtime hints found; runtime YAML check skipped",
                 str(task_dir / "scripts"),
             )
         )
@@ -239,30 +240,29 @@ def initialize_runtime_product(task_dir: Path, *, workspace: Path) -> list[Check
         manifest_path.write_text(template, encoding="utf-8")
         checks.append(Check("PASS", "init-artifact-manifest", "created product artifact manifest", str(manifest_path)))
 
-    scenario_dir = task_dir / "scripts" / "xen-harness-scenarios"
+    scenario_dir = task_dir / "scripts" / "paf"
     scenario_dir.mkdir(parents=True, exist_ok=True)
-    checks.append(Check("PASS", "init-xen-scenario-dir", "Xen harness scenario directory is present", str(scenario_dir)))
+    checks.append(Check("PASS", "init-xen-runtime-yaml-dir", "PAF runtime profile directory is present", str(scenario_dir)))
 
-    scenario_path = scenario_dir / DEFAULT_SCENARIO_NAME
+    scenario_path = scenario_dir / DEFAULT_RUNTIME_YAML_NAME
     if scenario_path.exists():
-        checks.append(Check("PASS", "init-xen-scenario-existing", "starter scenario already exists", str(scenario_path)))
+        checks.append(Check("PASS", "init-xen-runtime-yaml-existing", "starter runtime YAML already exists", str(scenario_path)))
     else:
         scenario_path.write_text(_starter_scenario_text(), encoding="utf-8")
-        checks.append(Check("PASS", "init-xen-scenario", "created starter Xen harness scenario", str(scenario_path)))
+        checks.append(Check("PASS", "init-xen-runtime-yaml", "created starter Xen/Zephyr runtime YAML", str(scenario_path)))
 
     return checks
 
 
 def check_environment_commands(task_dir: Path, *, workspace: Path, run: bool) -> list[Check]:
-    scenarios = sorted((task_dir / "scripts").rglob("*.json")) if (task_dir / "scripts").exists() else []
-    harness_scenarios = [path for path in scenarios if "xen-harness-scenarios" in path.parts]
-    environment_paths = _scenario_environment_paths(harness_scenarios, workspace)
+    harness_profiles = _find_xen_zephyr_harness_profiles(task_dir)
+    environment_paths = _scenario_environment_paths(harness_profiles, workspace)
     if not environment_paths:
         return [
             Check(
                 "WARN",
                 "environment-check-none",
-                "no environment check commands found from Xen harness scenarios",
+                "no environment check commands found from Xen/Zephyr runtime YAML",
                 str(task_dir / "scripts"),
             )
         ]
@@ -391,68 +391,83 @@ def _check_artifact_manifests(task_dir: Path, manifests: list[Path]) -> list[Che
     return checks
 
 
-def _check_harness_scenarios(
+def _find_xen_zephyr_harness_profiles(task_dir: Path) -> list[Path]:
+    candidates: list[Path] = []
+    for root in (task_dir / "scripts", task_dir / "dev"):
+        if not root.exists():
+            continue
+        candidates.extend(root.rglob("*.yaml"))
+        candidates.extend(root.rglob("*.yml"))
+    return [path for path in sorted(candidates) if _yaml_has_xen_zephyr_harness(path)]
+
+
+def _yaml_has_xen_zephyr_harness(path: Path) -> bool:
+    try:
+        data = yaml.safe_load(path.read_text(encoding="utf-8"))
+    except yaml.YAMLError:
+        return False
+    return isinstance(data, dict) and isinstance(data.get("xen_zephyr"), dict) and isinstance(
+        data["xen_zephyr"].get("harness"),
+        dict,
+    )
+
+
+def _check_harness_profiles(
     task_dir: Path,
-    workspace: Path,
-    scenarios: list[Path],
+    profiles: list[Path],
     manifests: list[Path],
 ) -> list[Check]:
-    if not scenarios:
+    if not profiles:
         return [
             Check(
                 "WARN",
-                "xen-scenario-missing",
-                "no scripts/**/xen-harness-scenarios/*.json found; required for Xen/QEMU runtime validation",
+                "xen-runtime-yaml-missing",
+                "no scripts/**/*.yaml with xen_zephyr.harness found; required for Xen/QEMU runtime validation",
                 str(task_dir / "scripts"),
             )
         ]
 
     checks: list[Check] = []
-    for scenario in scenarios:
+    for profile in profiles:
         try:
-            data = json.loads(scenario.read_text(encoding="utf-8"))
-        except json.JSONDecodeError as error:
-            checks.append(Check("FAIL", "xen-scenario-json", f"scenario JSON is invalid: {error}", str(scenario)))
+            data = yaml.safe_load(profile.read_text(encoding="utf-8"))
+        except yaml.YAMLError as error:
+            checks.append(Check("FAIL", "xen-runtime-yaml", f"runtime YAML is invalid: {error}", str(profile)))
             continue
 
-        checks.extend(_check_scenario_fields(scenario, workspace, data))
+        checks.extend(_check_runtime_yaml_fields(profile, data))
 
     if not manifests:
         checks.append(
             Check(
                 "WARN",
-                "xen-scenario-without-manifest",
-                "Xen scenarios exist but no product artifact manifest was found",
+                "xen-runtime-without-manifest",
+                "Xen runtime YAML exists but no product artifact manifest was found",
                 str(task_dir / "dev"),
             )
         )
     return checks
 
 
-def _check_scenario_fields(scenario: Path, workspace: Path, data: Any) -> list[Check]:
+def _check_runtime_yaml_fields(profile: Path, data: Any) -> list[Check]:
     if not isinstance(data, dict):
-        return [Check("FAIL", "xen-scenario-shape", "scenario root must be a JSON object", str(scenario))]
+        return [Check("FAIL", "xen-runtime-yaml-shape", "runtime YAML root must be an object", str(profile))]
+
+    xen_zephyr = data.get("xen_zephyr")
+    if not isinstance(xen_zephyr, dict):
+        return [Check("FAIL", "xen-runtime-yaml-domain", "missing xen_zephyr object", str(profile))]
+
+    harness = xen_zephyr.get("harness")
+    if not isinstance(harness, dict):
+        return [Check("FAIL", "xen-runtime-yaml-harness", "missing xen_zephyr.harness object", str(profile))]
 
     checks: list[Check] = []
-    recommended_fields = ("environment", "artifact_manifest", "artifacts", "expect", "log_file")
+    recommended_fields = ("name", "preset", "dom0_bin", "domu_bin", "expect", "log_file")
     for field in recommended_fields:
-        if field in data:
-            checks.append(Check("PASS", "xen-scenario-field", f"scenario field present: {field}", str(scenario)))
+        if field in harness:
+            checks.append(Check("PASS", "xen-runtime-yaml-field", f"harness field present: {field}", str(profile)))
         else:
-            checks.append(Check("WARN", "xen-scenario-field-missing", f"scenario field missing: {field}", str(scenario)))
-
-    artifacts = data.get("artifacts")
-    if isinstance(artifacts, dict) and ("dom0" in artifacts or "domus" in artifacts):
-        checks.append(Check("PASS", "xen-scenario-artifacts", "scenario declares target domain artifacts", str(scenario)))
-        checks.extend(_check_artifact_paths(scenario, workspace, artifacts))
-    else:
-        checks.append(Check("WARN", "xen-scenario-artifacts-missing", "scenario does not declare domain artifacts", str(scenario)))
-
-    environment = data.get("environment")
-    if isinstance(environment, str) and environment:
-        checks.extend(_check_environment_path(workspace, environment, scenario))
-    else:
-        checks.append(Check("WARN", "xen-scenario-environment-empty", "scenario environment is empty", str(scenario)))
+            checks.append(Check("WARN", "xen-runtime-yaml-field-missing", f"harness field missing: {field}", str(profile)))
 
     return checks
 
@@ -518,17 +533,26 @@ def _check_environment_path(workspace: Path, environment: str, source_path: Path
     return checks
 
 
-def _scenario_environment_paths(scenarios: list[Path], workspace: Path) -> list[Path]:
+def _scenario_environment_paths(profiles: list[Path], workspace: Path) -> list[Path]:
     paths: list[Path] = []
     seen: set[Path] = set()
-    for scenario in scenarios:
+    for profile in profiles:
         try:
-            data = json.loads(scenario.read_text(encoding="utf-8"))
-        except json.JSONDecodeError:
+            data = yaml.safe_load(profile.read_text(encoding="utf-8"))
+        except yaml.YAMLError:
             continue
         if not isinstance(data, dict):
             continue
-        environment = data.get("environment")
+        docker = data.get("docker")
+        if not isinstance(docker, dict):
+            continue
+        images = docker.get("images")
+        if not isinstance(images, dict):
+            continue
+        image = images.get("zephyr-xen")
+        if not isinstance(image, dict):
+            continue
+        environment = image.get("context")
         if not isinstance(environment, str) or not environment:
             continue
         path = Path(environment)
@@ -585,60 +609,28 @@ def _has_xen_hints(text: str) -> bool:
 
 
 def _starter_scenario_text() -> str:
-    scenario = {
-        "name": "scenario-name",
-        "environment": "codex_tools/environments/zephyr-xen",
-        "artifact_manifest": "dev/product-artifacts.yaml",
-        "preset": "zephyr-xen-qemu",
-        "docker": {
-            "image": "",
-            "workdir": "/workspace/<task>/dev/<product>",
-            "mounts": [
-                {
-                    "source": ".",
-                    "target": "/workspace",
-                }
-            ],
-            "env": {},
-        },
-        "artifacts": {
-            "xen": "",
-            "qemu": "",
-            "dom0": "",
-            "domus": [
-                {
-                    "name": "domu1",
-                    "role": "tested-client",
-                    "image": "",
-                }
-            ],
-        },
-        "preflight": {
-            "dom0_cmake_cache": "",
-            "domu_image_size": True,
-            "domu_load_address": "0x59000000",
-            "xen_domctl_interface_version": "",
-            "xen_sysctl_interface_version": "",
-        },
-        "expect": [
-            {
-                "source": "xen",
-                "text": "",
-            },
-            {
-                "source": "domu1",
-                "text": "",
-            },
-        ],
-        "require_source": [
-            "xen",
-            "dom0",
-            "domu1",
-        ],
-        "timeout_sec": 30,
-        "log_file": "report/runtime/scenario-name.log",
-    }
-    return json.dumps(scenario, indent=2) + "\n"
+    return """case:
+  name: task-xen-zephyr-runtime
+  domain: xen-zephyr
+
+xen_zephyr:
+  harness:
+    name: scenario-name
+    preset: zephyr-xen-qemu
+    log_file: report/runtime/scenario-name.log
+    timeout_sec: 30
+    dom0_bin: dev/product/dom0/zephyr.bin
+    domu_bin: dev/product/domu/zephyr.bin
+    expect:
+      - source: xen
+        text: ""
+      - source: domu1
+        text: ""
+    require_source:
+      - xen
+      - dom0
+      - domu1
+"""
 
 
 def _counts(checks: list[Check]) -> dict[str, int]:

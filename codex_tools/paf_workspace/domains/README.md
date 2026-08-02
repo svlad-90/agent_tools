@@ -9,19 +9,23 @@ Follow this contract for new domains:
 ```text
 domains/<domain>/
   README.md
+  tasks.py              # domain-owned PAF task classes
+  domain.yaml           # optional domain metadata and defaults
+  schema.yaml           # optional domain YAML schema
   scenarios/*.xml       # runnable scenario definitions
-  profiles/*.xml        # optional target/environment variants
-  templates/*.xml       # optional task-local starting points
+  profiles/*            # optional target/environment presets
+  templates/*           # optional task-local starting points
+  assets/               # non-PAF support code/assets owned by the domain
 ```
 
-Python task modules need importable package names. If a domain name contains
-characters that are awkward in Python imports, keep the metadata directory name
-as the public domain name and place Python tasks under an importable namespace
-beside `domains/`. For example, the `xen-zephyr` domain uses:
+Keep the domain directory as the single source of truth for its reusable
+automation. If compatibility requires an old Python import namespace, make that
+namespace a thin shim that re-exports the domain-owned tasks.
 
-```text
-paf_workspace/xen_zephyr/tasks.py
-```
+Use `assets/` for support code that is not itself a PAF task, scenario,
+profile, or template, for example Zephyr modules, Yocto layers, policy
+snippets, fixtures, or target-side helpers. Do not create ad hoc sibling
+directories such as `harness/` for support material.
 
 Scenarios should be runnable through:
 

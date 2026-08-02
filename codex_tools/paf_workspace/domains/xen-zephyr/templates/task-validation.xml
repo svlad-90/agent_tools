@@ -1,0 +1,7 @@
+<paf_config>
+    <param name="PRODUCT_DIR" value="task/dev/product"/>
+    <param name="PRODUCT_BUILD_CMD" value="true"/>
+    <param name="ARTIFACT_MANIFEST" value="task/report/artifacts.json"/>
+    <param name="ARTIFACTS" value=""/>
+    <param name="RUNTIME_LOG_FILE" value="task/report/runtime/harness.log"/>
+</paf_config>

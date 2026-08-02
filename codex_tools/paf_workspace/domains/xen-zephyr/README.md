@@ -11,16 +11,17 @@ PAF scenario
   -> check or build a reusable Docker environment
   -> build a Moulin product or selected target artifacts
   -> write an artifact manifest
-  -> run codex_tools/xen_harness
+  -> run Xen/QEMU through domain PAF runtime tasks
   -> collect logs and reports
 ```
 
-Keep the Xen/QEMU runtime details in `codex_tools/xen_harness` JSON or task
-scripts. Keep target selection, environment selection, artifact production, and
-multi-phase orchestration in PAF.
+Keep Xen/QEMU runtime details in `xen_zephyr.harness` inside the domain YAML.
+Do not add a separate shell or JSON launch contract for repeatable validation.
+Target selection, environment selection, artifact production, runtime launch,
+and marker validation are domain PAF tasks and phases.
 
 The importable PAF task namespace for this domain is
-`paf_workspace.xen_zephyr.tasks`. The public domain name remains
+`paf_workspace.domains.xen-zephyr.tasks`. The public domain name remains
 `xen-zephyr` in YAML metadata and profiles.
 
 Typical parameters that should stay overrideable:
@@ -32,13 +33,18 @@ ZEPHYR_REF
 ZEPHYR_XENLIB_REF
 PRODUCT_DIR
 PRODUCT_BUILD_CMD
-SCENARIO_FILE
-HARNESS_CMD
+RUNTIME_LOG_FILE
 ARTIFACT_MANIFEST
 ```
 
 Use task-local PAF XML while a case is still experimental. Promote it into
 `scenarios/` or `templates/` when it becomes a reusable proof pattern.
+
+Use `profiles/` for runnable reusable presets, such as `check-only.yaml`.
+Use `templates/` for files a task can copy and specialize before it has a
+stable reusable scenario. The templates are intentionally not treated as
+authoritative validations until the task fills in real product, artifact,
+harness scenario, and marker values.
 
 ## YAML Domain Metadata
 
@@ -94,18 +100,19 @@ domain-specific `xen-zephyr` schema.
 build-and-run shape:
 
 ```text
-prepare -> build -> run -> validate
+prepare -> build -> harness_scenario -> harness_prepare -> harness_run -> validate
 ```
 
 It defines these scenarios:
 
-- `default`: check/build environment, build product artifacts, write an
-  artifact manifest, run the harness, and validate runtime markers from the
-  YAML profile.
-- `build-only`: check/build environment, build product artifacts, and write an
+- `default`: check/build the Zephyr/Xen environment, build product artifacts, write an
+  artifact manifest, run the domain runtime tasks, and validate runtime
+  markers from the YAML profile.
+- `build-only`: check/build the Zephyr/Xen environment, build product artifacts, and write an
   artifact manifest.
-- `run-only`: check/build environment, run the harness against existing
-  artifacts, and validate runtime markers from the YAML profile.
+- `run-only`: check/build the Zephyr/Xen environment, run the domain runtime
+  tasks against existing artifacts, and validate runtime markers from the YAML
+  profile.
 - `check-only`: validate workspace/product paths without building or running.
 
 Set `RUNTIME_LOG_FILE` in the task-local XML when using `default` or
@@ -120,8 +127,7 @@ codex_tools/paf_workspace/run-paf.sh \
   codex_tools/paf_workspace/domains/xen-zephyr/scenarios/build-run-harness.xml \
   check-only \
   --yaml-config codex_tools/paf_workspace/domains/xen-zephyr/profiles/check-only.yaml \
-  --parameter PRODUCT_DIR=. \
-  --parameter HARNESS_CMD=true
+  --parameter PRODUCT_DIR=.
 ```
 
 Pass task-specific values through a second PAF XML config, through a YAML
@@ -135,8 +141,10 @@ codex_tools/paf_workspace/run-paf.sh \
   --yaml-config zephyr-xenstore-client/scripts/paf/pr103-xenstore-client-validation.yaml
 ```
 
-The lower-level `codex_tools/xen_harness/scripts/run-scenario.sh` remains the
-runtime executor used by `run_xen_harness_scenario`. Call it directly only for
-short runtime debugging. Repeatable evidence should flow through this PAF
-scenario so the product build, artifact manifest, harness command, logs, and
-overrides are captured in one place.
+Runtime execution is implemented by domain task classes in `tasks/`. Repeatable
+evidence should flow through the normal PAF log so the environment selection,
+product build, artifact manifest, runtime settings, logs, and overrides are
+captured in one place. PAF already prints task exports and command after
+parameter substitution for commands executed through its subprocess and Docker
+helpers. The runtime phase also prints the concrete expanded QEMU or
+`docker run ...` command before handing it to the Python log collector.
