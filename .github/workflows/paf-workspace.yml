@@ -5,12 +5,10 @@ on:
     paths:
       - ".github/workflows/paf-workspace.yml"
       - "codex_tools/paf_workspace/**"
-      - "codex_tools/tests/paf_workspace/**"
   pull_request:
     paths:
       - ".github/workflows/paf-workspace.yml"
       - "codex_tools/paf_workspace/**"
-      - "codex_tools/tests/paf_workspace/**"
   workflow_dispatch:
 
 jobs:
@@ -32,4 +30,4 @@ jobs:
           python -m pip install pytest pyyaml jsonschema
 
       - name: Run PAF workspace tests
-        run: PYTHONPATH=codex_tools python -m pytest -q codex_tools/tests/paf_workspace
+        run: PYTHONPATH=codex_tools python -m pytest -q codex_tools/paf_workspace/tests

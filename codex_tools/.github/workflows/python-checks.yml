@@ -44,4 +44,4 @@ jobs:
           yaml_map
 
       - name: Run pytest
-        run: python -m pytest tests/paf_workspace
+        run: python -m pytest paf_workspace/tests
