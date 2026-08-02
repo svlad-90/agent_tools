@@ -83,6 +83,23 @@ def _check_domain(root: Path, domain: Path) -> list[StructureIssue]:
         if "import_module(" in text:
             issues.append(StructureIssue(py_file, "domain code must use static imports instead of import_module"))
 
+    tasks_file = domain / "tasks.py"
+    if tasks_file.is_file():
+        task_modules = [
+            path
+            for path in domain.glob("*_tasks.py")
+            if path.name != "tasks.py" and not path.name.startswith("__")
+        ]
+        if task_modules:
+            text = tasks_file.read_text(encoding="utf-8")
+            if "class " in text:
+                issues.append(
+                    StructureIssue(
+                        tasks_file,
+                        "domains with *_tasks.py modules should keep tasks.py as compatibility exports only",
+                    )
+                )
+
     return issues
 
 

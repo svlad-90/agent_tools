@@ -9,7 +9,7 @@ Follow this contract for new domains:
 ```text
 domains/<domain>/
   README.md
-  tasks.py              # domain-owned PAF task classes
+  tasks.py              # domain-owned PAF task classes or compatibility exports
   domain.yaml           # optional domain metadata and defaults
   schema.yaml           # optional domain YAML schema
   scenarios/*.xml       # runnable scenario definitions
@@ -31,6 +31,10 @@ directories such as `harness/` for support material.
 Use `lib/` for ordinary Python implementation that PAF tasks call through
 static imports. Keep `tasks.py` as the PAF-facing entry point instead of
 placing scenario execution logic in shell scripts.
+
+If a domain owns multiple large task families, split task classes into
+descriptive `*_tasks.py` modules and keep `tasks.py` as a small compatibility
+facade.
 
 Scenarios should be runnable through:
 

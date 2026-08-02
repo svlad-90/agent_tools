@@ -7,8 +7,8 @@
 
     <phase name="prepare">
         <task name="paf_workspace.domains.xen_zephyr.tasks.check_workspace_environment"/>
-        <task name="paf_workspace.domains.environments.tasks.ensure_environment_image"/>
-        <task name="paf_workspace.domains.environments.tasks.check_zephyr_xen_tools"/>
+        <task name="paf_workspace.domains.environments.zephyr_xen_tasks.ensure_environment_image"/>
+        <task name="paf_workspace.domains.environments.zephyr_xen_tasks.check_zephyr_xen_tools"/>
     </phase>
 
     <phase name="build">
