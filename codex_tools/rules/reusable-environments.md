@@ -19,8 +19,8 @@ context.
 4. Store reusable workspace environment automation under
    `codex_tools/paf_workspace/domains/environments/`. Each environment should
    have Dockerfile/source assets under `assets/<environment>/`, PAF task entry
-   points in `tasks.py` or a `tasks/` package, and reusable Python
-   implementation under `lib/`.
+   points in a domain `tasks/` package, and reusable Python implementation
+   under `lib/`.
    Historical `codex_tools/environments/` directories are legacy locations and
    should not be used for new orchestration.
 

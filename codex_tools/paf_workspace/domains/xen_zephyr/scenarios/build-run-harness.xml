@@ -2,34 +2,34 @@
     <param name="HARNESS_TIMEOUT_SEC" value="90"/>
 
     <phase name="workspace_check">
-        <task name="paf_workspace.domains.xen_zephyr.tasks.check_workspace_environment"/>
+        <task name="paf_workspace.domains.xen_zephyr.tasks.base.check_workspace_environment"/>
     </phase>
 
     <phase name="prepare">
-        <task name="paf_workspace.domains.xen_zephyr.tasks.check_workspace_environment"/>
+        <task name="paf_workspace.domains.xen_zephyr.tasks.base.check_workspace_environment"/>
         <task name="paf_workspace.domains.environments.tasks.zephyr_xen.ensure_environment_image"/>
         <task name="paf_workspace.domains.environments.tasks.zephyr_xen.check_zephyr_xen_tools"/>
     </phase>
 
     <phase name="build">
-        <task name="paf_workspace.domains.xen_zephyr.tasks.build_product"/>
-        <task name="paf_workspace.domains.xen_zephyr.tasks.write_artifact_manifest"/>
+        <task name="paf_workspace.domains.xen_zephyr.tasks.build.build_product"/>
+        <task name="paf_workspace.domains.xen_zephyr.tasks.build.write_artifact_manifest"/>
     </phase>
 
     <phase name="harness_scenario">
-        <task name="paf_workspace.domains.xen_zephyr.tasks.load_harness_scenario"/>
+        <task name="paf_workspace.domains.xen_zephyr.tasks.harness.load_harness_scenario"/>
     </phase>
 
     <phase name="harness_prepare">
-        <task name="paf_workspace.domains.xen_zephyr.tasks.prepare_harness_inputs"/>
+        <task name="paf_workspace.domains.xen_zephyr.tasks.harness.prepare_harness_inputs"/>
     </phase>
 
     <phase name="harness_run">
-        <task name="paf_workspace.domains.xen_zephyr.tasks.run_harness_command"/>
+        <task name="paf_workspace.domains.xen_zephyr.tasks.harness.run_harness_command"/>
     </phase>
 
     <phase name="validate">
-        <task name="paf_workspace.domains.xen_zephyr.tasks.validate_runtime_log"/>
+        <task name="paf_workspace.domains.xen_zephyr.tasks.harness.validate_runtime_log"/>
     </phase>
 
     <scenario name="default">

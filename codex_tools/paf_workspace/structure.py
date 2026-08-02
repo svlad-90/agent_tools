@@ -41,12 +41,11 @@ def _check_domain(root: Path, domain: Path) -> list[StructureIssue]:
         if not (domain / filename).is_file():
             issues.append(StructureIssue(domain / filename, "missing required domain file"))
 
-    tasks_file = domain / "tasks.py"
     tasks_package = domain / "tasks" / "__init__.py"
-    if tasks_file.exists() and tasks_package.exists():
-        issues.append(StructureIssue(domain / "tasks", "domain must not define both tasks.py and tasks/ package"))
-    if not tasks_file.is_file() and not tasks_package.is_file():
-        issues.append(StructureIssue(domain / "tasks.py", "missing tasks.py or tasks/__init__.py entry point"))
+    if not tasks_package.is_file():
+        issues.append(StructureIssue(tasks_package, "missing required domain tasks package entry point"))
+    if (domain / "tasks.py").exists():
+        issues.append(StructureIssue(domain / "tasks.py", "domain PAF task entry point must be tasks/ package"))
 
     for dirname in REQUIRED_DOMAIN_DIRS:
         if not (domain / dirname).is_dir():

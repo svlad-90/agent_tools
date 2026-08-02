@@ -17,7 +17,7 @@ validate
 Implementation lives under the domain's PAF entry point and support library:
 
 ```text
-tasks.py        PAF task classes and phase entry points
+tasks/          PAF task package and phase entry points
 lib/runtime.py  runtime parsing, preflight, QEMU process, log streaming
 ```
 

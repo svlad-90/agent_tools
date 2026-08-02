@@ -43,10 +43,9 @@ environments, and recurring workflows.
 10. Put domain-owned support code that is not a PAF task under
    `codex_tools/paf_workspace/domains/<domain>/assets/`. Examples include
    Zephyr modules, Yocto layers, target-side helper sources, and fixtures.
-   Keep PAF entry points in `tasks.py` or a `tasks/` package, plus
-   `scenarios/`, `profiles/`, and `templates/`. Put Python implementation used
-   by those tasks in the standard `lib/` package, not in ad hoc support
-   directories.
+   Keep PAF entry points in a domain `tasks/` package, plus `scenarios/`,
+   `profiles/`, and `templates/`. Put Python implementation used by those
+   tasks in the standard `lib/` package, not in ad hoc support directories.
 
 Use this routing table for common workspace task types:
 
