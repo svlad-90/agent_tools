@@ -30,12 +30,14 @@ class ZephyrBuild:
         board: str,
         build_dir: str,
         cmake_args: tuple[str, ...] = (),
+        mode: str = "west",
     ) -> None:
         self.zephyr = zephyr
         self.app = app
         self.board = board
         self.build_dir = build_dir
         self.cmake_args = cmake_args
+        self.mode = mode
 
 
 class CodexToolsActRun:
@@ -90,13 +92,31 @@ def docker_dns_preflight_command(*, network: str) -> list[str]:
 
 def zephyr_validate_command(build: ZephyrBuild) -> str:
     cmake_args = " ".join(_quote(arg) for arg in build.cmake_args)
-    if cmake_args:
+    if build.mode == "west" and cmake_args:
         cmake_args = " -- " + cmake_args
 
     zephyr = _quote(build.zephyr)
     app = _quote(build.app)
     board = _quote(build.board)
     build_dir = _quote(build.build_dir)
+
+    if build.mode == "cmake":
+        if cmake_args:
+            cmake_args = " " + cmake_args
+
+        return f"""
+set -euo pipefail
+cd {zephyr}
+source ./zephyr-env.sh
+mkdir -p {build_dir}/Kconfig
+: > {build_dir}/Kconfig/kconfig_module_dirs.cmake
+cmake -S {app} \\
+  -B {build_dir} \\
+  -GNinja \\
+  -DBOARD={board} \\
+  -DZEPHYR_BASE="$${{PWD}}"{cmake_args}
+ninja -C {build_dir}
+""".strip()
 
     return f"""
 set -euo pipefail
@@ -141,9 +161,10 @@ def codex_tools_act_validate_command(run: CodexToolsActRun) -> str:
     if args:
         args = " " + args
     return (
-        "act workflow_dispatch "
+        "act pull_request "
         f"-W {_quote(run.workflow)} "
         f"-P {_quote('ubuntu-latest=' + run.runner_image)} "
+        f"-P {_quote('ubuntu-24.04=' + run.runner_image)} "
         "--container-architecture linux/amd64"
         f"{args}"
     )

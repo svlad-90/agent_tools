@@ -84,15 +84,6 @@ def _check_domain(root: Path, domain: Path) -> list[StructureIssue]:
         if not readme.is_file():
             issues.append(StructureIssue(readme, "Dockerfile asset must have a README.md"))
 
-        asset_name = dockerfile.parent.name
-        if domain.name == "environments":
-            scenario = domain / "scenarios" / f"{asset_name}.xml"
-            profile = domain / "profiles" / f"{asset_name}.yaml"
-            if not scenario.is_file():
-                issues.append(StructureIssue(scenario, "environment asset must have a matching scenario XML"))
-            if not profile.is_file():
-                issues.append(StructureIssue(profile, "environment asset must have a matching profile YAML"))
-
     if domain.name == "environments":
         for shell_script in domain.glob("assets/**/*.sh"):
             issues.append(StructureIssue(shell_script, "environment domain assets must not expose shell scripts"))

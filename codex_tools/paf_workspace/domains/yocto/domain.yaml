@@ -1,0 +1,19 @@
+name: yocto
+schema: schema.yaml
+projection:
+  prefix: YAML_CONF_
+requires:
+  images:
+    yocto-xen:
+      image: codex/yocto-xen:kirkstone-22.04
+      dockerfile: codex_tools/paf_workspace/domains/environments/assets/yocto-xen/Dockerfile
+      context: codex_tools/paf_workspace/domains/environments/assets/yocto-xen
+      network: host
+  containers:
+    yocto-xen-workspace:
+      image: yocto-xen
+      workdir: /home/builder/workspace
+      mounts:
+        - source: ${WORKSPACE_ROOT}
+          target: /home/builder/workspace
+          mode: rw

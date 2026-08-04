@@ -77,7 +77,9 @@ static struct xen_domain_cfg harness_domu_cfg = {
 	.name = CONFIG_XEN_HARNESS_DOMU_AUTOSTART_NAME,
 	.domain_name = CONFIG_XEN_HARNESS_DOMU_AUTOSTART_NAME,
 	.mem_kb = CONFIG_XEN_HARNESS_DOMU_AUTOSTART_MEMORY_KB,
-	.flags = XEN_DOMCTL_CDF_hvm | XEN_DOMCTL_CDF_hap,
+	.flags = XEN_DOMCTL_CDF_hvm | XEN_DOMCTL_CDF_hap |
+		 COND_CODE_1(CONFIG_XEN_HARNESS_DOMU_AUTOSTART_TRAP_UNMAPPED_ACCESSES,
+			     (XEN_DOMCTL_CDF_trap_unmapped_accesses), (0)),
 	.max_vcpus = CONFIG_XEN_HARNESS_DOMU_AUTOSTART_VCPUS,
 	.max_evtchns = 1024,
 	.gnt_frames = 1,
@@ -198,11 +200,17 @@ static void autostart_main(void *arg1, void *arg2, void *arg3)
 	print_domain_info(ret, "post-create");
 	print_console_params(ret, "post-create");
 	print_vcpu_state(ret, 0, "post-create");
+	if (CONFIG_XEN_HARNESS_DOMU_AUTOSTART_VCPUS > 1) {
+		print_vcpu_state(ret, 1, "post-create");
+	}
 
 	k_sleep(K_MSEC(1000));
 	print_domain_info(ret, "post-create+1s");
 	print_console_params(ret, "post-create+1s");
 	print_vcpu_state(ret, 0, "post-create+1s");
+	if (CONFIG_XEN_HARNESS_DOMU_AUTOSTART_VCPUS > 1) {
+		print_vcpu_state(ret, 1, "post-create+1s");
+	}
 
 	ret = domain_post_create(&harness_domu_cfg, ret);
 	if (ret < 0) {

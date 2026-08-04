@@ -1,0 +1,55 @@
+<paf_config>
+    <param name="ENVIRONMENT_IMAGE_ALIAS" value="yocto-xen"/>
+
+    <phase name="workspace_check">
+        <task name="paf_workspace.domains.yocto.tasks.base.check_workspace_environment"/>
+    </phase>
+
+    <phase name="ensure">
+        <task name="paf_workspace.domains.environments.tasks.base.ensure_environment_image"/>
+    </phase>
+
+    <phase name="bitbake">
+        <task name="paf_workspace.domains.yocto.tasks.bitbake.bitbake"/>
+    </phase>
+
+    <phase name="bitbake_target">
+        <task name="paf_workspace.domains.yocto.tasks.bitbake.bitbake_target"/>
+    </phase>
+
+    <phase name="bitbake_clean_target">
+        <task name="paf_workspace.domains.yocto.tasks.bitbake.bitbake_clean_target"/>
+    </phase>
+
+    <phase name="bitbake_graph_target">
+        <task name="paf_workspace.domains.yocto.tasks.bitbake.bitbake_graph_target"/>
+    </phase>
+
+    <scenario name="check-only">
+        <phase name="workspace_check"/>
+    </scenario>
+
+    <scenario name="bitbake">
+        <phase name="workspace_check"/>
+        <phase name="ensure"/>
+        <phase name="bitbake"/>
+    </scenario>
+
+    <scenario name="target-build">
+        <phase name="workspace_check"/>
+        <phase name="ensure"/>
+        <phase name="bitbake_target"/>
+    </scenario>
+
+    <scenario name="target-clean">
+        <phase name="workspace_check"/>
+        <phase name="ensure"/>
+        <phase name="bitbake_clean_target"/>
+    </scenario>
+
+    <scenario name="target-graph">
+        <phase name="workspace_check"/>
+        <phase name="ensure"/>
+        <phase name="bitbake_graph_target"/>
+    </scenario>
+</paf_config>

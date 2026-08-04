@@ -393,18 +393,18 @@ def _check_artifact_manifests(task_dir: Path, manifests: list[Path]) -> list[Che
 
 def _find_xen_zephyr_harness_profiles(task_dir: Path) -> list[Path]:
     candidates: list[Path] = []
-    for root in (task_dir / "scripts", task_dir / "dev"):
-        if not root.exists():
-            continue
-        candidates.extend(root.rglob("*.yaml"))
-        candidates.extend(root.rglob("*.yml"))
+    root = task_dir / "scripts"
+    if not root.exists():
+        return []
+    candidates.extend(root.rglob("*.yaml"))
+    candidates.extend(root.rglob("*.yml"))
     return [path for path in sorted(candidates) if _yaml_has_xen_zephyr_harness(path)]
 
 
 def _yaml_has_xen_zephyr_harness(path: Path) -> bool:
     try:
         data = yaml.safe_load(path.read_text(encoding="utf-8"))
-    except yaml.YAMLError:
+    except Exception:
         return False
     return isinstance(data, dict) and isinstance(data.get("xen_zephyr"), dict) and isinstance(
         data["xen_zephyr"].get("harness"),

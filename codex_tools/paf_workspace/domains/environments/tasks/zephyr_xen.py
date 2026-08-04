@@ -54,6 +54,7 @@ class validate_zephyr_build(EnvironmentTask):
         app = self.param("ZEPHYR_BUILD_APP")
         board = self.param("ZEPHYR_BUILD_BOARD")
         build_dir = self.param("ZEPHYR_BUILD_DIR")
+        build_mode = self.param("ZEPHYR_BUILD_MODE", "west")
         for field_name, value in (
             ("ZEPHYR_BUILD_ZEPHYR", zephyr),
             ("ZEPHYR_BUILD_APP", app),
@@ -61,6 +62,10 @@ class validate_zephyr_build(EnvironmentTask):
             ("ZEPHYR_BUILD_DIR", build_dir),
         ):
             self.assertion(value, f"Missing required parameter: {field_name}")
+        self.assertion(
+            build_mode in ("west", "cmake"),
+            "ZEPHYR_BUILD_MODE must be either 'west' or 'cmake'",
+        )
 
         build = runtime.ZephyrBuild(
             zephyr=str(zephyr),
@@ -68,6 +73,7 @@ class validate_zephyr_build(EnvironmentTask):
             board=str(board),
             build_dir=str(build_dir),
             cmake_args=tuple((self.param("ZEPHYR_BUILD_CMAKE_ARGS", "") or "").splitlines()),
+            mode=str(build_mode),
         )
 
         self.docker_subprocess_must_succeed(

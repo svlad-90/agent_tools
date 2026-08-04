@@ -28,3 +28,18 @@ codex_tools/paf_workspace/run-paf.sh \
 The default container alias is `zephyr-xen-workspace`. It mounts the workspace
 at `/home/builder/workspace`, so paths passed to validation tasks are
 workspace-relative.
+
+For standalone Zephyr checkouts that are not inside a west workspace, keep the
+same validation scenario and select the direct CMake/Ninja mode:
+
+```sh
+codex_tools/paf_workspace/run-paf.sh \
+  codex_tools/paf_workspace/domains/environments/scenarios/zephyr-xen.xml \
+  validate \
+  --yaml-config codex_tools/paf_workspace/domains/environments/profiles/zephyr-xen.yaml \
+  --parameter ZEPHYR_BUILD_ZEPHYR=zephyr-hypercalls/dev/zephyr-xen-hypercalls \
+  --parameter ZEPHYR_BUILD_APP=../pr148-sched-smoke \
+  --parameter ZEPHYR_BUILD_BOARD=qemu_cortex_a53/qemu_cortex_a53 \
+  --parameter ZEPHYR_BUILD_DIR=build-pr148-sched-smoke \
+  --parameter ZEPHYR_BUILD_MODE=cmake
+```

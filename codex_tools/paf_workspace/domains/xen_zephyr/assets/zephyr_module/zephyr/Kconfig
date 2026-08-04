@@ -99,6 +99,14 @@ config XEN_HARNESS_DOMU_AUTOSTART_SSIDREF
 	  match the Xen build's generated flask.h. The default follows the
 	  zephyr-xenlib README example for domU_t, where SECINITSID_DOMU is 12.
 
+config XEN_HARNESS_DOMU_AUTOSTART_TRAP_UNMAPPED_ACCESSES
+	bool "Trap unmapped DomU accesses"
+	depends on XEN_HARNESS_DOMU_AUTOSTART
+	help
+	  Adds XEN_DOMCTL_CDF_trap_unmapped_accesses to the dynamic DomU creation
+	  flags. Xen 4.21 ARM HVM DomU console pages need this to behave like the
+	  dom0less path instead of dropping accesses to the shared console ring.
+
 config XEN_HARNESS_DOMU_AUTOSTART_DELAY_MS
 	int "Autostart DomU boot delay"
 	depends on XEN_HARNESS_DOMU_AUTOSTART

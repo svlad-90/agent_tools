@@ -40,6 +40,13 @@ These rules apply to every task directory under the workspace root.
    `codex_tools/paf_workspace/domains/environments/...` profile/scenario,
    reason for choosing it, PAF scenario/task entry point, and validation
    command in `TASK_CONTEXT.md`.
+   Prefer running the task through its PAF scenario/build-run entry point when
+   one exists. If a direct helper command fails or is tempting as a shortcut,
+   first check whether the PAF scenario should be run or extended instead.
+   For Xen/Zephyr, QEMU, Yocto, Moulin, and other runtime-product tasks,
+   expand the task-local PAF scenario or reusable domain tasks so the build and
+   validation remain reproducible; use direct helper scripts only as a focused
+   diagnostic and record that exception in `TASK_CONTEXT.md`.
 6. Track validation by level instead of using one ambiguous "validated" note:
 
    ```text

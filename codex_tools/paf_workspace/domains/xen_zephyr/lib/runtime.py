@@ -575,6 +575,10 @@ def zephyr_build_dir_from_bin(bin_path: Path) -> Path:
     return bin_path.parent.parent
 
 
+def is_zephyr_bin(bin_path: Path) -> bool:
+    return bin_path.name == "zephyr.bin" and bin_path.parent.name == "zephyr"
+
+
 def preflight(args: argparse.Namespace) -> int:
     if args.skip_preflight:
         return 0
@@ -590,6 +594,10 @@ def preflight(args: argparse.Namespace) -> int:
         if not path.exists():
             print(f"preflight: {label} binary is missing: {path}", file=sys.stderr)
             return 1
+
+    if not is_zephyr_bin(dom0_bin):
+        print(f"preflight: Dom0 image is not a Zephyr binary, skipping Zephyr Dom0 checks: {dom0_bin}")
+        return 0
 
     domu_size = domu_bin.stat().st_size
     try:

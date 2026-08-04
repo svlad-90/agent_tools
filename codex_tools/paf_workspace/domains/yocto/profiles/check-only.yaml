@@ -1,0 +1,4 @@
+case:
+  name: yocto-check-only
+  domain: yocto
+  workspace: .
