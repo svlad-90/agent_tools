@@ -45,6 +45,63 @@ def main(argv: list[str] | None = None) -> int:
         "--output",
         help="Write formatted message to this file instead of stdout.",
     )
+    parser.add_argument("--title", help="Commit subject/title.")
+    parser.add_argument(
+        "--body",
+        action="append",
+        default=[],
+        help="Commit body paragraph. May be passed more than once.",
+    )
+    parser.add_argument(
+        "--body-file",
+        action="append",
+        default=[],
+        help="Read commit body text from a file. May be passed more than once.",
+    )
+    parser.add_argument(
+        "--signoff",
+        nargs="?",
+        const="",
+        action="append",
+        default=[],
+        metavar="NAME <EMAIL>",
+        help="Add Signed-off-by. Without a value, use repo git identity.",
+    )
+    parser.add_argument(
+        "--assisted-by",
+        action="append",
+        default=[],
+        metavar="AGENT:MODEL [TOOLS]",
+        help="Add an Assisted-by trailer. May be passed more than once.",
+    )
+    parser.add_argument(
+        "--reviewed-by",
+        action="append",
+        default=[],
+        metavar="NAME <EMAIL>",
+        help="Add a Reviewed-by trailer. May be passed more than once.",
+    )
+    parser.add_argument(
+        "--tested-by",
+        action="append",
+        default=[],
+        metavar="NAME <EMAIL>",
+        help="Add a Tested-by trailer. May be passed more than once.",
+    )
+    parser.add_argument(
+        "--acked-by",
+        action="append",
+        default=[],
+        metavar="NAME <EMAIL>",
+        help="Add an Acked-by trailer. May be passed more than once.",
+    )
+    parser.add_argument(
+        "--trailer",
+        action="append",
+        default=[],
+        metavar="KEY: VALUE",
+        help="Add an arbitrary trailer line. May be passed more than once.",
+    )
     parser.add_argument(
         "--no-signoff",
         action="store_true",
@@ -57,8 +114,26 @@ def main(argv: list[str] | None = None) -> int:
     )
     args = parser.parse_args(sys.argv[1:] if argv is None else argv)
 
-    message = _read_message(args.message_file)
-    identity = None if args.no_signoff else read_git_identity(Path(args.repo))
+    repo = Path(args.repo)
+    if _has_compose_args(args):
+        message = compose_commit_message(
+            title=args.title,
+            body=args.body,
+            body_files=[Path(path) for path in args.body_file],
+            signoffs=args.signoff,
+            assisted_by=args.assisted_by,
+            reviewed_by=args.reviewed_by,
+            tested_by=args.tested_by,
+            acked_by=args.acked_by,
+            trailers=args.trailer,
+            repo=repo,
+        )
+    else:
+        message = _read_message(args.message_file)
+
+    identity = None
+    if not args.no_signoff and not args.signoff:
+        identity = read_git_identity(repo)
     formatted = format_commit_message(message, width=args.width, identity=identity)
 
     if args.check:
@@ -92,8 +167,9 @@ def format_commit_message(
     body_lines = _strip_blank_edges(content_lines[1:])
     formatted_body = _format_body(body_lines, width=width)
 
-    trailers = [line for line in trailer_lines if not line.startswith("Signed-off-by:")]
+    trailers = trailer_lines
     if identity is not None:
+        trailers = [line for line in trailer_lines if not line.startswith("Signed-off-by:")]
         trailers.append(identity.signoff)
 
     result = [subject]
@@ -103,6 +179,50 @@ def format_commit_message(
         result.extend(["", *trailers])
 
     return "\n".join(result).rstrip() + "\n"
+
+
+def compose_commit_message(
+    *,
+    title: str | None,
+    body: list[str],
+    body_files: list[Path],
+    signoffs: list[str],
+    assisted_by: list[str],
+    reviewed_by: list[str],
+    tested_by: list[str],
+    acked_by: list[str],
+    trailers: list[str],
+    repo: Path,
+) -> str:
+    if not title:
+        raise ValueError("--title is required when composing a commit message")
+
+    lines = [title.strip()]
+    body_lines = _compose_body_lines(body, body_files)
+    if body_lines:
+        lines.extend(["", *body_lines])
+
+    trailer_lines: list[str] = []
+    for signoff in signoffs:
+        value = signoff.strip() if signoff else read_git_identity(repo).signoff
+        trailer_lines.append(_normalize_trailer("Signed-off-by", value))
+    for value in reviewed_by:
+        trailer_lines.append(_normalize_trailer("Reviewed-by", value))
+    for value in tested_by:
+        trailer_lines.append(_normalize_trailer("Tested-by", value))
+    for value in acked_by:
+        trailer_lines.append(_normalize_trailer("Acked-by", value))
+    for value in assisted_by:
+        trailer_lines.append(_normalize_trailer("Assisted-by", value))
+    for trailer in trailers:
+        if not _is_trailer_line(trailer):
+            raise ValueError(f"invalid trailer: {trailer}")
+        trailer_lines.append(trailer.strip())
+
+    if trailer_lines:
+        lines.extend(["", *trailer_lines])
+
+    return "\n".join(lines).rstrip() + "\n"
 
 
 def read_git_identity(repo: Path) -> GitIdentity:
@@ -117,8 +237,46 @@ def find_long_lines(message: str, *, width: int = DEFAULT_WIDTH) -> list[tuple[i
     return [
         (line_no, len(line), line)
         for line_no, line in enumerate(message.splitlines(), start=1)
-        if len(line) > width
+        if len(line) > width and not _is_trailer_line(line)
     ]
+
+
+def _has_compose_args(args: argparse.Namespace) -> bool:
+    return any(
+        (
+            args.title,
+            args.body,
+            args.body_file,
+            args.signoff,
+            args.assisted_by,
+            args.reviewed_by,
+            args.tested_by,
+            args.acked_by,
+            args.trailer,
+        )
+    )
+
+
+def _compose_body_lines(body: list[str], body_files: list[Path]) -> list[str]:
+    lines: list[str] = []
+    for paragraph in body:
+        if lines:
+            lines.append("")
+        lines.extend(_strip_blank_edges(_normalize_lines(paragraph)))
+    for body_file in body_files:
+        if lines:
+            lines.append("")
+        lines.extend(_strip_blank_edges(_normalize_lines(body_file.read_text(encoding="utf-8"))))
+    return _strip_blank_edges(lines)
+
+
+def _normalize_trailer(key: str, value: str) -> str:
+    value = value.strip()
+    if value.startswith(f"{key}: "):
+        return value
+    if _is_trailer_line(value):
+        return value
+    return f"{key}: {value}"
 
 
 def _read_message(message_file: str | None) -> str:

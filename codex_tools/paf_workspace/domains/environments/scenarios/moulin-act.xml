@@ -15,6 +15,10 @@
         <task name="paf_workspace.domains.environments.tasks.act.validate_moulin_act"/>
     </phase>
 
+    <phase name="push_guard">
+        <task name="paf_workspace.tasks.record_push_guard_success"/>
+    </phase>
+
     <scenario name="check-only">
         <phase name="image_check"/>
         <phase name="check"/>
@@ -23,5 +27,6 @@
     <scenario name="validate">
         <phase name="ensure"/>
         <phase name="validate"/>
+        <phase name="push_guard"/>
     </scenario>
 </paf_config>

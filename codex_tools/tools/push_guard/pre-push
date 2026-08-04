@@ -27,9 +27,17 @@ if [ -z "${workspace_root}" ]; then
 fi
 
 export PYTHONPATH="${workspace_root}:${PYTHONPATH:-}"
+stdin_text="$(cat)"
 
 if [ "${CODEX_PUSH_GUARD_OVERRIDE:-0}" = "1" ]; then
-  exec python -m codex_tools.tools.push_guard check --allow-override
+  printf '%s\n' "${stdin_text}" |
+    python -m codex_tools.tools.push_guard check --allow-override
+else
+  printf '%s\n' "${stdin_text}" |
+    python -m codex_tools.tools.push_guard check
 fi
 
-exec python -m codex_tools.tools.push_guard check
+printf '%s\n' "${stdin_text}" |
+  python -m codex_tools.tools.commit_msg.workflow \
+    --repo "${repo_root}" \
+    --pre-push-check

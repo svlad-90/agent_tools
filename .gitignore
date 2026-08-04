@@ -7,6 +7,7 @@
 !.github/workflows/
 !.github/workflows/diff-report.yml
 !.github/workflows/paf-workspace.yml
+!.github/workflows/commit-msg.yml
 !codex_tools/
 !codex_tools/**
 !.gitignore

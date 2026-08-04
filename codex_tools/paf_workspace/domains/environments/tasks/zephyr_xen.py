@@ -73,6 +73,9 @@ class validate_zephyr_build(EnvironmentTask):
             board=str(board),
             build_dir=str(build_dir),
             cmake_args=tuple((self.param("ZEPHYR_BUILD_CMAKE_ARGS", "") or "").splitlines()),
+            board_roots=tuple((self.param("ZEPHYR_BUILD_BOARD_ROOTS", "") or "").splitlines()),
+            modules=tuple((self.param("ZEPHYR_BUILD_MODULES", "") or "").splitlines()),
+            export_compile_commands=self.bool_param("ZEPHYR_BUILD_EXPORT_COMPILE_COMMANDS"),
             mode=str(build_mode),
         )
 

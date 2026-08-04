@@ -49,42 +49,54 @@ def _head_commit(repo: Path, ref: str) -> str:
     return _run_git(["rev-parse", "--verify", ref], cwd=repo)
 
 
-def _command_text(args: argparse.Namespace) -> str:
-    if args.shell:
-        return args.shell
-    if not args.command:
-        raise SystemExit("validation command is required")
-    return " ".join(args.command)
+def _target_repo(args: argparse.Namespace) -> Path:
+    if getattr(args, "repo", None):
+        return _repo_root(Path(args.repo).expanduser().resolve())
+    return _repo_root(Path.cwd())
 
 
-def _run_validation(args: argparse.Namespace, repo: Path) -> None:
-    if args.shell:
-        subprocess.run(args.shell, cwd=repo, shell=True, check=True)
-        return
-    subprocess.run(args.command, cwd=repo, check=True)
-
-
-def validate(args: argparse.Namespace) -> int:
-    repo = _repo_root(Path.cwd())
-    commit = _head_commit(repo, args.ref)
-    command = _command_text(args)
-
-    print(f"push_guard: validating {commit}")
-    print(f"push_guard: command: {command}")
-    _run_validation(args, repo)
-
+def _record_success(repo: Path, commit: str, source: str) -> None:
     stamp_dir = _stamp_dir(repo)
     stamp_dir.mkdir(parents=True, exist_ok=True)
     payload = {
         "commit": commit,
-        "command": command,
+        "source": source,
         "recorded_at": datetime.utcnow().replace(microsecond=0).isoformat() + "Z",
     }
     _stamp_path(repo, commit).write_text(
         json.dumps(payload, sort_keys=True, indent=2) + "\n",
         encoding="utf-8",
     )
+
+
+def mark_success(args: argparse.Namespace) -> int:
+    repo = _target_repo(args)
+    commit = _head_commit(repo, args.ref)
+    source = args.source or "external validation"
+
+    _record_success(repo, commit, source)
     print(f"push_guard: recorded successful validation for {commit}")
+    print(f"push_guard: source: {source}")
+    return 0
+
+
+def status(args: argparse.Namespace) -> int:
+    repo = _target_repo(args)
+    commit = _head_commit(repo, args.ref)
+    stamp_path = _stamp_path(repo, commit)
+
+    print(f"push_guard: repo: {repo}")
+    print(f"push_guard: commit: {commit}")
+    print(f"push_guard: stamp: {stamp_path}")
+    if not stamp_path.is_file():
+        print("push_guard: status: missing")
+        return 1
+
+    payload = json.loads(stamp_path.read_text(encoding="utf-8"))
+    print("push_guard: status: recorded")
+    print(f"push_guard: recorded_at: {payload.get('recorded_at', '<unknown>')}")
+    source = payload.get("source") or payload.get("command") or "<unknown>"
+    print(f"push_guard: source: {source}")
     return 0
 
 
@@ -119,9 +131,11 @@ def check(args: argparse.Namespace) -> int:
         print(f"  {commit}", file=sys.stderr)
     print(
         "Run the repository build through:\n"
-        "  python -m codex_tools.tools.push_guard validate -- <command>\n"
-        "or:\n"
-        "  python -m codex_tools.tools.push_guard validate --shell '<command>'",
+        "  codex_tools/paf_workspace/run-paf.sh <scenario-file> <scenario> "
+        "--parameter PUSH_GUARD_REPO=<target-repo>\n"
+        "or record an already successful external validation with:\n"
+        "  python -m codex_tools.tools.push_guard mark-success "
+        "--repo <target-repo> --source <build-or-validation-id>",
         file=sys.stderr,
     )
     if args.allow_override:
@@ -131,7 +145,7 @@ def check(args: argparse.Namespace) -> int:
 
 
 def install(args: argparse.Namespace) -> int:
-    repo = _repo_root(Path.cwd())
+    repo = _target_repo(args)
     hook_source = Path(__file__).resolve().with_name("pre-push")
     workspace_root = Path(__file__).resolve().parents[3]
     hooks_dir = _git_path(repo, "hooks")
@@ -151,11 +165,19 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     subparsers = parser.add_subparsers(dest="command_name", required=True)
 
-    validate_parser = subparsers.add_parser("validate")
-    validate_parser.add_argument("--ref", default="HEAD")
-    validate_parser.add_argument("--shell")
-    validate_parser.add_argument("command", nargs=argparse.REMAINDER)
-    validate_parser.set_defaults(func=validate)
+    mark_parser = subparsers.add_parser("mark-success")
+    mark_parser.add_argument("--repo")
+    mark_parser.add_argument("--ref", default="HEAD")
+    mark_parser.add_argument(
+        "--source",
+        help="description of the external build or validation that succeeded",
+    )
+    mark_parser.set_defaults(func=mark_success)
+
+    status_parser = subparsers.add_parser("status")
+    status_parser.add_argument("--repo")
+    status_parser.add_argument("--ref", default="HEAD")
+    status_parser.set_defaults(func=status)
 
     check_parser = subparsers.add_parser("check")
     check_parser.add_argument(
@@ -167,11 +189,10 @@ def main(argv: Sequence[str] | None = None) -> int:
     check_parser.set_defaults(func=check)
 
     install_parser = subparsers.add_parser("install-hook")
+    install_parser.add_argument("--repo")
     install_parser.set_defaults(func=install)
 
     args = parser.parse_args(argv)
-    if getattr(args, "command", None) and args.command[0] == "--":
-        args.command = args.command[1:]
     return int(args.func(args))
 
 

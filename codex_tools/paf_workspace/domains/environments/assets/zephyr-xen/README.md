@@ -41,5 +41,16 @@ codex_tools/paf_workspace/run-paf.sh \
   --parameter ZEPHYR_BUILD_APP=../pr148-sched-smoke \
   --parameter ZEPHYR_BUILD_BOARD=qemu_cortex_a53/qemu_cortex_a53 \
   --parameter ZEPHYR_BUILD_DIR=build-pr148-sched-smoke \
-  --parameter ZEPHYR_BUILD_MODE=cmake
+  --parameter ZEPHYR_BUILD_MODE=cmake \
+  --parameter ZEPHYR_BUILD_BOARD_ROOTS=/home/builder/workspace/zephyr-hypercalls/dev/zephyr-xen-hypercalls \
+  --parameter ZEPHYR_BUILD_MODULES=/home/builder/workspace/zephyr-hypercalls/dev/modules/lib/zephyr-xenlib \
+  --parameter ZEPHYR_BUILD_EXPORT_COMPILE_COMMANDS=True \
+  --parameter PUSH_GUARD_REPO=zephyr-hypercalls/dev/zephyr-xen-hypercalls \
+  --parameter "PUSH_GUARD_SOURCE=zephyr-xen PAF validate"
 ```
+
+Use newline-separated values for `ZEPHYR_BUILD_BOARD_ROOTS` or
+`ZEPHYR_BUILD_MODULES` when a build needs more than one path. The task converts
+them to Zephyr's semicolon-separated CMake list format inside the container.
+When `PUSH_GUARD_REPO` is set, the scenario records a push_guard stamp only
+after the Zephyr build task succeeds.

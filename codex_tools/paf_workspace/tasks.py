@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import subprocess
+import sys
 from pathlib import Path
 
 from paf.paf_impl import CommunicationMode
@@ -62,4 +64,39 @@ class WorkspaceTask(SSHLocalClient):
                 f"{name}_HIDE_OUTPUT_REASON",
                 "The command output contains sensitive information",
             ),
+        )
+
+
+class record_push_guard_success(WorkspaceTask):
+    """Record a push_guard stamp after a successful PAF build or validation."""
+
+    def __init__(self):
+        self.set_name(record_push_guard_success.__name__)
+
+    def execute(self):
+        repo = self.param("PUSH_GUARD_REPO")
+        if not repo:
+            logger.info("Skip push_guard stamp: PUSH_GUARD_REPO is empty")
+            return
+
+        source = self.param("PUSH_GUARD_SOURCE", "PAF workspace successful build")
+        workspace = self.workspace_root()
+        repo_path = Path(repo)
+        if not repo_path.is_absolute():
+            repo_path = workspace / repo_path
+
+        logger.info(f"Record push_guard stamp for {repo_path}")
+        subprocess.run(
+            [
+                sys.executable,
+                "-m",
+                "codex_tools.tools.push_guard",
+                "mark-success",
+                "--repo",
+                str(repo_path),
+                "--source",
+                str(source),
+            ],
+            cwd=workspace,
+            check=True,
         )

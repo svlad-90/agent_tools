@@ -32,6 +32,10 @@
         <task name="paf_workspace.domains.xen_zephyr.tasks.harness.validate_runtime_log"/>
     </phase>
 
+    <phase name="push_guard">
+        <task name="paf_workspace.tasks.record_push_guard_success"/>
+    </phase>
+
     <scenario name="default">
         <phase name="prepare"/>
         <phase name="build"/>
@@ -39,6 +43,7 @@
         <phase name="harness_prepare"/>
         <phase name="harness_run"/>
         <phase name="validate"/>
+        <phase name="push_guard"/>
     </scenario>
 
     <scenario name="run-only">
@@ -52,6 +57,7 @@
     <scenario name="build-only">
         <phase name="prepare"/>
         <phase name="build"/>
+        <phase name="push_guard"/>
     </scenario>
 
     <scenario name="harness-check">

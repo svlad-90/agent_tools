@@ -58,13 +58,36 @@ These rules apply to every repository under the workspace root.
 
    ```sh
    python -m codex_tools.tools.push_guard install-hook
-   python -m codex_tools.tools.push_guard validate -- <build-command>
+   <build-or-validation-command>
+   python -m codex_tools.tools.push_guard mark-success \
+     --source <build-or-validation-id>
    git push
    ```
 
-   The `validate` command records a successful build for the current commit,
-   and the installed pre-push hook rejects pushes whose local commit tip has no
-   recorded success.
+   The `mark-success` command records a successful build for the current
+   commit, and the installed pre-push hook rejects pushes whose local commit
+   tip has no recorded success. `push_guard` must not wrap or execute the build
+   command itself; the build workflow owns validation and records the stamp
+   after success.
+
+   For reusable build systems such as PAF, pass the target repository to the
+   PAF workspace build or validation scenario so its final `push_guard` phase
+   records the stamp after a successful build:
+
+   ```sh
+   codex_tools/paf_workspace/run-paf.sh <scenario-file> <scenario> \
+     --parameter PUSH_GUARD_REPO=<target-repo> \
+     --parameter PUSH_GUARD_SOURCE=<build-or-validation-id>
+   ```
+
+   The pre-push hook checks only for the repository-local marker under the
+   target repository's Git metadata, so the same marker must be written by the
+   build workflow that actually validated the commit.
+
+   The installed hook also checks the commit messages being pushed. It rejects
+   pushed commits with lines longer than 72 columns, missing `Signed-off-by`
+   trailers, and, for Zephyr repositories, missing Zephyr-format
+   `Assisted-by` trailers.
 
    If the build cannot be run or fails, do not push unless the user explicitly
    overrides this rule after being told the exact command and failure or

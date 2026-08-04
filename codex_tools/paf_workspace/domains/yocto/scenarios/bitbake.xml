@@ -25,6 +25,10 @@
         <task name="paf_workspace.domains.yocto.tasks.bitbake.bitbake_graph_target"/>
     </phase>
 
+    <phase name="push_guard">
+        <task name="paf_workspace.tasks.record_push_guard_success"/>
+    </phase>
+
     <scenario name="check-only">
         <phase name="workspace_check"/>
     </scenario>
@@ -33,12 +37,14 @@
         <phase name="workspace_check"/>
         <phase name="ensure"/>
         <phase name="bitbake"/>
+        <phase name="push_guard"/>
     </scenario>
 
     <scenario name="target-build">
         <phase name="workspace_check"/>
         <phase name="ensure"/>
         <phase name="bitbake_target"/>
+        <phase name="push_guard"/>
     </scenario>
 
     <scenario name="target-clean">
