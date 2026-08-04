@@ -1,0 +1,35 @@
+#!/usr/bin/env sh
+set -eu
+
+repo_root="$(git rev-parse --show-toplevel)"
+workspace_root=""
+installed_workspace_root=""
+
+if [ -n "${installed_workspace_root}" ] &&
+   [ -f "${installed_workspace_root}/codex_tools/tools/push_guard/__init__.py" ]; then
+  workspace_root="${installed_workspace_root}"
+fi
+
+if [ -z "${workspace_root}" ]; then
+  search_dir="${repo_root}"
+  while [ "${search_dir}" != "/" ]; do
+    if [ -f "${search_dir}/codex_tools/tools/push_guard/__init__.py" ]; then
+      workspace_root="${search_dir}"
+      break
+    fi
+    search_dir="$(dirname "${search_dir}")"
+  done
+fi
+
+if [ -z "${workspace_root}" ]; then
+  echo "push_guard: cannot find workspace codex_tools directory" >&2
+  exit 1
+fi
+
+export PYTHONPATH="${workspace_root}:${PYTHONPATH:-}"
+
+if [ "${CODEX_PUSH_GUARD_OVERRIDE:-0}" = "1" ]; then
+  exec python -m codex_tools.tools.push_guard check --allow-override
+fi
+
+exec python -m codex_tools.tools.push_guard check

@@ -47,3 +47,25 @@ These rules apply to every repository under the workspace root.
    `user.name` and `user.email`. Do not use this automatic trailer insertion
    when drafting Zephyr project commits or pull requests unless the human
    submitter has explicitly provided the `Signed-off-by` text to include.
+6. Before any `git push`, run the repository's authoritative build or
+   validation command successfully. Use the normal project build when one
+   exists; for CI-only or tooling repositories, run the closest local
+   equivalent of the pushed workflow. Record the exact successful command in
+   the task context, final response, or handoff notes before pushing.
+
+   Enforce this with the workspace push guard in every repository that will be
+   pushed:
+
+   ```sh
+   python -m codex_tools.tools.push_guard install-hook
+   python -m codex_tools.tools.push_guard validate -- <build-command>
+   git push
+   ```
+
+   The `validate` command records a successful build for the current commit,
+   and the installed pre-push hook rejects pushes whose local commit tip has no
+   recorded success.
+
+   If the build cannot be run or fails, do not push unless the user explicitly
+   overrides this rule after being told the exact command and failure or
+   blocker.
