@@ -167,10 +167,11 @@ def format_commit_message(
     body_lines = _strip_blank_edges(content_lines[1:])
     formatted_body = _format_body(body_lines, width=width)
 
-    trailers = trailer_lines
+    trailers = _assisted_by_last(trailer_lines)
     if identity is not None:
-        trailers = [line for line in trailer_lines if not line.startswith("Signed-off-by:")]
+        trailers = [line for line in trailers if not line.startswith("Signed-off-by:")]
         trailers.append(identity.signoff)
+        trailers = _assisted_by_last(trailers)
 
     result = [subject]
     if formatted_body:
@@ -220,7 +221,7 @@ def compose_commit_message(
         trailer_lines.append(trailer.strip())
 
     if trailer_lines:
-        lines.extend(["", *trailer_lines])
+        lines.extend(["", *_assisted_by_last(trailer_lines)])
 
     return "\n".join(lines).rstrip() + "\n"
 
@@ -277,6 +278,12 @@ def _normalize_trailer(key: str, value: str) -> str:
     if _is_trailer_line(value):
         return value
     return f"{key}: {value}"
+
+
+def _assisted_by_last(trailer_lines: list[str]) -> list[str]:
+    regular = [line for line in trailer_lines if not line.startswith("Assisted-by:")]
+    assisted = [line for line in trailer_lines if line.startswith("Assisted-by:")]
+    return [*regular, *assisted]
 
 
 def _read_message(message_file: str | None) -> str:

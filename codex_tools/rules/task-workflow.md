@@ -27,6 +27,13 @@ These rules apply to every task directory under the workspace root.
    python -m codex_tools.paf_workspace.task_check <task-dir>
    ```
 
+   Before authoritative build, runtime validation, report regeneration, or a
+   push-ready handoff, run `task_check` with `--strict-warnings` and bring the
+   result to 0 warnings and 0 errors. Treat this as a mandatory workspace
+   hygiene gate when the tool is available. If `task_check` itself is broken or
+   blocked by a missing environment, record the exact command, failure, and
+   follow-up in `TASK_CONTEXT.md` before continuing.
+
    Use `--init-layout` to create a missing task layout from workspace
    templates. Use `--init-runtime-product` for Xen/QEMU/Moulin runtime tasks
    that need a starter artifact manifest and harness scenario.

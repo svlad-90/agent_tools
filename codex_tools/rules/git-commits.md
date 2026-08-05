@@ -18,6 +18,12 @@ These rules apply to every repository under the workspace root.
    `Signed-off-by` after reviewing the contribution, checking license
    compatibility, and taking responsibility for the change.
 
+   Before adding a `Signed-off-by` trailer on behalf of the human user, ask the
+   user for explicit permission in the current task context. Do this even when
+   a repository hook requires the trailer before push. If the permission was
+   granted earlier in a long-running task, mention that permission before
+   pushing so the user can stop or correct the push.
+
    For Zephyr pull requests that used AI assistance, include an
    `Assisted-by` trailer in the contribution metadata:
 

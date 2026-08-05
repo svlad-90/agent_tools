@@ -144,6 +144,18 @@ def has_assisted_by(lines: list[str]) -> bool:
     return any(pattern.match(line) for line in lines)
 
 
+def assisted_by_is_last_trailer(lines: list[str]) -> bool:
+    trailer_indexes = [
+        index for index, line in enumerate(lines) if is_trailer_line(line)
+    ]
+    if not trailer_indexes:
+        return True
+    assisted_indexes = [
+        index for index in trailer_indexes if lines[index].startswith("Assisted-by: ")
+    ]
+    return not assisted_indexes or assisted_indexes[-1] == trailer_indexes[-1]
+
+
 def pushed_commit_hashes(repo: Path, stdin_text: str) -> list[str]:
     seen: set[str] = set()
     result: list[str] = []
@@ -160,7 +172,7 @@ def pushed_commit_hashes(repo: Path, stdin_text: str) -> list[str]:
         if is_zero_sha(remote_sha):
             rev_args = [local_sha, "--not", "--remotes"]
         else:
-            rev_args = [f"{remote_sha}..{local_sha}"]
+            rev_args = [local_sha, "--not", remote_sha, "--remotes"]
 
         hashes = git(repo, "rev-list", "--reverse", *rev_args).stdout.splitlines()
         for commit_hash in hashes:
@@ -223,6 +235,8 @@ def check_commits(
                 f"{short_hash}: missing Zephyr Assisted-by trailer "
                 "(expected: Assisted-by: Agent:Model [tools])"
             )
+        if not assisted_by_is_last_trailer(lines):
+            failures.append(f"{short_hash}: Assisted-by trailer must be last")
 
     if failures:
         print("\n".join(failures), file=sys.stderr)
