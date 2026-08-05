@@ -3,12 +3,13 @@
 This directory contains workspace-owned PAF automation assets. PAF itself is
 kept as an external framework and is fetched by `run-paf.sh` when needed.
 The default checked-out PAF revision is
-`7b84022dfff93a9bc7f643a5d74bd2d06f457bb4`, the current workspace-validated
-baseline with full repository mypy coverage for PAF's core, CLI entry point,
-and tests. Override it with `PAF_REF` only when a task intentionally validates
-a different PAF revision.
-Existing cached PAF checkouts are reused; set `PAF_UPDATE=1` when the wrapper
-must fetch and checkout `PAF_REF` again.
+`2e5b13953804e66a32f22b82882e15faee63a1ea`, the current workspace-validated
+baseline with workspace-wide Docker mount and environment defaults for PAF
+containers. Override it with `PAF_REF` only when a task intentionally
+validates a different PAF revision.
+Existing cached PAF checkouts are reused as local storage, but the wrapper
+checks out `PAF_REF` before execution. Set `PAF_UPDATE=1` when the wrapper
+must fetch the configured revision again.
 
 The purpose of this directory is to collect reusable automation work in the
 same spirit as `/home/vladyslav_goncharuk/Projects/tools/aasig_dev_platform/build/`:

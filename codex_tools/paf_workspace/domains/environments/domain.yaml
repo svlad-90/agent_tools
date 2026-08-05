@@ -3,6 +3,14 @@ schema: schema.yaml
 projection:
   prefix: YAML_CONF_
 requires:
+  env:
+    WORKSPACE_ROOT: /workspace
+    PAF_ROOT: /workspace/codex_tools/.cache/paf
+    PYTHONPATH: /workspace/codex_tools/.cache/paf:/workspace/codex_tools:/workspace
+  mounts:
+    - source: ${WORKSPACE_ROOT}
+      target: /workspace
+      mode: rw
   images:
     zephyr-xen:
       image: codex/zephyr-xen:24.04
@@ -32,18 +40,10 @@ requires:
   containers:
     zephyr-xen-workspace:
       image: zephyr-xen
-      workdir: /home/builder/workspace
-      mounts:
-        - source: ${WORKSPACE_ROOT}
-          target: /home/builder/workspace
-          mode: rw
+      workdir: /workspace
     yocto-xen-workspace:
       image: yocto-xen
-      workdir: /home/builder/workspace
-      mounts:
-        - source: ${WORKSPACE_ROOT}
-          target: /home/builder/workspace
-          mode: rw
+      workdir: /workspace
     codex-tools-act-workspace:
       image: codex-tools-act
       workdir: ${WORKSPACE_ROOT}
