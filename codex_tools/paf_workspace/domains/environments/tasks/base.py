@@ -70,9 +70,45 @@ class EnvironmentTask(WorkspaceTask):
         )
         return result.exit_code == 0
 
-    def ensure_image_alias(self, image_alias: str):
+    def build_image_alias(self, image_alias: str):
         image_config = self.image_config(image_alias)
         image = self.image_name(image_alias)
+        dockerfile = image_config.get("dockerfile")
+        context = image_config.get("context")
+        self.assertion(dockerfile and context, f"Image alias has no Dockerfile/context: {image_alias}")
+
+        network = str(image_config.get("network") or self.build_network())
+        self.subprocess_must_succeed(
+            runtime.docker_dns_preflight_command(network=network),
+            shell=False,
+            communication_mode=CommunicationMode.PIPE_OUTPUT,
+            interaction_mode=InteractionMode.IGNORE_INPUT,
+        )
+
+        build_cmd = ["docker", "build", "-t", image, "-f", str(dockerfile)]
+        if network:
+            build_cmd.extend(["--network", network])
+        if image_config.get("target"):
+            build_cmd.extend(["--target", str(image_config["target"])])
+        build_args = image_config.get("build_args", {})
+        self.assertion(isinstance(build_args, dict), "docker image build_args must be an object")
+        for key, value in build_args.items():
+            build_cmd.extend(["--build-arg", f"{key}={value}"])
+        build_cmd.append(str(context))
+
+        self.subprocess_must_succeed(
+            build_cmd,
+            shell=False,
+            communication_mode=CommunicationMode.PIPE_OUTPUT,
+            interaction_mode=InteractionMode.IGNORE_INPUT,
+        )
+
+    def ensure_image_alias(self, image_alias: str, force_rebuild: bool = False):
+        image_config = self.image_config(image_alias)
+        image = self.image_name(image_alias)
+        if force_rebuild:
+            self.build_image_alias(image_alias)
+            return
         if not self.image_exists(image):
             network = str(image_config.get("network") or self.build_network())
             self.subprocess_must_succeed(
@@ -119,8 +155,9 @@ class ensure_environment_image(EnvironmentTask):
         aliases = (self.param("ENVIRONMENT_IMAGE_ALIASES", "") or "").split()
         if not aliases:
             aliases = [self.image_alias()]
+        force_rebuild = self.bool_param("ENVIRONMENT_FORCE_IMAGE_REBUILD")
         for alias in aliases:
-            self.ensure_image_alias(alias)
+            self.ensure_image_alias(alias, force_rebuild=force_rebuild)
 
 
 class check_environment_image(EnvironmentTask):

@@ -73,6 +73,9 @@ class validate_zephyr_build(EnvironmentTask):
             board=str(board),
             build_dir=str(build_dir),
             cmake_args=tuple((self.param("ZEPHYR_BUILD_CMAKE_ARGS", "") or "").splitlines()),
+            kconfig_options=tuple(
+                (self.param("ZEPHYR_BUILD_KCONFIG_OPTIONS", "") or "").splitlines()
+            ),
             board_roots=tuple((self.param("ZEPHYR_BUILD_BOARD_ROOTS", "") or "").splitlines()),
             modules=tuple((self.param("ZEPHYR_BUILD_MODULES", "") or "").splitlines()),
             export_compile_commands=self.bool_param("ZEPHYR_BUILD_EXPORT_COMPILE_COMMANDS"),
@@ -98,9 +101,50 @@ class validate_zephyr_build(EnvironmentTask):
         )
 
 
+class validate_zephyr_docs_coverage(EnvironmentTask):
+    """Generate Zephyr Doxygen coverage JSON inside the Zephyr/Xen environment."""
+
+    def __init__(self):
+        super().__init__()
+        self.set_name(validate_zephyr_docs_coverage.__name__)
+
+    def execute(self):
+        zephyr = self.param("ZEPHYR_DOCS_ZEPHYR")
+        build_dir = self.param("ZEPHYR_DOCS_BUILD_DIR")
+        for field_name, value in (
+            ("ZEPHYR_DOCS_ZEPHYR", zephyr),
+            ("ZEPHYR_DOCS_BUILD_DIR", build_dir),
+        ):
+            self.assertion(value, f"Missing required parameter: {field_name}")
+
+        docs = runtime.ZephyrDocsCoverage(
+            zephyr=str(zephyr),
+            build_dir=str(build_dir),
+        )
+
+        self.docker_subprocess_must_succeed(
+            self.container_alias(),
+            runtime.zephyr_docs_coverage_command(docs),
+            timeout=int(self.param("ZEPHYR_DOCS_TIMEOUT_SEC", "0") or "0"),
+            communication_mode=CommunicationMode.PIPE_OUTPUT,
+            interaction_mode=InteractionMode.IGNORE_INPUT,
+            avoid_printing_command=self.bool_param("ZEPHYR_DOCS_HIDE_COMMAND"),
+            avoid_printing_command_reason=self.param(
+                "ZEPHYR_DOCS_HIDE_COMMAND_REASON",
+                "The command contains sensitive information",
+            ),
+            avoid_printing_command_output=self.bool_param("ZEPHYR_DOCS_HIDE_OUTPUT"),
+            avoid_printing_command_output_reason=self.param(
+                "ZEPHYR_DOCS_HIDE_OUTPUT_REASON",
+                "The command output contains sensitive information",
+            ),
+        )
+
+
 __all__ = [
     "check_environment_image",
     "ensure_environment_image",
     "check_zephyr_xen_tools",
     "validate_zephyr_build",
+    "validate_zephyr_docs_coverage",
 ]

@@ -20,9 +20,10 @@ ENV LANG=en_US.UTF-8 \
     LC_ALL=en_US.UTF-8 \
     LANGUAGE=en_US:en \
     HOME=/home/${USER_NAME} \
+    VIRTUAL_ENV=/opt/zephyr-venv \
     ZEPHYR_SDK_INSTALL_DIR=/opt/zephyr-sdk-${ZEPHYR_SDK_VERSION} \
     ZEPHYR_TOOLCHAIN_VARIANT=zephyr \
-    PATH=/opt/zephyr-sdk-${ZEPHYR_SDK_VERSION}/hosttools/sysroots/x86_64-pokysdk-linux/usr/bin:${PATH}
+    PATH=/opt/zephyr-venv/bin:/opt/zephyr-sdk-${ZEPHYR_SDK_VERSION}/hosttools/sysroots/x86_64-pokysdk-linux/usr/bin:${PATH}
 
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 
@@ -39,11 +40,13 @@ RUN apt-get update \
        curl \
        device-tree-compiler \
        diffstat \
+       doxygen \
        dosfstools \
        file \
        gawk \
        git \
        git-lfs \
+       graphviz \
        gperf \
        libclang-dev \
        libglib2.0-0 \
@@ -80,14 +83,23 @@ RUN curl -fsSL "https://github.com/zephyrproject-rtos/sdk-ng/releases/download/v
     && rm -f /tmp/zephyr-sdk.tar.xz \
     && "${ZEPHYR_SDK_INSTALL_DIR}/setup.sh" -h
 
-RUN pip3 install --break-system-packages --upgrade \
+RUN python3 -m venv --system-site-packages "${VIRTUAL_ENV}"
+
+RUN pip3 install --upgrade \
         west \
         pyelftools \
         "git+https://github.com/svlad-90/moulin@main" \
     && curl -fsSL "https://raw.githubusercontent.com/zephyrproject-rtos/zephyr/${ZEPHYR_VERSION}/scripts/requirements-base.txt" \
         -o /tmp/zephyr-requirements-base.txt \
-    && pip3 install --break-system-packages --upgrade -r /tmp/zephyr-requirements-base.txt \
-    && rm -f /tmp/zephyr-requirements-base.txt
+    && curl -fsSL "https://raw.githubusercontent.com/zephyrproject-rtos/zephyr/${ZEPHYR_VERSION}/doc/requirements.txt" \
+        -o /tmp/zephyr-doc-requirements.txt \
+    && pip3 install --upgrade \
+        -r /tmp/zephyr-requirements-base.txt \
+    && pip3 install --upgrade --ignore-installed --require-hashes \
+        -r /tmp/zephyr-doc-requirements.txt \
+    && rm -f \
+        /tmp/zephyr-requirements-base.txt \
+        /tmp/zephyr-doc-requirements.txt
 
 RUN mkdir -p /workspace "/home/${USER_NAME}" \
     && chown -R "${USER_ID}:${USER_GID}" /workspace "/home/${USER_NAME}"

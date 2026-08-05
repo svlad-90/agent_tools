@@ -13,6 +13,8 @@ python3 --version
 python3 -m west --version
 cmake --version | head -1
 ninja --version
+doxygen --version
+dot -V
 qemu-system-aarch64 --version | head -1
 "$${ZEPHYR_SDK_INSTALL_DIR}/gnu/aarch64-zephyr-elf/bin/aarch64-zephyr-elf-gcc" --version | head -1
 python3 - <<'PY'
@@ -30,6 +32,7 @@ class ZephyrBuild:
         board: str,
         build_dir: str,
         cmake_args: tuple[str, ...] = (),
+        kconfig_options: tuple[str, ...] = (),
         board_roots: tuple[str, ...] = (),
         modules: tuple[str, ...] = (),
         export_compile_commands: bool = False,
@@ -40,10 +43,21 @@ class ZephyrBuild:
         self.board = board
         self.build_dir = build_dir
         self.cmake_args = cmake_args
+        self.kconfig_options = kconfig_options
         self.board_roots = board_roots
         self.modules = modules
         self.export_compile_commands = export_compile_commands
         self.mode = mode
+
+
+class ZephyrDocsCoverage:
+    def __init__(
+        self,
+        zephyr: str,
+        build_dir: str,
+    ) -> None:
+        self.zephyr = zephyr
+        self.build_dir = build_dir
 
 
 class CodexToolsActRun:
@@ -82,6 +96,24 @@ def _quote(value: str | Path) -> str:
     return shlex.quote(str(value))
 
 
+def _kconfig_option_to_cmake_arg(option: str) -> str:
+    if option.startswith("-D"):
+        return option
+
+    if "=" in option:
+        name, value = option.split("=", 1)
+    else:
+        name, sep, value = option.partition(":")
+        if not sep:
+            raise ValueError(
+                "Kconfig options must use NAME=value or NAME:value"
+            )
+
+    if not name or not value:
+        raise ValueError("Kconfig options must have a non-empty name and value")
+    return f"-D{name}={value}"
+
+
 def docker_dns_preflight_command(*, network: str) -> list[str]:
     return [
         "docker",
@@ -98,6 +130,10 @@ def docker_dns_preflight_command(*, network: str) -> list[str]:
 
 def zephyr_validate_command(build: ZephyrBuild) -> str:
     zephyr_cmake_args = list(build.cmake_args)
+    zephyr_cmake_args.extend(
+        _kconfig_option_to_cmake_arg(option)
+        for option in build.kconfig_options
+    )
     if build.board_roots:
         zephyr_cmake_args.append("-DBOARD_ROOT=" + ";".join(build.board_roots))
     if build.modules:
@@ -138,6 +174,19 @@ west build -p auto \\
   -b {board} \\
   -d {build_dir} \\
   {app}{cmake_args}
+""".strip()
+
+
+def zephyr_docs_coverage_command(docs: ZephyrDocsCoverage) -> str:
+    zephyr = _quote(docs.zephyr)
+    build_dir = _quote(docs.build_dir)
+
+    return f"""
+set -euo pipefail
+cd {zephyr}
+source ./zephyr-env.sh
+make -C doc BUILDDIR={build_dir} configure DOXYGEN_FORCE_SINGLE_THREAD=1
+cmake --build {build_dir} --target doxygen-coverage-json
 """.strip()
 
 
