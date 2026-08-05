@@ -97,6 +97,11 @@ class ZephyrBuild:
     board: str
     build_dir: str
     cmake_args: tuple[str, ...] = ()
+    kconfig_options: tuple[str, ...] = ()
+    board_roots: tuple[str, ...] = ()
+    modules: tuple[str, ...] = ()
+    export_compile_commands: bool = False
+    mode: str = "west"
 
 
 @dataclass(frozen=True)
@@ -327,6 +332,11 @@ def load_zephyr_build(data: object) -> ZephyrBuild | None:
         board=require_string(data, "board"),
         build_dir=require_string(data, "build_dir"),
         cmake_args=load_string_list(data, "cmake_args"),
+        kconfig_options=load_string_list(data, "kconfig_options"),
+        board_roots=load_string_list(data, "board_roots"),
+        modules=load_string_list(data, "modules"),
+        export_compile_commands=bool(data.get("export_compile_commands", False)),
+        mode=optional_string(data, "mode") or "west",
     )
 
 

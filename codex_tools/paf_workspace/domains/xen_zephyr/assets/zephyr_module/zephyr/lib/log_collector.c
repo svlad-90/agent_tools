@@ -141,6 +141,34 @@ static void attach_console(domid_t domid)
 	put_domain(domain);
 }
 
+void domain_pre_unpause(struct xen_domain *domain)
+{
+	struct domu_console *console;
+	int ret;
+
+	if (!collector_started || domain == NULL || domain->f_dom0less) {
+		return;
+	}
+
+	console = domu_console_for_id(domain->domid);
+	if (console == NULL || console->attached ||
+	    domain->console.ext_tid == NULL) {
+		return;
+	}
+
+	console->domid = domain->domid;
+	ret = set_console_feed_cb(domain, console_feed_cb, console);
+	if (ret < 0) {
+		printk("[xen-harness][dom0] failed to attach DomU%u console: %d\n",
+		       domain->domid, ret);
+		return;
+	}
+
+	console->attached = true;
+	printk("[xen-harness][dom0] attached DomU%u console before unpause\n",
+	       domain->domid);
+}
+
 static void collector_main(void *arg1, void *arg2, void *arg3)
 {
 	ARG_UNUSED(arg1);

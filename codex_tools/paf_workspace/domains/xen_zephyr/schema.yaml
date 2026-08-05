@@ -194,6 +194,24 @@ properties:
                 type: array
                 items:
                   type: string
+              kconfig_options:
+                type: array
+                items:
+                  type: string
+              board_roots:
+                type: array
+                items:
+                  type: string
+              modules:
+                type: array
+                items:
+                  type: string
+              export_compile_commands:
+                type: boolean
+              mode:
+                enum:
+                  - west
+                  - cmake
             additionalProperties: false
           expected_abi:
             type: object

@@ -40,6 +40,11 @@ class prepare_harness_inputs(XenZephyrTask):
                 board=scenario.domu_build.board,
                 build_dir=scenario.domu_build.build_dir,
                 cmake_args=scenario.domu_build.cmake_args,
+                kconfig_options=scenario.domu_build.kconfig_options,
+                board_roots=scenario.domu_build.board_roots,
+                modules=scenario.domu_build.modules,
+                export_compile_commands=scenario.domu_build.export_compile_commands,
+                mode=scenario.domu_build.mode,
             )
             self.docker_subprocess_must_succeed(
                 args.container_alias,
