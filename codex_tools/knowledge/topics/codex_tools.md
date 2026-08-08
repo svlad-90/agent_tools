@@ -75,14 +75,19 @@ Practical checklist:
 - When no source is provided, the preflight generates a tiny C++ fixture and
   still runs `map` plus `parse-check`; this catches broken Python/libclang
   bindings even before a target build exists.
-- When build-backed parsing is blocked and only file orientation is needed, use
-  `python -m codex_tools.tools.cpp_light_code_map map <file>`. The light tool
-  requires `tree-sitter` and `tree-sitter-cpp`. Its output is structural-only:
-  it can provide diagnostics, unmapped tree-sitter coverage, outlines, filtered
-  symbols, tree-sitter includes and macros, rough symbol spans, hashes,
-  structural call lists, call-graph edges, scoped and categorized identifier
-  references, locals, simple complexity metrics, cached workspace indexes, and
-  guarded structural edits, but it does not validate types or compilation.
+- When the C/C++ build environment is not yet formalized or stable, use
+  `python -m codex_tools.tools.cpp_light_code_map diagnose <file> --json` and
+  `outline --compact` as the primary first-pass navigation tools. The light
+  tool requires `tree-sitter` and `tree-sitter-cpp`. Its output is
+  structural-only: it can provide diagnostics, unmapped tree-sitter coverage,
+  outlines, filtered symbols, tree-sitter includes and macros, rough symbol
+  spans, hashes, structural call lists, call-graph edges, scoped and
+  categorized identifier references, locals, simple complexity metrics, cached
+  workspace indexes, and guarded structural edits, but it does not validate
+  types or compilation.
+- Once the checkout, generated headers, container/toolchain, and
+  `compile_commands.json` are settled, promote precise C/C++ source analysis
+  and guarded edits to build-backed `cpp_code_map`.
 - Useful light-map commands for fast triage:
   `diagnose --json`, `unmapped --json`, `outline --compact`, `symbols --kind
   function --name <text>`, `symbol-get --with-doc --json`, `calls --symbol

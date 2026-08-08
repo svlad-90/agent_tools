@@ -5,14 +5,29 @@ description: Navigate, inspect, safely edit, and audit C/C++ source files with t
 
 # C++ Code Map
 
-Use the workspace implementation at `codex_tools/tools/cpp_code_map`. Do not depend
-on a globally installed Codex skill for this workflow.
+Use the workspace implementations at `codex_tools/tools/cpp_light_code_map` and
+`codex_tools/tools/cpp_code_map`. Do not depend on a globally installed Codex
+skill for this workflow.
 
 Also follow `codex_tools/rules/cpp-code.md`; that rule is stricter than this
 skill for workspace C/C++ work, especially for Docker, Zephyr, generated
 headers, and real build environments.
 
 ## Core Workflow
+
+Use `cpp_light_code_map` first when the build environment is not yet
+formalized: the checkout, generated headers, container, toolchain, or compile
+database are still being discovered. It is the normal first-pass tool for
+orientation and quick structural edits:
+
+```sh
+python -m codex_tools.tools.cpp_light_code_map diagnose path/to/file.c --json
+python -m codex_tools.tools.cpp_light_code_map outline path/to/file.c --compact
+python -m codex_tools.tools.cpp_light_code_map symbols path/to/file.c --kind function --json
+```
+
+Use `cpp_code_map` once the build context is stable enough for exact source
+analysis:
 
 Run commands from the repository or workspace root where `codex_tools` is
 importable:
@@ -39,7 +54,16 @@ module paths, and toolchain settings.
 
 ## Inspect Before Editing
 
-Before reading or changing a C/C++ file, inspect its symbol map:
+Before first-pass reading or quick structural edits, inspect the file with the
+light map:
+
+```sh
+python -m codex_tools.tools.cpp_light_code_map diagnose path/to/file.c --json
+python -m codex_tools.tools.cpp_light_code_map outline path/to/file.c --compact
+```
+
+Before precise edits in a stable build environment, inspect its build-backed
+symbol map:
 
 ```sh
 python -m codex_tools.tools.cpp_code_map map path/to/file.c --compile-db build
@@ -122,10 +146,10 @@ declared environment image before debugging source parsing.
 The authoritative validation remains the project's normal build, test, or
 runtime workflow. `parse-check` does not replace that validation.
 
-## Build-Free Fallback
+## Build-Free Structural Map
 
-If the build environment or compile database is unavailable and the task only
-needs orientation or a guarded body edit, use the structural fallback tool:
+When the build environment or compile database is not yet stable, use the
+structural map as the main navigation tool for early work:
 
 ```sh
 python -m codex_tools.tools.cpp_light_code_map map path/to/file.c
@@ -134,10 +158,10 @@ python -m codex_tools.tools.cpp_light_code_map symbol-get path/to/file.c --symbo
 
 `cpp_light_code_map` requires `tree-sitter` and `tree-sitter-cpp`. It does not
 use libclang, does not validate types, and does not prove compilation. Treat
-its output as `structural-only`.
+its output as `structural-only`. Once the environment is settled, promote exact
+analysis and guarded C/C++ edits to `cpp_code_map`.
 
-Use it for fast orientation while the authoritative build-backed
-`cpp_code_map` path is being repaired:
+Use it for fast orientation, early estimates, and quick structural fixes:
 
 ```sh
 python -m codex_tools.tools.cpp_light_code_map outline path/to/file.c --compact
