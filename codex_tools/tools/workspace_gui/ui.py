@@ -34,6 +34,7 @@ class WorkspaceGui:
         self.task_check_transcripts: dict[Path, str] = {}
         self.git_status_transcripts: dict[Path, str] = {}
         self.git_repo_options: list[Path] = []
+        self.git_repos_loaded_for: Path | None = None
         self.running_actions: set[tuple[str, Path]] = set()
         self.font_size = int(tkfont.nametofont("TkDefaultFont").cget("size"))
         self.style = ttk.Style(self.root)
@@ -96,18 +97,16 @@ class WorkspaceGui:
         self.task_tree.pack(fill=tk.BOTH, expand=True)
         self.task_tree.bind("<<TreeviewSelect>>", self._on_task_selected)
         self.task_tree.bind("<Double-1>", self._on_task_double_clicked)
+        self.task_tree.bind("<Button-3>", self._on_task_context_menu)
+        self.task_tree.bind("<Button-2>", self._on_task_context_menu)
+        self.task_context_menu = tk.Menu(self.root, tearoff=False)
+        self.task_context_menu.add_command(label="Open Task", command=self.open_task)
+        self.task_context_menu.add_command(label="Open dev/", command=self.open_dev)
 
         right = ttk.Frame(main, padding=6)
         main.add(right, weight=3)
-        actions = ttk.Frame(right)
-        actions.pack(side=tk.TOP, fill=tk.X)
-        for label, command in (
-            ("Open dev/", self.open_dev),
-        ):
-            ttk.Button(actions, text=label, command=command).pack(side=tk.LEFT, padx=(0, 6))
-
         self.notebook = ttk.Notebook(right)
-        self.notebook.pack(fill=tk.BOTH, expand=True, pady=(6, 0))
+        self.notebook.pack(fill=tk.BOTH, expand=True)
         self.description_text = self._add_text_tab("Description")
         self.context_text = self._add_text_tab("Context")
         self.checks_text = self._add_text_tab(
@@ -117,6 +116,7 @@ class WorkspaceGui:
         )
         self.git_text = self._add_git_tab()
         self.log_text = self._add_text_tab("Log")
+        self.notebook.bind("<<NotebookTabChanged>>", self._on_notebook_tab_changed)
 
     def _add_text_tab(
         self,
@@ -144,6 +144,7 @@ class WorkspaceGui:
 
     def _add_git_tab(self) -> tk.Text:
         frame = ttk.Frame(self.notebook)
+        self.git_frame = frame
         toolbar = ttk.Frame(frame)
         toolbar.pack(side=tk.TOP, fill=tk.X)
         self.git_repo_var = tk.StringVar(value="")
@@ -204,10 +205,26 @@ class WorkspaceGui:
         self._set_markdown(self.description_text, read_task_file(task, "TASK_DESCRIPTION.md"))
         self._set_markdown(self.context_text, read_task_file(task, "TASK_CONTEXT.md"))
         self._set_text(self.checks_text, self.task_check_transcripts.get(task.path, ""))
-        self._refresh_git_repos(task)
+        self._reset_git_tab(task)
+        if self._is_git_tab_selected():
+            self._ensure_git_repos_loaded(task)
 
     def _on_task_double_clicked(self, _event: object) -> None:
         self.open_task()
+
+    def _on_task_context_menu(self, event: tk.Event[tk.Misc]) -> None:
+        row = self.task_tree.identify_row(event.y)
+        if not row:
+            return
+        self.task_tree.selection_set(row)
+        self.task_tree.focus(row)
+        self._on_task_selected(event)
+        self.task_context_menu.tk_popup(event.x_root, event.y_root)
+        self.task_context_menu.grab_release()
+
+    def _on_notebook_tab_changed(self, _event: object) -> None:
+        if self.selected_task is not None and self._is_git_tab_selected():
+            self._ensure_git_repos_loaded(self.selected_task)
 
     def open_task(self) -> None:
         task = self._require_task()
@@ -237,6 +254,10 @@ class WorkspaceGui:
         )
 
     def run_selected_git_status(self) -> None:
+        task = self._require_task()
+        if task is None:
+            return
+        self._ensure_git_repos_loaded(task)
         repo = self._selected_git_repo()
         if repo is None:
             return
@@ -248,8 +269,21 @@ class WorkspaceGui:
             self.git_text,
         )
 
+    def _reset_git_tab(self, task: TaskSummary) -> None:
+        self.git_repo_options = []
+        self.git_repos_loaded_for = None
+        self.git_repo_combo.configure(values=(), state=tk.DISABLED)
+        self.git_repo_var.set("")
+        self._set_text(self.git_text, f"Git repositories not scanned for {task.name}.\n")
+
+    def _ensure_git_repos_loaded(self, task: TaskSummary) -> None:
+        if self.git_repos_loaded_for == task.path:
+            return
+        self._refresh_git_repos(task)
+
     def _refresh_git_repos(self, task: TaskSummary) -> None:
         self.git_repo_options = find_dev_git_repos(task)
+        self.git_repos_loaded_for = task.path
         labels = [self._repo_label(task, repo) for repo in self.git_repo_options]
         self.git_repo_combo.configure(values=labels)
         if not labels:
@@ -362,12 +396,14 @@ class WorkspaceGui:
         widget.configure(state=tk.NORMAL)
         widget.delete("1.0", tk.END)
         widget.insert(tk.END, text)
+        widget.configure(state=tk.DISABLED)
 
     def _set_markdown(self, widget: tk.Text, text: str) -> None:
         widget.configure(state=tk.NORMAL)
         widget.delete("1.0", tk.END)
         for chunk in render_markdown_chunks(text):
             widget.insert(tk.END, chunk.text, chunk.tag)
+        widget.configure(state=tk.DISABLED)
 
     def _configure_text_tags(self, widget: tk.Text) -> None:
         widget.configure(font=self.text_font)
@@ -380,8 +416,10 @@ class WorkspaceGui:
         widget.tag_configure("paragraph", spacing1=1, spacing3=2)
 
     def _append_log(self, text: str) -> None:
+        self.log_text.configure(state=tk.NORMAL)
         self.log_text.insert(tk.END, text)
         self.log_text.see(tk.END)
+        self.log_text.configure(state=tk.DISABLED)
 
     def adjust_font_size(self, delta: int) -> None:
         self.font_size = max(8, min(28, self.font_size + delta))
@@ -406,6 +444,9 @@ class WorkspaceGui:
             widget = getattr(self, widget_name, None)
             if isinstance(widget, tk.Text):
                 self._configure_text_tags(widget)
+
+    def _is_git_tab_selected(self) -> bool:
+        return hasattr(self, "git_frame") and self.notebook.select() == str(self.git_frame)
 
 
 def render_git_status(repo: Path) -> str:

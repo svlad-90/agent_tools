@@ -86,11 +86,20 @@ def test_render_markdown_chunks_formats_common_blocks() -> None:
         "```\n"
     )
 
-    assert [(chunk.text.strip(), chunk.tag) for chunk in chunks if chunk.text.strip()] == [
+    rendered = [(chunk.text.strip(), chunk.tag) for chunk in chunks if chunk.text.strip()]
+
+    assert rendered == [
         ("Title", "h1"),
         ("Section", "h2"),
         ("- item", "list"),
-        ("Role: HAL\nPath: dev/hal", "table"),
+        (
+            "+----------------------------------------------------------------------------------------------+\n"
+            "| Row 1                                                                                        |\n"
+            "| Role: HAL                                                                                    |\n"
+            "| Path: dev/hal                                                                                |\n"
+            "+----------------------------------------------------------------------------------------------+",
+            "table",
+        ),
         ("code()", "code"),
     ]
 

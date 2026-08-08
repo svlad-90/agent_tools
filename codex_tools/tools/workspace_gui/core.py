@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from pathlib import Path
 import re
 import subprocess
+import textwrap
 
 from codex_tools.paf_workspace.task_check import check_task
 from codex_tools.paf_workspace.task_check import render_text
@@ -11,6 +12,7 @@ from codex_tools.paf_workspace.task_check import render_text
 
 TASK_CONTEXT_BUDGET = 8_000
 TASKS_DIR_NAME = "tasks"
+MARKDOWN_TABLE_WIDTH = 96
 
 
 @dataclass(frozen=True)
@@ -116,15 +118,27 @@ def _render_table_block(lines: list[str]) -> list[MarkdownChunk]:
 
     headers = rows[0]
     chunks: list[MarkdownChunk] = []
-    for row in rows[2:]:
-        pairs = [
-            f"{header}: {value}"
-            for header, value in zip(headers, row)
-            if header or value
-        ]
-        if pairs:
-            chunks.append(MarkdownChunk("\n".join(pairs) + "\n\n", "table"))
+    border = "+" + "-" * (MARKDOWN_TABLE_WIDTH - 2) + "+"
+    for row_index, row in enumerate(rows[2:], start=1):
+        lines = [border, _boxed_line(f"Row {row_index}")]
+        for header, value in zip(headers, row):
+            if not header and not value:
+                continue
+            label = f"{header}: " if header else ""
+            wrapped = textwrap.wrap(
+                label + value,
+                width=MARKDOWN_TABLE_WIDTH - 4,
+                subsequent_indent=" " * len(label),
+            ) or [label.rstrip()]
+            lines.extend(_boxed_line(part) for part in wrapped)
+        lines.append(border)
+        chunks.append(MarkdownChunk("\n".join(lines) + "\n\n", "table"))
     return chunks
+
+
+def _boxed_line(text: str) -> str:
+    width = MARKDOWN_TABLE_WIDTH - 4
+    return f"| {text[:width].ljust(width)} |"
 
 
 def discover_tasks(workspace: Path) -> list[TaskSummary]:
