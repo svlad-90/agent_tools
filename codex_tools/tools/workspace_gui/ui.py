@@ -106,31 +106,29 @@ class WorkspaceGui:
         main.add(right, weight=3)
         self.notebook = ttk.Notebook(right)
         self.notebook.pack(fill=tk.BOTH, expand=True)
-        self.description_text = self._add_text_tab("Description")
-        self.context_text = self._add_text_tab("Context")
+        self.description_text, self.context_text = self._add_details_tab()
         self.actions_text = self._add_actions_tab()
 
-    def _add_text_tab(
-        self,
-        title: str,
-        button_label: str | None = None,
-        button_command: Callable[[], None] | None = None,
-    ) -> tk.Text:
+    def _add_details_tab(self) -> tuple[tk.Text, tk.Text]:
         frame = ttk.Frame(self.notebook)
-        if button_label is not None and button_command is not None:
-            toolbar = ttk.Frame(frame)
-            toolbar.pack(side=tk.TOP, fill=tk.X)
-            ttk.Button(toolbar, text=button_label, command=button_command).pack(
-                side=tk.LEFT,
-                padx=2,
-                pady=2,
-            )
-        text = tk.Text(frame, wrap=tk.WORD, undo=False, font=self.text_font)
-        scroll = ttk.Scrollbar(frame, orient=tk.VERTICAL, command=text.yview)
+        details = ttk.PanedWindow(frame, orient=tk.VERTICAL)
+        details.pack(fill=tk.BOTH, expand=True)
+        description_text = self._add_labeled_text_pane(details, "Description")
+        context_text = self._add_labeled_text_pane(details, "Context")
+        self.notebook.add(frame, text="Details")
+        return description_text, context_text
+
+    def _add_labeled_text_pane(self, parent: ttk.PanedWindow, title: str) -> tk.Text:
+        frame = ttk.Frame(parent, padding=(0, 0, 0, 4))
+        ttk.Label(frame, text=title).pack(side=tk.TOP, anchor=tk.W, padx=2, pady=(0, 2))
+        body = ttk.Frame(frame)
+        body.pack(side=tk.TOP, fill=tk.BOTH, expand=True)
+        text = tk.Text(body, wrap=tk.WORD, undo=False, font=self.text_font)
+        scroll = ttk.Scrollbar(body, orient=tk.VERTICAL, command=text.yview)
         text.configure(yscrollcommand=scroll.set)
         text.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         scroll.pack(side=tk.RIGHT, fill=tk.Y)
-        self.notebook.add(frame, text=title)
+        parent.add(frame, weight=1)
         self._configure_text_tags(text)
         return text
 
