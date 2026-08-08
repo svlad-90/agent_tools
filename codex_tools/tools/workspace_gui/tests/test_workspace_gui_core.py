@@ -8,6 +8,7 @@ from codex_tools.tools.workspace_gui.core import TaskSummary
 from codex_tools.tools.workspace_gui.core import discover_tasks
 from codex_tools.tools.workspace_gui.core import find_dev_git_repos
 from codex_tools.tools.workspace_gui.core import git_status
+from codex_tools.tools.workspace_gui.core import render_markdown_chunks
 from codex_tools.tools.workspace_gui.core import rough_token_count
 from codex_tools.tools.workspace_gui.core import run_task_check
 
@@ -68,6 +69,26 @@ def test_find_dev_git_repos_and_status(tmp_path: Path) -> None:
 def test_rough_token_count_uses_words_and_character_fallback() -> None:
     assert rough_token_count("one two three") == 4
     assert rough_token_count("x" * 20) == 5
+
+
+def test_render_markdown_chunks_formats_common_blocks() -> None:
+    chunks = render_markdown_chunks(
+        "# Title\n\n"
+        "## Section\n"
+        "- item\n"
+        "| A | B |\n"
+        "```\n"
+        "code()\n"
+        "```\n"
+    )
+
+    assert [(chunk.text.strip(), chunk.tag) for chunk in chunks if chunk.text.strip()] == [
+        ("Title", "h1"),
+        ("Section", "h2"),
+        ("* item", "list"),
+        ("| A | B |", "table"),
+        ("code()", "code"),
+    ]
 
 
 def discover_tasks_with_context(task: Path, workspace: Path) -> TaskSummary:

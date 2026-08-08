@@ -32,10 +32,42 @@ class GitRepoStatus:
     error: str | None = None
 
 
+@dataclass(frozen=True)
+class MarkdownChunk:
+    text: str
+    tag: str
+
+
 def rough_token_count(text: str) -> int:
     lexical_tokens = len(re.findall(r"\w+|[^\w\s]", text, flags=re.UNICODE))
     char_tokens = (len(text) + 3) // 4
     return max(lexical_tokens, char_tokens)
+
+
+def render_markdown_chunks(text: str) -> list[MarkdownChunk]:
+    chunks: list[MarkdownChunk] = []
+    in_code = False
+    for line in text.splitlines():
+        stripped = line.strip()
+        if stripped.startswith("```"):
+            in_code = not in_code
+            continue
+        if in_code:
+            chunks.append(MarkdownChunk(line + "\n", "code"))
+            continue
+        if stripped.startswith("#"):
+            level = len(stripped) - len(stripped.lstrip("#"))
+            title = stripped[level:].strip()
+            chunks.append(MarkdownChunk(title + "\n", f"h{min(level, 3)}"))
+        elif stripped.startswith(("- ", "* ")):
+            chunks.append(MarkdownChunk("  * " + stripped[2:].strip() + "\n", "list"))
+        elif stripped.startswith("|") and stripped.endswith("|"):
+            chunks.append(MarkdownChunk(line + "\n", "table"))
+        elif stripped:
+            chunks.append(MarkdownChunk(line + "\n", "paragraph"))
+        else:
+            chunks.append(MarkdownChunk("\n", "paragraph"))
+    return chunks
 
 
 def discover_tasks(workspace: Path) -> list[TaskSummary]:

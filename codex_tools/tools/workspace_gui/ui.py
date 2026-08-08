@@ -19,6 +19,7 @@ from .core import discover_tasks
 from .core import find_dev_git_repos
 from .core import git_status
 from .core import read_task_file
+from .core import render_markdown_chunks
 from .core import run_task_check
 
 
@@ -29,6 +30,9 @@ class WorkspaceGui:
         self.tasks: list[TaskSummary] = []
         self.selected_task: TaskSummary | None = None
         self.messages: queue.Queue[tuple[str, str]] = queue.Queue()
+        self.task_check_cache: dict[Path, str] = {}
+        self.git_status_cache: dict[Path, str] = {}
+        self.running_actions: set[tuple[str, Path]] = set()
         self.font_size = int(tkfont.nametofont("TkDefaultFont").cget("size"))
         self.style = ttk.Style(self.root)
 
@@ -112,6 +116,7 @@ class WorkspaceGui:
         text.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         scroll.pack(side=tk.RIGHT, fill=tk.Y)
         self.notebook.add(frame, text=title)
+        self._configure_text_tags(text)
         return text
 
     def refresh_tasks(self) -> None:
@@ -146,10 +151,10 @@ class WorkspaceGui:
             return
         task = self.tasks[int(selection[0])]
         self.selected_task = task
-        self._set_text(self.description_text, read_task_file(task, "TASK_DESCRIPTION.md"))
-        self._set_text(self.context_text, read_task_file(task, "TASK_CONTEXT.md"))
-        self._set_text(self.checks_text, "")
-        self._set_text(self.git_text, "")
+        self._set_markdown(self.description_text, read_task_file(task, "TASK_DESCRIPTION.md"))
+        self._set_markdown(self.context_text, read_task_file(task, "TASK_CONTEXT.md"))
+        self._set_text(self.checks_text, self.task_check_cache.get(task.path, ""))
+        self._set_text(self.git_text, self.git_status_cache.get(task.path, ""))
 
     def _on_task_double_clicked(self, _event: object) -> None:
         self.open_task()
@@ -173,15 +178,54 @@ class WorkspaceGui:
         task = self._require_task()
         if task is None:
             return
-        self._run_background("task_check", lambda: run_task_check(task, self.workspace), self.checks_text)
+        self._run_cached_background(
+            "task_check",
+            task.path,
+            self.task_check_cache,
+            lambda: run_task_check(task, self.workspace),
+            self.checks_text,
+        )
 
     def run_selected_git_status(self) -> None:
         task = self._require_task()
         if task is None:
             return
-        self._run_background("git status", lambda: render_git_status(task), self.git_text)
+        self._run_cached_background(
+            "git status",
+            task.path,
+            self.git_status_cache,
+            lambda: render_git_status(task),
+            self.git_text,
+        )
 
-    def _run_background(self, label: str, action: Callable[[], str], target: tk.Text) -> None:
+    def _run_cached_background(
+        self,
+        label: str,
+        cache_key: Path,
+        cache: dict[Path, str],
+        action: Callable[[], str],
+        target: tk.Text,
+    ) -> None:
+        cached = cache.get(cache_key)
+        if cached is not None:
+            self._set_text(target, cached)
+            self._append_log(f"cached: {label}\n")
+            return
+        running_key = (label, cache_key)
+        if running_key in self.running_actions:
+            self._append_log(f"running: {label}\n")
+            return
+        self.running_actions.add(running_key)
+        self._run_background(label, action, target, cache_key, cache)
+
+    def _run_background(
+        self,
+        label: str,
+        action: Callable[[], str],
+        target: tk.Text,
+        cache_key: Path,
+        cache: dict[Path, str],
+    ) -> None:
         self._append_log(f"start: {label}\n")
 
         def worker() -> None:
@@ -189,6 +233,8 @@ class WorkspaceGui:
                 result = action()
             except Exception as error:
                 result = f"{type(error).__name__}: {error}"
+            cache[cache_key] = result
+            self.running_actions.discard((label, cache_key))
             self.messages.put(("text", f"{id(target)}\n{result}"))
             self.messages.put(("log", f"done: {label}\n"))
 
@@ -224,6 +270,21 @@ class WorkspaceGui:
         widget.delete("1.0", tk.END)
         widget.insert(tk.END, text)
 
+    def _set_markdown(self, widget: tk.Text, text: str) -> None:
+        widget.configure(state=tk.NORMAL)
+        widget.delete("1.0", tk.END)
+        for chunk in render_markdown_chunks(text):
+            widget.insert(tk.END, chunk.text, chunk.tag)
+
+    def _configure_text_tags(self, widget: tk.Text) -> None:
+        widget.tag_configure("h1", font=("TkDefaultFont", self.font_size + 6, "bold"), spacing3=6)
+        widget.tag_configure("h2", font=("TkDefaultFont", self.font_size + 4, "bold"), spacing3=5)
+        widget.tag_configure("h3", font=("TkDefaultFont", self.font_size + 2, "bold"), spacing3=4)
+        widget.tag_configure("list", lmargin1=18, lmargin2=30)
+        widget.tag_configure("code", font=("TkFixedFont", self.font_size), lmargin1=12, lmargin2=12)
+        widget.tag_configure("table", font=("TkFixedFont", self.font_size))
+        widget.tag_configure("paragraph", spacing1=1, spacing3=2)
+
     def _append_log(self, text: str) -> None:
         self.log_text.insert(tk.END, text)
         self.log_text.see(tk.END)
@@ -237,6 +298,16 @@ class WorkspaceGui:
             tkfont.nametofont(font_name).configure(size=self.font_size)
         row_height = tkfont.nametofont("TkDefaultFont").metrics("linespace") + 8
         self.style.configure("Treeview", rowheight=row_height)
+        for widget_name in (
+            "description_text",
+            "context_text",
+            "checks_text",
+            "git_text",
+            "log_text",
+        ):
+            widget = getattr(self, widget_name, None)
+            if isinstance(widget, tk.Text):
+                self._configure_text_tags(widget)
 
 
 def render_git_status(task: TaskSummary) -> str:
