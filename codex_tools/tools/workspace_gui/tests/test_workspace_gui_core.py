@@ -75,8 +75,8 @@ def test_render_markdown_chunks_formats_common_blocks() -> None:
     chunks = render_markdown_chunks(
         "# Title\n\n"
         "## Section\n"
-        "- item\n"
-        "| A | B |\n"
+        "- `item`\n"
+        "| `A` | B |\n"
         "```\n"
         "code()\n"
         "```\n"
@@ -85,7 +85,7 @@ def test_render_markdown_chunks_formats_common_blocks() -> None:
     assert [(chunk.text.strip(), chunk.tag) for chunk in chunks if chunk.text.strip()] == [
         ("Title", "h1"),
         ("Section", "h2"),
-        ("* item", "list"),
+        ("- item", "list"),
         ("| A | B |", "table"),
         ("code()", "code"),
     ]

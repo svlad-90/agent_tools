@@ -59,15 +59,31 @@ def render_markdown_chunks(text: str) -> list[MarkdownChunk]:
             level = len(stripped) - len(stripped.lstrip("#"))
             title = stripped[level:].strip()
             chunks.append(MarkdownChunk(title + "\n", f"h{min(level, 3)}"))
-        elif stripped.startswith(("- ", "* ")):
-            chunks.append(MarkdownChunk("  * " + stripped[2:].strip() + "\n", "list"))
+        elif _is_list_item(stripped):
+            chunks.append(MarkdownChunk(_render_list_item(stripped) + "\n", "list"))
         elif stripped.startswith("|") and stripped.endswith("|"):
-            chunks.append(MarkdownChunk(line + "\n", "table"))
+            chunks.append(MarkdownChunk(_strip_inline_code(line) + "\n", "table"))
         elif stripped:
-            chunks.append(MarkdownChunk(line + "\n", "paragraph"))
+            chunks.append(MarkdownChunk(_strip_inline_code(line) + "\n", "paragraph"))
         else:
             chunks.append(MarkdownChunk("\n", "paragraph"))
     return chunks
+
+
+def _is_list_item(stripped: str) -> bool:
+    return stripped.startswith(("- ", "* ")) or re.match(r"\d+\.\s+", stripped) is not None
+
+
+def _render_list_item(stripped: str) -> str:
+    if stripped.startswith(("- ", "* ")):
+        body = stripped[2:].strip()
+    else:
+        body = re.sub(r"^\d+\.\s+", "", stripped).strip()
+    return "- " + _strip_inline_code(body)
+
+
+def _strip_inline_code(text: str) -> str:
+    return re.sub(r"`([^`]*)`", r"\1", text)
 
 
 def discover_tasks(workspace: Path) -> list[TaskSummary]:

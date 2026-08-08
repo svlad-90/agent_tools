@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from datetime import datetime
 from pathlib import Path
 import argparse
 import os
@@ -30,11 +31,26 @@ class WorkspaceGui:
         self.tasks: list[TaskSummary] = []
         self.selected_task: TaskSummary | None = None
         self.messages: queue.Queue[tuple[str, str]] = queue.Queue()
-        self.task_check_cache: dict[Path, str] = {}
-        self.git_status_cache: dict[Path, str] = {}
+        self.task_check_transcripts: dict[Path, str] = {}
+        self.git_status_transcripts: dict[Path, str] = {}
         self.running_actions: set[tuple[str, Path]] = set()
         self.font_size = int(tkfont.nametofont("TkDefaultFont").cget("size"))
         self.style = ttk.Style(self.root)
+        self.text_font = tkfont.Font(
+            family=tkfont.nametofont("TkTextFont").cget("family"),
+            size=self.font_size,
+        )
+        self.fixed_font = tkfont.Font(
+            family=tkfont.nametofont("TkFixedFont").cget("family"),
+            size=self.font_size,
+        )
+        self.tree_font = tkfont.Font(
+            family=tkfont.nametofont("TkDefaultFont").cget("family"),
+            size=self.font_size,
+        )
+        self.h1_font = tkfont.Font(family=self.text_font.cget("family"), size=self.font_size + 6, weight="bold")
+        self.h2_font = tkfont.Font(family=self.text_font.cget("family"), size=self.font_size + 4, weight="bold")
+        self.h3_font = tkfont.Font(family=self.text_font.cget("family"), size=self.font_size + 2, weight="bold")
 
         self.root.title(f"Workspace GUI - {self.workspace}")
         self.root.geometry("1180x760")
@@ -65,7 +81,13 @@ class WorkspaceGui:
         left = ttk.Frame(main, padding=6)
         main.add(left, weight=1)
         columns = ("details",)
-        self.task_tree = ttk.Treeview(left, columns=columns, show="tree headings", selectmode="browse")
+        self.task_tree = ttk.Treeview(
+            left,
+            columns=columns,
+            show="tree headings",
+            selectmode="browse",
+            style="Workspace.Treeview",
+        )
         self.task_tree.heading("#0", text="Task")
         self.task_tree.heading("details", text="Task Details")
         self.task_tree.column("#0", width=260)
@@ -110,7 +132,7 @@ class WorkspaceGui:
                 padx=2,
                 pady=2,
             )
-        text = tk.Text(frame, wrap=tk.WORD, undo=False)
+        text = tk.Text(frame, wrap=tk.WORD, undo=False, font=self.text_font)
         scroll = ttk.Scrollbar(frame, orient=tk.VERTICAL, command=text.yview)
         text.configure(yscrollcommand=scroll.set)
         text.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
@@ -153,8 +175,8 @@ class WorkspaceGui:
         self.selected_task = task
         self._set_markdown(self.description_text, read_task_file(task, "TASK_DESCRIPTION.md"))
         self._set_markdown(self.context_text, read_task_file(task, "TASK_CONTEXT.md"))
-        self._set_text(self.checks_text, self.task_check_cache.get(task.path, ""))
-        self._set_text(self.git_text, self.git_status_cache.get(task.path, ""))
+        self._set_text(self.checks_text, self.task_check_transcripts.get(task.path, ""))
+        self._set_text(self.git_text, self.git_status_transcripts.get(task.path, ""))
 
     def _on_task_double_clicked(self, _event: object) -> None:
         self.open_task()
@@ -178,10 +200,10 @@ class WorkspaceGui:
         task = self._require_task()
         if task is None:
             return
-        self._run_cached_background(
+        self._run_transcript_background(
             "task_check",
             task.path,
-            self.task_check_cache,
+            self.task_check_transcripts,
             lambda: run_task_check(task, self.workspace),
             self.checks_text,
         )
@@ -190,41 +212,39 @@ class WorkspaceGui:
         task = self._require_task()
         if task is None:
             return
-        self._run_cached_background(
+        self._run_transcript_background(
             "git status",
             task.path,
-            self.git_status_cache,
+            self.git_status_transcripts,
             lambda: render_git_status(task),
             self.git_text,
         )
 
-    def _run_cached_background(
+    def _run_transcript_background(
         self,
         label: str,
-        cache_key: Path,
-        cache: dict[Path, str],
+        transcript_key: Path,
+        transcripts: dict[Path, str],
         action: Callable[[], str],
         target: tk.Text,
     ) -> None:
-        cached = cache.get(cache_key)
-        if cached is not None:
-            self._set_text(target, cached)
-            self._append_log(f"cached: {label}\n")
-            return
-        running_key = (label, cache_key)
+        running_key = (label, transcript_key)
         if running_key in self.running_actions:
             self._append_log(f"running: {label}\n")
             return
         self.running_actions.add(running_key)
-        self._run_background(label, action, target, cache_key, cache)
+        header = _transcript_header(label)
+        transcripts[transcript_key] = transcripts.get(transcript_key, "") + header
+        self._set_text(target, transcripts[transcript_key])
+        self._run_background(label, action, target, transcript_key, transcripts)
 
     def _run_background(
         self,
         label: str,
         action: Callable[[], str],
         target: tk.Text,
-        cache_key: Path,
-        cache: dict[Path, str],
+        transcript_key: Path,
+        transcripts: dict[Path, str],
     ) -> None:
         self._append_log(f"start: {label}\n")
 
@@ -233,9 +253,9 @@ class WorkspaceGui:
                 result = action()
             except Exception as error:
                 result = f"{type(error).__name__}: {error}"
-            cache[cache_key] = result
-            self.running_actions.discard((label, cache_key))
-            self.messages.put(("text", f"{id(target)}\n{result}"))
+            self.running_actions.discard((label, transcript_key))
+            transcripts[transcript_key] = transcripts.get(transcript_key, "") + result.rstrip() + "\n\n"
+            self.messages.put(("text", f"{id(target)}\n{transcripts[transcript_key]}"))
             self.messages.put(("log", f"done: {label}\n"))
 
         threading.Thread(target=worker, daemon=True).start()
@@ -277,12 +297,13 @@ class WorkspaceGui:
             widget.insert(tk.END, chunk.text, chunk.tag)
 
     def _configure_text_tags(self, widget: tk.Text) -> None:
-        widget.tag_configure("h1", font=("TkDefaultFont", self.font_size + 6, "bold"), spacing3=6)
-        widget.tag_configure("h2", font=("TkDefaultFont", self.font_size + 4, "bold"), spacing3=5)
-        widget.tag_configure("h3", font=("TkDefaultFont", self.font_size + 2, "bold"), spacing3=4)
-        widget.tag_configure("list", lmargin1=18, lmargin2=30)
-        widget.tag_configure("code", font=("TkFixedFont", self.font_size), lmargin1=12, lmargin2=12)
-        widget.tag_configure("table", font=("TkFixedFont", self.font_size))
+        widget.configure(font=self.text_font)
+        widget.tag_configure("h1", font=self.h1_font, spacing3=6)
+        widget.tag_configure("h2", font=self.h2_font, spacing3=5)
+        widget.tag_configure("h3", font=self.h3_font, spacing3=4)
+        widget.tag_configure("list", font=self.text_font, lmargin1=24, lmargin2=42, spacing1=1)
+        widget.tag_configure("code", font=self.fixed_font, lmargin1=12, lmargin2=12)
+        widget.tag_configure("table", font=self.fixed_font)
         widget.tag_configure("paragraph", spacing1=1, spacing3=2)
 
     def _append_log(self, text: str) -> None:
@@ -294,10 +315,14 @@ class WorkspaceGui:
         self._apply_font_size()
 
     def _apply_font_size(self) -> None:
-        for font_name in ("TkDefaultFont", "TkTextFont", "TkFixedFont"):
-            tkfont.nametofont(font_name).configure(size=self.font_size)
-        row_height = tkfont.nametofont("TkDefaultFont").metrics("linespace") + 8
-        self.style.configure("Treeview", rowheight=row_height)
+        self.text_font.configure(size=self.font_size)
+        self.fixed_font.configure(size=self.font_size)
+        self.tree_font.configure(size=self.font_size)
+        self.h1_font.configure(size=self.font_size + 6)
+        self.h2_font.configure(size=self.font_size + 4)
+        self.h3_font.configure(size=self.font_size + 2)
+        row_height = self.tree_font.metrics("linespace") + 8
+        self.style.configure("Workspace.Treeview", font=self.tree_font, rowheight=row_height)
         for widget_name in (
             "description_text",
             "context_text",
@@ -326,6 +351,11 @@ def render_git_status(task: TaskSummary) -> str:
             lines.append("clean")
         sections.append("\n".join(lines))
     return "\n\n".join(sections) + "\n"
+
+
+def _transcript_header(label: str) -> str:
+    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    return f"## {label} at {timestamp}\n\n"
 
 
 def open_path(path: Path) -> None:
