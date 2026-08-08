@@ -12,10 +12,12 @@ from .core import insert_after_symbol
 from .core import insert_before_symbol
 from .core import render_batch_edit_result
 from .core import render_code_map
+from .core import render_compile_doctor
 from .core import render_edit_result
 from .core import render_parse_check
 from .core import render_puml_audit
 from .core import render_symbol_snapshot
+from .core import render_symbol_index
 from .core import replace_symbol
 from .core import replace_symbol_body
 
@@ -27,6 +29,18 @@ def main(argv: list[str] | None = None) -> int:
     map_parser = subparsers.add_parser("map", help="Print a C++ file symbol map.")
     _add_cpp_context_args(map_parser)
     map_parser.add_argument("--json", action="store_true")
+
+    doctor_parser = subparsers.add_parser("doctor", help="Explain compile database and clang argument selection.")
+    _add_cpp_context_args(doctor_parser)
+    doctor_parser.add_argument("--json", action="store_true")
+
+    index_parser = subparsers.add_parser("index", help="Cache C++ symbol maps for one or more files.")
+    index_parser.add_argument("cpp_files", nargs="+")
+    index_parser.add_argument("--compile-db", "-p")
+    index_parser.add_argument("--clang-arg", action="append", default=[])
+    index_parser.add_argument("--allow-fallback", action="store_true")
+    index_parser.add_argument("--cache-dir")
+    index_parser.add_argument("--json", action="store_true")
 
     symbol_parser = subparsers.add_parser("symbol-get", help="Print a C++ symbol snapshot.")
     _add_cpp_context_args(symbol_parser)
@@ -67,6 +81,7 @@ def main(argv: list[str] | None = None) -> int:
     batch_group.add_argument("--plan-stdin", action="store_true")
     batch_parser.add_argument("--compile-db", "-p")
     batch_parser.add_argument("--clang-arg", action="append", default=[])
+    batch_parser.add_argument("--allow-fallback", action="store_true")
     batch_parser.add_argument("--check-only", action="store_true")
     batch_parser.add_argument("--json", action="store_true")
 
@@ -97,6 +112,7 @@ def _add_cpp_context_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("cpp_file")
     parser.add_argument("--compile-db", "-p")
     parser.add_argument("--clang-arg", action="append", default=[])
+    parser.add_argument("--allow-fallback", action="store_true")
 
 
 def _add_edit_args(parser: argparse.ArgumentParser, text_kind: str) -> None:
@@ -118,24 +134,52 @@ def _dispatch(args: argparse.Namespace, parser: argparse.ArgumentParser) -> int:
         result = apply_batch_edits(_load_batch_plan(args),
                                    compile_db,
                                    clang_args=tuple(args.clang_arg),
+                                   allow_fallback=args.allow_fallback,
                                    check_only=args.check_only)
         print(render_batch_edit_result(result, json_output=args.json))
+        return 0
+    if args.command == "index":
+        print(render_symbol_index(tuple(Path(file_name).resolve() for file_name in args.cpp_files),
+                                  _compile_db(args),
+                                  clang_args=tuple(args.clang_arg),
+                                  allow_fallback=args.allow_fallback,
+                                  cache_dir=Path(args.cache_dir).resolve() if args.cache_dir else None,
+                                  json_output=args.json))
         return 0
     target = Path(args.cpp_file).resolve()
     compile_db = _compile_db(args)
     clang_args = tuple(getattr(args, "clang_arg", ()))
     if args.command == "map":
-        print(render_code_map(target, compile_db, clang_args=clang_args, json_output=args.json))
+        print(render_code_map(target,
+                              compile_db,
+                              clang_args=clang_args,
+                              allow_fallback=args.allow_fallback,
+                              json_output=args.json))
+    elif args.command == "doctor":
+        print(render_compile_doctor(target,
+                                    compile_db,
+                                    clang_args=clang_args,
+                                    allow_fallback=args.allow_fallback,
+                                    json_output=args.json))
     elif args.command == "symbol-get":
         print(render_symbol_snapshot(target,
                                      args.symbol,
                                      compile_db,
                                      clang_args=clang_args,
+                                     allow_fallback=args.allow_fallback,
                                      json_output=args.json))
     elif args.command == "parse-check":
-        print(render_parse_check(target, compile_db, clang_args=clang_args, json_output=args.json))
+        print(render_parse_check(target,
+                                 compile_db,
+                                 clang_args=clang_args,
+                                 allow_fallback=args.allow_fallback,
+                                 json_output=args.json))
     elif args.command == "puml-audit":
-        print(render_puml_audit(target, compile_db, clang_args=clang_args, json_output=args.json))
+        print(render_puml_audit(target,
+                                compile_db,
+                                clang_args=clang_args,
+                                allow_fallback=args.allow_fallback,
+                                json_output=args.json))
     elif args.command == "replace-symbol":
         result = replace_symbol(target,
                                 args.symbol,
@@ -143,6 +187,7 @@ def _dispatch(args: argparse.Namespace, parser: argparse.ArgumentParser) -> int:
                                 _resolve_text(args, "replacement"),
                                 compile_db,
                                 clang_args=clang_args,
+                                allow_fallback=args.allow_fallback,
                                 check_only=args.check_only)
         print(render_edit_result(result, json_output=args.json))
     elif args.command == "replace-symbol-body":
@@ -152,6 +197,7 @@ def _dispatch(args: argparse.Namespace, parser: argparse.ArgumentParser) -> int:
                                      _resolve_text(args, "replacement"),
                                      compile_db,
                                      clang_args=clang_args,
+                                     allow_fallback=args.allow_fallback,
                                      check_only=args.check_only)
         print(render_edit_result(result, json_output=args.json))
     elif args.command == "insert-before-symbol":
@@ -161,6 +207,7 @@ def _dispatch(args: argparse.Namespace, parser: argparse.ArgumentParser) -> int:
                                       _resolve_text(args, "snippet"),
                                       compile_db,
                                       clang_args=clang_args,
+                                      allow_fallback=args.allow_fallback,
                                       check_only=args.check_only)
         print(render_edit_result(result, json_output=args.json))
     elif args.command == "insert-after-symbol":
@@ -170,6 +217,7 @@ def _dispatch(args: argparse.Namespace, parser: argparse.ArgumentParser) -> int:
                                      _resolve_text(args, "snippet"),
                                      compile_db,
                                      clang_args=clang_args,
+                                     allow_fallback=args.allow_fallback,
                                      check_only=args.check_only)
         print(render_edit_result(result, json_output=args.json))
     elif args.command == "includes-add":

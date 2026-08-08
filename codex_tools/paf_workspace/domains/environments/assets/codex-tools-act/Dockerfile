@@ -3,7 +3,9 @@ FROM ubuntu:24.04
 ARG ACT_VERSION=0.2.89
 ARG TARGETARCH
 
-ENV DEBIAN_FRONTEND=noninteractive
+ENV DEBIAN_FRONTEND=noninteractive \
+	VIRTUAL_ENV=/opt/codex-tools-venv \
+	PATH=/opt/codex-tools-venv/bin:${PATH}
 
 RUN apt-get update \
 	&& apt-get install -y --no-install-recommends \
@@ -13,9 +15,15 @@ RUN apt-get update \
 		docker.io \
 		git \
 		python3 \
+		python3-pip \
 		python3-venv \
 		tar \
 	&& rm -rf /var/lib/apt/lists/*
+
+RUN python3 -m venv "${VIRTUAL_ENV}" \
+	&& pip3 install --upgrade \
+		tree-sitter \
+		tree-sitter-cpp
 
 RUN set -eux; \
 	case "${TARGETARCH:-amd64}" in \

@@ -19,7 +19,9 @@ from paf_workspace.domains.environments.tasks.act import validate_codex_tools_ac
 from paf_workspace.domains.environments.tasks.act import validate_moulin_act
 from paf_workspace.domains.environments.tasks.act import validate_zephyr_xenlib_act
 from paf_workspace.domains.environments.tasks.base import EnvironmentTask
+from paf_workspace.domains.environments.tasks.base import check_cpp_code_map_tools
 from paf_workspace.domains.environments.tasks.base import check_environment_image
+from paf_workspace.domains.environments.tasks.base import check_workspace_tool_baseline
 from paf_workspace.domains.environments.tasks.base import ensure_environment_image
 from paf_workspace.domains.environments.tasks.zephyr_xen import check_zephyr_xen_tools
 from paf_workspace.domains.environments.tasks.zephyr_xen import validate_zephyr_build
@@ -29,6 +31,8 @@ __all__ = [
     "EnvironmentTask",
     "ensure_environment_image",
     "check_environment_image",
+    "check_workspace_tool_baseline",
+    "check_cpp_code_map_tools",
     "ensure_codex_tools_act_image",
     "check_codex_tools_act_image",
     "ensure_moulin_act_image",

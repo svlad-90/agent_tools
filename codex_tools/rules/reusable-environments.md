@@ -16,6 +16,36 @@ context.
    checked-in environment can rebuild an equivalent image from its Dockerfile.
    Pin versions and install every required tool explicitly enough that the
    image can be recreated later.
+
+   Every Docker image declared under
+   `codex_tools/paf_workspace/domains/environments/domain.yaml` must declare
+   image `capabilities`. Those capabilities drive the required Dockerfile
+   dependencies and runtime smoke checks. The current shared capabilities are:
+
+   - `workspace_tools`, required for every image;
+   - `cpp_source_analysis`, required for images used to build, inspect, or
+     validate C/C++ source.
+
+   `workspace_tools` must include the workspace tool baseline needed by agents
+   inside the image:
+
+   - `bash`, `ca-certificates`, `git`, `python3`, `python3-pip`, and
+     `python3-venv`;
+   - importable `tree_sitter` and `tree_sitter_cpp` Python packages for
+     `python3 -m codex_tools.tools.cpp_light_code_map`;
+   - a documented `PATH` or virtual environment setup when the base distro
+     blocks direct system `pip` installs.
+
+   `cpp_source_analysis` images must also include `clang`, `libclang-dev`, and
+   `python3-clang` so
+   `python3 -m codex_tools.tools.cpp_code_map doctor|map|parse-check` can run
+   inside the same container as the build. If an image intentionally cannot
+   support build-backed C/C++ analysis, document that exception in the image
+   README and do not use it as the selected environment for C/C++ source work.
+
+   Add new dependency-bearing capabilities in
+   `codex_tools/paf_workspace/domains/environments/lib/capabilities.py` and let
+   the environment capability tests enforce the corresponding Dockerfile items.
 4. Store reusable workspace environment automation under
    `codex_tools/paf_workspace/domains/environments/`. Each environment should
    have Dockerfile/source assets under `assets/<environment>/`, PAF task entry

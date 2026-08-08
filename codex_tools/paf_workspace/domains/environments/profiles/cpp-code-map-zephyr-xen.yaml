@@ -1,0 +1,10 @@
+case:
+  name: cpp-code-map-zephyr-xen-environment
+  domain: environments
+  workspace: .
+
+environments:
+  zephyr_xen:
+    image: zephyr-xen
+    container: zephyr-xen-workspace
+    build_network: host

@@ -1,0 +1,24 @@
+<paf_config>
+    <phase name="ensure">
+        <task name="paf_workspace.domains.environments.tasks.base.ensure_environment_image"/>
+    </phase>
+
+    <phase name="image_check">
+        <task name="paf_workspace.domains.environments.tasks.base.check_environment_image"/>
+    </phase>
+
+    <phase name="check">
+        <task name="paf_workspace.domains.environments.tasks.base.check_workspace_tool_baseline"/>
+        <task name="paf_workspace.domains.environments.tasks.base.check_cpp_code_map_tools"/>
+    </phase>
+
+    <scenario name="check-only">
+        <phase name="image_check"/>
+        <phase name="check"/>
+    </scenario>
+
+    <scenario name="validate">
+        <phase name="ensure"/>
+        <phase name="check"/>
+    </scenario>
+</paf_config>

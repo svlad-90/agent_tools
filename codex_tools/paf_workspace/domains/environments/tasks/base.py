@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 from paf.paf_impl import CommunicationMode
 from paf.paf_impl import InteractionMode
 from paf.paf_impl import logger
 
 from paf_workspace.domains.environments.lib import runtime
+from paf_workspace.domains.environments.lib.capabilities import normalize_capabilities
 from paf_workspace.tasks import WorkspaceTask
 
 
@@ -14,13 +17,16 @@ class EnvironmentTask(WorkspaceTask):
     """Base task for environment-domain orchestration."""
 
     def image_alias(self, default: str = "zephyr-xen") -> str:
-        return self.param("ENVIRONMENT_IMAGE_ALIAS", default) or default
+        profile_default = self.environment_string("zephyr_xen", "image", default)
+        return self.param("ENVIRONMENT_IMAGE_ALIAS", profile_default) or profile_default
 
     def container_alias(self, default: str = "zephyr-xen-workspace") -> str:
-        return self.param("ENVIRONMENT_CONTAINER_ALIAS", default) or default
+        profile_default = self.environment_string("zephyr_xen", "container", default)
+        return self.param("ENVIRONMENT_CONTAINER_ALIAS", profile_default) or profile_default
 
     def build_network(self, default: str = "host") -> str:
-        return self.param("ENVIRONMENT_BUILD_NETWORK", default) or default
+        profile_default = self.environment_string("zephyr_xen", "build_network", default)
+        return self.param("ENVIRONMENT_BUILD_NETWORK", profile_default) or profile_default
 
     def lines_param(self, name: str) -> tuple[str, ...]:
         return tuple(line for line in (self.param(name, "") or "").splitlines() if line)
@@ -52,6 +58,38 @@ class EnvironmentTask(WorkspaceTask):
         from paf import docker_runtime
 
         return docker_runtime.image_config(self, alias or self.image_alias())
+
+    def image_capabilities(self, alias: str | None = None) -> tuple[str, ...]:
+        config = self.image_config(alias)
+        return normalize_capabilities(config.get("capabilities"))
+
+    def container_config(self, alias: str | None = None) -> dict[str, object]:
+        from paf import docker_runtime
+
+        return docker_runtime.container_config(self, alias or self.container_alias())
+
+    def container_workspace_path(self, path_text: str, container_alias: str) -> str:
+        if not path_text:
+            return ""
+        workspace = self.workspace_root()
+        host_path = Path(path_text)
+        if not host_path.is_absolute():
+            host_path = workspace / host_path
+        host_path = host_path.resolve()
+        config = self.container_config(container_alias)
+        for mount in config.get("mounts", []):
+            if not isinstance(mount, dict):
+                continue
+            source = mount.get("source")
+            target = mount.get("target")
+            if not isinstance(source, str) or not isinstance(target, str):
+                continue
+            try:
+                relative = host_path.relative_to(Path(source).resolve())
+            except ValueError:
+                continue
+            return str(Path(target) / relative)
+        return str(host_path)
 
     def image_name(self, alias: str | None = None) -> str:
         image_alias = alias or self.image_alias()
@@ -169,3 +207,67 @@ class check_environment_image(EnvironmentTask):
 
     def execute(self):
         self.check_image_alias(self.image_alias())
+
+
+class check_workspace_tool_baseline(EnvironmentTask):
+    """Run the capability-derived workspace tool baseline inside a container."""
+
+    def __init__(self):
+        super().__init__()
+        self.set_name(check_workspace_tool_baseline.__name__)
+
+    def execute(self):
+        if self.bool_param("SKIP_WORKSPACE_TOOL_BASELINE_CHECK"):
+            logger.info("Skip workspace tool baseline check: SKIP_WORKSPACE_TOOL_BASELINE_CHECK is enabled")
+            return
+        container_alias = self.container_alias()
+        container_config = self.container_config(container_alias)
+        image_alias = str(container_config.get("image") or self.image_alias())
+        capabilities = self.image_capabilities(image_alias)
+        self.docker_subprocess_must_succeed(
+            container_alias,
+            runtime.workspace_tool_baseline_check_command(capabilities),
+            timeout=int(self.param("WORKSPACE_TOOL_BASELINE_CHECK_TIMEOUT_SEC", "0") or "0"),
+            substitute_params=False,
+            communication_mode=CommunicationMode.PIPE_OUTPUT,
+            interaction_mode=InteractionMode.IGNORE_INPUT,
+        )
+
+
+class check_cpp_code_map_tools(EnvironmentTask):
+    """Run cpp_code_map smoke and optional source parse inside a container."""
+
+    def __init__(self):
+        super().__init__()
+        self.set_name(check_cpp_code_map_tools.__name__)
+
+    def execute(self):
+        if self.bool_param("SKIP_CPP_CODE_MAP_TOOLS_CHECK"):
+            logger.info("Skip cpp_code_map tools check: SKIP_CPP_CODE_MAP_TOOLS_CHECK is enabled")
+            return
+        container_alias = self.container_alias()
+        source = self.container_workspace_path(
+            self.param("CPP_CODE_MAP_SOURCE", "") or "",
+            container_alias,
+        )
+        compile_db = self.container_workspace_path(
+            self.param("CPP_CODE_MAP_COMPILE_DB", "") or "",
+            container_alias,
+        )
+        report = self.container_workspace_path(
+            self.param("CPP_CODE_MAP_REPORT", "") or "",
+            container_alias,
+        )
+        self.docker_subprocess_must_succeed(
+            container_alias,
+            runtime.cpp_code_map_check_command(
+                source=source,
+                compile_db=compile_db,
+                symbol=self.param("CPP_CODE_MAP_SYMBOL", "") or "",
+                report=report,
+            ),
+            timeout=int(self.param("CPP_CODE_MAP_TOOLS_CHECK_TIMEOUT_SEC", "0") or "0"),
+            substitute_params=False,
+            communication_mode=CommunicationMode.PIPE_OUTPUT,
+            interaction_mode=InteractionMode.IGNORE_INPUT,
+        )

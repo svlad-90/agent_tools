@@ -88,6 +88,8 @@ RUN python3 -m venv --system-site-packages "${VIRTUAL_ENV}"
 RUN pip3 install --upgrade \
         west \
         pyelftools \
+        tree-sitter \
+        tree-sitter-cpp \
         "git+https://github.com/svlad-90/moulin@main" \
     && curl -fsSL "https://raw.githubusercontent.com/zephyrproject-rtos/zephyr/${ZEPHYR_VERSION}/scripts/requirements-base.txt" \
         -o /tmp/zephyr-requirements-base.txt \

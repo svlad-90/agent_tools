@@ -17,26 +17,40 @@ requires:
       dockerfile: codex_tools/paf_workspace/domains/environments/assets/zephyr-xen/Dockerfile
       context: codex_tools/paf_workspace/domains/environments/assets/zephyr-xen
       network: host
+      capabilities:
+        - workspace_tools
+        - cpp_source_analysis
     yocto-xen:
       image: codex/yocto-xen:kirkstone-22.04
       dockerfile: codex_tools/paf_workspace/domains/environments/assets/yocto-xen/Dockerfile
       context: codex_tools/paf_workspace/domains/environments/assets/yocto-xen
       network: host
+      capabilities:
+        - workspace_tools
+        - cpp_source_analysis
     codex-tools-act:
       image: codex-tools-act:24.04
       dockerfile: codex_tools/paf_workspace/domains/environments/assets/codex-tools-act/Dockerfile
       context: codex_tools/paf_workspace/domains/environments/assets/codex-tools-act
       network: host
+      capabilities:
+        - workspace_tools
     moulin-act:
       image: moulin-act:22.04
       dockerfile: codex_tools/paf_workspace/domains/environments/assets/moulin-act/Dockerfile
       context: codex_tools/paf_workspace/domains/environments/assets/moulin-act
       network: host
+      capabilities:
+        - workspace_tools
+        - cpp_source_analysis
     zephyr-xenlib-act:
       image: zephyr-xenlib-act:22.04
       dockerfile: codex_tools/paf_workspace/domains/environments/assets/zephyr-xenlib-act/Dockerfile
       context: codex_tools/paf_workspace/domains/environments/assets/zephyr-xenlib-act
       network: host
+      capabilities:
+        - workspace_tools
+        - cpp_source_analysis
   containers:
     zephyr-xen-workspace:
       image: zephyr-xen

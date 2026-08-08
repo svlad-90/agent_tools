@@ -24,6 +24,7 @@ RUN apt-get update \
        build-essential \
        ca-certificates \
        chrpath \
+       clang \
        cmake \
        cpio \
        curl \
@@ -36,11 +37,13 @@ RUN apt-get update \
        gperf \
        iputils-ping \
        libegl1-mesa \
+       libclang-dev \
        liblz4-tool \
        locales \
        locales-all \
        ninja-build \
        python3 \
+       python3-clang \
        python3-pip \
        python3-pexpect \
        python3-venv \
@@ -62,6 +65,8 @@ RUN curl -fsSL "https://github.com/ninja-build/ninja/releases/download/v${NINJA_
     && rm -f /tmp/ninja-linux.zip
 
 RUN pip3 install --upgrade \
+        tree-sitter \
+        tree-sitter-cpp \
         "git+https://github.com/svlad-90/moulin@main"
 
 RUN mkdir -p /workspace "/home/${USER_NAME}" \

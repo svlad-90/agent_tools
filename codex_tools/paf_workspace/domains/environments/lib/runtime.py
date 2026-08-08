@@ -5,6 +5,8 @@ from __future__ import annotations
 import shlex
 from pathlib import Path
 
+from paf_workspace.domains.environments.lib.capabilities import baseline_check_command
+
 
 ZEPHYR_XEN_TOOL_CHECK_COMMAND = """
 set -euo pipefail
@@ -22,6 +24,198 @@ import clang.cindex
 print("clang.cindex ok")
 PY
 """.strip()
+
+
+def cpp_code_map_check_command(
+    *,
+    source: str = "",
+    compile_db: str = "",
+    symbol: str = "",
+    report: str = "",
+) -> str:
+    source_assignment = _quote(source)
+    compile_db_assignment = _quote(compile_db)
+    symbol_assignment = _quote(symbol)
+    report_assignment = _quote(report)
+    return f"""
+set -euo pipefail
+CPP_CODE_MAP_SOURCE={source_assignment}
+CPP_CODE_MAP_COMPILE_DB={compile_db_assignment}
+CPP_CODE_MAP_SYMBOL={symbol_assignment}
+CPP_CODE_MAP_REPORT={report_assignment}
+export CPP_CODE_MAP_SOURCE CPP_CODE_MAP_COMPILE_DB CPP_CODE_MAP_SYMBOL CPP_CODE_MAP_REPORT
+
+{baseline_check_command(("workspace_tools", "cpp_source_analysis"))}
+
+if [ -n "$CPP_CODE_MAP_SOURCE" ]; then
+  test -e "$CPP_CODE_MAP_SOURCE"
+  compile_db_args=()
+  if [ -n "$CPP_CODE_MAP_COMPILE_DB" ]; then
+    test -e "$CPP_CODE_MAP_COMPILE_DB"
+    compile_db_args=(--compile-db "$CPP_CODE_MAP_COMPILE_DB")
+  fi
+  python3 - <<'PY'
+import json
+import os
+from pathlib import Path
+import shlex
+import shutil
+import sys
+
+
+def report_and_exit(payload, code):
+    text = json.dumps(payload, indent=2, sort_keys=True)
+    print(text)
+    report_path = os.environ.get("CPP_CODE_MAP_REPORT")
+    if report_path:
+        path = Path(report_path)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(text + "\\n", encoding="utf-8")
+    raise SystemExit(code)
+
+
+source = Path(os.environ["CPP_CODE_MAP_SOURCE"]).resolve()
+compile_db_value = os.environ.get("CPP_CODE_MAP_COMPILE_DB", "")
+payload = {{
+    "source": str(source),
+    "compile_db": compile_db_value,
+    "checks": {{}},
+    "missing": [],
+}}
+if not source.exists():
+    payload["missing"].append({{"kind": "source", "path": str(source)}})
+    report_and_exit(payload, 2)
+if not compile_db_value:
+    payload["checks"]["compile_db"] = "not provided"
+    report_and_exit(payload, 0)
+
+compile_db = Path(compile_db_value)
+if compile_db.is_dir():
+    compile_db = compile_db / "compile_commands.json"
+compile_db = compile_db.resolve()
+payload["compile_db"] = str(compile_db)
+if not compile_db.exists():
+    payload["missing"].append({{"kind": "compile_db", "path": str(compile_db)}})
+    report_and_exit(payload, 2)
+
+entries = json.loads(compile_db.read_text(encoding="utf-8"))
+entry = None
+for candidate in entries:
+    directory = Path(candidate.get("directory", "."))
+    if not directory.is_absolute():
+        directory = compile_db.parent / directory
+    file_path = Path(candidate.get("file", ""))
+    if not file_path.is_absolute():
+        file_path = directory / file_path
+    if file_path.resolve() == source:
+        entry = candidate
+        entry_directory = directory.resolve()
+        entry_file = file_path.resolve()
+        break
+
+payload["checks"]["compile_db_entries"] = len(entries)
+if entry is None:
+    payload["missing"].append({{
+        "kind": "compile_db_entry",
+        "source": str(source),
+        "sample_files": [str(item.get("file", "")) for item in entries[:5]],
+    }})
+    report_and_exit(payload, 2)
+
+payload["entry"] = {{
+    "directory": str(entry_directory),
+    "file": str(entry_file),
+}}
+if not entry_directory.exists():
+    payload["missing"].append({{"kind": "directory", "path": str(entry_directory)}})
+if not entry_file.exists():
+    payload["missing"].append({{"kind": "file", "path": str(entry_file)}})
+
+args = entry.get("arguments")
+if args is None:
+    args = shlex.split(entry.get("command", ""))
+args = list(args)
+payload["entry"]["argv0"] = args[0] if args else ""
+if args:
+    compiler = args[0]
+    compiler_path = Path(compiler)
+    compiler_ok = compiler_path.exists() if compiler_path.is_absolute() else shutil.which(compiler) is not None
+    payload["checks"]["compiler"] = "ok" if compiler_ok else "missing"
+    if not compiler_ok:
+        payload["missing"].append({{"kind": "compiler", "path": compiler}})
+
+include_options = {{"-I", "-isystem", "-iquote", "--sysroot"}}
+index = 1
+while index < len(args):
+    arg = args[index]
+    value = None
+    if arg in include_options and index + 1 < len(args):
+        value = args[index + 1]
+        index += 2
+    elif arg.startswith("-I") and len(arg) > 2:
+        value = arg[2:]
+        index += 1
+    elif arg.startswith("-isystem") and len(arg) > len("-isystem"):
+        value = arg[len("-isystem"):]
+        index += 1
+    elif arg.startswith("-iquote") and len(arg) > len("-iquote"):
+        value = arg[len("-iquote"):]
+        index += 1
+    elif arg.startswith("--sysroot="):
+        value = arg.split("=", 1)[1]
+        index += 1
+    else:
+        index += 1
+    if not value:
+        continue
+    path = Path(value)
+    if not path.is_absolute():
+        path = entry_directory / path
+    if not path.exists():
+        payload["missing"].append({{"kind": "include_or_sysroot", "path": str(path), "option": arg}})
+
+payload["checks"]["compile_db_entry"] = "ok"
+payload["checks"]["paths"] = "ok" if not payload["missing"] else "missing"
+report_and_exit(payload, 2 if payload["missing"] else 0)
+PY
+  python3 -m codex_tools.tools.cpp_code_map doctor "$CPP_CODE_MAP_SOURCE" "${{compile_db_args[@]}}" --json
+  python3 -m codex_tools.tools.cpp_code_map map "$CPP_CODE_MAP_SOURCE" "${{compile_db_args[@]}}"
+  python3 -m codex_tools.tools.cpp_code_map parse-check "$CPP_CODE_MAP_SOURCE" "${{compile_db_args[@]}}"
+  if [ -n "$CPP_CODE_MAP_SYMBOL" ]; then
+    python3 -m codex_tools.tools.cpp_code_map symbol-get "$CPP_CODE_MAP_SOURCE" \\
+      --symbol "$CPP_CODE_MAP_SYMBOL" "${{compile_db_args[@]}}" --json
+  fi
+else
+  cat > /tmp/cpp_code_map_smoke.cpp <<'CPP'
+int add(int left, int right)
+{{
+    return left + right;
+}}
+CPP
+  cat > /tmp/compile_commands.json <<'JSON'
+[
+  {{
+    "directory": "/tmp",
+    "arguments": [
+      "/usr/bin/c++",
+      "-std=c++17",
+      "-c",
+      "/tmp/cpp_code_map_smoke.cpp",
+      "-o",
+      "cpp_code_map_smoke.o"
+    ],
+    "file": "/tmp/cpp_code_map_smoke.cpp"
+  }}
+]
+JSON
+  python3 -m codex_tools.tools.cpp_code_map map /tmp/cpp_code_map_smoke.cpp --compile-db /tmp
+  python3 -m codex_tools.tools.cpp_code_map parse-check /tmp/cpp_code_map_smoke.cpp --compile-db /tmp
+fi
+""".strip()
+
+
+def workspace_tool_baseline_check_command(capabilities: tuple[str, ...]) -> str:
+    return baseline_check_command(capabilities)
 
 
 class ZephyrBuild:

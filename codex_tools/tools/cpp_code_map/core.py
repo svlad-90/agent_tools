@@ -9,6 +9,7 @@ import json
 import os
 from pathlib import Path
 import shlex
+import shutil
 import subprocess
 from typing import Any
 from uuid import uuid4
@@ -146,28 +147,33 @@ class CppCodeMapError(Exception):
 def compact_help() -> str:
     return "\n".join([
         "cpp_code_map help",
+        "cpp_code_map doctor <cpp_file> [--compile-db <build-dir-or-json>] "
+        "[--clang-arg <arg>] [--allow-fallback] [--json]",
+        "cpp_code_map index <cpp_file> [<cpp_file> ...] [--compile-db <build-dir-or-json>] "
+        "[--clang-arg <arg>] [--allow-fallback] [--cache-dir <dir>] [--json]",
         "cpp_code_map map <cpp_file> [--compile-db <build-dir-or-json>] "
-        "[--clang-arg <arg>] [--json]",
+        "[--clang-arg <arg>] [--allow-fallback] [--json]",
         "cpp_code_map symbol-get <cpp_file> --symbol <qualified-name> "
-        "[--compile-db <build-dir-or-json>] [--clang-arg <arg>] [--json]",
+        "[--compile-db <build-dir-or-json>] [--clang-arg <arg>] [--allow-fallback] [--json]",
         "cpp_code_map parse-check <cpp_file> [--compile-db <build-dir-or-json>] "
-        "[--clang-arg <arg>] [--json]",
+        "[--clang-arg <arg>] [--allow-fallback] [--json]",
         "cpp_code_map replace-symbol <cpp_file> --symbol <name> --expect-hash <sha256> "
         "(--replacement-env <VAR> | --replacement-file <path> | --replacement-text <text> | --replacement-stdin) "
-        "[--compile-db <build-dir-or-json>] [--clang-arg <arg>] [--check-only] [--json]",
+        "[--compile-db <build-dir-or-json>] [--clang-arg <arg>] [--allow-fallback] [--check-only] [--json]",
         "cpp_code_map replace-symbol-body <cpp_file> --symbol <name> --expect-hash <sha256> "
         "(--replacement-env <VAR> | --replacement-file <path> | --replacement-text <text> | --replacement-stdin) "
-        "[--compile-db <build-dir-or-json>] [--clang-arg <arg>] [--check-only] [--json]",
+        "[--compile-db <build-dir-or-json>] [--clang-arg <arg>] [--allow-fallback] [--check-only] [--json]",
         "cpp_code_map insert-before-symbol <cpp_file> --symbol <name> --expect-hash <sha256> "
         "(--snippet-env <VAR> | --snippet-file <path> | --snippet-text <text> | --snippet-stdin) "
-        "[--compile-db <build-dir-or-json>] [--clang-arg <arg>] [--check-only] [--json]",
+        "[--compile-db <build-dir-or-json>] [--clang-arg <arg>] [--allow-fallback] [--check-only] [--json]",
         "cpp_code_map insert-after-symbol <cpp_file> --symbol <name> --expect-hash <sha256> "
         "(--snippet-env <VAR> | --snippet-file <path> | --snippet-text <text> | --snippet-stdin) "
-        "[--compile-db <build-dir-or-json>] [--clang-arg <arg>] [--check-only] [--json]",
+        "[--compile-db <build-dir-or-json>] [--clang-arg <arg>] [--allow-fallback] [--check-only] [--json]",
         "cpp_code_map includes-add <cpp_file> --include <statement> [--check-only] [--json]",
         "cpp_code_map batch (--plan-env <VAR> | --plan-file <path> | --plan-text <json> | --plan-stdin) "
-        "[--compile-db <build-dir-or-json>] [--clang-arg <arg>] [--check-only] [--json]",
-        "cpp_code_map puml-audit <cpp_file> [--compile-db <build-dir-or-json>] [--clang-arg <arg>] [--json]",
+        "[--compile-db <build-dir-or-json>] [--clang-arg <arg>] [--allow-fallback] [--check-only] [--json]",
+        "cpp_code_map puml-audit <cpp_file> [--compile-db <build-dir-or-json>] "
+        "[--clang-arg <arg>] [--allow-fallback] [--json]",
     ])
 
 
@@ -175,8 +181,9 @@ def render_code_map(file_path: Path,
                     compile_db: Path | None,
                     *,
                     clang_args: tuple[str, ...] = (),
+                    allow_fallback: bool = False,
                     json_output: bool = False) -> str:
-    source, symbols, _ = _parse_symbols(file_path, compile_db, clang_args)
+    source, symbols, _ = _parse_symbols(file_path, compile_db, clang_args, allow_fallback=allow_fallback)
     if json_output:
         return json.dumps({
             "file": str(file_path),
@@ -193,8 +200,9 @@ def render_symbol_snapshot(file_path: Path,
                            compile_db: Path | None,
                            *,
                            clang_args: tuple[str, ...] = (),
+                           allow_fallback: bool = False,
                            json_output: bool = False) -> str:
-    source, symbols, _ = _parse_symbols(file_path, compile_db, clang_args)
+    source, symbols, _ = _parse_symbols(file_path, compile_db, clang_args, allow_fallback=allow_fallback)
     del source
     snapshot = _snapshot_for_symbol(_resolve_symbol(symbols, symbol_name, file_path))
     if json_output:
@@ -213,8 +221,9 @@ def render_parse_check(file_path: Path,
                        compile_db: Path | None,
                        *,
                        clang_args: tuple[str, ...] = (),
+                       allow_fallback: bool = False,
                        json_output: bool = False) -> str:
-    _, _, diagnostics = _parse_symbols(file_path, compile_db, clang_args)
+    _, _, diagnostics = _parse_symbols(file_path, compile_db, clang_args, allow_fallback=allow_fallback)
     errors = [diag for diag in diagnostics if " error: " in diag.lower()]
     result = ParseCheckResult(ok=not errors, diagnostics=tuple(diagnostics))
     if json_output:
@@ -226,12 +235,38 @@ def render_parse_check(file_path: Path,
     return f"{file_path} :: parse-check error\n" + "\n".join(result.diagnostics)
 
 
+def render_symbol_index(file_paths: tuple[Path, ...],
+                        compile_db: Path | None,
+                        *,
+                        clang_args: tuple[str, ...] = (),
+                        allow_fallback: bool = False,
+                        cache_dir: Path | None = None,
+                        json_output: bool = False) -> str:
+    result = build_symbol_index(file_paths,
+                                compile_db,
+                                clang_args=clang_args,
+                                allow_fallback=allow_fallback,
+                                cache_dir=cache_dir)
+    if json_output:
+        return json.dumps(result, indent=2, sort_keys=True)
+    lines = [
+        "cpp_code_map :: index",
+        f"ok: {str(result['ok']).lower()}",
+        f"cache_dir: {result['cache_dir']}",
+        f"files: {len(result['files'])}",
+    ]
+    for item in result["files"]:
+        lines.append(f"{item['status']} {item['file']} symbols={item.get('symbol_count', 0)} cache={item.get('cache', '')}")
+    return "\n".join(lines)
+
+
 def render_puml_audit(file_path: Path,
                       compile_db: Path | None,
                       *,
                       clang_args: tuple[str, ...] = (),
+                      allow_fallback: bool = False,
                       json_output: bool = False) -> str:
-    result = build_puml_audit(file_path, compile_db, clang_args=clang_args)
+    result = build_puml_audit(file_path, compile_db, clang_args=clang_args, allow_fallback=allow_fallback)
     if json_output:
         return json.dumps(_puml_audit_payload(result), indent=2, sort_keys=True)
     lines = [
@@ -248,14 +283,16 @@ def render_puml_audit(file_path: Path,
 def build_puml_audit(file_path: Path,
                      compile_db: Path | None,
                      *,
-                     clang_args: tuple[str, ...] = ()) -> PumlAuditResult:
+                     clang_args: tuple[str, ...] = (),
+                     allow_fallback: bool = False) -> PumlAuditResult:
     source = _read_source(file_path)
-    compile_args = _compile_args(file_path, compile_db, clang_args)
+    compile_args = _compile_args(file_path, compile_db, clang_args, allow_fallback=allow_fallback)
     classes = _parse_puml_blocks(source, defined_macros=_defined_macros(compile_args))
     target_class_names = tuple(class_block.name for class_block in classes)
     source, _, diagnostics, class_relations = _parse_puml_context(file_path,
                                                                  compile_db,
                                                                  clang_args,
+                                                                 allow_fallback,
                                                                  target_class_names)
     findings: list[PumlAuditFinding] = []
     for class_block in classes:
@@ -315,6 +352,7 @@ def replace_symbol(file_path: Path,
                    compile_db: Path | None,
                    *,
                    clang_args: tuple[str, ...] = (),
+                   allow_fallback: bool = False,
                    check_only: bool = False) -> EditResult:
     return _apply_symbol_edit(file_path,
                               symbol_name,
@@ -322,6 +360,7 @@ def replace_symbol(file_path: Path,
                               replacement_text,
                               compile_db,
                               clang_args=clang_args,
+                              allow_fallback=allow_fallback,
                               operation="replace-symbol",
                               scope="node",
                               check_only=check_only)
@@ -334,6 +373,7 @@ def replace_symbol_body(file_path: Path,
                         compile_db: Path | None,
                         *,
                         clang_args: tuple[str, ...] = (),
+                        allow_fallback: bool = False,
                         check_only: bool = False) -> EditResult:
     return _apply_symbol_edit(file_path,
                               symbol_name,
@@ -341,6 +381,7 @@ def replace_symbol_body(file_path: Path,
                               replacement_text,
                               compile_db,
                               clang_args=clang_args,
+                              allow_fallback=allow_fallback,
                               operation="replace-symbol-body",
                               scope="body",
                               check_only=check_only)
@@ -353,6 +394,7 @@ def insert_before_symbol(file_path: Path,
                          compile_db: Path | None,
                          *,
                          clang_args: tuple[str, ...] = (),
+                         allow_fallback: bool = False,
                          check_only: bool = False) -> EditResult:
     return _insert_relative_to_symbol(file_path,
                                       symbol_name,
@@ -360,6 +402,7 @@ def insert_before_symbol(file_path: Path,
                                       snippet_text,
                                       compile_db,
                                       clang_args=clang_args,
+                                      allow_fallback=allow_fallback,
                                       position="before",
                                       check_only=check_only)
 
@@ -371,6 +414,7 @@ def insert_after_symbol(file_path: Path,
                         compile_db: Path | None,
                         *,
                         clang_args: tuple[str, ...] = (),
+                        allow_fallback: bool = False,
                         check_only: bool = False) -> EditResult:
     return _insert_relative_to_symbol(file_path,
                                       symbol_name,
@@ -378,6 +422,7 @@ def insert_after_symbol(file_path: Path,
                                       snippet_text,
                                       compile_db,
                                       clang_args=clang_args,
+                                      allow_fallback=allow_fallback,
                                       position="after",
                                       check_only=check_only)
 
@@ -400,6 +445,7 @@ def apply_batch_edits(plan: object,
                       compile_db: Path | None,
                       *,
                       clang_args: tuple[str, ...] = (),
+                      allow_fallback: bool = False,
                       check_only: bool = False) -> BatchEditResult:
     payload = _normalized_batch_plan(plan)
     effective_check_only = check_only or bool(payload["check_only"])
@@ -410,6 +456,7 @@ def apply_batch_edits(plan: object,
                                                               staged_sources,
                                                               compile_db,
                                                               clang_args=clang_args,
+                                                              allow_fallback=allow_fallback,
                                                               check_only=effective_check_only,
                                                               operation_index=index)
         file_path = _batch_file_path(operation, operation_index=index)
@@ -493,6 +540,193 @@ def render_parse_check_json(file_path: Path,
                               json_output=True)
 
 
+def render_compile_doctor(file_path: Path,
+                          compile_db: Path | None,
+                          *,
+                          clang_args: tuple[str, ...] = (),
+                          allow_fallback: bool = False,
+                          json_output: bool = False) -> str:
+    result = build_compile_doctor(file_path,
+                                  compile_db,
+                                  clang_args=clang_args,
+                                  allow_fallback=allow_fallback)
+    if json_output:
+        return json.dumps(result, indent=2, sort_keys=True)
+    lines = [
+        f"{file_path} :: cpp_code_map doctor",
+        f"ok: {str(result['ok']).lower()}",
+        f"source: {result['source']['status']} {result['source']['path']}",
+        f"compile_db: {result['compile_db']['status']} {result['compile_db'].get('path', '')}".rstrip(),
+        f"entry: {result['entry']['status']}",
+        f"compiler: {result['compiler']['status']} {result['compiler'].get('path', '')}".rstrip(),
+        f"args: {result['args']['source']} count={result['args']['count']}",
+        f"fallback: allowed={str(result['fallback']['allowed']).lower()} "
+        f"used={str(result['fallback']['used']).lower()}",
+    ]
+    for missing in result["missing"]:
+        lines.append(f"missing: {missing['kind']} {missing['path']}")
+    if result["diagnostics"]:
+        lines.append("diagnostics:")
+        lines.extend(f"- {diagnostic}" for diagnostic in result["diagnostics"])
+    return "\n".join(lines)
+
+
+def build_compile_doctor(file_path: Path,
+                         compile_db: Path | None,
+                         *,
+                         clang_args: tuple[str, ...] = (),
+                         allow_fallback: bool = False) -> dict[str, Any]:
+    source = file_path.resolve()
+    result: dict[str, Any] = {
+        "ok": True,
+        "source": {"path": str(source), "status": "ok" if source.exists() else "missing"},
+        "compile_db": {"requested": str(compile_db) if compile_db else "", "status": "not-found"},
+        "entry": {"status": "not-used"},
+        "compiler": {"status": "not-used"},
+        "args": {"source": "fallback", "count": 0, "argv": []},
+        "fallback": {"allowed": allow_fallback, "used": False, "reason": ""},
+        "missing": [],
+        "diagnostics": [],
+    }
+    if not source.exists():
+        result["ok"] = False
+        result["missing"].append({"kind": "source", "path": str(source)})
+    try:
+        compile_commands = _find_compile_commands(source, compile_db)
+    except CppCodeMapError as exc:
+        result["ok"] = False
+        result["compile_db"]["status"] = "missing"
+        result["diagnostics"].append(exc.message)
+        result["missing"].append({"kind": "compile_db", "path": str(compile_db)})
+        return result
+    if compile_commands is None:
+        args = _fallback_compile_args(source, clang_args)
+        result["compile_db"]["status"] = "not-provided"
+        result["fallback"] = {"allowed": True, "used": True, "reason": "compile database not found"}
+        result["args"] = {"source": "fallback", "count": len(args), "argv": args}
+        return result
+
+    result["compile_db"] = {
+        "requested": str(compile_db) if compile_db else "",
+        "path": str(compile_commands),
+        "status": "ok",
+    }
+    entry, directory, entry_file, entry_count = _compile_db_entry(source, compile_commands)
+    result["entry"]["count"] = entry_count
+    if entry is None or directory is None or entry_file is None:
+        result["ok"] = False
+        result["entry"]["status"] = "missing"
+        result["fallback"] = {
+            "allowed": allow_fallback,
+            "used": allow_fallback,
+            "reason": "compile database entry not found",
+        }
+        if allow_fallback:
+            args = _fallback_compile_args(source, clang_args)
+            result["args"] = {"source": "fallback", "count": len(args), "argv": args}
+        result["diagnostics"].append("compile database entry not found for source")
+        return result
+
+    result["entry"] = {
+        "status": "ok",
+        "count": entry_count,
+        "directory": str(directory),
+        "file": str(entry_file),
+    }
+    if not directory.exists():
+        result["ok"] = False
+        result["missing"].append({"kind": "directory", "path": str(directory)})
+    if not entry_file.exists():
+        result["ok"] = False
+        result["missing"].append({"kind": "file", "path": str(entry_file)})
+
+    compiler = _compiler_from_entry(entry)
+    compiler_path = Path(compiler)
+    compiler_ok = compiler_path.exists() if compiler_path.is_absolute() else shutil.which(compiler) is not None
+    result["compiler"] = {"status": "ok" if compiler_ok else "missing", "path": compiler}
+    if not compiler_ok:
+        result["ok"] = False
+        result["missing"].append({"kind": "compiler", "path": compiler})
+    for missing in _missing_compile_arg_paths(entry, directory, compile_commands):
+        result["ok"] = False
+        result["missing"].append(missing)
+    args = _compile_args(source, compile_db, clang_args, allow_fallback=allow_fallback)
+    result["args"] = {"source": "compile_db", "count": len(args), "argv": args}
+    return result
+
+
+def build_symbol_index(file_paths: tuple[Path, ...],
+                       compile_db: Path | None,
+                       *,
+                       clang_args: tuple[str, ...] = (),
+                       allow_fallback: bool = False,
+                       cache_dir: Path | None = None) -> dict[str, Any]:
+    target_cache_dir = (cache_dir or Path(".cache/cpp_code_map")).resolve()
+    target_cache_dir.mkdir(parents=True, exist_ok=True)
+    files: list[dict[str, Any]] = []
+    ok = True
+    for file_path in file_paths:
+        source_path = file_path.resolve()
+        item: dict[str, Any] = {"file": str(source_path), "status": "ok"}
+        try:
+            source = _read_source(source_path)
+            cache_key = _index_cache_key(source_path, source, compile_db, clang_args, allow_fallback)
+            cache_path = target_cache_dir / f"{cache_key}.json"
+            if cache_path.exists():
+                payload = json.loads(cache_path.read_text(encoding="utf-8"))
+                item["status"] = "cached"
+            else:
+                payload = json.loads(render_code_map(source_path,
+                                                     compile_db,
+                                                     clang_args=clang_args,
+                                                     allow_fallback=allow_fallback,
+                                                     json_output=True))
+                payload["doctor"] = build_compile_doctor(source_path,
+                                                         compile_db,
+                                                         clang_args=clang_args,
+                                                         allow_fallback=allow_fallback)
+                cache_path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+            item["cache"] = str(cache_path)
+            item["symbol_count"] = len(tuple(_flatten_symbol_payloads(payload.get("symbols", []))))
+        except Exception as exc:
+            ok = False
+            item["status"] = "error"
+            item["error"] = str(exc)
+        files.append(item)
+    return {
+        "ok": ok,
+        "cache_dir": str(target_cache_dir),
+        "files": files,
+    }
+
+
+def _index_cache_key(file_path: Path,
+                     source: str,
+                     compile_db: Path | None,
+                     clang_args: tuple[str, ...],
+                     allow_fallback: bool) -> str:
+    compile_commands = _find_compile_commands(file_path, compile_db)
+    payload = {
+        "file": str(file_path),
+        "source_hash": hashlib.sha256(source.encode("utf-8")).hexdigest(),
+        "compile_db": str(compile_commands) if compile_commands else "",
+        "compile_db_mtime": compile_commands.stat().st_mtime_ns if compile_commands else 0,
+        "clang_args": list(clang_args),
+        "allow_fallback": allow_fallback,
+        "version": 1,
+    }
+    encoded = json.dumps(payload, sort_keys=True).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
+
+
+def _flatten_symbol_payloads(symbols: list[dict[str, Any]]) -> tuple[dict[str, Any], ...]:
+    result: list[dict[str, Any]] = []
+    for symbol in symbols:
+        result.append(symbol)
+        result.extend(_flatten_symbol_payloads(symbol.get("children", [])))
+    return tuple(result)
+
+
 def _resolve_symbol(symbols: tuple[CppSymbol, ...], symbol_name: str, file_path: Path) -> CppSymbol:
     matches = [symbol for symbol in _flatten_symbols(symbols)
                if symbol.qualified_name == symbol_name
@@ -524,6 +758,7 @@ def _apply_symbol_edit(file_path: Path,
                        compile_db: Path | None,
                        *,
                        clang_args: tuple[str, ...],
+                       allow_fallback: bool,
                        operation: str,
                        scope: str,
                        check_only: bool) -> EditResult:
@@ -531,7 +766,8 @@ def _apply_symbol_edit(file_path: Path,
     _, symbols, _ = _parse_symbols_from_source(file_path,
                                                source,
                                                compile_db,
-                                               clang_args)
+                                               clang_args,
+                                               allow_fallback=allow_fallback)
     symbol = _resolve_symbol(symbols, symbol_name, file_path)
     snapshot = _snapshot_for_symbol(symbol)
     span = symbol.span if scope == "node" else symbol.body_span
@@ -548,16 +784,22 @@ def _apply_symbol_edit(file_path: Path,
                      "actual_hash": current_hash,
                      "snapshot": _snapshot_payload(snapshot)},
         )
-    new_source = source[:span.start_offset] + _normalize_block(replacement_text) + source[span.end_offset:]
+    old_text = source[span.start_offset:span.end_offset]
+    normalized_replacement = _normalize_replacement(replacement_text,
+                                                    scope=scope,
+                                                    old_text=old_text)
+    new_source = source[:span.start_offset] + normalized_replacement + source[span.end_offset:]
     _validate_cpp_source(file_path,
                          new_source,
                          compile_db,
                          clang_args,
+                         allow_fallback=allow_fallback,
                          symbol=symbol.qualified_name)
     _, new_symbols, _ = _parse_symbols_from_source(file_path,
                                                    new_source,
                                                    compile_db,
-                                                   clang_args)
+                                                   clang_args,
+                                                   allow_fallback=allow_fallback)
     new_symbol = _resolve_symbol(new_symbols, symbol_name, file_path)
     new_snapshot = _snapshot_for_symbol(new_symbol)
     new_hash = new_symbol.hash if scope == "node" else new_symbol.body_hash
@@ -582,13 +824,15 @@ def _insert_relative_to_symbol(file_path: Path,
                                compile_db: Path | None,
                                *,
                                clang_args: tuple[str, ...],
+                               allow_fallback: bool,
                                position: str,
                                check_only: bool) -> EditResult:
     source, encoding = _read_source_with_encoding(file_path)
     _, symbols, _ = _parse_symbols_from_source(file_path,
                                                source,
                                                compile_db,
-                                               clang_args)
+                                               clang_args,
+                                               allow_fallback=allow_fallback)
     symbol = _resolve_symbol(symbols, symbol_name, file_path)
     snapshot = _snapshot_for_symbol(symbol)
     if symbol.hash != expected_hash:
@@ -614,6 +858,7 @@ def _insert_relative_to_symbol(file_path: Path,
                          new_source,
                          compile_db,
                          clang_args,
+                         allow_fallback=allow_fallback,
                          symbol=symbol.qualified_name)
     result = EditResult(file_path=file_path,
                         operation=f"insert-{position}-symbol",
@@ -633,11 +878,17 @@ def _insert_relative_to_symbol(file_path: Path,
 def _parse_symbols_from_source(file_path: Path,
                                source: str,
                                compile_db: Path | None,
-                               extra_args: tuple[str, ...]) -> tuple[str, tuple[CppSymbol, ...], tuple[str, ...]]:
+                               extra_args: tuple[str, ...],
+                               *,
+                               allow_fallback: bool = False) -> tuple[str, tuple[CppSymbol, ...], tuple[str, ...]]:
     temp_path = file_path.with_name(f"{file_path.name}.{uuid4().hex}.tmp{file_path.suffix}")
     temp_path.write_text(source, encoding="utf-8")
     try:
-        return _parse_symbols(temp_path, compile_db, extra_args, original_file=file_path)
+        return _parse_symbols(temp_path,
+                              compile_db,
+                              extra_args,
+                              original_file=file_path,
+                              allow_fallback=allow_fallback)
     finally:
         temp_path.unlink(missing_ok=True)
 
@@ -645,6 +896,7 @@ def _parse_symbols_from_source(file_path: Path,
 def _parse_puml_context(file_path: Path,
                         compile_db: Path | None,
                         extra_args: tuple[str, ...],
+                        allow_fallback: bool,
                         target_class_names: tuple[str, ...]) -> tuple[
                             str,
                             tuple[CppSymbol, ...],
@@ -653,7 +905,7 @@ def _parse_puml_context(file_path: Path,
                         ]:
     clang = _load_clang()
     source = _read_source(file_path)
-    args = _compile_args(file_path, compile_db, extra_args)
+    args = _compile_args(file_path, compile_db, extra_args, allow_fallback=allow_fallback)
     index = clang.Index.create()
     try:
         translation_unit = index.parse(str(file_path),
@@ -1166,6 +1418,7 @@ def _apply_batch_operation(operation: dict[str, object],
                            compile_db: Path | None,
                            *,
                            clang_args: tuple[str, ...],
+                           allow_fallback: bool,
                            check_only: bool,
                            operation_index: int) -> tuple[EditResult, str, str]:
     command = _required_batch_string(operation, "command", operation_index)
@@ -1183,6 +1436,7 @@ def _apply_batch_operation(operation: dict[str, object],
                                                                                  operation_index),
                                                           compile_db,
                                                           clang_args=clang_args,
+                                                          allow_fallback=allow_fallback,
                                                           operation=command,
                                                           scope="body" if command.endswith("-body") else "node",
                                                           check_only=check_only)
@@ -1202,6 +1456,7 @@ def _apply_batch_operation(operation: dict[str, object],
                                                                                          operation_index),
                                                                   compile_db,
                                                                   clang_args=clang_args,
+                                                                  allow_fallback=allow_fallback,
                                                                   position=position,
                                                                   check_only=check_only)
         return result, new_source, encoding
@@ -1224,13 +1479,15 @@ def _apply_symbol_edit_to_source(file_path: Path,
                                  compile_db: Path | None,
                                  *,
                                  clang_args: tuple[str, ...],
+                                 allow_fallback: bool,
                                  operation: str,
                                  scope: str,
                                  check_only: bool) -> tuple[EditResult, str]:
     _, symbols, _ = _parse_symbols_from_source(file_path,
                                                source,
                                                compile_db,
-                                               clang_args)
+                                               clang_args,
+                                               allow_fallback=allow_fallback)
     symbol = _resolve_symbol(symbols, symbol_name, file_path)
     snapshot = _snapshot_for_symbol(symbol)
     span = symbol.span if scope == "node" else symbol.body_span
@@ -1247,9 +1504,22 @@ def _apply_symbol_edit_to_source(file_path: Path,
                      "actual_hash": current_hash,
                      "snapshot": _snapshot_payload(snapshot)},
         )
-    new_source = source[:span.start_offset] + _normalize_block(replacement_text) + source[span.end_offset:]
-    _validate_cpp_source(file_path, new_source, compile_db, clang_args, symbol=symbol.qualified_name)
-    _, new_symbols, _ = _parse_symbols_from_source(file_path, new_source, compile_db, clang_args)
+    old_text = source[span.start_offset:span.end_offset]
+    normalized_replacement = _normalize_replacement(replacement_text,
+                                                    scope=scope,
+                                                    old_text=old_text)
+    new_source = source[:span.start_offset] + normalized_replacement + source[span.end_offset:]
+    _validate_cpp_source(file_path,
+                         new_source,
+                         compile_db,
+                         clang_args,
+                         allow_fallback=allow_fallback,
+                         symbol=symbol.qualified_name)
+    _, new_symbols, _ = _parse_symbols_from_source(file_path,
+                                                   new_source,
+                                                   compile_db,
+                                                   clang_args,
+                                                   allow_fallback=allow_fallback)
     new_symbol = _resolve_symbol(new_symbols, symbol_name, file_path)
     new_hash = new_symbol.hash if scope == "node" else new_symbol.body_hash
     return (EditResult(file_path=file_path,
@@ -1272,9 +1542,14 @@ def _insert_relative_to_symbol_in_source(file_path: Path,
                                          compile_db: Path | None,
                                          *,
                                          clang_args: tuple[str, ...],
+                                         allow_fallback: bool,
                                          position: str,
                                          check_only: bool) -> tuple[EditResult, str]:
-    _, symbols, _ = _parse_symbols_from_source(file_path, source, compile_db, clang_args)
+    _, symbols, _ = _parse_symbols_from_source(file_path,
+                                               source,
+                                               compile_db,
+                                               clang_args,
+                                               allow_fallback=allow_fallback)
     symbol = _resolve_symbol(symbols, symbol_name, file_path)
     snapshot = _snapshot_for_symbol(symbol)
     if symbol.hash != expected_hash:
@@ -1296,7 +1571,12 @@ def _insert_relative_to_symbol_in_source(file_path: Path,
             insert_offset += 1
         insert_line = symbol.span.end_line + 1
     new_source = source[:insert_offset] + _normalize_block(snippet_text) + source[insert_offset:]
-    _validate_cpp_source(file_path, new_source, compile_db, clang_args, symbol=symbol.qualified_name)
+    _validate_cpp_source(file_path,
+                         new_source,
+                         compile_db,
+                         clang_args,
+                         allow_fallback=allow_fallback,
+                         symbol=symbol.qualified_name)
     return (EditResult(file_path=file_path,
                        operation=f"insert-{position}-symbol",
                        target=symbol.qualified_name,
@@ -1329,8 +1609,13 @@ def _validate_cpp_source(file_path: Path,
                          compile_db: Path | None,
                          clang_args: tuple[str, ...],
                          *,
+                         allow_fallback: bool = False,
                          symbol: str | None = None) -> None:
-    _, _, diagnostics = _parse_symbols_from_source(file_path, source, compile_db, clang_args)
+    _, _, diagnostics = _parse_symbols_from_source(file_path,
+                                                   source,
+                                                   compile_db,
+                                                   clang_args,
+                                                   allow_fallback=allow_fallback)
     errors = [diagnostic for diagnostic in diagnostics if " error: " in diagnostic.lower()]
     if errors:
         raise CppCodeMapError("replacement produced invalid C++",
@@ -1343,11 +1628,12 @@ def _parse_symbols(file_path: Path,
                    compile_db: Path | None,
                    extra_args: tuple[str, ...],
                    *,
-                   original_file: Path | None = None) -> tuple[str, tuple[CppSymbol, ...], tuple[str, ...]]:
+                   original_file: Path | None = None,
+                   allow_fallback: bool = False) -> tuple[str, tuple[CppSymbol, ...], tuple[str, ...]]:
     clang = _load_clang()
     source = _read_source(file_path)
     compile_target = original_file or file_path
-    args = _compile_args(compile_target, compile_db, extra_args)
+    args = _compile_args(compile_target, compile_db, extra_args, allow_fallback=allow_fallback)
     index = clang.Index.create()
     try:
         translation_unit = index.parse(str(file_path),
@@ -1380,26 +1666,36 @@ def _load_clang():
 
 def _compile_args(file_path: Path,
                   compile_db: Path | None,
-                  extra_args: tuple[str, ...]) -> list[str]:
+                  extra_args: tuple[str, ...],
+                  *,
+                  allow_fallback: bool = False) -> list[str]:
     compile_commands = _find_compile_commands(file_path, compile_db)
     if not compile_commands:
-        language = _language_for_file(file_path)
-        return ["-x", language, "-std=c++17",
-                *_implicit_include_args("c++", language),
-                *extra_args]
-    entries = json.loads(compile_commands.read_text(encoding="utf-8"))
+        return _fallback_compile_args(file_path, extra_args)
     target = file_path.resolve()
-    for entry in entries:
-        directory = _remap_compile_path(Path(entry.get("directory", ".")), compile_commands).resolve()
-        candidate = _remap_compile_path(Path(entry.get("file", "")), compile_commands, directory).resolve()
-        if candidate == target:
-            args = _arguments_from_entry(entry, directory, target, compile_commands)
-            language = _language_for_file(file_path)
-            compiler = _compiler_from_entry(entry)
-            return [*_target_args(compiler),
-                    *args,
-                    *_implicit_include_args(compiler, language),
-                    *extra_args]
+    entry, directory, _, _ = _compile_db_entry(target, compile_commands)
+    if entry is None or directory is None:
+        if allow_fallback:
+            return _fallback_compile_args(file_path, extra_args)
+        raise CppCodeMapError(
+            "compile database entry was not found for source",
+            details={
+                "file": str(target),
+                "compile_db": str(compile_commands),
+                "fallback": "disabled",
+                "hint": "pass --allow-fallback to use generic parser arguments explicitly",
+            },
+        )
+    args = _arguments_from_entry(entry, directory, target, compile_commands)
+    language = _language_for_file(file_path)
+    compiler = _compiler_from_entry(entry)
+    return [*_target_args(compiler),
+            *args,
+            *_implicit_include_args(compiler, language),
+            *extra_args]
+
+
+def _fallback_compile_args(file_path: Path, extra_args: tuple[str, ...]) -> list[str]:
     language = _language_for_file(file_path)
     return ["-x", language, "-std=c++17",
             *_implicit_include_args("c++", language),
@@ -1422,14 +1718,76 @@ def _find_compile_commands(file_path: Path, compile_db: Path | None) -> Path | N
     return None
 
 
+def _compile_db_entry(
+    source: Path,
+    compile_commands: Path,
+) -> tuple[dict[str, Any] | None, Path | None, Path | None, int]:
+    entries = json.loads(compile_commands.read_text(encoding="utf-8"))
+    target = source.resolve()
+    for entry in entries:
+        directory = _remap_compile_path(Path(entry.get("directory", ".")), compile_commands).resolve()
+        candidate = _remap_compile_path(Path(entry.get("file", "")), compile_commands, directory).resolve()
+        if candidate == target:
+            return entry, directory, candidate, len(entries)
+    return None, None, None, len(entries)
+
+
+def _entry_arguments(entry: dict[str, Any]) -> list[str]:
+    raw_args = entry.get("arguments")
+    if raw_args is None:
+        return shlex.split(entry.get("command", ""))
+    return [str(arg) for arg in raw_args]
+
+
+def _missing_compile_arg_paths(entry: dict[str, Any],
+                               directory: Path,
+                               compile_commands: Path) -> list[dict[str, str]]:
+    args = _entry_arguments(entry)
+    missing: list[dict[str, str]] = []
+    options_with_value = {"-I", "-isystem", "-iquote", "-imacros", "--sysroot"}
+    index = 1
+    while index < len(args):
+        arg = args[index]
+        value: str | None = None
+        option = arg
+        if arg in options_with_value and index + 1 < len(args):
+            value = args[index + 1]
+            index += 2
+        elif arg.startswith("-I") and len(arg) > 2:
+            value = arg[2:]
+            option = "-I"
+            index += 1
+        elif arg.startswith("-isystem") and len(arg) > len("-isystem"):
+            value = arg[len("-isystem"):]
+            option = "-isystem"
+            index += 1
+        elif arg.startswith("-iquote") and len(arg) > len("-iquote"):
+            value = arg[len("-iquote"):]
+            option = "-iquote"
+            index += 1
+        elif arg.startswith("-imacros") and len(arg) > len("-imacros"):
+            value = arg[len("-imacros"):]
+            option = "-imacros"
+            index += 1
+        elif arg.startswith("--sysroot="):
+            value = arg.split("=", 1)[1]
+            option = "--sysroot"
+            index += 1
+        else:
+            index += 1
+        if not value:
+            continue
+        candidate = _remap_compile_path(Path(value), compile_commands, directory)
+        if not candidate.exists():
+            missing.append({"kind": "include_or_sysroot", "path": str(candidate), "option": option})
+    return missing
+
+
 def _arguments_from_entry(entry: dict[str, Any],
                           directory: Path,
                           source: Path,
                           compile_commands: Path) -> list[str]:
-    raw_args = entry.get("arguments")
-    if raw_args is None:
-        raw_args = shlex.split(entry.get("command", ""))
-    args = list(raw_args)[1:]
+    args = _entry_arguments(entry)[1:]
     cleaned: list[str] = []
     skip_next = False
     options_with_value = {"-o", "-MF", "-MT", "-MQ", "--param"}
@@ -1481,8 +1839,12 @@ def _remap_arg_path(arg: str, compile_commands: Path, directory: Path) -> str:
 def _remap_compile_path(path: Path, compile_commands: Path, directory: Path | None = None) -> Path:
     if not path.is_absolute():
         return (directory / path) if directory else path
+    if path.exists():
+        return path
 
     build_dir = compile_commands.parent.resolve()
+    if len(build_dir.parents) < 2:
+        return path
     raw_root = Path(os.environ.get("CODEX_CPP_CODE_MAP_RAW_WORKSPACE", "/workspace"))
     raw_build_dir = raw_root / build_dir.parent.name / build_dir.name
     raw_workspace = raw_build_dir.parents[1]
@@ -1740,11 +2102,15 @@ def _span_text(span: SourceSpan) -> str:
 
 
 def _read_source(file_path: Path) -> str:
-    return file_path.read_text(encoding="utf-8", errors="replace")
+    try:
+        return file_path.read_text(encoding="utf-8", errors="replace")
+    except OSError as exc:
+        raise CppCodeMapError(f"failed to read source file: {file_path}",
+                              details={"file": str(file_path), "error": str(exc)}) from exc
 
 
 def _read_source_with_encoding(file_path: Path) -> tuple[str, str]:
-    return file_path.read_text(encoding="utf-8", errors="replace"), "utf-8"
+    return _read_source(file_path), "utf-8"
 
 
 def _line_start_offsets(source: str) -> list[int]:
@@ -1759,6 +2125,25 @@ def _normalize_block(text: str) -> str:
     normalized = text.replace("\r\n", "\n").replace("\r", "\n")
     if not normalized.endswith("\n"):
         normalized += "\n"
+    return normalized
+
+
+def _normalize_replacement(text: str, *, scope: str, old_text: str) -> str:
+    normalized = _normalize_block(text)
+    if scope != "body":
+        return normalized
+    stripped = normalized.strip()
+    if len(stripped) >= 2 and stripped[0] == "{" and stripped[-1] == "}":
+        inner = stripped[1:-1]
+        if "\n" in inner:
+            inner = inner.rstrip()
+        else:
+            inner = inner.strip()
+        if old_text.startswith("\n") and not inner.startswith("\n"):
+            inner = f"\n{inner}" if inner else "\n"
+        if old_text.endswith("\n") and not inner.endswith("\n"):
+            inner += "\n"
+        return _normalize_block(inner)
     return normalized
 
 
