@@ -1,27 +1,27 @@
-# Codex workspace tools
+# Agent workspace tools
 
-This repository contains a portable Codex workspace setup: the root
-`AGENTS.md` instructions plus the `codex_tools/` helper package used by those
-instructions.
+This repository contains a portable agent workspace setup: root `AGENTS.md`
+instructions for Codex, a root `CLAUDE.md` shim for Claude Code, and the
+`codex_tools/` helper package used by those instructions.
 
 The goal is to make the working style reproducible. Clone this repository as a
-workspace root, put task directories next to `codex_tools/`, and Codex will have
-the same rules, helper commands, review-report tooling, and validation
-conventions available in every task.
+workspace root, put task directories next to `codex_tools/`, and supported
+agents will have the same rules, helper commands, review-report tooling, and
+validation conventions available in every task.
 
 ## Repository Map
 
 This repository tracks reusable workspace infrastructure only:
 
-- `AGENTS.md` - workspace-level instructions that apply to the root and all
-  task directories.
+- `AGENTS.md` - the canonical workspace-level instructions.
+- `CLAUDE.md` - a Claude Code shim that points to `AGENTS.md`.
 - `codex_tools/tools/` - standalone CLI tools such as `code_map`,
   `cpp_code_map`, `yaml_map`, `diff_report`, and `commit_msg`.
 - `codex_tools/paf_workspace/` - PAF orchestration assets, domains,
   reusable environments, task bootstrap templates, task workflow checks, and
   PAF workspace tests.
-- `codex_tools/rules/` - mandatory workspace policy loaded through
-  `AGENTS.md`.
+- `codex_tools/rules/` - mandatory workspace policy loaded through root agent
+  instruction files.
 - `codex_tools/skills/` - operating manuals for specific tools and workflows.
 - `codex_tools/knowledge/` - durable findings that should inform future tasks.
 - `.gitignore` - keeps task directories, build outputs, caches, and local
@@ -56,10 +56,11 @@ outgoing tokens, or make recurring validation and reproduction steps easier to
 rerun. Avoid scripts for one-off commands or tiny tasks where a script would add
 more overhead than value.
 
-## Codex rules
+## Workspace rules
 
-The root `AGENTS.md` requires Codex to read and follow all rule files in
-`codex_tools/rules/` before working in the workspace.
+The root `AGENTS.md` file requires agents to read and follow all rule files in
+`codex_tools/rules/` before working in the workspace. `CLAUDE.md` delegates
+Claude Code to the same file.
 
 Current rule files:
 
@@ -79,8 +80,8 @@ Current rule files:
 - `workspace-skills.md` and `xen-zephyr-abi.md` - define workspace skill
   routing and Xen/Zephyr ABI review expectations.
 
-More specific `AGENTS.md` files inside task directories may override the root
-instructions for their subtree.
+More specific `AGENTS.md` or `CLAUDE.md` files inside task directories may
+override the root instructions for their subtree.
 
 ## Included tools
 
@@ -152,7 +153,7 @@ python -m codex_tools.paf_workspace.task_check <task-dir>
 
 ## Deployment model
 
-Use this repository as the root of a Codex workspace:
+Use this repository as the root of an agent workspace:
 
 ```sh
 git clone git@github.com:svlad-90/codex_tools.git codex-workspace
@@ -164,6 +165,7 @@ Then create task directories next to `codex_tools/`:
 ```text
 codex-workspace/
   AGENTS.md
+  CLAUDE.md
   codex_tools/
   some-task/
     TASK_CONTEXT.md

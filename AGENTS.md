@@ -3,8 +3,8 @@
 Before working in this directory or any of its subdirectories, read and follow
 all instruction files in `codex_tools/rules/`.
 
-These rules apply to the entire workspace unless a more specific `AGENTS.md`
-deeper in the directory tree overrides them.
+These rules apply to the entire workspace unless a more specific `AGENTS.md` or
+`CLAUDE.md` deeper in the directory tree overrides them for its own agent.
 
 Current rule files:
 
@@ -86,5 +86,5 @@ When pointing the user to local files, provide a console-friendly absolute
 useful. The plain path must be copyable from the terminal and should not use
 `file://`, editor-specific URI schemes, or relative paths.
 
-Workspace infrastructure such as `.git`, `.agents`, `.codex`, and
+Workspace infrastructure such as `.git`, `.agents`, `.codex`, `CLAUDE.md`, and
 `codex_tools/` stays at the workspace root and is not a task.
