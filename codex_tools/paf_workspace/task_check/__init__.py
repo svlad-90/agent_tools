@@ -29,8 +29,10 @@ RUNTIME_HINTS = ("xen", "qemu", "moulin", "dom0", "domu", "hypervisor")
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
 PAF_WORKSPACE_ROOT = PROJECT_ROOT / "codex_tools" / "paf_workspace"
 TASK_CONTEXT_TEMPLATE = PAF_WORKSPACE_ROOT / "templates" / "TASK_CONTEXT.md"
+TASK_DESCRIPTION_TEMPLATE = PAF_WORKSPACE_ROOT / "templates" / "TASK_DESCRIPTION.md"
 PRODUCT_ARTIFACTS_TEMPLATE = PAF_WORKSPACE_ROOT / "templates" / "product-artifacts.yaml"
 DEFAULT_RUNTIME_YAML_NAME = "xen-zephyr-runtime.yaml"
+TASKS_DIR_NAME = "tasks"
 
 
 @dataclass(frozen=True)
@@ -78,7 +80,10 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--init-layout",
         action="store_true",
-        help="Create missing task directories and TASK_CONTEXT.md from the workspace template.",
+        help=(
+            "Create missing task directories, TASK_DESCRIPTION.md, and "
+            "TASK_CONTEXT.md from workspace templates."
+        ),
     )
     parser.add_argument(
         "--init-runtime-product",
@@ -140,6 +145,7 @@ def check_task(
         return checks
 
     checks.extend(_check_layout(task_dir))
+    checks.extend(_check_task_description(task_dir))
     context_text = _read_task_context(task_dir, checks)
     if context_text is not None:
         checks.extend(_check_task_context(task_dir, context_text))
@@ -191,14 +197,40 @@ def initialize_task_layout(task_dir: Path, *, workspace: Path) -> list[Check]:
     for rel_path in REQUIRED_DIRS:
         path = task_dir / rel_path
         if path.exists() and not path.is_dir():
-            checks.append(Check("FAIL", "init-path-not-directory", f"path exists but is not a directory: {rel_path}", str(path)))
+            checks.append(
+                Check(
+                    "FAIL",
+                    "init-path-not-directory",
+                    f"path exists but is not a directory: {rel_path}",
+                    str(path),
+                )
+            )
             continue
         path.mkdir(parents=True, exist_ok=True)
         checks.append(Check("PASS", "init-layout-dir", f"directory is present: {rel_path}", str(path)))
 
+    description_path = task_dir / "TASK_DESCRIPTION.md"
+    if description_path.exists():
+        checks.append(
+            Check(
+                "PASS",
+                "init-task-description-existing",
+                "TASK_DESCRIPTION.md already exists",
+                str(description_path),
+            )
+        )
+    else:
+        template = TASK_DESCRIPTION_TEMPLATE.read_text(encoding="utf-8")
+        description_path.write_text(template, encoding="utf-8")
+        checks.append(
+            Check("PASS", "init-task-description", "created TASK_DESCRIPTION.md from template", str(description_path))
+        )
+
     context_path = task_dir / "TASK_CONTEXT.md"
     if context_path.exists():
-        checks.append(Check("PASS", "init-task-context-existing", "TASK_CONTEXT.md already exists", str(context_path)))
+        checks.append(
+            Check("PASS", "init-task-context-existing", "TASK_CONTEXT.md already exists", str(context_path))
+        )
     else:
         template = TASK_CONTEXT_TEMPLATE.read_text(encoding="utf-8")
         context_path.write_text(template, encoding="utf-8")
@@ -301,9 +333,11 @@ def render_text(task_dir: Path, checks: list[Check]) -> str:
 
 def _resolve_task_dir(workspace: Path, task_dir: str) -> Path:
     path = Path(task_dir)
-    if not path.is_absolute():
-        path = workspace / path
-    return path.resolve()
+    if path.is_absolute():
+        return path.resolve()
+    if len(path.parts) == 1:
+        return (workspace / TASKS_DIR_NAME / path).resolve()
+    return (workspace / path).resolve()
 
 
 def _check_task_dir(task_dir: Path, workspace: Path) -> Check:
@@ -314,9 +348,14 @@ def _check_task_dir(task_dir: Path, workspace: Path) -> Check:
     try:
         task_dir.relative_to(workspace)
     except ValueError:
-        return Check("WARN", "task-outside-workspace", "task directory is outside workspace root", str(task_dir))
-    if task_dir.parent != workspace:
-        return Check("WARN", "task-not-top-level", "task directory is not directly under workspace root", str(task_dir))
+        return Check("FAIL", "task-outside-workspace", "task directory is outside workspace root", str(task_dir))
+    tasks_root = workspace / TASKS_DIR_NAME
+    try:
+        task_dir.relative_to(tasks_root)
+    except ValueError:
+        return Check("FAIL", "task-outside-tasks", "task directory must be under tasks/", str(task_dir))
+    if task_dir.parent != tasks_root:
+        return Check("FAIL", "task-not-top-level", "task directory is not directly under tasks/", str(task_dir))
     return Check("PASS", "task-dir", "task directory exists", str(task_dir))
 
 
@@ -329,6 +368,25 @@ def _check_layout(task_dir: Path) -> list[Check]:
         else:
             checks.append(Check("FAIL", "layout-dir-missing", f"required directory is missing: {rel_path}", str(path)))
     return checks
+
+
+def _check_task_description(task_dir: Path) -> list[Check]:
+    path = task_dir / "TASK_DESCRIPTION.md"
+    if not path.exists():
+        return [
+            Check(
+                "WARN",
+                "task-description-missing",
+                "TASK_DESCRIPTION.md is missing; create it for stable task scope",
+                str(path),
+            )
+        ]
+    if not path.is_file():
+        return [Check("FAIL", "task-description-not-file", "TASK_DESCRIPTION.md is not a file", str(path))]
+    text = path.read_text(encoding="utf-8")
+    if not text.strip():
+        return [Check("WARN", "task-description-empty", "TASK_DESCRIPTION.md is empty", str(path))]
+    return [Check("PASS", "task-description", "TASK_DESCRIPTION.md exists", str(path))]
 
 
 def _read_task_context(task_dir: Path, checks: list[Check]) -> str | None:

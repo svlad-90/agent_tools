@@ -12,9 +12,6 @@ from .diff_source import load_diff_source
 from .models import DiffReportError
 
 
-PROJECT_ROOT = Path(__file__).resolve().parents[2]
-
-
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         description="Generate a GitHub-style HTML diff report with review comments.",
@@ -163,5 +160,5 @@ def _resolve_path(path_text: str | None) -> Path | None:
         return None
     path = Path(path_text)
     if not path.is_absolute():
-        path = (PROJECT_ROOT / path).resolve()
+        path = (Path.cwd() / path).resolve()
     return path

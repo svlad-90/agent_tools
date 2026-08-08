@@ -4,6 +4,12 @@
 !AGENTS.md
 !CLAUDE.md
 !README.md
+!workspace-gui
+!workspace-gui.sh
+!workspace-gui.desktop
+!tasks/
+!tasks/.gitignore
+!tasks/.gitkeep
 !.github/
 !.github/workflows/
 !.github/workflows/diff-report.yml

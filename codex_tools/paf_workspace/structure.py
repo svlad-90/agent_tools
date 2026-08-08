@@ -28,7 +28,14 @@ FORBIDDEN_CODEX_TOOLS_DIRS = (
     "templates",
     "yaml_map",
 )
-REQUIRED_TOOL_PACKAGES = ("code_map", "commit_msg", "cpp_code_map", "diff_report", "yaml_map")
+REQUIRED_TOOL_PACKAGES = (
+    "code_map",
+    "commit_msg",
+    "cpp_code_map",
+    "diff_report",
+    "workspace_gui",
+    "yaml_map",
+)
 
 
 class StructureIssue:
@@ -174,9 +181,12 @@ def check_codex_tools_structure(root: Path) -> list[StructureIssue]:
     if not (root / "paf_workspace" / "task_check" / "__main__.py").is_file():
         issues.append(StructureIssue(root / "paf_workspace" / "task_check", "missing PAF workspace task_check CLI"))
     task_context_template = root / "paf_workspace" / "templates" / "TASK_CONTEXT.md"
+    task_description_template = root / "paf_workspace" / "templates" / "TASK_DESCRIPTION.md"
     product_artifacts_template = root / "paf_workspace" / "templates" / "product-artifacts.yaml"
     if not task_context_template.is_file():
         issues.append(StructureIssue(task_context_template, "missing task context template"))
+    if not task_description_template.is_file():
+        issues.append(StructureIssue(task_description_template, "missing task description template"))
     if not product_artifacts_template.is_file():
         issues.append(StructureIssue(product_artifacts_template, "missing product artifact template"))
     if (root / "knowledge" / "findings.md").exists():

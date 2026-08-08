@@ -10,10 +10,11 @@ python -m codex_tools.paf_workspace.task_check task-name
 ```
 
 Run from the workspace root. The command checks the standard task layout,
-`TASK_CONTEXT.md` sections, validation-level tracking, product artifact
-manifests, and Xen/Zephyr runtime YAML metadata.
+`TASK_DESCRIPTION.md`, `TASK_CONTEXT.md` sections, validation-level tracking,
+product artifact manifests, and Xen/Zephyr runtime YAML metadata.
 
-Create a missing task layout without overwriting an existing context file:
+Create a missing task layout without overwriting an existing description or
+context file:
 
 ```sh
 python -m codex_tools.paf_workspace.task_check task-name --init-layout

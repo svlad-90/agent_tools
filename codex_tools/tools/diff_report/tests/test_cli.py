@@ -3,6 +3,7 @@ from __future__ import annotations
 import contextlib
 import io
 import json
+import os
 import tempfile
 import textwrap
 import unittest
@@ -326,6 +327,58 @@ class CliTests(unittest.TestCase):
         self.assertEqual(f"{output_path}\n", stdout.getvalue())
         self.assertIn("<h1>CLI report</h1>", html)
         self.assertIn("CLI note", html)
+
+    def test_relative_paths_are_resolved_from_current_working_directory(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            diff_path = root / "change.patch"
+            comments_path = root / "comments.json"
+            output_path = root / "report.html"
+            diff_path.write_text(
+                textwrap.dedent(
+                    """\
+                    diff --git a/app.py b/app.py
+                    index 1111111..2222222 100644
+                    --- a/app.py
+                    +++ b/app.py
+                    @@ -1 +1,2 @@
+                     keep()
+                    +added()
+                    """
+                ),
+                encoding="utf-8",
+            )
+            comments_path.write_text(
+                json.dumps({"inline": [{"file": "app.py", "line": 2, "body": "Relative note"}]}),
+                encoding="utf-8",
+            )
+            stdout = io.StringIO()
+            old_cwd = Path.cwd()
+
+            try:
+                os.chdir(root)
+                with contextlib.redirect_stdout(stdout):
+                    status = main(
+                        [
+                            "--diff-file",
+                            "change.patch",
+                            "--comments",
+                            "comments.json",
+                            "--output",
+                            "report.html",
+                            "--title",
+                            "Relative report",
+                        ]
+                    )
+            finally:
+                os.chdir(old_cwd)
+
+            html = output_path.read_text(encoding="utf-8")
+
+        self.assertEqual(0, status)
+        self.assertEqual(f"{output_path}\n", stdout.getvalue())
+        self.assertIn("<h1>Relative report</h1>", html)
+        self.assertIn("Relative note", html)
 
     def test_refresh_targets_writes_json_next_to_output(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

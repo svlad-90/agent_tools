@@ -10,6 +10,7 @@ python -m codex_tools.tools.yaml_map
 python -m codex_tools.tools.diff_report
 python -m codex_tools.tools.commit_msg
 python -m codex_tools.tools.push_guard
+python -m codex_tools.tools.workspace_gui
 ```
 
 Keep PAF orchestration under `codex_tools/paf_workspace/`; this directory is
@@ -83,3 +84,15 @@ recorded marker:
 ```sh
 python -m codex_tools.tools.push_guard status --repo <target-repo>
 ```
+
+## Workspace GUI
+
+Use `workspace_gui` for a local Tkinter dashboard over task directories:
+
+```sh
+./workspace-gui
+```
+
+It lists workspace tasks, shows `TASK_DESCRIPTION.md` and `TASK_CONTEXT.md`,
+reports rough token sizes, runs `task_check`, opens task folders, opens `dev/`,
+and shows `git status --short --branch` for repositories under `dev/`.

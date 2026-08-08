@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Workspace GUI
+Comment=Open the local Codex workspace task dashboard
+Exec=/home/vladyslav_goncharuk/Projects/new_dev/workspace-gui
+Path=/home/vladyslav_goncharuk/Projects/new_dev
+Terminal=false
+Categories=Development;

@@ -31,9 +31,10 @@ ZEPHYR_XEN_QEMU_PRODUCT = Path(
     "zephyr-xenstore-client/dev/qemu-xen-zephyr-dom0-validation"
 )
 ZEPHYR_XEN_QEMU_QEMU_BIN = (
-    "/home/builder/workspace/yocto/build-xen-qemu/tmp/work/x86_64-linux/"
-    "qemu-system-native/7.0.0-r0/build/qemu-system-aarch64"
+    "/opt/zephyr-sdk-1.0.0/hosttools/sysroots/x86_64-pokysdk-linux/usr/bin/"
+    "qemu-system-aarch64"
 )
+DEFAULT_CONTAINER_WORKDIR = "/workspace"
 DEFAULT_DOMU_LOAD_ADDR = "0x59000000"
 
 
@@ -406,7 +407,7 @@ def args_from_scenario(
         timeout_sec=scenario.timeout_sec,
         cwd=None,
         container_alias=container_alias,
-        container_workdir=container_workdir or "/home/builder/workspace",
+        container_workdir=container_workdir or DEFAULT_CONTAINER_WORKDIR,
         launch_command=None,
         workspace_root=root,
         product_dir=product_dir or ZEPHYR_XEN_QEMU_PRODUCT,
@@ -525,7 +526,7 @@ def apply_scenario_env(args: argparse.Namespace) -> None:
 def apply_zephyr_xen_qemu_preset(args: argparse.Namespace) -> None:
     root = workspace_root(args)
     product_dir = (root / args.product_dir).resolve()
-    container_workdir = args.container_workdir or "/home/builder/workspace"
+    container_workdir = args.container_workdir or DEFAULT_CONTAINER_WORKDIR
     container_product_dir = container_path(str(product_dir), root, product_dir, container_workdir)
 
     if not args.cmd:
@@ -960,6 +961,8 @@ def run_command(args: argparse.Namespace) -> RunResult:
                 continue
 
             line = queued.line
+            if not line.strip():
+                continue
             if queued.source is None:
                 source, active_guest = source_for_line(line, active_guest)
             else:

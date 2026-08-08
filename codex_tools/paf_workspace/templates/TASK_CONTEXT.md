@@ -3,8 +3,7 @@
 ## Goal
 
 - Current goal:
-- Scope:
-- Out of scope:
+- Task description: `TASK_DESCRIPTION.md`
 
 ## Repositories
 

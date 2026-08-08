@@ -66,7 +66,7 @@ class XenZephyrTask(WorkspaceTask):
         workdir = config.get("workdir")
         if isinstance(workdir, str) and workdir:
             return workdir
-        return "/home/builder/workspace"
+        return harness_runtime.DEFAULT_CONTAINER_WORKDIR
 
     def prepare_harness_launch_command(self, args) -> None:
         if args.container_alias:

@@ -27,9 +27,12 @@ those findings for known patterns that could save investigation time.
 
 ## Task layout
 
-Every task in this workspace must live in its own top-level directory under the
-workspace root. Each task directory must use this layout:
+Every task in this workspace must live in its own directory under
+`tasks/<task-name>/`. Each task directory must use this layout:
 
+- `TASK_DESCRIPTION.md` - stable task description: original request, intended
+  scope, acceptance criteria, important links, and non-status background that
+  should remain useful for the whole task.
 - `TASK_CONTEXT.md` - active task context, decisions, branches, repositories,
   validation status, discovered constraints, and remaining work.
 - `dev/` - repositories, reproducers, workspaces, build files, and other
@@ -61,8 +64,11 @@ and only then name the exact variable, register, constant, or API. When several
 low-level terms are involved, repeat the role of each term locally instead of
 assuming the reader remembers it from earlier comments.
 
-Before working inside a task directory, read that task's `TASK_CONTEXT.md` and
-keep it updated as the task progresses.
+Before working inside a task directory, read that task's `TASK_DESCRIPTION.md`.
+Read `TASK_CONTEXT.md` only after the directory is selected as the target task,
+or when the user explicitly asks to inspect neighboring or related tasks. Do
+not scan every neighboring `TASK_CONTEXT.md` during normal task discovery:
+those files are working state and may be token-heavy.
 
 Keep `TASK_CONTEXT.md` as active working context, not an indefinite historical
 log. By default it should contain the current goal, current repository state,
