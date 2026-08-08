@@ -27,6 +27,17 @@ def test_discover_tasks_reports_description_context_and_budget(tmp_path: Path) -
     assert tasks[0].context_over_budget
 
 
+def test_discover_tasks_sorts_names_case_insensitively(tmp_path: Path) -> None:
+    for name in ("beta", "Alpha"):
+        task = tmp_path / "tasks" / name
+        task.mkdir(parents=True)
+        (task / "TASK_CONTEXT.md").write_text(_task_context(), encoding="utf-8")
+
+    tasks = discover_tasks(tmp_path)
+
+    assert [entry.name for entry in tasks] == ["Alpha", "beta"]
+
+
 def test_run_task_check_returns_text_report(tmp_path: Path) -> None:
     task = tmp_path / "tasks" / "sample-task"
     for rel_path in ("dev", "Dockerfile", "scripts", "report/diff", "report/puml"):

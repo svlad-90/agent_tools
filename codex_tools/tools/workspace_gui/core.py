@@ -41,7 +41,10 @@ def rough_token_count(text: str) -> int:
 def discover_tasks(workspace: Path) -> list[TaskSummary]:
     workspace = workspace.resolve()
     tasks = []
-    for path in _candidate_task_dirs(workspace):
+    for path in sorted(
+        _candidate_task_dirs(workspace),
+        key=lambda candidate: candidate.name.casefold(),
+    ):
         description_path = path / "TASK_DESCRIPTION.md"
         context_path = path / "TASK_CONTEXT.md"
         has_description = description_path.is_file()
@@ -70,7 +73,7 @@ def _candidate_task_dirs(workspace: Path) -> list[Path]:
         return []
     return [
         path
-        for path in sorted(tasks_root.iterdir())
+        for path in tasks_root.iterdir()
         if path.is_dir() and not path.name.startswith(".")
     ]
 

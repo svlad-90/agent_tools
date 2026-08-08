@@ -9,6 +9,7 @@ import queue
 import subprocess
 import threading
 import tkinter as tk
+from tkinter import font as tkfont
 from tkinter import messagebox
 from tkinter import ttk
 
@@ -28,9 +29,12 @@ class WorkspaceGui:
         self.tasks: list[TaskSummary] = []
         self.selected_task: TaskSummary | None = None
         self.messages: queue.Queue[tuple[str, str]] = queue.Queue()
+        self.font_size = int(tkfont.nametofont("TkDefaultFont").cget("size"))
+        self.style = ttk.Style(self.root)
 
         self.root.title(f"Workspace GUI - {self.workspace}")
         self.root.geometry("1180x760")
+        self._apply_font_size()
         self._build_ui()
         self.refresh_tasks()
         self._poll_messages()
@@ -43,6 +47,11 @@ class WorkspaceGui:
             side=tk.LEFT,
             padx=(6, 0),
         )
+        ttk.Button(toolbar, text="A-", command=lambda: self.adjust_font_size(-1)).pack(
+            side=tk.LEFT,
+            padx=(8, 0),
+        )
+        ttk.Button(toolbar, text="A+", command=lambda: self.adjust_font_size(1)).pack(side=tk.LEFT)
         self.summary_var = tk.StringVar(value="")
         ttk.Label(toolbar, textvariable=self.summary_var).pack(side=tk.LEFT, padx=12)
 
@@ -51,28 +60,22 @@ class WorkspaceGui:
 
         left = ttk.Frame(main, padding=6)
         main.add(left, weight=1)
-        columns = ("description", "context", "flags")
+        columns = ("details",)
         self.task_tree = ttk.Treeview(left, columns=columns, show="tree headings", selectmode="browse")
         self.task_tree.heading("#0", text="Task")
-        self.task_tree.heading("description", text="Desc")
-        self.task_tree.heading("context", text="Context")
-        self.task_tree.heading("flags", text="Flags")
+        self.task_tree.heading("details", text="Task Details")
         self.task_tree.column("#0", width=260)
-        self.task_tree.column("description", width=70, anchor=tk.E)
-        self.task_tree.column("context", width=80, anchor=tk.E)
-        self.task_tree.column("flags", width=140)
+        self.task_tree.column("details", width=270)
         self.task_tree.pack(fill=tk.BOTH, expand=True)
         self.task_tree.bind("<<TreeviewSelect>>", self._on_task_selected)
+        self.task_tree.bind("<Double-1>", self._on_task_double_clicked)
 
         right = ttk.Frame(main, padding=6)
         main.add(right, weight=3)
         actions = ttk.Frame(right)
         actions.pack(side=tk.TOP, fill=tk.X)
         for label, command in (
-            ("Open Task", self.open_task),
             ("Open dev/", self.open_dev),
-            ("Run task_check", self.run_selected_task_check),
-            ("Git status", self.run_selected_git_status),
         ):
             ttk.Button(actions, text=label, command=command).pack(side=tk.LEFT, padx=(0, 6))
 
@@ -80,12 +83,29 @@ class WorkspaceGui:
         self.notebook.pack(fill=tk.BOTH, expand=True, pady=(6, 0))
         self.description_text = self._add_text_tab("Description")
         self.context_text = self._add_text_tab("Context")
-        self.checks_text = self._add_text_tab("Checks")
-        self.git_text = self._add_text_tab("Git")
+        self.checks_text = self._add_text_tab(
+            "Checks",
+            "Run task_check",
+            self.run_selected_task_check,
+        )
+        self.git_text = self._add_text_tab("Git", "Git status", self.run_selected_git_status)
         self.log_text = self._add_text_tab("Log")
 
-    def _add_text_tab(self, title: str) -> tk.Text:
+    def _add_text_tab(
+        self,
+        title: str,
+        button_label: str | None = None,
+        button_command: Callable[[], None] | None = None,
+    ) -> tk.Text:
         frame = ttk.Frame(self.notebook)
+        if button_label is not None and button_command is not None:
+            toolbar = ttk.Frame(frame)
+            toolbar.pack(side=tk.TOP, fill=tk.X)
+            ttk.Button(toolbar, text=button_label, command=button_command).pack(
+                side=tk.LEFT,
+                padx=2,
+                pady=2,
+            )
         text = tk.Text(frame, wrap=tk.WORD, undo=False)
         scroll = ttk.Scrollbar(frame, orient=tk.VERTICAL, command=text.yview)
         text.configure(yscrollcommand=scroll.set)
@@ -105,12 +125,15 @@ class WorkspaceGui:
                 flags.append("missing context")
             if task.context_over_budget:
                 flags.append(f"context > {TASK_CONTEXT_BUDGET}")
+            details = f"desc {task.description_tokens}, context {task.context_tokens}"
+            if flags:
+                details = f"{details}, {', '.join(flags)}"
             self.task_tree.insert(
                 "",
                 tk.END,
                 iid=str(index),
                 text=task.name,
-                values=(task.description_tokens, task.context_tokens, ", ".join(flags)),
+                values=(details,),
             )
         over_budget = sum(1 for task in self.tasks if task.context_over_budget)
         self.summary_var.set(f"{len(self.tasks)} tasks, {over_budget} over context budget")
@@ -127,6 +150,9 @@ class WorkspaceGui:
         self._set_text(self.context_text, read_task_file(task, "TASK_CONTEXT.md"))
         self._set_text(self.checks_text, "")
         self._set_text(self.git_text, "")
+
+    def _on_task_double_clicked(self, _event: object) -> None:
+        self.open_task()
 
     def open_task(self) -> None:
         task = self._require_task()
@@ -201,6 +227,16 @@ class WorkspaceGui:
     def _append_log(self, text: str) -> None:
         self.log_text.insert(tk.END, text)
         self.log_text.see(tk.END)
+
+    def adjust_font_size(self, delta: int) -> None:
+        self.font_size = max(8, min(28, self.font_size + delta))
+        self._apply_font_size()
+
+    def _apply_font_size(self) -> None:
+        for font_name in ("TkDefaultFont", "TkTextFont", "TkFixedFont"):
+            tkfont.nametofont(font_name).configure(size=self.font_size)
+        row_height = tkfont.nametofont("TkDefaultFont").metrics("linespace") + 8
+        self.style.configure("Treeview", rowheight=row_height)
 
 
 def render_git_status(task: TaskSummary) -> str:
