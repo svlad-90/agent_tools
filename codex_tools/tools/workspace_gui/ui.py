@@ -33,6 +33,7 @@ class WorkspaceGui:
         self.messages: queue.Queue[tuple[str, str]] = queue.Queue()
         self.task_check_transcripts: dict[Path, str] = {}
         self.git_status_transcripts: dict[Path, str] = {}
+        self.git_repo_options: list[Path] = []
         self.running_actions: set[tuple[str, Path]] = set()
         self.font_size = int(tkfont.nametofont("TkDefaultFont").cget("size"))
         self.style = ttk.Style(self.root)
@@ -114,7 +115,7 @@ class WorkspaceGui:
             "Run task_check",
             self.run_selected_task_check,
         )
-        self.git_text = self._add_text_tab("Git", "Git status", self.run_selected_git_status)
+        self.git_text = self._add_git_tab()
         self.log_text = self._add_text_tab("Log")
 
     def _add_text_tab(
@@ -138,6 +139,33 @@ class WorkspaceGui:
         text.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         scroll.pack(side=tk.RIGHT, fill=tk.Y)
         self.notebook.add(frame, text=title)
+        self._configure_text_tags(text)
+        return text
+
+    def _add_git_tab(self) -> tk.Text:
+        frame = ttk.Frame(self.notebook)
+        toolbar = ttk.Frame(frame)
+        toolbar.pack(side=tk.TOP, fill=tk.X)
+        self.git_repo_var = tk.StringVar(value="")
+        self.git_repo_combo = ttk.Combobox(
+            toolbar,
+            textvariable=self.git_repo_var,
+            state="readonly",
+            width=46,
+        )
+        self.git_repo_combo.pack(side=tk.LEFT, padx=2, pady=2)
+        self.git_repo_combo.bind("<<ComboboxSelected>>", self._on_git_repo_selected)
+        ttk.Button(toolbar, text="Git status", command=self.run_selected_git_status).pack(
+            side=tk.LEFT,
+            padx=2,
+            pady=2,
+        )
+        text = tk.Text(frame, wrap=tk.WORD, undo=False, font=self.text_font)
+        scroll = ttk.Scrollbar(frame, orient=tk.VERTICAL, command=text.yview)
+        text.configure(yscrollcommand=scroll.set)
+        text.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        scroll.pack(side=tk.RIGHT, fill=tk.Y)
+        self.notebook.add(frame, text="Git")
         self._configure_text_tags(text)
         return text
 
@@ -176,7 +204,7 @@ class WorkspaceGui:
         self._set_markdown(self.description_text, read_task_file(task, "TASK_DESCRIPTION.md"))
         self._set_markdown(self.context_text, read_task_file(task, "TASK_CONTEXT.md"))
         self._set_text(self.checks_text, self.task_check_transcripts.get(task.path, ""))
-        self._set_text(self.git_text, self.git_status_transcripts.get(task.path, ""))
+        self._refresh_git_repos(task)
 
     def _on_task_double_clicked(self, _event: object) -> None:
         self.open_task()
@@ -209,16 +237,54 @@ class WorkspaceGui:
         )
 
     def run_selected_git_status(self) -> None:
-        task = self._require_task()
-        if task is None:
+        repo = self._selected_git_repo()
+        if repo is None:
             return
         self._run_transcript_background(
             "git status",
-            task.path,
+            repo,
             self.git_status_transcripts,
-            lambda: render_git_status(task),
+            lambda: render_git_status(repo),
             self.git_text,
         )
+
+    def _refresh_git_repos(self, task: TaskSummary) -> None:
+        self.git_repo_options = find_dev_git_repos(task)
+        labels = [self._repo_label(task, repo) for repo in self.git_repo_options]
+        self.git_repo_combo.configure(values=labels)
+        if not labels:
+            self.git_repo_var.set("")
+            self.git_repo_combo.configure(state=tk.DISABLED)
+            self._set_text(self.git_text, "No git repositories found under dev/.\n")
+            return
+        self.git_repo_combo.configure(state="readonly")
+        self.git_repo_var.set(labels[0])
+        self._set_text(self.git_text, self.git_status_transcripts.get(self.git_repo_options[0], ""))
+
+    def _on_git_repo_selected(self, _event: object) -> None:
+        repo = self._selected_git_repo()
+        if repo is not None:
+            self._set_text(self.git_text, self.git_status_transcripts.get(repo, ""))
+
+    def _selected_git_repo(self) -> Path | None:
+        if not self.git_repo_options:
+            messagebox.showinfo("No repository", "No git repositories found under dev/.")
+            return None
+        return self._current_git_repo_without_dialog()
+
+    def _current_git_repo_without_dialog(self) -> Path | None:
+        if not self.git_repo_options:
+            return None
+        index = self.git_repo_combo.current()
+        if index < 0 or index >= len(self.git_repo_options):
+            index = 0
+        return self.git_repo_options[index]
+
+    def _repo_label(self, task: TaskSummary, repo: Path) -> str:
+        try:
+            return str(repo.relative_to(task.path / "dev"))
+        except ValueError:
+            return str(repo)
 
     def _run_transcript_background(
         self,
@@ -255,7 +321,7 @@ class WorkspaceGui:
                 result = f"{type(error).__name__}: {error}"
             self.running_actions.discard((label, transcript_key))
             transcripts[transcript_key] = transcripts.get(transcript_key, "") + result.rstrip() + "\n\n"
-            self.messages.put(("text", f"{id(target)}\n{transcripts[transcript_key]}"))
+            self.messages.put(("text", f"{id(target)}\n{transcript_key}\n{transcripts[transcript_key]}"))
             self.messages.put(("log", f"done: {label}\n"))
 
         threading.Thread(target=worker, daemon=True).start()
@@ -273,11 +339,18 @@ class WorkspaceGui:
             if kind == "log":
                 self._append_log(payload)
             elif kind == "text":
-                target_id, text = payload.split("\n", 1)
+                target_id, transcript_key, text = payload.split("\n", 2)
                 target = targets.get(target_id)
-                if target is not None:
+                if target is not None and self._is_visible_transcript(target, Path(transcript_key)):
                     self._set_text(target, text)
         self.root.after(100, self._poll_messages)
+
+    def _is_visible_transcript(self, target: tk.Text, transcript_key: Path) -> bool:
+        if target is self.checks_text:
+            return self.selected_task is not None and self.selected_task.path == transcript_key
+        if target is self.git_text:
+            return self._current_git_repo_without_dialog() == transcript_key
+        return True
 
     def _require_task(self) -> TaskSummary | None:
         if self.selected_task is None:
@@ -335,22 +408,16 @@ class WorkspaceGui:
                 self._configure_text_tags(widget)
 
 
-def render_git_status(task: TaskSummary) -> str:
-    repos = find_dev_git_repos(task)
-    if not repos:
-        return "No git repositories found under dev/.\n"
-    sections = []
-    for repo in repos:
-        status = git_status(repo)
-        lines = [str(repo), status.branch_line]
-        if status.error:
-            lines.append(f"error: {status.error}")
-        elif status.changes:
-            lines.extend(status.changes)
-        else:
-            lines.append("clean")
-        sections.append("\n".join(lines))
-    return "\n\n".join(sections) + "\n"
+def render_git_status(repo: Path) -> str:
+    status = git_status(repo)
+    lines = [str(repo), status.branch_line]
+    if status.error:
+        lines.append(f"error: {status.error}")
+    elif status.changes:
+        lines.extend(status.changes)
+    else:
+        lines.append("clean")
+    return "\n".join(lines) + "\n"
 
 
 def _transcript_header(label: str) -> str:

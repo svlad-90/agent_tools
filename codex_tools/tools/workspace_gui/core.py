@@ -47,13 +47,25 @@ def rough_token_count(text: str) -> int:
 def render_markdown_chunks(text: str) -> list[MarkdownChunk]:
     chunks: list[MarkdownChunk] = []
     in_code = False
-    for line in text.splitlines():
+    lines = text.splitlines()
+    index = 0
+    while index < len(lines):
+        line = lines[index]
         stripped = line.strip()
         if stripped.startswith("```"):
             in_code = not in_code
+            index += 1
             continue
         if in_code:
             chunks.append(MarkdownChunk(line + "\n", "code"))
+            index += 1
+            continue
+        if _is_table_line(stripped):
+            table_lines = []
+            while index < len(lines) and _is_table_line(lines[index].strip()):
+                table_lines.append(lines[index].strip())
+                index += 1
+            chunks.extend(_render_table_block(table_lines))
             continue
         if stripped.startswith("#"):
             level = len(stripped) - len(stripped.lstrip("#"))
@@ -61,12 +73,11 @@ def render_markdown_chunks(text: str) -> list[MarkdownChunk]:
             chunks.append(MarkdownChunk(title + "\n", f"h{min(level, 3)}"))
         elif _is_list_item(stripped):
             chunks.append(MarkdownChunk(_render_list_item(stripped) + "\n", "list"))
-        elif stripped.startswith("|") and stripped.endswith("|"):
-            chunks.append(MarkdownChunk(_strip_inline_code(line) + "\n", "table"))
         elif stripped:
             chunks.append(MarkdownChunk(_strip_inline_code(line) + "\n", "paragraph"))
         else:
             chunks.append(MarkdownChunk("\n", "paragraph"))
+        index += 1
     return chunks
 
 
@@ -84,6 +95,36 @@ def _render_list_item(stripped: str) -> str:
 
 def _strip_inline_code(text: str) -> str:
     return re.sub(r"`([^`]*)`", r"\1", text)
+
+
+def _is_table_line(stripped: str) -> bool:
+    return stripped.startswith("|") and stripped.endswith("|")
+
+
+def _is_table_separator(cells: list[str]) -> bool:
+    return all(re.fullmatch(r":?-{3,}:?", cell.strip()) for cell in cells)
+
+
+def _parse_table_row(line: str) -> list[str]:
+    return [_strip_inline_code(cell.strip()) for cell in line.strip("|").split("|")]
+
+
+def _render_table_block(lines: list[str]) -> list[MarkdownChunk]:
+    rows = [_parse_table_row(line) for line in lines]
+    if len(rows) < 2 or not _is_table_separator(rows[1]):
+        return [MarkdownChunk(_strip_inline_code(line) + "\n", "table") for line in lines]
+
+    headers = rows[0]
+    chunks: list[MarkdownChunk] = []
+    for row in rows[2:]:
+        pairs = [
+            f"{header}: {value}"
+            for header, value in zip(headers, row)
+            if header or value
+        ]
+        if pairs:
+            chunks.append(MarkdownChunk("\n".join(pairs) + "\n\n", "table"))
+    return chunks
 
 
 def discover_tasks(workspace: Path) -> list[TaskSummary]:

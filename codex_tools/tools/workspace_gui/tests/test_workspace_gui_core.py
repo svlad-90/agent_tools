@@ -11,6 +11,7 @@ from codex_tools.tools.workspace_gui.core import git_status
 from codex_tools.tools.workspace_gui.core import render_markdown_chunks
 from codex_tools.tools.workspace_gui.core import rough_token_count
 from codex_tools.tools.workspace_gui.core import run_task_check
+from codex_tools.tools.workspace_gui.ui import render_git_status
 
 
 def test_discover_tasks_reports_description_context_and_budget(tmp_path: Path) -> None:
@@ -76,8 +77,11 @@ def test_render_markdown_chunks_formats_common_blocks() -> None:
         "# Title\n\n"
         "## Section\n"
         "- `item`\n"
-        "| `A` | B |\n"
-        "```\n"
+        "| Role | Path |\n"
+        "| --- | --- |\n"
+        "| `HAL` | dev/hal |\n"
+        "\n```"
+        "\n"
         "code()\n"
         "```\n"
     )
@@ -86,9 +90,20 @@ def test_render_markdown_chunks_formats_common_blocks() -> None:
         ("Title", "h1"),
         ("Section", "h2"),
         ("- item", "list"),
-        ("| A | B |", "table"),
+        ("Role: HAL\nPath: dev/hal", "table"),
         ("code()", "code"),
     ]
+
+
+def test_render_git_status_reports_one_repo(tmp_path: Path) -> None:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    subprocess.run(["git", "-C", str(repo), "init"], check=True, capture_output=True)
+
+    report = render_git_status(repo)
+
+    assert str(repo) in report
+    assert report.count("##") == 1
 
 
 def discover_tasks_with_context(task: Path, workspace: Path) -> TaskSummary:
