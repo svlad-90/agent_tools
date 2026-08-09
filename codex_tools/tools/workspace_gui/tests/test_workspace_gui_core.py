@@ -336,6 +336,7 @@ def test_gtk_theme_colors_cover_widget_css_keys() -> None:
         "foreground",
         "menu_background",
         "muted_foreground",
+        "separator",
         "selection_background",
         "selection_foreground",
         "tab_background",

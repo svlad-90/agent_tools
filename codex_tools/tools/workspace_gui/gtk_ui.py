@@ -19,7 +19,6 @@ from gi.repository import Gtk
 from gi.repository import Pango
 from gi.repository import Vte
 
-from .core import TASK_CONTEXT_BUDGET
 from .core import TaskAction
 from .core import TaskSummary
 from .core import WORKSPACE_GUI_LANGUAGES
@@ -40,6 +39,8 @@ TRANSLATIONS = {
         "button_font_size": "Button font size",
         "cancel": "Cancel",
         "close": "Close",
+        "confirm_close_codex_body": "The interactive Codex session will be closed.",
+        "confirm_close_codex_title": "Close Codex console?",
         "context": "context",
         "desc": "desc",
         "details": "Details",
@@ -70,6 +71,8 @@ TRANSLATIONS = {
         "button_font_size": "Размер шрифта кнопок",
         "cancel": "Отмена",
         "close": "Закрыть",
+        "confirm_close_codex_body": "Интерактивная сессия Codex будет закрыта.",
+        "confirm_close_codex_title": "Закрыть консоль Codex?",
         "context": "контекст",
         "desc": "описание",
         "details": "Детали",
@@ -100,6 +103,8 @@ TRANSLATIONS = {
         "button_font_size": "Розмір шрифту кнопок",
         "cancel": "Скасувати",
         "close": "Закрити",
+        "confirm_close_codex_body": "Інтерактивну сесію Codex буде закрито.",
+        "confirm_close_codex_title": "Закрити консоль Codex?",
         "context": "контекст",
         "desc": "опис",
         "details": "Деталі",
@@ -161,12 +166,17 @@ class WorkspaceGtkGui:
         self.theme = str(settings.get("theme", "light"))
         self.language = str(settings.get("language", "ru"))
         self.window_geometry = str(settings.get("geometry", "1180x760"))
+        self.last_window_width = 1180
+        self.last_window_height = 760
+        self.last_window_x = 0
+        self.last_window_y = 0
         self.label_widgets: dict[str, Gtk.Widget] = {}
 
         self.window = Gtk.Window(title=f"{self._tr('window_title')} - {self.workspace}")
         self.header_bar = Gtk.HeaderBar(title=f"{self._tr('window_title')} - {self.workspace}")
         self.header_bar.set_show_close_button(True)
         self.window.set_titlebar(self.header_bar)
+        self.window.connect("configure-event", self._on_window_configure)
         self.window.connect("destroy", self.close)
         self._apply_window_geometry()
         self._build_ui()
@@ -193,12 +203,10 @@ class WorkspaceGtkGui:
         main.connect("button-press-event", self._on_main_pane_button_press)
         root.pack_start(main, True, True, 0)
 
-        self.task_store = Gtk.ListStore(str, str, object)
+        self.task_store = Gtk.ListStore(str, object)
         self.task_view = Gtk.TreeView(model=self.task_store)
         self.task_column = Gtk.TreeViewColumn(self._tr("task"), Gtk.CellRendererText(), text=0)
-        self.task_details_column = Gtk.TreeViewColumn(self._tr("task_details"), Gtk.CellRendererText(), text=1)
         self.task_view.append_column(self.task_column)
-        self.task_view.append_column(self.task_details_column)
         self.task_view.get_selection().connect("changed", self._on_task_selected)
         self.task_view.connect("row-activated", lambda *_: self.open_task())
         task_scroll = Gtk.ScrolledWindow()
@@ -261,17 +269,7 @@ class WorkspaceGtkGui:
         self.task_store.clear()
         selected_iter = None
         for task in self.tasks:
-            flags = []
-            if not task.has_description:
-                flags.append(self._tr("missing_desc"))
-            if not task.has_context:
-                flags.append(self._tr("missing_context"))
-            if task.context_over_budget:
-                flags.append(f"{self._tr('context')} > {TASK_CONTEXT_BUDGET}")
-            details = f"{self._tr('desc')} {task.description_tokens}, {self._tr('context')} {task.context_tokens}"
-            if flags:
-                details = f"{details}, {', '.join(flags)}"
-            row_iter = self.task_store.append([task.name, details, task])
+            row_iter = self.task_store.append([task.name, task])
             if task.name == selected_name:
                 selected_iter = row_iter
         self.summary_label.set_text(f"{len(self.tasks)} {self._tr('tasks')}")
@@ -284,7 +282,7 @@ class WorkspaceGtkGui:
         model, row_iter = selection.get_selected()
         if row_iter is None:
             return
-        self.selected_task = model[row_iter][2]
+        self.selected_task = model[row_iter][1]
         self._set_markdown(self.description_view, read_task_file(self.selected_task, "TASK_DESCRIPTION.md"))
         self._set_markdown(self.context_view, read_task_file(self.selected_task, "TASK_CONTEXT.md"))
         self._reset_actions()
@@ -465,8 +463,11 @@ class WorkspaceGtkGui:
         page = self.console_notebook.get_nth_page(page_num)
         for session_id, session in list(self.terminal_sessions.items()):
             if session.page is page:
+                if session.kind == "codex" and not self._confirm_close_codex_console():
+                    return
                 self.console_notebook.remove_page(page_num)
                 self.terminal_sessions.pop(session_id, None)
+                session.page.destroy()
                 break
 
     def _send_command_to_task_terminal(self, task: TaskSummary, command: str) -> None:
@@ -629,6 +630,21 @@ class WorkspaceGtkGui:
             dialog.destroy()
         return None
 
+    def _confirm_close_codex_console(self) -> bool:
+        dialog = Gtk.MessageDialog(
+            transient_for=self.window,
+            flags=Gtk.DialogFlags.MODAL,
+            message_type=Gtk.MessageType.QUESTION,
+            buttons=Gtk.ButtonsType.NONE,
+            text=self._tr("confirm_close_codex_title"),
+        )
+        dialog.format_secondary_text(self._tr("confirm_close_codex_body"))
+        dialog.add_button(self._tr("cancel"), Gtk.ResponseType.CANCEL)
+        dialog.add_button(self._tr("close"), Gtk.ResponseType.OK)
+        response = dialog.run()
+        dialog.destroy()
+        return response == Gtk.ResponseType.OK
+
     def _set_text(self, view: Gtk.TextView, text: str) -> None:
         view.get_buffer().set_text(text)
 
@@ -687,7 +703,6 @@ class WorkspaceGtkGui:
             if isinstance(widget, Gtk.Button):
                 widget.set_label(self._tr(key))
         self.task_column.set_title(self._tr("task"))
-        self.task_details_column.set_title(self._tr("task_details"))
         self.details_tab_label.set_text(self._tr("details"))
         self.actions_tab_label.set_text(self._tr("actions"))
 
@@ -717,15 +732,30 @@ class WorkspaceGtkGui:
         return False
 
     def _apply_window_geometry(self) -> None:
-        size = self.window_geometry.split("+", 1)[0]
+        parts = self.window_geometry.replace("-", "+-").split("+")
+        size = parts[0]
         if "x" not in size:
             self.window.set_default_size(1180, 760)
             return
         width, height = size.split("x", 1)
         try:
-            self.window.set_default_size(int(width), int(height))
+            self.last_window_width = int(width)
+            self.last_window_height = int(height)
+            self.window.set_default_size(self.last_window_width, self.last_window_height)
+            if len(parts) >= 3:
+                self.last_window_x = int(parts[1])
+                self.last_window_y = int(parts[2])
+                self.window.move(self.last_window_x, self.last_window_y)
         except ValueError:
             self.window.set_default_size(1180, 760)
+
+    def _on_window_configure(self, _window: Gtk.Window, event: Gdk.EventConfigure) -> bool:
+        if event.width > 1 and event.height > 1:
+            self.last_window_width = event.width
+            self.last_window_height = event.height
+            self.last_window_x = event.x
+            self.last_window_y = event.y
+        return False
 
     def _apply_css(self) -> None:
         colors = _theme_colors(self.theme)
@@ -763,6 +793,14 @@ class WorkspaceGtkGui:
         notebook stack {{
             background: {colors['terminal_background']};
             color: {colors['foreground']};
+        }}
+        paned > separator {{
+            background: {colors['separator']};
+            min-width: 3px;
+            min-height: 3px;
+        }}
+        scrolledwindow, notebook {{
+            border: 1px solid {colors['border']};
         }}
         treeview {{
             background: {colors['text_background']};
@@ -816,14 +854,16 @@ class WorkspaceGtkGui:
         Gtk.main_quit()
 
     def _save_settings(self) -> None:
-        allocation = self.window.get_allocation()
         save_workspace_gui_settings(
             {
                 "text_font_size": self.text_font_size,
                 "button_font_size": self.button_font_size,
                 "theme": self.theme,
                 "language": self.language,
-                "geometry": f"{allocation.width}x{allocation.height}",
+                "geometry": (
+                    f"{self.last_window_width}x{self.last_window_height}"
+                    f"+{self.last_window_x}+{self.last_window_y}"
+                ),
             }
         )
 
@@ -964,6 +1004,7 @@ def _theme_colors(theme: str) -> dict[str, str]:
             "selection_foreground": "#ffffff",
             "menu_background": "#252a2f",
             "border": "#4a5058",
+            "separator": "#6a727c",
             "foreground": "#e8eaed",
         }
     return {
@@ -981,6 +1022,7 @@ def _theme_colors(theme: str) -> dict[str, str]:
         "selection_foreground": "#ffffff",
         "menu_background": "#ffffff",
         "border": "#b8b8b8",
+        "separator": "#8c8c8c",
         "foreground": "#202124",
     }
 
