@@ -6,6 +6,7 @@ import subprocess
 import sys
 
 from codex_tools.tools.workspace_gui.core import TASK_CONTEXT_BUDGET
+from codex_tools.tools.workspace_gui.core import ConsoleChunk
 from codex_tools.tools.workspace_gui.core import TaskAction
 from codex_tools.tools.workspace_gui.core import TaskSummary
 from codex_tools.tools.workspace_gui.core import discover_tasks
@@ -20,12 +21,73 @@ from codex_tools.tools.workspace_gui.core import save_workspace_gui_settings
 from codex_tools.tools.workspace_gui.core import run_task_action
 from codex_tools.tools.workspace_gui.core import run_task_check
 from codex_tools.tools.workspace_gui.ui import codex_console_command
+from codex_tools.tools.workspace_gui.ui import console_paste_text
 from codex_tools.tools.workspace_gui.ui import console_tab_title
+from codex_tools.tools.workspace_gui.ui import ConsoleSession
 from codex_tools.tools.workspace_gui.ui import codex_task_context_message
 from codex_tools.tools.workspace_gui.ui import embedded_terminal_command
 from codex_tools.tools.workspace_gui.ui import render_git_status
 from codex_tools.tools.workspace_gui.ui import task_action_shell_command
 from codex_tools.tools.workspace_gui.ui import task_check_shell_command
+from codex_tools.tools.workspace_gui.ui import WorkspaceGui
+
+
+class FakeConsoleText:
+    def __init__(self, text: str) -> None:
+        self.text = text
+        self.marks: dict[str, int] = {}
+
+    def index(self, index: str) -> str:
+        return str(self._offset(index))
+
+    def insert(self, index: str, text: str, _tags: tuple[str, ...] = ()) -> None:
+        offset = self._offset(index)
+        self.text = self.text[:offset] + text + self.text[offset:]
+
+    def delete(self, start: str, end: str) -> None:
+        start_offset = self._offset(start)
+        end_offset = self._offset(end)
+        self.text = self.text[:start_offset] + self.text[end_offset:]
+        for mark, offset in list(self.marks.items()):
+            if offset > end_offset:
+                self.marks[mark] = offset - (end_offset - start_offset)
+            elif offset > start_offset:
+                self.marks[mark] = start_offset
+
+    def compare(self, left: str, operator: str, right: str) -> bool:
+        left_offset = self._offset(left)
+        right_offset = self._offset(right)
+        if operator == "<":
+            return left_offset < right_offset
+        if operator == ">=":
+            return left_offset >= right_offset
+        raise AssertionError(f"unsupported compare operator {operator!r}")
+
+    def mark_set(self, mark: str, index: str) -> None:
+        self.marks[mark] = self._offset(index)
+
+    def mark_gravity(self, _mark: str, _gravity: str) -> None:
+        return
+
+    def mark_unset(self, mark: str) -> None:
+        self.marks.pop(mark, None)
+
+    def _offset(self, index: str) -> int:
+        if index in self.marks:
+            return self.marks[index]
+        if index == "end":
+            return len(self.text)
+        if index == "end-1c":
+            return len(self.text)
+        if index == "end-2c":
+            return max(0, len(self.text) - 1)
+        if index == "end-1c linestart":
+            return self.text.rfind("\n") + 1
+        if index == "1.0":
+            return 0
+        if index.isdigit():
+            return int(index)
+        raise AssertionError(f"unsupported index {index!r}")
 
 
 def test_discover_tasks_reports_description_context_and_budget(tmp_path: Path) -> None:
@@ -281,6 +343,32 @@ def test_parse_console_output_keeps_carriage_return_control() -> None:
     chunks = parse_console_output("prompt old\rprompt new")
 
     assert [(chunk.text, chunk.tags) for chunk in chunks] == [("prompt old\rprompt new", ())]
+
+
+def test_console_paste_text_normalizes_newlines_without_trailing_enter() -> None:
+    assert console_paste_text("one\r\ntwo\r\n") == "one\ntwo"
+    assert console_paste_text("one\rtwo\n\n") == "one\ntwo"
+
+
+def test_console_renderer_does_not_backspace_past_input_floor() -> None:
+    gui = object.__new__(WorkspaceGui)
+    text = FakeConsoleText("task$ ")
+    session = ConsoleSession(
+        session_id=1,
+        title="1 shell",
+        task_path=Path("/tmp/task"),
+        kind="shell",
+        frame=None,  # type: ignore[arg-type]
+        text=text,  # type: ignore[arg-type]
+        process=None,  # type: ignore[arg-type]
+        fd=None,
+        chunks=[],
+    )
+
+    gui._set_console_input_floor(session)
+    gui._insert_console_chunk(session, ConsoleChunk("abc\b \b\b \b\b \b\b \b", ()))
+
+    assert text.text == "task$ "
 
 
 def test_parse_console_output_drops_terminal_title_sequence() -> None:

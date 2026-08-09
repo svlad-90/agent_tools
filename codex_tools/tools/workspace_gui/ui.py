@@ -49,6 +49,7 @@ class ConsoleSession:
     process: subprocess.Popen[bytes]
     fd: int | None
     chunks: list[ConsoleChunk]
+    input_floor_mark: str | None = None
 
 
 class WorkspaceGui:
@@ -728,7 +729,7 @@ class WorkspaceGui:
         self.console_sessions[session_id] = session
         self._renumber_console_tabs(task)
         for chunk in session.chunks:
-            self._insert_console_chunk(text, chunk)
+            self._insert_console_chunk(session, chunk)
         if self.selected_task is not None and self.selected_task.path == task.path:
             self._show_console_tab(session)
         self._activate_console(session_id)
@@ -883,10 +884,11 @@ class WorkspaceGui:
             return "break"
         sequence = self._console_key_sequence(event)
         if sequence and session.fd is not None:
-            try:
-                os.write(session.fd, sequence)
-            except OSError:
-                return "break"
+            self._write_to_console(
+                session.session_id,
+                sequence,
+                protect_current_line=sequence != b"\r",
+            )
         return "break"
 
     def _on_console_copy_or_interrupt(self, _event: tk.Event[tk.Misc]) -> str:
@@ -937,7 +939,12 @@ class WorkspaceGui:
             return
         try:
             if session.fd is not None:
-                os.write(session.fd, text.encode())
+                text = console_paste_text(text)
+                self._write_to_console(
+                    session.session_id,
+                    text.encode(),
+                    protect_current_line=bool(text),
+                )
         except OSError:
             return
 
@@ -1008,32 +1015,71 @@ class WorkspaceGui:
             return
         session.chunks.extend(chunks)
         for chunk in chunks:
-            self._insert_console_chunk(session.text, chunk)
+            self._insert_console_chunk(session, chunk)
         session.text.see(tk.END)
 
-    def _insert_console_chunk(self, widget: tk.Text, chunk: ConsoleChunk) -> None:
+    def _insert_console_chunk(self, session: ConsoleSession, chunk: ConsoleChunk) -> None:
+        widget = session.text
+        if widget is None:
+            return
         for char in chunk.text:
             if char == "\r":
                 widget.delete("end-1c linestart", "end-1c")
+                self._clear_console_input_floor(session)
                 continue
             if char == "\b":
-                if widget.index(tk.END) != "2.0":
+                delete_start = widget.index("end-2c")
+                if self._console_can_delete_at(session, delete_start):
                     widget.delete("end-2c", "end-1c")
                 continue
             widget.insert(tk.END, char, chunk.tags)
+            if char == "\n":
+                self._clear_console_input_floor(session)
 
     def _current_console_text(self) -> tk.Text | None:
         session = self._active_console()
         return session.text if session is not None else None
 
-    def _write_to_console(self, session_id: int, data: bytes) -> None:
+    def _write_to_console(
+        self,
+        session_id: int,
+        data: bytes,
+        protect_current_line: bool = False,
+    ) -> None:
         session = self.console_sessions.get(session_id)
         if session is None or session.fd is None:
             return
+        if protect_current_line:
+            self._set_console_input_floor(session)
+        if b"\r" in data or b"\n" in data:
+            self._clear_console_input_floor(session)
         try:
             os.write(session.fd, data)
         except OSError:
             return
+
+    def _set_console_input_floor(self, session: ConsoleSession) -> None:
+        if session.text is None or session.input_floor_mark is not None:
+            return
+        mark = f"console_input_floor_{session.session_id}"
+        session.text.mark_set(mark, "end-1c")
+        session.text.mark_gravity(mark, tk.LEFT)
+        session.input_floor_mark = mark
+
+    def _clear_console_input_floor(self, session: ConsoleSession) -> None:
+        if session.text is None or session.input_floor_mark is None:
+            session.input_floor_mark = None
+            return
+        session.text.mark_unset(session.input_floor_mark)
+        session.input_floor_mark = None
+
+    def _console_can_delete_at(self, session: ConsoleSession, index: str) -> bool:
+        widget = session.text
+        if widget is None or widget.compare(index, "<", "1.0"):
+            return False
+        if session.input_floor_mark is not None:
+            return bool(widget.compare(index, ">=", session.input_floor_mark))
+        return bool(widget.compare(index, ">=", "end-1c linestart"))
 
     def _set_markdown(self, widget: tk.Text, text: str) -> None:
         widget.configure(state=tk.NORMAL)
@@ -1301,6 +1347,10 @@ def task_action_shell_command(action: TaskAction) -> str:
     )
     prefix = f"{env} " if env else ""
     return f"cd {shlex.quote(str(action.cwd))} && {prefix}{command}"
+
+
+def console_paste_text(text: str) -> str:
+    return text.replace("\r\n", "\n").replace("\r", "\n").rstrip("\n")
 
 
 def sys_executable() -> str:
