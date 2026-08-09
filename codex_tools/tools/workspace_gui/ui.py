@@ -999,7 +999,7 @@ class WorkspaceGui:
             self.root.after(50, self._set_details_default_split)
             return
         try:
-            self.details_pane.sashpos(0, max(120, height // 3))
+            self.details_pane.sashpos(0, max(120, height // 4))
         except tk.TclError:
             return
 
