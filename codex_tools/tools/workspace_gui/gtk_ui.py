@@ -292,11 +292,12 @@ class WorkspaceGtkGui:
 
         console_toolbar = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
         box.pack_start(console_toolbar, False, False, 0)
-        console_toolbar.pack_start(self._button("run_codex", self.run_codex_console), False, False, 0)
-        console_toolbar.pack_start(self._button("new", self.new_console), False, False, 0)
-        console_toolbar.pack_start(self._button("close", self.close_active_console), False, False, 0)
+        self.run_codex_button = self._button("run_codex", self.run_codex_console)
+        console_toolbar.pack_start(self.run_codex_button, False, False, 0)
 
         self.console_notebook = Gtk.Notebook()
+        self.console_notebook.add_events(Gdk.EventMask.BUTTON_PRESS_MASK)
+        self.console_notebook.connect("button-press-event", self._on_console_notebook_button_press)
         box.pack_start(self.console_notebook, True, True, 0)
 
     def refresh_tasks(self, *_args: object) -> None:
@@ -326,6 +327,7 @@ class WorkspaceGtkGui:
         self._reset_actions()
         self._load_task_action_buttons()
         self._refresh_console_tabs_for_task(self.selected_task)
+        self._update_codex_button_state()
 
     def _on_task_view_button_press(self, tree: Gtk.TreeView, event: Gdk.EventButton) -> bool:
         if event.button != 3:
@@ -459,6 +461,7 @@ class WorkspaceGtkGui:
                 self.console_notebook.remove_page(page_num)
             self.terminal_sessions.pop(session_id, None)
             session.page.destroy()
+        self._update_codex_button_state()
 
     def _register_detail_view(self, view: Gtk.TextView, filename: str) -> None:
         self.detail_editing[view] = False
@@ -679,6 +682,7 @@ class WorkspaceGtkGui:
         for session in self._current_task_terminal_sessions(task):
             if session.kind == "codex":
                 self._activate_terminal(session.session_id)
+                self._update_codex_button_state()
                 return
         self._start_terminal(
             task=task,
@@ -687,6 +691,7 @@ class WorkspaceGtkGui:
             env=os.environ.copy(),
             kind="codex",
         )
+        self._update_codex_button_state()
 
     def close_active_console(self, *_args: object) -> None:
         page_num = self.console_notebook.get_current_page()
@@ -695,11 +700,7 @@ class WorkspaceGtkGui:
         page = self.console_notebook.get_nth_page(page_num)
         for session_id, session in list(self.terminal_sessions.items()):
             if session.page is page:
-                if not self._confirm_close_console():
-                    return
-                self.console_notebook.remove_page(page_num)
-                self.terminal_sessions.pop(session_id, None)
-                session.page.destroy()
+                self._close_console_session(session)
                 break
 
     def _send_command_to_task_terminal(self, task: TaskSummary, command: str) -> None:
@@ -771,13 +772,17 @@ class WorkspaceGtkGui:
         self._renumber_terminal_tabs(task)
         for session in self._current_task_terminal_sessions(task):
             self._show_terminal_tab(session)
+        self._update_codex_button_state()
 
     def _current_task_terminal_sessions(self, task: TaskSummary) -> list[TerminalSession]:
-        return [
-            session
-            for session in self.terminal_sessions.values()
-            if session.task_path == task.path
-        ]
+        return sorted(
+            [
+                session
+                for session in self.terminal_sessions.values()
+                if session.task_path == task.path
+            ],
+            key=lambda session: _terminal_session_sort_key(session.kind, session.session_id),
+        )
 
     def _renumber_terminal_tabs(self, task: TaskSummary) -> None:
         for index, session in enumerate(self._current_task_terminal_sessions(task), start=1):
@@ -787,7 +792,10 @@ class WorkspaceGtkGui:
 
     def _show_terminal_tab(self, session: TerminalSession) -> None:
         if self.console_notebook.page_num(session.page) < 0:
-            self.console_notebook.append_page(session.page, Gtk.Label(label=session.kind))
+            if session.kind == "codex":
+                self.console_notebook.insert_page(session.page, Gtk.Label(label=session.kind), 0)
+            else:
+                self.console_notebook.append_page(session.page, Gtk.Label(label=session.kind))
         session.page.show_all()
         self._renumber_terminal_tabs(self._task_for_path(session.task_path))
 
@@ -800,6 +808,37 @@ class WorkspaceGtkGui:
         if page_num >= 0:
             self.console_notebook.set_current_page(page_num)
         session.terminal.grab_focus()
+
+    def _on_console_notebook_button_press(self, notebook: Gtk.Notebook, event: Gdk.EventButton) -> bool:
+        if event.type != Gdk.EventType.DOUBLE_BUTTON_PRESS or event.button != 1:
+            return False
+        if self.selected_task is None or not _is_empty_notebook_tab_area(notebook, event):
+            return False
+        self.new_console(task=self.selected_task)
+        return True
+
+    def _close_console_session(self, session: TerminalSession) -> bool:
+        if not self._confirm_close_console():
+            return False
+        page_num = self.console_notebook.page_num(session.page)
+        if page_num >= 0:
+            self.console_notebook.remove_page(page_num)
+        self.terminal_sessions.pop(session.session_id, None)
+        session.page.destroy()
+        self._update_codex_button_state()
+        return True
+
+    def _update_codex_button_state(self) -> None:
+        task = self.selected_task
+        running = task is not None and any(
+            session.kind == "codex"
+            for session in self._current_task_terminal_sessions(task)
+        )
+        context = self.run_codex_button.get_style_context()
+        if running:
+            context.add_class("codex-running")
+        else:
+            context.remove_class("codex-running")
 
     def _active_shell_for_task(self, task: TaskSummary) -> TerminalSession | None:
         page_num = self.console_notebook.get_current_page()
@@ -843,16 +882,28 @@ class WorkspaceGtkGui:
         copy_item = Gtk.MenuItem(label="Copy")
         paste_item = Gtk.MenuItem(label="Paste")
         select_all_item = Gtk.MenuItem(label="Select all")
+        close_item = Gtk.MenuItem(label=self._tr("close"))
         copy_item.set_sensitive(bool(terminal.get_has_selection()))
         copy_item.connect("activate", lambda *_: terminal.copy_clipboard())
         paste_item.connect("activate", lambda *_: terminal.paste_clipboard())
         select_all_item.connect("activate", lambda *_: terminal.select_all())
+        session = self._session_for_terminal(terminal)
+        close_item.set_sensitive(session is not None)
+        close_item.connect("activate", lambda *_: self._close_console_session(session) if session is not None else None)
         menu.append(copy_item)
         menu.append(paste_item)
         menu.append(Gtk.SeparatorMenuItem())
         menu.append(select_all_item)
+        menu.append(Gtk.SeparatorMenuItem())
+        menu.append(close_item)
         menu.show_all()
         return menu
+
+    def _session_for_terminal(self, terminal: Vte.Terminal) -> TerminalSession | None:
+        for session in self.terminal_sessions.values():
+            if session.terminal is terminal:
+                return session
+        return None
 
     def _require_task(self, show_dialog: bool = True) -> TaskSummary | None:
         if self.selected_task is not None:
@@ -1020,6 +1071,12 @@ class WorkspaceGtkGui:
         button:hover {{
             background: {colors['control_hover_background']};
         }}
+        button.codex-running {{
+            background: {colors['codex_running_background']};
+            color: {colors['codex_running_foreground']};
+            border-color: {colors['codex_running_border']};
+            box-shadow: 0 0 8px {colors['codex_running_glow']};
+        }}
         notebook tab {{
             background: {colors['tab_background']};
             color: {colors['muted_foreground']};
@@ -1121,6 +1178,26 @@ def _is_pane_separator_event(pane: Gtk.Paned, event: Gdk.EventButton, tolerance:
     if pane.get_orientation() == Gtk.Orientation.HORIZONTAL:
         return abs(event.x - position) <= tolerance
     return abs(event.y - position) <= tolerance
+
+
+def _is_empty_notebook_tab_area(notebook: Gtk.Notebook, event: Gdk.EventButton) -> bool:
+    tab_bottom = 0
+    tab_right = 0
+    for index in range(notebook.get_n_pages()):
+        page = notebook.get_nth_page(index)
+        tab = notebook.get_tab_label(page)
+        if tab is None:
+            continue
+        allocation = tab.get_allocation()
+        tab_bottom = max(tab_bottom, allocation.y + allocation.height)
+        tab_right = max(tab_right, allocation.x + allocation.width)
+    if tab_bottom == 0:
+        return event.y <= 36
+    return event.y <= tab_bottom + 8 and event.x > tab_right + 8
+
+
+def _terminal_session_sort_key(kind: str, session_id: int) -> tuple[int, int]:
+    return (0 if kind == "codex" else 1, session_id)
 
 
 def _task_path_for_name(workspace: Path, task_name: str) -> Path | None:
@@ -1312,6 +1389,10 @@ def _theme_colors(theme: str) -> dict[str, str]:
     if theme == "dark":
         return {
             "background": "#202124",
+            "codex_running_background": "#26384d",
+            "codex_running_border": "#7aa2f7",
+            "codex_running_foreground": "#ffffff",
+            "codex_running_glow": "rgba(122, 162, 247, 0.75)",
             "text_background": "#111315",
             "terminal_background": "#111315",
             "control_background": "#2b2f33",
@@ -1330,6 +1411,10 @@ def _theme_colors(theme: str) -> dict[str, str]:
         }
     return {
         "background": "#f2f2f2",
+        "codex_running_background": "#d9e7ff",
+        "codex_running_border": "#2f6fbb",
+        "codex_running_foreground": "#14345f",
+        "codex_running_glow": "rgba(47, 111, 187, 0.45)",
         "text_background": "#ffffff",
         "terminal_background": "#ffffff",
         "control_background": "#f8f8f8",

@@ -27,6 +27,7 @@ from codex_tools.tools.workspace_gui.gtk_ui import _is_pane_separator_event as g
 from codex_tools.tools.workspace_gui.gtk_ui import _task_init_command as gtk_task_init_command
 from codex_tools.tools.workspace_gui.gtk_ui import _task_path_for_name as gtk_task_path_for_name
 from codex_tools.tools.workspace_gui.gtk_ui import _terminal_palette as gtk_terminal_palette
+from codex_tools.tools.workspace_gui.gtk_ui import _terminal_session_sort_key as gtk_terminal_session_sort_key
 from codex_tools.tools.workspace_gui.gtk_ui import _theme_colors as gtk_theme_colors
 from codex_tools.tools.workspace_gui.ui import codex_console_command
 from codex_tools.tools.workspace_gui.ui import console_paste_text
@@ -402,6 +403,10 @@ def test_gtk_theme_colors_cover_widget_css_keys() -> None:
     required = {
         "background",
         "border",
+        "codex_running_background",
+        "codex_running_border",
+        "codex_running_foreground",
+        "codex_running_glow",
         "control_background",
         "control_hover_background",
         "foreground",
@@ -428,6 +433,16 @@ def test_gtk_dark_terminal_palette_uses_readable_blue() -> None:
     assert len(palette) == 16
     assert palette[4] == "#7aa2f7"
     assert "#0000ff" not in palette
+
+
+def test_gtk_terminal_session_sort_key_keeps_codex_first() -> None:
+    entries = [("shell", 1), ("codex", 3), ("shell", 2)]
+
+    assert sorted(entries, key=lambda item: gtk_terminal_session_sort_key(item[0], item[1])) == [
+        ("codex", 3),
+        ("shell", 1),
+        ("shell", 2),
+    ]
 
 
 def test_gtk_codex_prompt_includes_selected_language(tmp_path: Path) -> None:
