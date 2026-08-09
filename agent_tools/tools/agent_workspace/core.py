@@ -37,14 +37,6 @@ class TaskSummary:
 
 
 @dataclass(frozen=True)
-class GitRepoStatus:
-    path: Path
-    branch_line: str
-    changes: tuple[str, ...]
-    error: str | None = None
-
-
-@dataclass(frozen=True)
 class MarkdownChunk:
     text: str
     tag: str
@@ -215,7 +207,7 @@ def read_task_file(task: TaskSummary, filename: str) -> str:
 
 def run_task_check(task: TaskSummary, workspace: Path) -> str:
     checks = check_task(task.path, workspace=workspace.resolve())
-    return render_text(task.path, checks)
+    return render_text(task.path, checks, errors_only=True)
 
 
 def agent_workspace_settings_path() -> Path:
@@ -443,26 +435,6 @@ def find_dev_git_repos(task: TaskSummary) -> list[Path]:
         if git_dir.is_dir() or git_dir.is_file():
             repos.append(git_dir.parent)
     return repos
-
-
-def git_status(repo: Path) -> GitRepoStatus:
-    try:
-        completed = subprocess.run(
-            ["git", "-C", str(repo), "status", "--short", "--branch"],
-            check=False,
-            text=True,
-            capture_output=True,
-        )
-    except OSError as error:
-        return GitRepoStatus(path=repo, branch_line="", changes=(), error=str(error))
-
-    if completed.returncode != 0:
-        message = (completed.stderr or completed.stdout).strip()
-        return GitRepoStatus(path=repo, branch_line="", changes=(), error=message)
-
-    lines = completed.stdout.splitlines()
-    branch_line = lines[0] if lines else ""
-    return GitRepoStatus(path=repo, branch_line=branch_line, changes=tuple(lines[1:]))
 
 
 def _file_tokens(path: Path) -> int:

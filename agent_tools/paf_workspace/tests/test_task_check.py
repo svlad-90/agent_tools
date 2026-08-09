@@ -5,6 +5,7 @@ from pathlib import Path
 from paf_workspace.task_check import Check
 from paf_workspace.task_check import check_task
 from paf_workspace.task_check import initialize_task_layout
+from paf_workspace.task_check import render_text
 
 
 def test_initialize_task_layout_creates_description_and_context(tmp_path: Path) -> None:
@@ -28,6 +29,21 @@ def test_missing_task_description_is_warning_for_existing_task(tmp_path: Path) -
 
     assert _has_check(checks, "WARN", "task-description-missing")
     assert not any(check.status == "FAIL" for check in checks)
+
+
+def test_render_text_errors_only_keeps_summary_and_failures(tmp_path: Path) -> None:
+    checks = [
+        Check("PASS", "layout-dir", "required directory exists"),
+        Check("WARN", "task-description-missing", "TASK_DESCRIPTION.md is missing"),
+        Check("FAIL", "task-dir", "task directory is missing"),
+    ]
+
+    report = render_text(tmp_path / "tasks" / "missing-task", checks, errors_only=True)
+
+    assert "Summary: 1 pass, 1 warn, 1 fail" in report
+    assert "FAIL task-dir" in report
+    assert "PASS layout-dir" not in report
+    assert "WARN task-description-missing" not in report
 
 
 def _has_check(checks: list[Check], status: str, code: str) -> bool:

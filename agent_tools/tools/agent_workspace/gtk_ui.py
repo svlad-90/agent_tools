@@ -4,6 +4,7 @@ from collections.abc import Iterator
 from dataclasses import dataclass
 from pathlib import Path
 import argparse
+import json
 import os
 import shlex
 import shutil
@@ -29,8 +30,6 @@ from .core import TaskSummary
 from .core import AGENT_WORKSPACE_LANGUAGES
 from .core import AGENT_WORKSPACE_THEMES
 from .core import discover_tasks
-from .core import find_dev_git_repos
-from .core import git_status
 from .core import load_task_actions
 from .core import load_agent_workspace_settings
 from .core import read_task_file
@@ -63,7 +62,6 @@ TRANSLATIONS = {
         "diagrams": "Diagrams",
         "diff_reports": "Diff reports",
         "edit": "Edit",
-        "git_status": "Git status",
         "language": "Language",
         "logs": "Logs",
         "missing_context": "missing context",
@@ -117,7 +115,6 @@ TRANSLATIONS = {
         "diagrams": "Диаграммы",
         "diff_reports": "Diff-отчеты",
         "edit": "Редактировать",
-        "git_status": "Git status",
         "language": "Язык",
         "logs": "Логи",
         "missing_context": "нет контекста",
@@ -171,7 +168,6 @@ TRANSLATIONS = {
         "diagrams": "Діаграми",
         "diff_reports": "Diff-звіти",
         "edit": "Редагувати",
-        "git_status": "Git status",
         "language": "Мова",
         "logs": "Логи",
         "missing_context": "немає контексту",
@@ -260,7 +256,6 @@ class WorkspaceGtkGui:
         self.repo_scan_generation = 0
         self.repo_scan_generations: dict[Path, int] = {}
         self.repo_scans_in_progress: set[Path] = set()
-        self.pending_git_status_for: Path | None = None
         self.task_actions_signature: tuple[Path | None, int | None] = (None, None)
         self.task_actions_monitor: Gio.FileMonitor | None = None
         self.task_actions_monitor_path: Path | None = None
@@ -338,6 +333,7 @@ class WorkspaceGtkGui:
         )
         self.task_view.append_column(self.task_column)
         self.task_view.get_selection().connect("changed", self._on_task_selected)
+        self.task_view.connect("key-press-event", self._on_task_view_key_press)
         self.task_view.connect("row-activated", lambda *_: self.open_task())
         self.task_view.add_events(Gdk.EventMask.BUTTON_PRESS_MASK)
         self.task_view.connect("button-press-event", self._on_task_view_button_press)
@@ -396,13 +392,13 @@ class WorkspaceGtkGui:
         box.pack_start(repo_row, False, False, 0)
         self.git_repo_combo = Gtk.ComboBoxText()
         self.git_repo_combo.set_hexpand(True)
+        self.git_repo_combo.connect("changed", self._on_git_repo_selected)
         repo_row.pack_start(self.git_repo_combo, True, True, 0)
         repo_row.pack_start(self._button("scan_repos", self.scan_selected_git_repos), False, False, 0)
 
         action_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
         box.pack_start(action_row, False, False, 0)
         action_row.pack_start(self._button("run_task_check", self.run_selected_task_check), False, False, 0)
-        action_row.pack_start(self._button("git_status", self.run_selected_git_status), False, False, 0)
         self.task_actions_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
         action_row.pack_start(self.task_actions_box, False, False, 0)
         self.actions_message = Gtk.Label(label="")
@@ -622,6 +618,9 @@ class WorkspaceGtkGui:
             tree.get_selection().select_path(path)
         self._task_context_menu().popup_at_pointer(event)
         return True
+
+    def _on_task_view_key_press(self, _tree: Gtk.TreeView, event: Gdk.EventKey) -> bool:
+        return event.keyval in {Gdk.KEY_Return, Gdk.KEY_KP_Enter, Gdk.KEY_ISO_Enter, Gdk.KEY_space}
 
     def _task_context_menu(self) -> Gtk.Menu:
         has_task = self.selected_task is not None
@@ -873,18 +872,6 @@ class WorkspaceGtkGui:
         if task is not None:
             self._send_command_to_task_terminal(task, task_check_shell_command(self.workspace, task))
 
-    def run_selected_git_status(self, *_args: object) -> None:
-        task = self._require_task()
-        if task is None:
-            return
-        repo = self._selected_git_repo()
-        if repo is None:
-            self.pending_git_status_for = task.path
-            self._refresh_git_repos_async(task)
-            return
-        if repo is not None:
-            self._send_command_to_task_terminal(task, shlex.join(["git", "-C", str(repo), "status", "--short", "--branch"]))
-
     def scan_selected_git_repos(self, *_args: object) -> None:
         task = self._require_task()
         if task is not None:
@@ -954,7 +941,25 @@ class WorkspaceGtkGui:
         self._update_actions_message()
 
         def worker() -> None:
-            for repo in _iter_git_repos(task):
+            completed = subprocess.run(
+                [
+                    sys_executable(),
+                    "-m",
+                    "agent_tools.tools.agent_workspace.actions",
+                    "scan-repos",
+                    "--workspace",
+                    str(self.workspace),
+                    "--task",
+                    str(task.path),
+                ],
+                check=False,
+                text=True,
+                capture_output=True,
+            )
+            if completed.returncode != 0:
+                GLib.idle_add(self._finish_git_repo_scan_result, task_path, generation)
+                return
+            for repo in [Path(path) for path in json.loads(completed.stdout)]:
                 GLib.idle_add(self._append_git_repo_scan_result, task_path, generation, repo)
             GLib.idle_add(self._finish_git_repo_scan_result, task_path, generation)
 
@@ -991,15 +996,29 @@ class WorkspaceGtkGui:
             if not repos:
                 self.repo_status_message = self._tr("no_git_repos")
             self._update_actions_message()
-        if self.pending_git_status_for == task_path:
-            self.pending_git_status_for = None
-            repo = self._selected_git_repo()
-            if repo is not None:
-                self.run_selected_git_status()
         return False
 
     def _refresh_git_repos(self, task: TaskSummary) -> None:
-        self._set_git_repos(task, find_dev_git_repos(task))
+        completed = subprocess.run(
+            [
+                sys_executable(),
+                "-m",
+                "agent_tools.tools.agent_workspace.actions",
+                "scan-repos",
+                "--workspace",
+                str(self.workspace),
+                "--task",
+                str(task.path),
+            ],
+            check=False,
+            text=True,
+            capture_output=True,
+        )
+        if completed.returncode != 0:
+            self.repo_status_message = (completed.stderr or completed.stdout).strip()
+            self._update_actions_message()
+            return
+        self._set_git_repos(task, [Path(path) for path in json.loads(completed.stdout)])
 
     def _set_git_repos(self, task: TaskSummary, repos: list[Path]) -> None:
         self.git_repo_options = repos
@@ -1067,6 +1086,16 @@ class WorkspaceGtkGui:
         if index < 0 or index >= len(self.git_repo_options):
             return None
         return self.git_repo_options[index]
+
+    def _on_git_repo_selected(self, *_args: object) -> None:
+        task = self.selected_task
+        if task is None:
+            return
+        repo = self._selected_git_repo()
+        session = self._active_shell_for_task(task)
+        if repo is None or session is None:
+            return
+        _feed_terminal(session.terminal, f"{shlex.join(['cd', str(repo)])}\n")
 
     def new_console(self, *_args: object, task: TaskSummary | None = None) -> int | None:
         task = task or self._require_task()
@@ -1878,20 +1907,6 @@ def _files_under(root: Path) -> list[Path]:
     return paths
 
 
-def _iter_git_repos(task: TaskSummary) -> Iterator[Path]:
-    dev = task.path / "dev"
-    if not dev.is_dir():
-        return
-    for root, dirs, _files in os.walk(dev):
-        dirs.sort()
-        root_path = Path(root)
-        if ".git" in dirs:
-            yield root_path
-            dirs[:] = []
-            continue
-        dirs[:] = [name for name in dirs if name != ".git"]
-
-
 def codex_task_context_message(task: TaskSummary, workspace: Path, language: str = "en") -> str:
     return (
         f"We are working in workspace task `{task.name}`. "
@@ -1923,10 +1938,12 @@ def task_check_shell_command(workspace: Path, task: TaskSummary) -> str:
                 [
                     sys_executable(),
                     "-m",
-                    "agent_tools.paf_workspace.task_check",
-                    str(task.path),
+                    "agent_tools.tools.agent_workspace.actions",
+                    "task-check",
                     "--workspace",
                     str(workspace),
+                    "--task",
+                    str(task.path),
                 ]
             ),
         ]

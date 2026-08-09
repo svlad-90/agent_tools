@@ -38,6 +38,12 @@ Use JSON output when another script should consume the result:
 python -m agent_tools.paf_workspace.task_check task-name --json
 ```
 
+Show only failing checks plus the summary when the full pass list is too noisy:
+
+```sh
+python -m agent_tools.paf_workspace.task_check task-name --errors-only
+```
+
 By default warnings do not make the command fail. Use `--strict-warnings` when
 the task should be complete before a long build or runtime run:
 

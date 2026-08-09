@@ -11,7 +11,6 @@ from agent_tools.tools.agent_workspace.core import TaskAction
 from agent_tools.tools.agent_workspace.core import TaskSummary
 from agent_tools.tools.agent_workspace.core import discover_tasks
 from agent_tools.tools.agent_workspace.core import find_dev_git_repos
-from agent_tools.tools.agent_workspace.core import git_status
 from agent_tools.tools.agent_workspace.core import load_task_actions
 from agent_tools.tools.agent_workspace.core import load_agent_workspace_settings
 from agent_tools.tools.agent_workspace.core import parse_console_output
@@ -21,16 +20,17 @@ from agent_tools.tools.agent_workspace.core import save_agent_workspace_settings
 from agent_tools.tools.agent_workspace.core import run_task_action
 from agent_tools.tools.agent_workspace.core import run_task_check
 from agent_tools.tools.agent_workspace.gtk_ui import WorkspaceGtkGui
+from agent_tools.tools.agent_workspace.gtk_ui import TerminalSession
 from agent_tools.tools.agent_workspace.gtk_ui import TRANSLATIONS as GTK_TRANSLATIONS
 from agent_tools.tools.agent_workspace.gtk_ui import codex_task_context_message as gtk_codex_task_context_message
 from agent_tools.tools.agent_workspace.gtk_ui import task_action_shell_command as gtk_task_action_shell_command
+from agent_tools.tools.agent_workspace.gtk_ui import task_check_shell_command as gtk_task_check_shell_command
 from agent_tools.tools.agent_workspace.gtk_ui import _artifact_context_action as gtk_artifact_context_action
 from agent_tools.tools.agent_workspace.gtk_ui import _artifact_delete_paths as gtk_artifact_delete_paths
 from agent_tools.tools.agent_workspace.gtk_ui import _artifact_monitor_dirs as gtk_artifact_monitor_dirs
 from agent_tools.tools.agent_workspace.gtk_ui import _is_pane_separator_event as gtk_is_pane_separator_event
 from agent_tools.tools.agent_workspace.gtk_ui import _svg_open_command as gtk_svg_open_command
 from agent_tools.tools.agent_workspace.gtk_ui import _task_artifact_entries as gtk_task_artifact_entries
-from agent_tools.tools.agent_workspace.gtk_ui import _iter_git_repos as gtk_iter_git_repos
 from agent_tools.tools.agent_workspace.gtk_ui import _task_init_command as gtk_task_init_command
 from agent_tools.tools.agent_workspace.gtk_ui import _task_actions_signature as gtk_task_actions_signature
 from agent_tools.tools.agent_workspace.gtk_ui import _task_path_for_name as gtk_task_path_for_name
@@ -48,10 +48,11 @@ from agent_tools.tools.agent_workspace.ui import console_tab_title
 from agent_tools.tools.agent_workspace.ui import ConsoleSession
 from agent_tools.tools.agent_workspace.ui import codex_task_context_message
 from agent_tools.tools.agent_workspace.ui import embedded_terminal_command
-from agent_tools.tools.agent_workspace.ui import render_git_status
 from agent_tools.tools.agent_workspace.ui import task_action_shell_command
 from agent_tools.tools.agent_workspace.ui import task_check_shell_command
 from agent_tools.tools.agent_workspace.ui import AgentWorkspace
+from agent_tools.tools.agent_workspace.actions import main as actions_main
+from gi.repository import Gdk
 
 
 class FakeConsoleText:
@@ -130,6 +131,19 @@ class FakePaneEvent:
         self.y = y
 
 
+class FakeGtkKeyEvent:
+    def __init__(self, keyval: int) -> None:
+        self.keyval = keyval
+
+
+class FakeGtkTerminal:
+    def __init__(self) -> None:
+        self.fed: list[object] = []
+
+    def feed_child(self, data: object, *_args: object) -> None:
+        self.fed.append(data)
+
+
 def test_discover_tasks_reports_description_context_and_budget(tmp_path: Path) -> None:
     task = tmp_path / "tasks" / "sample-task"
     task.mkdir(parents=True)
@@ -166,32 +180,91 @@ def test_run_task_check_returns_text_report(tmp_path: Path) -> None:
     report = run_task_check(discover_tasks(tmp_path)[0], tmp_path)
 
     assert "Summary:" in report
-    assert "PASS task-description" in report
+    assert "PASS task-description" not in report
 
 
-def test_find_dev_git_repos_and_status(tmp_path: Path) -> None:
+def test_find_dev_git_repos(tmp_path: Path) -> None:
     task = tmp_path / "tasks" / "sample-task"
     repo = task / "dev" / "repo"
     repo.mkdir(parents=True)
     subprocess.run(["git", "-C", str(repo), "init"], check=True, capture_output=True)
 
     repos = find_dev_git_repos(discover_tasks_with_context(task, tmp_path))
-    status = git_status(repo)
 
     assert repos == [repo]
-    assert status.error is None
-    assert status.branch_line.startswith("##")
 
 
-def test_gtk_iter_git_repos_yields_nested_repos(tmp_path: Path) -> None:
+def test_agent_workspace_actions_scan_repos_outputs_json(tmp_path: Path, capsys: object) -> None:
     task = tmp_path / "tasks" / "sample-task"
     repo = task / "dev" / "repo"
-    nested_repo = task / "dev" / "container" / "nested"
-    (repo / ".git").mkdir(parents=True)
-    (nested_repo / ".git").mkdir(parents=True)
-    summary = TaskSummary("sample-task", task, True, True, 1, 1, False)
+    repo.mkdir(parents=True)
+    subprocess.run(["git", "-C", str(repo), "init"], check=True, capture_output=True)
 
-    assert list(gtk_iter_git_repos(summary)) == [nested_repo, repo]
+    exit_code = actions_main(["scan-repos", "--workspace", str(tmp_path), "--task", str(task)])
+
+    captured = capsys.readouterr()
+    assert exit_code == 0
+    assert json.loads(captured.out) == [str(repo)]
+
+
+def test_agent_workspace_actions_task_check_uses_compact_output(tmp_path: Path, capsys: object) -> None:
+    task = tmp_path / "tasks" / "sample-task"
+    for rel_path in ("dev", "Dockerfile", "scripts", "report/diff", "report/puml"):
+        (task / rel_path).mkdir(parents=True, exist_ok=True)
+    (task / "TASK_DESCRIPTION.md").write_text("# Description\n", encoding="utf-8")
+    (task / "TASK_CONTEXT.md").write_text(_task_context(), encoding="utf-8")
+
+    exit_code = actions_main(["task-check", "--workspace", str(tmp_path), "--task", str(task)])
+
+    captured = capsys.readouterr()
+    assert exit_code == 0
+    assert "Summary:" in captured.out
+    assert "PASS task-description" not in captured.out
+
+
+def test_task_table_keyboard_activation_is_ignored() -> None:
+    tk_gui = object.__new__(AgentWorkspace)
+    gtk_gui = object.__new__(WorkspaceGtkGui)
+
+    assert tk_gui._ignore_task_tree_keyboard_activation(object()) == "break"
+    assert gtk_gui._on_task_view_key_press(object(), FakeGtkKeyEvent(Gdk.KEY_Return))
+    assert gtk_gui._on_task_view_key_press(object(), FakeGtkKeyEvent(Gdk.KEY_KP_Enter))
+    assert gtk_gui._on_task_view_key_press(object(), FakeGtkKeyEvent(Gdk.KEY_space))
+    assert not gtk_gui._on_task_view_key_press(object(), FakeGtkKeyEvent(Gdk.KEY_Down))
+
+
+def test_tk_repo_selection_changes_active_shell_directory(tmp_path: Path) -> None:
+    task = TaskSummary("sample-task", tmp_path / "tasks" / "sample-task", True, True, 1, 1, False)
+    repo = task.path / "dev" / "repo"
+    gui = object.__new__(AgentWorkspace)
+    gui.selected_task = task
+    session = ConsoleSession(1, "Shell", task.path, "shell", None, None, None, None, [])
+    written: list[tuple[int, bytes, bool]] = []
+    gui._current_git_repo_without_dialog = lambda: repo  # type: ignore[method-assign]
+    gui._active_console = lambda: session  # type: ignore[method-assign]
+    gui._write_to_console = lambda session_id, data, protect_current_line=False: written.append(  # type: ignore[method-assign]
+        (session_id, data, protect_current_line)
+    )
+
+    gui._on_git_repo_selected(object())
+
+    assert written == [(1, f"cd {repo}\n".encode(), True)]
+
+
+def test_gtk_repo_selection_changes_active_shell_directory(tmp_path: Path) -> None:
+    task = TaskSummary("sample-task", tmp_path / "tasks" / "sample-task", True, True, 1, 1, False)
+    repo = task.path / "dev" / "repo"
+    terminal = FakeGtkTerminal()
+    session = TerminalSession(1, task.path, "shell", terminal, object())
+    gui = object.__new__(WorkspaceGtkGui)
+    gui.selected_task = task
+    gui.git_repo_options = [repo]
+    gui.git_repo_combo = type("Combo", (), {"get_active": lambda self: 0})()
+    gui._active_shell_for_task = lambda selected_task: session  # type: ignore[method-assign]
+
+    gui._on_git_repo_selected()
+
+    assert terminal.fed == [f"cd {repo}\n"]
 
 
 def test_gtk_task_artifact_entries_groups_task_outputs(tmp_path: Path) -> None:
@@ -302,17 +375,6 @@ def test_render_markdown_chunks_formats_common_blocks() -> None:
     ]
 
 
-def test_render_git_status_reports_one_repo(tmp_path: Path) -> None:
-    repo = tmp_path / "repo"
-    repo.mkdir()
-    subprocess.run(["git", "-C", str(repo), "init"], check=True, capture_output=True)
-
-    report = render_git_status(repo)
-
-    assert str(repo) in report
-    assert report.count("##") == 1
-
-
 def test_codex_task_context_message_points_at_selected_task(tmp_path: Path) -> None:
     task = tmp_path / "tasks" / "sample-task"
     task.mkdir(parents=True)
@@ -375,10 +437,13 @@ def test_task_check_shell_command_runs_from_workspace(tmp_path: Path) -> None:
     summary = discover_tasks_with_context(task, tmp_path)
 
     command = task_check_shell_command(tmp_path, summary)
+    gtk_command = gtk_task_check_shell_command(tmp_path, summary)
 
-    assert command.startswith(f"cd {tmp_path} && ")
-    assert "agent_tools.paf_workspace.task_check" in command
-    assert str(task) in command
+    for command in (command, gtk_command):
+        assert command.startswith(f"cd {tmp_path} && ")
+        assert "agent_tools.tools.agent_workspace.actions" in command
+        assert "task-check" in command
+        assert str(task) in command
 
 
 def test_task_action_shell_command_runs_in_action_cwd(tmp_path: Path) -> None:

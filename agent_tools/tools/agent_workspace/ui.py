@@ -5,6 +5,7 @@ from datetime import datetime
 from pathlib import Path
 import argparse
 import fcntl
+import json
 import os
 import platform
 import pty
@@ -28,8 +29,6 @@ from .core import TaskAction
 from .core import TaskSummary
 from .core import AGENT_WORKSPACE_THEMES
 from .core import discover_tasks
-from .core import find_dev_git_repos
-from .core import git_status
 from .core import load_task_actions
 from .core import load_agent_workspace_settings
 from .core import parse_console_output
@@ -145,6 +144,9 @@ class AgentWorkspace:
         self.task_tree.pack(fill=tk.BOTH, expand=True)
         self.task_tree.bind("<<TreeviewSelect>>", self._on_task_selected)
         self.task_tree.bind("<Double-1>", self._on_task_double_clicked)
+        self.task_tree.bind("<Return>", self._ignore_task_tree_keyboard_activation)
+        self.task_tree.bind("<KP_Enter>", self._ignore_task_tree_keyboard_activation)
+        self.task_tree.bind("<space>", self._ignore_task_tree_keyboard_activation)
         self.task_tree.bind("<Button-3>", self._on_task_context_menu)
         self.task_tree.bind("<Button-2>", self._on_task_context_menu)
         self.task_context_menu = tk.Menu(self.root, tearoff=False)
@@ -216,11 +218,6 @@ class AgentWorkspace:
         self.git_repo_combo.pack(side=tk.LEFT, padx=2, pady=2)
         self.git_repo_combo.bind("<<ComboboxSelected>>", self._on_git_repo_selected)
         ttk.Button(toolbar, text="Scan repos", command=self.scan_selected_git_repos).pack(
-            side=tk.LEFT,
-            padx=2,
-            pady=2,
-        )
-        ttk.Button(toolbar, text="Git status", command=self.run_selected_git_status).pack(
             side=tk.LEFT,
             padx=2,
             pady=2,
@@ -328,6 +325,9 @@ class AgentWorkspace:
 
     def _on_task_double_clicked(self, _event: object) -> None:
         self.open_task()
+
+    def _ignore_task_tree_keyboard_activation(self, _event: object) -> str:
+        return "break"
 
     def _on_task_context_menu(self, event: tk.Event[tk.Misc]) -> None:
         row = self.task_tree.identify_row(event.y)
@@ -448,16 +448,6 @@ class AgentWorkspace:
             return
         self._send_command_to_task_console(task, task_check_shell_command(self.workspace, task))
 
-    def run_selected_git_status(self) -> None:
-        task = self._require_task()
-        if task is None:
-            return
-        self._ensure_git_repos_loaded(task)
-        repo = self._selected_git_repo()
-        if repo is None:
-            return
-        self._send_command_to_task_console(task, shlex.join(["git", "-C", str(repo), "status", "--short", "--branch"]))
-
     def scan_selected_git_repos(self) -> None:
         task = self._require_task()
         if task is not None:
@@ -504,7 +494,25 @@ class AgentWorkspace:
         self._refresh_git_repos(task)
 
     def _refresh_git_repos(self, task: TaskSummary) -> None:
-        self.git_repo_options = find_dev_git_repos(task)
+        completed = subprocess.run(
+            [
+                sys_executable(),
+                "-m",
+                "agent_tools.tools.agent_workspace.actions",
+                "scan-repos",
+                "--workspace",
+                str(self.workspace),
+                "--task",
+                str(task.path),
+            ],
+            check=False,
+            text=True,
+            capture_output=True,
+        )
+        if completed.returncode != 0:
+            self.actions_message_var.set((completed.stderr or completed.stdout).strip())
+            return
+        self.git_repo_options = [Path(path) for path in json.loads(completed.stdout)]
         self.git_repos_loaded_for = task.path
         labels = [self._repo_label(task, repo) for repo in self.git_repo_options]
         self.git_repo_combo.configure(values=labels)
@@ -517,7 +525,18 @@ class AgentWorkspace:
         self.git_repo_var.set(labels[0])
 
     def _on_git_repo_selected(self, _event: object) -> None:
-        return
+        task = self.selected_task
+        repo = self._current_git_repo_without_dialog()
+        session = self._active_console()
+        if task is None or repo is None or session is None:
+            return
+        if session.kind != "shell" or session.task_path != task.path:
+            return
+        self._write_to_console(
+            session.session_id,
+            f"{shlex.join(['cd', str(repo)])}\n".encode(),
+            protect_current_line=True,
+        )
 
     def _selected_git_repo(self) -> Path | None:
         if not self.git_repo_options:
@@ -1266,18 +1285,6 @@ class AgentWorkspace:
         self.root.destroy()
 
 
-def render_git_status(repo: Path) -> str:
-    status = git_status(repo)
-    lines = [str(repo), status.branch_line]
-    if status.error:
-        lines.append(f"error: {status.error}")
-    elif status.changes:
-        lines.extend(status.changes)
-    else:
-        lines.append("clean")
-    return "\n".join(lines) + "\n"
-
-
 def codex_task_context_message(task: TaskSummary, workspace: Path) -> str:
     return (
         f"We are working in workspace task `{task.name}`. "
@@ -1332,10 +1339,12 @@ def task_check_shell_command(workspace: Path, task: TaskSummary) -> str:
                 [
                     sys_executable(),
                     "-m",
-                    "agent_tools.paf_workspace.task_check",
-                    str(task.path),
+                    "agent_tools.tools.agent_workspace.actions",
+                    "task-check",
                     "--workspace",
                     str(workspace),
+                    "--task",
+                    str(task.path),
                 ]
             ),
         ]
