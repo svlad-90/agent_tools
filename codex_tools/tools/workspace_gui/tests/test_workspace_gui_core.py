@@ -18,6 +18,7 @@ from codex_tools.tools.workspace_gui.core import rough_token_count
 from codex_tools.tools.workspace_gui.core import save_workspace_gui_settings
 from codex_tools.tools.workspace_gui.core import run_task_action
 from codex_tools.tools.workspace_gui.core import run_task_check
+from codex_tools.tools.workspace_gui.ui import codex_console_command
 from codex_tools.tools.workspace_gui.ui import console_tab_title
 from codex_tools.tools.workspace_gui.ui import codex_task_context_message
 from codex_tools.tools.workspace_gui.ui import render_git_status
@@ -136,6 +137,21 @@ def test_codex_task_context_message_points_at_selected_task(tmp_path: Path) -> N
     assert f"Task directory: {task}" in message
     assert "TASK_DESCRIPTION.md" in message
     assert "TASK_CONTEXT.md" in message
+
+
+def test_codex_console_command_passes_prompt_and_workspace(tmp_path: Path) -> None:
+    task = tmp_path / "tasks" / "sample-task"
+    task.mkdir(parents=True)
+    summary = discover_tasks_with_context(task, tmp_path)
+
+    command = codex_console_command(tmp_path, summary)
+
+    assert command[-4:] == [
+        "--cd",
+        str(tmp_path),
+        "--no-alt-screen",
+        codex_task_context_message(summary, tmp_path),
+    ]
 
 
 def test_console_tab_title_uses_stack_index_before_kind() -> None:

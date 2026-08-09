@@ -10,6 +10,7 @@ import platform
 import pty
 import queue
 import select
+import shutil
 import subprocess
 import threading
 import tkinter as tk
@@ -636,9 +637,9 @@ class WorkspaceGui:
             return
         env = os.environ.copy()
         env.setdefault("TERM", "xterm-256color")
-        session_id = self._start_console_process(
+        self._start_console_process(
             task=task,
-            command=["codex"],
+            command=codex_console_command(self.workspace, task),
             cwd=self.workspace,
             env=env,
             title_prefix="codex",
@@ -647,8 +648,6 @@ class WorkspaceGui:
                 f"Task context: {task.name} ({task.path})\n"
             ),
         )
-        if session_id is not None:
-            self.root.after(1000, lambda: self._send_codex_task_context(session_id, task))
 
     def _start_console_process(
         self,
@@ -711,10 +710,6 @@ class WorkspaceGui:
             daemon=True,
         ).start()
         return session_id
-
-    def _send_codex_task_context(self, session_id: int, task: TaskSummary) -> None:
-        message = codex_task_context_message(task, self.workspace)
-        self._write_to_console(session_id, message.encode() + b"\r")
 
     def close_active_console(self) -> None:
         session = self._active_console()
@@ -1116,6 +1111,26 @@ def codex_task_context_message(task: TaskSummary, workspace: Path) -> str:
         "Before changing files, read that task's TASK_DESCRIPTION.md and "
         "TASK_CONTEXT.md and treat them as the active task context."
     )
+
+
+def codex_console_command(workspace: Path, task: TaskSummary) -> list[str]:
+    return [
+        _codex_executable(),
+        "--cd",
+        str(workspace),
+        "--no-alt-screen",
+        codex_task_context_message(task, workspace),
+    ]
+
+
+def _codex_executable() -> str:
+    executable = shutil.which("codex")
+    if executable:
+        return executable
+    local_bin = Path.home() / ".local" / "bin" / "codex"
+    if local_bin.is_file():
+        return str(local_bin)
+    return "codex"
 
 
 def console_tab_title(index: int, kind: str) -> str:
