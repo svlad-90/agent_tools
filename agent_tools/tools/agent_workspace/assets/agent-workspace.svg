@@ -17,11 +17,9 @@
     <path d="M26 48h76" stroke="#2f3842" stroke-width="4"/>
     <circle cx="39" cy="38" r="4" fill="#7aa2f7"/>
     <circle cx="52" cy="38" r="4" fill="#7ec699"/>
-    <path d="M58 60c-4-5-10-7-16-5-9 3-13 14-8 23 5 9 18 10 25 2"
-          fill="none" stroke="#f5f7fa" stroke-width="9"
-          stroke-linecap="round" stroke-linejoin="round"/>
-    <rect x="68" y="55" width="32" height="9" rx="4.5" fill="#f5f7fa"/>
-    <rect x="79.5" y="55" width="9" height="32" rx="4.5" fill="#f5f7fa"/>
+    <text x="64" y="79" text-anchor="middle"
+          font-family="Inter, Arial, sans-serif" font-size="34" font-weight="800"
+          fill="#f5f7fa">AW</text>
   </g>
   <path d="M36 101h56" stroke="#7aa2f7" stroke-opacity="0.65" stroke-width="4" stroke-linecap="round"/>
 </svg>
