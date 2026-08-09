@@ -26,6 +26,7 @@ from codex_tools.tools.workspace_gui.gtk_ui import task_action_shell_command as 
 from codex_tools.tools.workspace_gui.gtk_ui import _is_pane_separator_event as gtk_is_pane_separator_event
 from codex_tools.tools.workspace_gui.gtk_ui import _task_init_command as gtk_task_init_command
 from codex_tools.tools.workspace_gui.gtk_ui import _task_path_for_name as gtk_task_path_for_name
+from codex_tools.tools.workspace_gui.gtk_ui import _terminal_palette as gtk_terminal_palette
 from codex_tools.tools.workspace_gui.gtk_ui import _theme_colors as gtk_theme_colors
 from codex_tools.tools.workspace_gui.ui import codex_console_command
 from codex_tools.tools.workspace_gui.ui import console_paste_text
@@ -419,6 +420,14 @@ def test_gtk_theme_colors_cover_widget_css_keys() -> None:
 
     assert required <= set(gtk_theme_colors("dark"))
     assert required <= set(gtk_theme_colors("light"))
+
+
+def test_gtk_dark_terminal_palette_uses_readable_blue() -> None:
+    palette = gtk_terminal_palette("dark")
+
+    assert len(palette) == 16
+    assert palette[4] == "#7aa2f7"
+    assert "#0000ff" not in palette
 
 
 def test_gtk_codex_prompt_includes_selected_language(tmp_path: Path) -> None:

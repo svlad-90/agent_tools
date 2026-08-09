@@ -49,6 +49,7 @@ TRANSLATIONS = {
         "delete_task": "Delete task",
         "desc": "desc",
         "details": "Details",
+        "edit": "Edit",
         "git_status": "Git status",
         "language": "Language",
         "missing_context": "missing context",
@@ -62,6 +63,7 @@ TRANSLATIONS = {
         "reload_actions": "Reload actions",
         "run_codex": "Run codex",
         "run_task_check": "Run task_check",
+        "save": "Save",
         "scan_repos": "Scan repos",
         "select_task_first": "Select a task first",
         "settings": "Settings",
@@ -89,6 +91,7 @@ TRANSLATIONS = {
         "delete_task": "Удалить задачу",
         "desc": "описание",
         "details": "Детали",
+        "edit": "Редактировать",
         "git_status": "Git status",
         "language": "Язык",
         "missing_context": "нет контекста",
@@ -102,6 +105,7 @@ TRANSLATIONS = {
         "reload_actions": "Обновить actions",
         "run_codex": "Run codex",
         "run_task_check": "Run task_check",
+        "save": "Сохранить",
         "scan_repos": "Сканировать repo",
         "select_task_first": "Сначала выбери задачу",
         "settings": "Настройки",
@@ -129,6 +133,7 @@ TRANSLATIONS = {
         "delete_task": "Видалити задачу",
         "desc": "опис",
         "details": "Деталі",
+        "edit": "Редагувати",
         "git_status": "Git status",
         "language": "Мова",
         "missing_context": "немає контексту",
@@ -142,6 +147,7 @@ TRANSLATIONS = {
         "reload_actions": "Оновити actions",
         "run_codex": "Run codex",
         "run_task_check": "Run task_check",
+        "save": "Зберегти",
         "scan_repos": "Сканувати repo",
         "select_task_first": "Спочатку вибери задачу",
         "settings": "Налаштування",
@@ -196,6 +202,9 @@ class WorkspaceGtkGui:
         self.last_window_x = 0
         self.last_window_y = 0
         self.label_widgets: dict[str, Gtk.Widget] = {}
+        self.detail_editing: dict[Gtk.TextView, bool] = {}
+        self.detail_original_text: dict[Gtk.TextView, str] = {}
+        self.detail_filenames: dict[Gtk.TextView, str] = {}
 
         self.window = Gtk.Window(title=f"{self._tr('window_title')} - {self.workspace}")
         self.header_bar = Gtk.HeaderBar(title=f"{self._tr('window_title')} - {self.workspace}")
@@ -215,8 +224,6 @@ class WorkspaceGtkGui:
         toolbar = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
         toolbar.set_border_width(6)
         root.pack_start(toolbar, False, False, 0)
-        toolbar.pack_start(self._button("refresh", self.refresh_tasks), False, False, 0)
-        toolbar.pack_start(self._button("open_workspace", lambda *_: open_path(self.workspace)), False, False, 0)
         toolbar.pack_start(self._button("settings", self.open_settings), False, False, 0)
         self.summary_label = Gtk.Label(label="")
         self.summary_label.set_xalign(0)
@@ -254,6 +261,8 @@ class WorkspaceGtkGui:
         pane.connect("button-press-event", self._on_details_pane_button_press)
         self.description_view = _text_view(self.text_font_size, editable=False)
         self.context_view = _text_view(self.text_font_size, editable=False)
+        self._register_detail_view(self.description_view, "TASK_DESCRIPTION.md")
+        self._register_detail_view(self.context_view, "TASK_CONTEXT.md")
         pane.pack1(_scrolled(self.description_view), resize=True, shrink=False)
         pane.pack2(_scrolled(self.context_view), resize=True, shrink=False)
         GLib.idle_add(self._set_details_default_split)
@@ -310,6 +319,8 @@ class WorkspaceGtkGui:
         if row_iter is None:
             return
         self.selected_task = model[row_iter][1]
+        self._leave_detail_edit_mode(self.description_view)
+        self._leave_detail_edit_mode(self.context_view)
         self._set_markdown(self.description_view, read_task_file(self.selected_task, "TASK_DESCRIPTION.md"))
         self._set_markdown(self.context_view, read_task_file(self.selected_task, "TASK_CONTEXT.md"))
         self._reset_actions()
@@ -448,6 +459,71 @@ class WorkspaceGtkGui:
                 self.console_notebook.remove_page(page_num)
             self.terminal_sessions.pop(session_id, None)
             session.page.destroy()
+
+    def _register_detail_view(self, view: Gtk.TextView, filename: str) -> None:
+        self.detail_editing[view] = False
+        self.detail_original_text[view] = ""
+        self.detail_filenames[view] = filename
+        view.add_events(Gdk.EventMask.BUTTON_PRESS_MASK)
+        view.connect("button-press-event", self._on_detail_view_button_press)
+
+    def _on_detail_view_button_press(self, view: Gtk.TextView, event: Gdk.EventButton) -> bool:
+        if event.button != 3:
+            return False
+        self._detail_context_menu(view).popup_at_pointer(event)
+        return True
+
+    def _detail_context_menu(self, view: Gtk.TextView) -> Gtk.Menu:
+        editing = self.detail_editing.get(view, False)
+        menu = Gtk.Menu()
+        items = (
+            (self._tr("edit"), lambda *_: self._edit_detail_view(view), self.selected_task is not None and not editing),
+            (self._tr("save"), lambda *_: self._save_detail_view(view), editing),
+            (self._tr("cancel"), lambda *_: self._cancel_detail_edit(view), editing),
+        )
+        for label, callback, sensitive in items:
+            item = Gtk.MenuItem(label=label)
+            item.set_sensitive(sensitive)
+            item.connect("activate", callback)
+            menu.append(item)
+        menu.show_all()
+        return menu
+
+    def _edit_detail_view(self, view: Gtk.TextView) -> None:
+        if self.selected_task is None:
+            return
+        filename = self.detail_filenames[view]
+        text = read_task_file(self.selected_task, filename)
+        self.detail_original_text[view] = text
+        self.detail_editing[view] = True
+        view.set_editable(True)
+        view.set_cursor_visible(True)
+        view.get_buffer().set_text(text)
+        view.grab_focus()
+
+    def _save_detail_view(self, view: Gtk.TextView) -> None:
+        if self.selected_task is None:
+            return
+        filename = self.detail_filenames[view]
+        path = self.selected_task.path / filename
+        path.write_text(_text_buffer_text(view.get_buffer()), encoding="utf-8")
+        self.detail_editing[view] = False
+        view.set_editable(False)
+        view.set_cursor_visible(False)
+        self._set_markdown(view, path.read_text(encoding="utf-8", errors="replace"))
+        self.refresh_tasks()
+
+    def _cancel_detail_edit(self, view: Gtk.TextView) -> None:
+        text = self.detail_original_text.get(view, "")
+        self.detail_editing[view] = False
+        view.set_editable(False)
+        view.set_cursor_visible(False)
+        self._set_markdown(view, text)
+
+    def _leave_detail_edit_mode(self, view: Gtk.TextView) -> None:
+        self.detail_editing[view] = False
+        view.set_editable(False)
+        view.set_cursor_visible(False)
 
     def open_settings(self, *_args: object) -> None:
         dialog = Gtk.Dialog(
@@ -627,30 +703,21 @@ class WorkspaceGtkGui:
                 break
 
     def _send_command_to_task_terminal(self, task: TaskSummary, command: str) -> None:
-        session = self._active_terminal_for_task(task) or self._first_terminal_for_task(task)
+        session = self._active_shell_for_task(task) or self._first_terminal_for_task(task)
         if session is None:
-            self._start_shell_with_initial_command(task, command)
+            session_id = self.new_console(task=task)
+            if session_id is not None:
+                GLib.timeout_add(250, self._send_command_to_session_once, session_id, command + "\n")
             return
         self._activate_terminal(session.session_id)
         _feed_terminal(session.terminal, command + "\n")
 
-    def _start_shell_with_initial_command(self, task: TaskSummary, command: str) -> int:
-        shell = os.environ.get("SHELL") or "/bin/bash"
-        env = os.environ.copy()
-        env.setdefault("TERM", "xterm-256color")
-        env["PS1"] = f"{task.name}$ "
-        env["PROMPT_COMMAND"] = ""
-        return self._start_terminal(
-            task=task,
-            command=[
-                shell,
-                "-lc",
-                f"{command}\nexec {shlex.quote(shell)}",
-            ],
-            cwd=task.path,
-            env=env,
-            kind="shell",
-        )
+    def _send_command_to_session_once(self, session_id: int, command: str) -> bool:
+        session = self.terminal_sessions.get(session_id)
+        if session is not None:
+            self._activate_terminal(session_id)
+            _feed_terminal(session.terminal, command)
+        return False
 
     def _start_terminal(
         self,
@@ -734,13 +801,13 @@ class WorkspaceGtkGui:
             self.console_notebook.set_current_page(page_num)
         session.terminal.grab_focus()
 
-    def _active_terminal_for_task(self, task: TaskSummary) -> TerminalSession | None:
+    def _active_shell_for_task(self, task: TaskSummary) -> TerminalSession | None:
         page_num = self.console_notebook.get_current_page()
         if page_num < 0:
             return None
         page = self.console_notebook.get_nth_page(page_num)
         for session in self._current_task_terminal_sessions(task):
-            if session.page is page:
+            if session.page is page and session.kind == "shell":
                 return session
         return None
 
@@ -1008,8 +1075,11 @@ class WorkspaceGtkGui:
     def _apply_terminal_theme(self, terminal: Vte.Terminal) -> None:
         colors = _theme_colors(self.theme)
         terminal.set_font(Pango.FontDescription(f"Monospace {self.text_font_size}"))
-        terminal.set_color_foreground(_rgba(colors["foreground"]))
-        terminal.set_color_background(_rgba(colors["terminal_background"]))
+        terminal.set_colors(
+            _rgba(colors["foreground"]),
+            _rgba(colors["terminal_background"]),
+            [_rgba(color) for color in _terminal_palette(self.theme)],
+        )
 
     def _apply_runtime_style(self) -> None:
         self._apply_css()
@@ -1093,6 +1163,12 @@ def _text_view(font_size: int, editable: bool) -> Gtk.TextView:
     view.set_wrap_mode(Gtk.WrapMode.WORD_CHAR)
     view.modify_font(Pango.FontDescription(f"Monospace {font_size}"))
     return view
+
+
+def _text_buffer_text(buffer: Gtk.TextBuffer) -> str:
+    start = buffer.get_start_iter()
+    end = buffer.get_end_iter()
+    return buffer.get_text(start, end, True)
 
 
 def _scrolled(widget: Gtk.Widget) -> Gtk.ScrolledWindow:
@@ -1190,6 +1266,46 @@ def _rgba(color: str) -> Gdk.RGBA:
     rgba = Gdk.RGBA()
     rgba.parse(color)
     return rgba
+
+
+def _terminal_palette(theme: str) -> tuple[str, ...]:
+    if theme == "dark":
+        return (
+            "#111315",
+            "#e06c75",
+            "#7ec699",
+            "#d19a66",
+            "#7aa2f7",
+            "#c678dd",
+            "#56b6c2",
+            "#e8eaed",
+            "#5c6370",
+            "#ef8088",
+            "#98d6ac",
+            "#e5c07b",
+            "#9ab6ff",
+            "#d39aea",
+            "#7fd4df",
+            "#ffffff",
+        )
+    return (
+        "#202124",
+        "#b3261e",
+        "#137333",
+        "#b06000",
+        "#1a5fb4",
+        "#8e24aa",
+        "#007b83",
+        "#f2f2f2",
+        "#5f6368",
+        "#d93025",
+        "#188038",
+        "#ea8600",
+        "#2f6fbb",
+        "#a142f4",
+        "#129eaf",
+        "#ffffff",
+    )
 
 
 def _theme_colors(theme: str) -> dict[str, str]:
