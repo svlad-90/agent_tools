@@ -24,6 +24,7 @@ from codex_tools.tools.workspace_gui.gtk_ui import WorkspaceGtkGui
 from codex_tools.tools.workspace_gui.gtk_ui import TRANSLATIONS as GTK_TRANSLATIONS
 from codex_tools.tools.workspace_gui.gtk_ui import codex_task_context_message as gtk_codex_task_context_message
 from codex_tools.tools.workspace_gui.gtk_ui import task_action_shell_command as gtk_task_action_shell_command
+from codex_tools.tools.workspace_gui.gtk_ui import _artifact_delete_paths as gtk_artifact_delete_paths
 from codex_tools.tools.workspace_gui.gtk_ui import _artifact_monitor_dirs as gtk_artifact_monitor_dirs
 from codex_tools.tools.workspace_gui.gtk_ui import _is_pane_separator_event as gtk_is_pane_separator_event
 from codex_tools.tools.workspace_gui.gtk_ui import _task_artifact_entries as gtk_task_artifact_entries
@@ -211,6 +212,42 @@ def test_gtk_task_artifact_entries_groups_task_outputs(tmp_path: Path) -> None:
         task / "report" / "diff",
         task / "report" / "puml",
     ]
+
+
+def test_gtk_artifact_delete_paths_include_hidden_group_files(tmp_path: Path) -> None:
+    task = tmp_path / "tasks" / "sample-task"
+    (task / "report" / "diff").mkdir(parents=True)
+    (task / "report" / "puml").mkdir(parents=True)
+    files = {
+        "report/runtime.log": "log",
+        "report/notes.md": "notes",
+        "report/diff/review.html": "<html>",
+        "report/diff/review.diff": "diff",
+        "report/diff/comments.json": "{}",
+        "report/puml/flow.svg": "<svg>",
+        "report/puml/flow.puml": "@startuml",
+    }
+    for rel_path, content in files.items():
+        (task / rel_path).write_text(content, encoding="utf-8")
+    summary = TaskSummary("sample-task", task, True, True, 1, 1, False)
+
+    def rels(paths: list[Path]) -> list[str]:
+        return sorted(str(path.relative_to(task)) for path in paths)
+
+    assert gtk_artifact_delete_paths(summary, artifact_path=task / "report" / "runtime.log") == [
+        task / "report" / "runtime.log"
+    ]
+    assert rels(gtk_artifact_delete_paths(summary, group="logs")) == ["report/runtime.log"]
+    assert rels(gtk_artifact_delete_paths(summary, group="diagrams")) == [
+        "report/puml/flow.puml",
+        "report/puml/flow.svg",
+    ]
+    assert rels(gtk_artifact_delete_paths(summary, group="diff_reports")) == [
+        "report/diff/comments.json",
+        "report/diff/review.diff",
+        "report/diff/review.html",
+    ]
+    assert rels(gtk_artifact_delete_paths(summary, delete_all=True)) == sorted(files)
 
 
 def test_rough_token_count_uses_words_and_character_fallback() -> None:

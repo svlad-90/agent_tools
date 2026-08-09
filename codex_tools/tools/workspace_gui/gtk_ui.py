@@ -50,7 +50,12 @@ TRANSLATIONS = {
         "confirm_close_console_title": "Close console?",
         "confirm_delete_task_body": "This will permanently delete the task directory.",
         "confirm_delete_task_title": "Delete selected task?",
+        "confirm_delete_artifacts_body": "Files will be permanently deleted.",
+        "confirm_delete_artifacts_title": "Delete artifacts?",
         "context": "context",
+        "delete_all_artifacts": "Delete all task artifacts",
+        "delete_artifact": "Delete artifact",
+        "delete_artifact_group": "Delete artifact group",
         "delete_task": "Delete task",
         "desc": "desc",
         "details": "Details",
@@ -98,7 +103,12 @@ TRANSLATIONS = {
         "confirm_close_console_title": "Закрыть консоль?",
         "confirm_delete_task_body": "Папка задачи будет удалена безвозвратно.",
         "confirm_delete_task_title": "Удалить выбранную задачу?",
+        "confirm_delete_artifacts_body": "Файлы будут удалены безвозвратно.",
+        "confirm_delete_artifacts_title": "Удалить артефакты?",
         "context": "контекст",
+        "delete_all_artifacts": "Удалить все артефакты задачи",
+        "delete_artifact": "Удалить артефакт",
+        "delete_artifact_group": "Удалить группу артефактов",
         "delete_task": "Удалить задачу",
         "desc": "описание",
         "details": "Детали",
@@ -146,7 +156,12 @@ TRANSLATIONS = {
         "confirm_close_console_title": "Закрити консоль?",
         "confirm_delete_task_body": "Папку задачі буде видалено безповоротно.",
         "confirm_delete_task_title": "Видалити вибрану задачу?",
+        "confirm_delete_artifacts_body": "Файли буде видалено безповоротно.",
+        "confirm_delete_artifacts_title": "Видалити артефакти?",
         "context": "контекст",
+        "delete_all_artifacts": "Видалити всі артефакти задачі",
+        "delete_artifact": "Видалити артефакт",
+        "delete_artifact_group": "Видалити групу артефактів",
         "delete_task": "Видалити задачу",
         "desc": "опис",
         "details": "Деталі",
@@ -341,6 +356,8 @@ class WorkspaceGtkGui:
             Gtk.TreeViewColumn("", Gtk.CellRendererText(), text=1)
         )
         self.artifact_view.connect("row-activated", self._on_artifact_row_activated)
+        self.artifact_view.add_events(Gdk.EventMask.BUTTON_PRESS_MASK)
+        self.artifact_view.connect("button-press-event", self._on_artifact_view_button_press)
         scrolled = Gtk.ScrolledWindow()
         scrolled.add(self.artifact_view)
         self.artifacts_tab_label = Gtk.Label(label=self._tr("artifacts"))
@@ -430,9 +447,9 @@ class WorkspaceGtkGui:
     def _load_task_artifacts(self, task: TaskSummary) -> None:
         self.artifact_store.clear()
         groups = {
-            "logs": self.artifact_store.append(None, [self._tr("logs"), "", None, True]),
-            "diagrams": self.artifact_store.append(None, [self._tr("diagrams"), "", None, True]),
-            "diff_reports": self.artifact_store.append(None, [self._tr("diff_reports"), "", None, True]),
+            "logs": self.artifact_store.append(None, [self._tr("logs"), "", "logs", True]),
+            "diagrams": self.artifact_store.append(None, [self._tr("diagrams"), "", "diagrams", True]),
+            "diff_reports": self.artifact_store.append(None, [self._tr("diff_reports"), "", "diff_reports", True]),
         }
         for entry in _task_artifact_entries(task):
             rel_path = _artifact_relative_label(task, entry.path)
@@ -454,6 +471,89 @@ class WorkspaceGtkGui:
         if is_group or artifact_path is None:
             return
         open_artifact_path(artifact_path)
+
+    def _on_artifact_view_button_press(self, tree: Gtk.TreeView, event: Gdk.EventButton) -> bool:
+        if event.button != 3:
+            return False
+        hit = tree.get_path_at_pos(int(event.x), int(event.y))
+        if hit is not None:
+            path, _column, _cell_x, _cell_y = hit
+            tree.get_selection().select_path(path)
+        else:
+            tree.get_selection().unselect_all()
+        self._artifact_context_menu().popup_at_pointer(event)
+        return True
+
+    def _artifact_context_menu(self) -> Gtk.Menu:
+        task = self.selected_task
+        menu = Gtk.Menu()
+        group: str | None = None
+        artifact_path: Path | None = None
+        model, row_iter = self.artifact_view.get_selection().get_selected()
+        if row_iter is not None:
+            is_group = bool(model[row_iter][3])
+            value = model[row_iter][2]
+            if is_group and isinstance(value, str):
+                group = value
+            elif isinstance(value, Path):
+                artifact_path = value
+                if task is not None:
+                    group = _artifact_group(task, artifact_path)
+        delete_file = Gtk.MenuItem(label=self._tr("delete_artifact"))
+        delete_group = Gtk.MenuItem(label=self._tr("delete_artifact_group"))
+        delete_all = Gtk.MenuItem(label=self._tr("delete_all_artifacts"))
+        delete_file.set_sensitive(task is not None and artifact_path is not None)
+        delete_group.set_sensitive(task is not None and group is not None)
+        delete_all.set_sensitive(task is not None)
+        delete_file.connect("activate", lambda *_: self._delete_artifacts(artifact_path=artifact_path))
+        delete_group.connect("activate", lambda *_: self._delete_artifacts(group=group))
+        delete_all.connect("activate", lambda *_: self._delete_artifacts(delete_all=True))
+        menu.append(delete_file)
+        menu.append(delete_group)
+        menu.append(Gtk.SeparatorMenuItem())
+        menu.append(delete_all)
+        menu.show_all()
+        return menu
+
+    def _delete_artifacts(
+        self,
+        *,
+        artifact_path: Path | None = None,
+        group: str | None = None,
+        delete_all: bool = False,
+    ) -> None:
+        task = self.selected_task
+        if task is None:
+            return
+        paths = _artifact_delete_paths(task, artifact_path=artifact_path, group=group, delete_all=delete_all)
+        if not paths or not self._confirm_delete_artifacts(paths):
+            return
+        for path in paths:
+            try:
+                path.unlink()
+            except FileNotFoundError:
+                continue
+            except IsADirectoryError:
+                continue
+        self._load_task_artifacts(task)
+
+    def _confirm_delete_artifacts(self, paths: list[Path]) -> bool:
+        dialog = Gtk.MessageDialog(
+            transient_for=self.window,
+            flags=Gtk.DialogFlags.MODAL,
+            message_type=Gtk.MessageType.WARNING,
+            buttons=Gtk.ButtonsType.NONE,
+            text=self._tr("confirm_delete_artifacts_title"),
+        )
+        preview = "\n".join(str(path) for path in paths[:8])
+        if len(paths) > 8:
+            preview = f"{preview}\n..."
+        dialog.format_secondary_text(f"{self._tr('confirm_delete_artifacts_body')}\n{preview}")
+        dialog.add_button(self._tr("cancel"), Gtk.ResponseType.CANCEL)
+        dialog.add_button(self._tr("delete_artifact"), Gtk.ResponseType.OK)
+        response = dialog.run()
+        dialog.destroy()
+        return response == Gtk.ResponseType.OK
 
     def _watch_task_artifacts(self, task: TaskSummary, *, force: bool = False) -> None:
         if not force and self.artifact_monitor_path == task.path:
@@ -1637,6 +1737,47 @@ def _artifact_monitor_dirs(task: TaskSummary) -> list[Path]:
             child_dirs.sort()
             dirs.add(Path(current))
     return sorted(dirs, key=lambda path: str(path).casefold())
+
+
+def _artifact_delete_paths(
+    task: TaskSummary,
+    *,
+    artifact_path: Path | None = None,
+    group: str | None = None,
+    delete_all: bool = False,
+) -> list[Path]:
+    if artifact_path is not None:
+        try:
+            artifact_path.relative_to(task.path)
+        except ValueError:
+            return []
+        return [artifact_path] if artifact_path.is_file() else []
+    if delete_all:
+        return _files_under(task.path / "report")
+    if group == "logs":
+        return [
+            path
+            for path in _files_under(task.path / "report")
+            if path.suffix.casefold() in _LOG_SUFFIXES
+        ]
+    if group == "diagrams":
+        return _files_under(task.path / "report" / "puml")
+    if group == "diff_reports":
+        return _files_under(task.path / "report" / "diff")
+    return []
+
+
+def _files_under(root: Path) -> list[Path]:
+    if not root.is_dir():
+        return []
+    paths: list[Path] = []
+    for current, dirs, files in os.walk(root):
+        dirs.sort()
+        for filename in sorted(files, key=str.casefold):
+            path = Path(current) / filename
+            if path.is_file():
+                paths.append(path)
+    return paths
 
 
 def _iter_git_repos(task: TaskSummary) -> Iterator[Path]:
