@@ -319,7 +319,9 @@ class WorkspaceGtkGui:
         terminal.set_scrollback_lines(20_000)
         terminal.set_font(Pango.FontDescription(f"Monospace {self.text_font_size}"))
         self._apply_terminal_theme(terminal)
+        terminal.add_events(Gdk.EventMask.BUTTON_PRESS_MASK)
         terminal.connect("button-press-event", self._on_terminal_button_press)
+        terminal.connect("popup-menu", self._on_terminal_popup_menu)
         terminal.spawn_async(
             Vte.PtyFlags.DEFAULT,
             str(cwd),
@@ -410,16 +412,33 @@ class WorkspaceGtkGui:
     def _on_terminal_button_press(self, terminal: Vte.Terminal, event: Gdk.EventButton) -> bool:
         if event.button != 3:
             return False
+        self._terminal_context_menu(terminal).popup_at_pointer(event)
+        return True
+
+    def _on_terminal_popup_menu(self, terminal: Vte.Terminal) -> bool:
+        self._terminal_context_menu(terminal).popup_at_widget(
+            terminal,
+            Gdk.Gravity.SOUTH_WEST,
+            Gdk.Gravity.NORTH_WEST,
+            None,
+        )
+        return True
+
+    def _terminal_context_menu(self, terminal: Vte.Terminal) -> Gtk.Menu:
         menu = Gtk.Menu()
         copy_item = Gtk.MenuItem(label="Copy")
         paste_item = Gtk.MenuItem(label="Paste")
+        select_all_item = Gtk.MenuItem(label="Select all")
+        copy_item.set_sensitive(bool(terminal.get_has_selection()))
         copy_item.connect("activate", lambda *_: terminal.copy_clipboard())
         paste_item.connect("activate", lambda *_: terminal.paste_clipboard())
+        select_all_item.connect("activate", lambda *_: terminal.select_all())
         menu.append(copy_item)
         menu.append(paste_item)
+        menu.append(Gtk.SeparatorMenuItem())
+        menu.append(select_all_item)
         menu.show_all()
-        menu.popup_at_pointer(event)
-        return True
+        return menu
 
     def _require_task(self, show_dialog: bool = True) -> TaskSummary | None:
         if self.selected_task is not None:
@@ -454,9 +473,42 @@ class WorkspaceGtkGui:
         colors = _theme_colors(self.theme)
         css = f"""
         * {{ font-size: {self.button_font_size}pt; }}
-        textview, treeview, notebook, window {{
+        window, box, paned, scrolledwindow, notebook {{
             background: {colors['background']};
             color: {colors['foreground']};
+        }}
+        button, combobox, combobox box, entry {{
+            background: {colors['control_background']};
+            color: {colors['foreground']};
+            border-color: {colors['border']};
+        }}
+        button:hover {{
+            background: {colors['control_hover_background']};
+        }}
+        notebook tab {{
+            background: {colors['tab_background']};
+            color: {colors['muted_foreground']};
+            padding: 6px 10px;
+        }}
+        notebook tab:checked {{
+            background: {colors['tab_selected_background']};
+            color: {colors['tab_selected_foreground']};
+        }}
+        treeview {{
+            background: {colors['text_background']};
+            color: {colors['foreground']};
+        }}
+        treeview:selected {{
+            background: {colors['selection_background']};
+            color: {colors['selection_foreground']};
+        }}
+        menu, menuitem {{
+            background: {colors['menu_background']};
+            color: {colors['foreground']};
+        }}
+        menuitem:hover {{
+            background: {colors['selection_background']};
+            color: {colors['selection_foreground']};
         }}
         textview text {{
             background: {colors['text_background']};
@@ -608,12 +660,32 @@ def _theme_colors(theme: str) -> dict[str, str]:
             "background": "#202124",
             "text_background": "#111315",
             "terminal_background": "#111315",
+            "control_background": "#2b2f33",
+            "control_hover_background": "#343a40",
+            "tab_background": "#202124",
+            "tab_selected_background": "#111315",
+            "tab_selected_foreground": "#f5f7fa",
+            "muted_foreground": "#a8b0ba",
+            "selection_background": "#3f6f9f",
+            "selection_foreground": "#ffffff",
+            "menu_background": "#252a2f",
+            "border": "#4a5058",
             "foreground": "#e8eaed",
         }
     return {
         "background": "#f2f2f2",
         "text_background": "#ffffff",
         "terminal_background": "#ffffff",
+        "control_background": "#f8f8f8",
+        "control_hover_background": "#ffffff",
+        "tab_background": "#e8e8e8",
+        "tab_selected_background": "#ffffff",
+        "tab_selected_foreground": "#202124",
+        "muted_foreground": "#5f6368",
+        "selection_background": "#2f6fbb",
+        "selection_foreground": "#ffffff",
+        "menu_background": "#ffffff",
+        "border": "#b8b8b8",
         "foreground": "#202124",
     }
 

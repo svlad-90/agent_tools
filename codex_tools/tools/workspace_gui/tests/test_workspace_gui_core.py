@@ -20,6 +20,7 @@ from codex_tools.tools.workspace_gui.core import rough_token_count
 from codex_tools.tools.workspace_gui.core import save_workspace_gui_settings
 from codex_tools.tools.workspace_gui.core import run_task_action
 from codex_tools.tools.workspace_gui.core import run_task_check
+from codex_tools.tools.workspace_gui.gtk_ui import _theme_colors as gtk_theme_colors
 from codex_tools.tools.workspace_gui.ui import codex_console_command
 from codex_tools.tools.workspace_gui.ui import console_paste_text
 from codex_tools.tools.workspace_gui.ui import console_tab_title
@@ -320,6 +321,28 @@ def test_workspace_gui_settings_clamp_bad_font_size(tmp_path: Path) -> None:
         "text_font_size": 28,
         "button_font_size": 8,
     }
+
+
+def test_gtk_theme_colors_cover_widget_css_keys() -> None:
+    required = {
+        "background",
+        "border",
+        "control_background",
+        "control_hover_background",
+        "foreground",
+        "menu_background",
+        "muted_foreground",
+        "selection_background",
+        "selection_foreground",
+        "tab_background",
+        "tab_selected_background",
+        "tab_selected_foreground",
+        "terminal_background",
+        "text_background",
+    }
+
+    assert required <= set(gtk_theme_colors("dark"))
+    assert required <= set(gtk_theme_colors("light"))
 
 
 def test_parse_console_output_preserves_color_tags() -> None:
