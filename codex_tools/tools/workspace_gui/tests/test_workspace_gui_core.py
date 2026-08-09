@@ -343,6 +343,7 @@ def test_gtk_theme_colors_cover_widget_css_keys() -> None:
         "tab_selected_foreground",
         "terminal_background",
         "text_background",
+        "titlebar_background",
     }
 
     assert required <= set(gtk_theme_colors("dark"))

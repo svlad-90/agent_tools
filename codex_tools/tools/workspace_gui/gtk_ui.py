@@ -164,6 +164,9 @@ class WorkspaceGtkGui:
         self.label_widgets: dict[str, Gtk.Widget] = {}
 
         self.window = Gtk.Window(title=f"{self._tr('window_title')} - {self.workspace}")
+        self.header_bar = Gtk.HeaderBar(title=f"{self._tr('window_title')} - {self.workspace}")
+        self.header_bar.set_show_close_button(True)
+        self.window.set_titlebar(self.header_bar)
         self.window.connect("destroy", self.close)
         self._apply_window_geometry()
         self._build_ui()
@@ -185,6 +188,9 @@ class WorkspaceGtkGui:
         toolbar.pack_start(self.summary_label, False, False, 6)
 
         main = Gtk.Paned(orientation=Gtk.Orientation.HORIZONTAL)
+        self.main_pane = main
+        main.add_events(Gdk.EventMask.BUTTON_PRESS_MASK)
+        main.connect("button-press-event", self._on_main_pane_button_press)
         root.pack_start(main, True, True, 0)
 
         self.task_store = Gtk.ListStore(str, str, object)
@@ -204,14 +210,18 @@ class WorkspaceGtkGui:
         main.pack2(self.notebook, resize=True, shrink=False)
         self._add_details_tab()
         self._add_actions_tab()
+        GLib.idle_add(self._set_main_default_split)
 
     def _add_details_tab(self) -> None:
         pane = Gtk.Paned(orientation=Gtk.Orientation.VERTICAL)
+        self.details_pane = pane
+        pane.add_events(Gdk.EventMask.BUTTON_PRESS_MASK)
+        pane.connect("button-press-event", self._on_details_pane_button_press)
         self.description_view = _text_view(self.text_font_size, editable=False)
         self.context_view = _text_view(self.text_font_size, editable=False)
         pane.pack1(_scrolled(self.description_view), resize=True, shrink=False)
         pane.pack2(_scrolled(self.context_view), resize=True, shrink=False)
-        GLib.idle_add(lambda: pane.set_position(max(160, pane.get_allocated_height() // 4)) or False)
+        GLib.idle_add(self._set_details_default_split)
         self.details_tab_label = Gtk.Label(label=self._tr("details"))
         self.notebook.append_page(pane, self.details_tab_label)
 
@@ -335,7 +345,7 @@ class WorkspaceGtkGui:
             self.button_font_size = int(button_size.get_value())
             self.theme = theme_combo.get_active_text() or self.theme
             self.language = language_combo.get_active_text() or self.language
-            self._apply_css()
+            self._apply_runtime_style()
             self._apply_labels()
             self.refresh_tasks()
             self._save_settings()
@@ -631,7 +641,15 @@ class WorkspaceGtkGui:
             buffer.insert_with_tags_by_name(end, chunk.text, chunk.tag)
 
     def _ensure_markdown_tags(self, buffer: Gtk.TextBuffer) -> None:
-        if buffer.get_tag_table().lookup("paragraph") is not None:
+        tag_table = buffer.get_tag_table()
+        if tag_table.lookup("paragraph") is not None:
+            _update_text_tag(tag_table.lookup("paragraph"), font=f"Sans {self.text_font_size}")
+            _update_text_tag(tag_table.lookup("h1"), font=f"Sans Bold {self.text_font_size + 6}")
+            _update_text_tag(tag_table.lookup("h2"), font=f"Sans Bold {self.text_font_size + 4}")
+            _update_text_tag(tag_table.lookup("h3"), font=f"Sans Bold {self.text_font_size + 2}")
+            _update_text_tag(tag_table.lookup("list"), font=f"Sans {self.text_font_size}")
+            _update_text_tag(tag_table.lookup("code"), font=f"Monospace {self.text_font_size}")
+            _update_text_tag(tag_table.lookup("table"), font=f"Monospace {self.text_font_size}")
             return
         buffer.create_tag("paragraph", font=f"Sans {self.text_font_size}")
         buffer.create_tag("h1", font=f"Sans Bold {self.text_font_size + 6}", pixels_above_lines=8)
@@ -662,7 +680,9 @@ class WorkspaceGtkGui:
         return button
 
     def _apply_labels(self) -> None:
-        self.window.set_title(f"{self._tr('window_title')} - {self.workspace}")
+        title = f"{self._tr('window_title')} - {self.workspace}"
+        self.window.set_title(title)
+        self.header_bar.set_title(title)
         for key, widget in self.label_widgets.items():
             if isinstance(widget, Gtk.Button):
                 widget.set_label(self._tr(key))
@@ -673,6 +693,28 @@ class WorkspaceGtkGui:
 
     def _tr(self, key: str) -> str:
         return TRANSLATIONS.get(self.language, TRANSLATIONS["en"]).get(key, TRANSLATIONS["en"].get(key, key))
+
+    def _on_main_pane_button_press(self, _pane: Gtk.Paned, event: Gdk.EventButton) -> bool:
+        if event.type == Gdk.EventType.DOUBLE_BUTTON_PRESS:
+            self._set_main_default_split()
+            return True
+        return False
+
+    def _on_details_pane_button_press(self, _pane: Gtk.Paned, event: Gdk.EventButton) -> bool:
+        if event.type == Gdk.EventType.DOUBLE_BUTTON_PRESS:
+            self._set_details_default_split()
+            return True
+        return False
+
+    def _set_main_default_split(self) -> bool:
+        width = self.main_pane.get_allocated_width()
+        self.main_pane.set_position(max(360, width // 4))
+        return False
+
+    def _set_details_default_split(self) -> bool:
+        height = self.details_pane.get_allocated_height()
+        self.details_pane.set_position(max(160, height // 4))
+        return False
 
     def _apply_window_geometry(self) -> None:
         size = self.window_geometry.split("+", 1)[0]
@@ -687,11 +729,19 @@ class WorkspaceGtkGui:
 
     def _apply_css(self) -> None:
         colors = _theme_colors(self.theme)
+        settings = Gtk.Settings.get_default()
+        if settings is not None:
+            settings.set_property("gtk-application-prefer-dark-theme", self.theme == "dark")
         css = f"""
         * {{ font-size: {self.button_font_size}pt; }}
-        window, box, paned, scrolledwindow, notebook {{
+        window, headerbar, box, paned, scrolledwindow, notebook {{
             background: {colors['background']};
             color: {colors['foreground']};
+        }}
+        headerbar {{
+            background: {colors['titlebar_background']};
+            color: {colors['foreground']};
+            border-color: {colors['border']};
         }}
         button, combobox, combobox box, entry {{
             background: {colors['control_background']};
@@ -747,8 +797,19 @@ class WorkspaceGtkGui:
 
     def _apply_terminal_theme(self, terminal: Vte.Terminal) -> None:
         colors = _theme_colors(self.theme)
+        terminal.set_font(Pango.FontDescription(f"Monospace {self.text_font_size}"))
         terminal.set_color_foreground(_rgba(colors["foreground"]))
         terminal.set_color_background(_rgba(colors["terminal_background"]))
+
+    def _apply_runtime_style(self) -> None:
+        self._apply_css()
+        self.description_view.modify_font(Pango.FontDescription(f"Monospace {self.text_font_size}"))
+        self.context_view.modify_font(Pango.FontDescription(f"Monospace {self.text_font_size}"))
+        if self.selected_task is not None:
+            self._set_markdown(self.description_view, read_task_file(self.selected_task, "TASK_DESCRIPTION.md"))
+            self._set_markdown(self.context_view, read_task_file(self.selected_task, "TASK_CONTEXT.md"))
+        for session in self.terminal_sessions.values():
+            self._apply_terminal_theme(session.terminal)
 
     def close(self, *_args: object) -> None:
         self._save_settings()
@@ -771,6 +832,13 @@ def _button(label: str, callback: object) -> Gtk.Button:
     button = Gtk.Button(label=label)
     button.connect("clicked", callback)
     return button
+
+
+def _update_text_tag(tag: Gtk.TextTag | None, **properties: object) -> None:
+    if tag is None:
+        return
+    for name, value in properties.items():
+        tag.set_property(name.replace("_", "-"), value)
 
 
 def _text_view(font_size: int, editable: bool) -> Gtk.TextView:
@@ -887,6 +955,7 @@ def _theme_colors(theme: str) -> dict[str, str]:
             "terminal_background": "#111315",
             "control_background": "#2b2f33",
             "control_hover_background": "#343a40",
+            "titlebar_background": "#16191d",
             "tab_background": "#202124",
             "tab_selected_background": "#111315",
             "tab_selected_foreground": "#f5f7fa",
@@ -903,6 +972,7 @@ def _theme_colors(theme: str) -> dict[str, str]:
         "terminal_background": "#ffffff",
         "control_background": "#f8f8f8",
         "control_hover_background": "#ffffff",
+        "titlebar_background": "#ededed",
         "tab_background": "#e8e8e8",
         "tab_selected_background": "#ffffff",
         "tab_selected_foreground": "#202124",
