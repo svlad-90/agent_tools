@@ -262,7 +262,6 @@ def save_workspace_gui_settings(settings: dict[str, int | str], path: Path | Non
 def parse_console_output(text: str) -> list[ConsoleChunk]:
     text = ANSI_OSC_RE.sub("", text)
     text = text.replace("\r\n", "\n")
-    text = text.replace("\r", "\n")
     chunks: list[ConsoleChunk] = []
     tags: tuple[str, ...] = ()
     offset = 0
@@ -282,7 +281,7 @@ def _append_console_chunk(
     cleaned = "".join(
         char
         for char in text
-        if char in ("\b", "\n", "\t") or ord(char) >= 32
+        if char in ("\b", "\n", "\r", "\t") or ord(char) >= 32
     )
     if cleaned:
         chunks.append(ConsoleChunk(cleaned, tags))

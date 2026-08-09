@@ -277,6 +277,12 @@ def test_parse_console_output_keeps_backspace_control() -> None:
     assert [(chunk.text, chunk.tags) for chunk in chunks] == [("abc\b \b", ())]
 
 
+def test_parse_console_output_keeps_carriage_return_control() -> None:
+    chunks = parse_console_output("prompt old\rprompt new")
+
+    assert [(chunk.text, chunk.tags) for chunk in chunks] == [("prompt old\rprompt new", ())]
+
+
 def test_parse_console_output_drops_terminal_title_sequence() -> None:
     chunks = parse_console_output("\x1b]0;user@host:~/task\x07task$ ")
 

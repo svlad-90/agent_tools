@@ -953,8 +953,7 @@ class WorkspaceGui:
             session = self._session_for_console_text(widget)
             if session is not None:
                 self._activate_console(session.session_id)
-        self.console_context_menu.tk_popup(event.x_root, event.y_root)
-        self.console_context_menu.grab_release()
+        self.console_context_menu.post(event.x_root, event.y_root)
         return "break"
 
     def _hide_console_context_menu(self, _event: tk.Event[tk.Misc]) -> None:
@@ -1014,6 +1013,9 @@ class WorkspaceGui:
 
     def _insert_console_chunk(self, widget: tk.Text, chunk: ConsoleChunk) -> None:
         for char in chunk.text:
+            if char == "\r":
+                widget.delete("end-1c linestart", "end-1c")
+                continue
             if char == "\b":
                 if widget.index(tk.END) != "2.0":
                     widget.delete("end-2c", "end-1c")
