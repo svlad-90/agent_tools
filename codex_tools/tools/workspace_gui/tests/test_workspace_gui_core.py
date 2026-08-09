@@ -38,7 +38,9 @@ from codex_tools.tools.workspace_gui.gtk_ui import _task_row_style as gtk_task_r
 from codex_tools.tools.workspace_gui.gtk_ui import _terminal_clipboard_shortcut as gtk_terminal_clipboard_shortcut
 from codex_tools.tools.workspace_gui.gtk_ui import _terminal_palette as gtk_terminal_palette
 from codex_tools.tools.workspace_gui.gtk_ui import _terminal_session_sort_key as gtk_terminal_session_sort_key
+from codex_tools.tools.workspace_gui.gtk_ui import _terminal_tab_label as gtk_terminal_tab_label
 from codex_tools.tools.workspace_gui.gtk_ui import _theme_colors as gtk_theme_colors
+from codex_tools.tools.workspace_gui.gtk_ui import _workspace_gui_icon_path as gtk_workspace_gui_icon_path
 from codex_tools.tools.workspace_gui.ui import codex_console_command
 from codex_tools.tools.workspace_gui.ui import console_paste_text
 from codex_tools.tools.workspace_gui.ui import console_tab_title
@@ -454,9 +456,10 @@ def test_gtk_task_actions_signature_tracks_file_mtime(tmp_path: Path) -> None:
     assert gtk_task_actions_signature(summary)[1] is not None
 
 
-def test_console_tab_title_uses_stack_index_before_kind() -> None:
-    assert console_tab_title(1, "shell") == "1 shell"
-    assert console_tab_title(2, "codex") == "2 codex"
+def test_console_tab_title_numbers_shells_only() -> None:
+    assert console_tab_title(1, "shell") == "shell 1"
+    assert console_tab_title(2, "shell") == "shell 2"
+    assert console_tab_title(0, "codex") == "codex"
 
 
 def test_workspace_gui_settings_persist_font_size(tmp_path: Path) -> None:
@@ -551,6 +554,12 @@ def test_gtk_terminal_session_sort_key_keeps_codex_first() -> None:
     ]
 
 
+def test_gtk_terminal_tab_label_numbers_shells_only() -> None:
+    assert gtk_terminal_tab_label("codex", 0) == "codex"
+    assert gtk_terminal_tab_label("shell", 1) == "shell 1"
+    assert gtk_terminal_tab_label("shell", 2) == "shell 2"
+
+
 def test_gtk_terminal_clipboard_shortcut_requires_ctrl_shift() -> None:
     from gi.repository import Gdk
 
@@ -611,6 +620,13 @@ def test_gtk_svg_open_command_uses_browser_before_xdg_open(monkeypatch: object, 
     monkeypatch.setattr("codex_tools.tools.workspace_gui.gtk_ui.shutil.which", fake_which)  # type: ignore[attr-defined]
 
     assert gtk_svg_open_command(path) == ["/usr/bin/firefox", str(path)]
+
+
+def test_gtk_workspace_gui_icon_is_packaged() -> None:
+    icon_path = gtk_workspace_gui_icon_path()
+
+    assert icon_path.name == "workspace-gui.svg"
+    assert icon_path.is_file()
 
 
 def test_gtk_markdown_tags_are_configured() -> None:

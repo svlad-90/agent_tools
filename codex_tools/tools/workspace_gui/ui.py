@@ -794,8 +794,11 @@ class WorkspaceGui:
         ]
 
     def _renumber_console_tabs(self, task: TaskSummary) -> None:
-        for index, session in enumerate(self._current_task_console_sessions(task), start=1):
-            session.title = console_tab_title(index, session.kind)
+        shell_index = 0
+        for session in self._current_task_console_sessions(task):
+            if session.kind == "shell":
+                shell_index += 1
+            session.title = console_tab_title(shell_index, session.kind)
             if str(session.frame) in self.console_notebook.tabs():
                 self.console_notebook.tab(session.frame, text=session.title)
 
@@ -1385,7 +1388,9 @@ def _make_controlling_terminal(fd: int) -> None:
 
 
 def console_tab_title(index: int, kind: str) -> str:
-    return f"{index} {kind}"
+    if kind == "codex":
+        return "codex"
+    return f"{kind} {index}"
 
 
 def _theme_colors(theme: str) -> dict[str, str]:

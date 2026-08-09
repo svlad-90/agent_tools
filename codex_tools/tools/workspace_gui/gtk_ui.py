@@ -285,6 +285,9 @@ class WorkspaceGtkGui:
         self.detail_filenames: dict[Gtk.TextView, str] = {}
 
         self.window = Gtk.Window(title=f"{self._tr('window_title')} - {self.workspace}")
+        icon_path = _workspace_gui_icon_path()
+        if icon_path.is_file():
+            self.window.set_icon_from_file(str(icon_path))
         self.header_bar = Gtk.HeaderBar(title=f"{self._tr('window_title')} - {self.workspace}")
         self.header_bar.set_show_close_button(True)
         self.window.set_titlebar(self.header_bar)
@@ -1184,10 +1187,13 @@ class WorkspaceGtkGui:
         )
 
     def _renumber_terminal_tabs(self, task: TaskSummary) -> None:
-        for index, session in enumerate(self._current_task_terminal_sessions(task), start=1):
+        shell_index = 0
+        for session in self._current_task_terminal_sessions(task):
+            if session.kind == "shell":
+                shell_index += 1
             tab = self.console_notebook.get_tab_label(session.page)
             if isinstance(tab, Gtk.Label):
-                tab.set_text(f"{index} {session.kind}")
+                tab.set_text(_terminal_tab_label(session.kind, shell_index))
 
     def _show_terminal_tab(self, session: TerminalSession) -> None:
         if self.console_notebook.page_num(session.page) < 0:
@@ -1646,6 +1652,12 @@ def _terminal_session_sort_key(kind: str, session_id: int) -> tuple[int, int]:
     return (0 if kind == "codex" else 1, session_id)
 
 
+def _terminal_tab_label(kind: str, shell_index: int) -> str:
+    if kind == "codex":
+        return "codex"
+    return f"{kind} {shell_index}"
+
+
 def _terminal_clipboard_shortcut(keyval: int, state: int) -> str | None:
     modifiers = int(Gdk.ModifierType.CONTROL_MASK | Gdk.ModifierType.SHIFT_MASK)
     if (state & modifiers) != modifiers:
@@ -2084,6 +2096,10 @@ def _svg_open_command(path: Path) -> list[str] | None:
         if resolved is not None:
             return [resolved, str(path)]
     return None
+
+
+def _workspace_gui_icon_path() -> Path:
+    return Path(__file__).with_name("assets") / "workspace-gui.svg"
 
 
 def main(argv: list[str] | None = None) -> int:
