@@ -148,6 +148,12 @@ def test_parse_console_output_preserves_color_tags() -> None:
     ]
 
 
+def test_parse_console_output_keeps_backspace_control() -> None:
+    chunks = parse_console_output("abc\b \b")
+
+    assert [(chunk.text, chunk.tags) for chunk in chunks] == [("abc\b \b", ())]
+
+
 def test_load_task_actions_and_run_command(tmp_path: Path) -> None:
     task = tmp_path / "tasks" / "sample-task"
     scripts = task / "scripts"

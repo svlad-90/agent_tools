@@ -265,7 +265,11 @@ def _append_console_chunk(
     text: str,
     tags: tuple[str, ...],
 ) -> None:
-    cleaned = "".join(char for char in text if char == "\n" or char == "\t" or ord(char) >= 32)
+    cleaned = "".join(
+        char
+        for char in text
+        if char in ("\b", "\n", "\t") or ord(char) >= 32
+    )
     if cleaned:
         chunks.append(ConsoleChunk(cleaned, tags))
 

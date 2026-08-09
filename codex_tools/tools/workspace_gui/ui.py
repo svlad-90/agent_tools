@@ -208,15 +208,17 @@ class WorkspaceGui:
         )
         body = ttk.Frame(frame)
         body.pack(side=tk.TOP, fill=tk.BOTH, expand=True)
-        text = tk.Text(body, wrap=tk.NONE, undo=False, font=self.fixed_font)
+        text = tk.Text(body, wrap=tk.CHAR, undo=False, font=self.fixed_font)
         text.bind("<Key>", self._on_console_key)
         text.bind("<Button-1>", lambda _event: text.focus_set())
+        text.bind("<Control-c>", self._on_console_copy_or_interrupt)
+        text.bind("<Control-v>", self._on_console_paste)
+        text.bind("<Control-Shift-C>", self._on_console_copy)
+        text.bind("<Control-Shift-V>", self._on_console_paste)
         scroll_y = ttk.Scrollbar(body, orient=tk.VERTICAL, command=text.yview)
-        scroll_x = ttk.Scrollbar(body, orient=tk.HORIZONTAL, command=text.xview)
-        text.configure(yscrollcommand=scroll_y.set, xscrollcommand=scroll_x.set)
+        text.configure(yscrollcommand=scroll_y.set)
         text.grid(row=0, column=0, sticky="nsew")
         scroll_y.grid(row=0, column=1, sticky="ns")
-        scroll_x.grid(row=1, column=0, sticky="ew")
         body.rowconfigure(0, weight=1)
         body.columnconfigure(0, weight=1)
         self.notebook.add(frame, text="Console")
@@ -571,6 +573,38 @@ class WorkspaceGui:
                 return "break"
         return "break"
 
+    def _on_console_copy_or_interrupt(self, _event: tk.Event[tk.Misc]) -> str:
+        try:
+            self.console_text.selection_get()
+        except tk.TclError:
+            fd = self.console_fd
+            if fd is not None:
+                try:
+                    os.write(fd, b"\x03")
+                except OSError:
+                    return "break"
+            return "break"
+        self.console_text.event_generate("<<Copy>>")
+        return "break"
+
+    def _on_console_copy(self, _event: tk.Event[tk.Misc]) -> str:
+        self.console_text.event_generate("<<Copy>>")
+        return "break"
+
+    def _on_console_paste(self, _event: tk.Event[tk.Misc]) -> str:
+        fd = self.console_fd
+        if fd is None:
+            return "break"
+        try:
+            text = self.root.clipboard_get()
+        except tk.TclError:
+            return "break"
+        try:
+            os.write(fd, text.encode())
+        except OSError:
+            return "break"
+        return "break"
+
     def _console_key_sequence(self, event: tk.Event[tk.Misc]) -> bytes:
         keysym = event.keysym
         state = event.state
@@ -614,8 +648,16 @@ class WorkspaceGui:
 
     def _append_console_output(self, chunks: list[ConsoleChunk]) -> None:
         for chunk in chunks:
-            self.console_text.insert(tk.END, chunk.text, chunk.tags)
+            self._insert_console_chunk(chunk)
         self.console_text.see(tk.END)
+
+    def _insert_console_chunk(self, chunk: ConsoleChunk) -> None:
+        for char in chunk.text:
+            if char == "\b":
+                if self.console_text.index(tk.END) != "2.0":
+                    self.console_text.delete("end-2c", "end-1c")
+                continue
+            self.console_text.insert(tk.END, char, chunk.tags)
 
     def _set_markdown(self, widget: tk.Text, text: str) -> None:
         widget.configure(state=tk.NORMAL)
