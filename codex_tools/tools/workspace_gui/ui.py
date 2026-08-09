@@ -16,6 +16,7 @@ import subprocess
 import struct
 import termios
 import threading
+import sys
 import tkinter as tk
 from tkinter import font as tkfont
 from tkinter import messagebox
@@ -46,9 +47,9 @@ class ConsoleSession:
     task_path: Path
     kind: str
     frame: ttk.Frame
-    text: tk.Text
+    text: tk.Text | None
     process: subprocess.Popen[bytes]
-    fd: int
+    fd: int | None
     chunks: list[ConsoleChunk]
 
 
@@ -157,12 +158,12 @@ class WorkspaceGui:
         self.notebook.pack(fill=tk.BOTH, expand=True)
         self.description_text, self.context_text = self._add_details_tab()
         self.actions_text = self._add_actions_tab()
-        self._add_console_tab()
         self.notebook.bind("<<NotebookTabChanged>>", self._on_notebook_tab_changed)
         self.root.after_idle(self._set_main_default_split)
         self.console_context_menu = tk.Menu(self.root, tearoff=False)
         self.console_context_menu.add_command(label="Copy", command=self._copy_console_selection)
         self.console_context_menu.add_command(label="Paste", command=self._paste_console_clipboard)
+        self.root.bind_all("<Button-1>", self._hide_console_context_menu, add="+")
 
     def _add_details_tab(self) -> tuple[tk.Text, tk.Text]:
         frame = ttk.Frame(self.notebook)
@@ -192,7 +193,11 @@ class WorkspaceGui:
 
     def _add_actions_tab(self) -> tk.Text:
         frame = ttk.Frame(self.notebook)
-        toolbar = ttk.Frame(frame)
+        pane = ttk.PanedWindow(frame, orient=tk.VERTICAL)
+        pane.pack(fill=tk.BOTH, expand=True)
+
+        actions_frame = ttk.Frame(pane)
+        toolbar = ttk.Frame(actions_frame)
         toolbar.pack(side=tk.TOP, fill=tk.X)
         ttk.Button(toolbar, text="Run task_check", command=self.run_selected_task_check).pack(
             side=tk.LEFT,
@@ -223,40 +228,40 @@ class WorkspaceGui:
             padx=2,
             pady=2,
         )
-        self.task_actions_frame = ttk.Frame(frame)
+        self.task_actions_frame = ttk.Frame(actions_frame)
         self.task_actions_frame.pack(side=tk.TOP, fill=tk.X)
-        text = tk.Text(frame, wrap=tk.WORD, undo=False, font=self.text_font)
-        scroll = ttk.Scrollbar(frame, orient=tk.VERTICAL, command=text.yview)
+        text = tk.Text(actions_frame, wrap=tk.WORD, undo=False, font=self.text_font)
+        scroll = ttk.Scrollbar(actions_frame, orient=tk.VERTICAL, command=text.yview)
         text.configure(yscrollcommand=scroll.set)
         text.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         scroll.pack(side=tk.RIGHT, fill=tk.Y)
-        self.notebook.add(frame, text="Actions")
         self._configure_text_tags(text)
-        return text
 
-    def _add_console_tab(self) -> None:
-        frame = ttk.Frame(self.notebook)
-        toolbar = ttk.Frame(frame)
-        toolbar.pack(side=tk.TOP, fill=tk.X)
-        ttk.Button(toolbar, text="New", command=self.new_console).pack(
+        console_frame = ttk.Frame(pane)
+        console_toolbar = ttk.Frame(console_frame)
+        console_toolbar.pack(side=tk.TOP, fill=tk.X)
+        ttk.Button(console_toolbar, text="New", command=self.new_console).pack(
             side=tk.LEFT,
             padx=2,
             pady=2,
         )
-        ttk.Button(toolbar, text="Close", command=self.close_active_console).pack(
+        ttk.Button(console_toolbar, text="Close", command=self.close_active_console).pack(
             side=tk.LEFT,
             padx=2,
             pady=2,
         )
-        ttk.Button(toolbar, text="Run codex", command=self.run_codex_console).pack(
+        ttk.Button(console_toolbar, text="Run codex", command=self.run_codex_console).pack(
             side=tk.LEFT,
             padx=2,
             pady=2,
         )
-        self.console_notebook = ttk.Notebook(frame)
+        self.console_notebook = ttk.Notebook(console_frame)
         self.console_notebook.pack(side=tk.TOP, fill=tk.BOTH, expand=True)
         self.console_notebook.bind("<<NotebookTabChanged>>", self._on_console_session_tab_changed)
-        self.notebook.add(frame, text="Console")
+        pane.add(actions_frame, weight=2)
+        pane.add(console_frame, weight=1)
+        self.notebook.add(frame, text="Actions")
+        return text
 
     def _create_console_text(self, parent: ttk.Frame) -> tk.Text:
         text = tk.Text(parent, wrap=tk.WORD, undo=False, font=self.fixed_font)
@@ -654,21 +659,56 @@ class WorkspaceGui:
         task = self._require_task()
         if task is None:
             return
-        env = os.environ.copy()
-        env.setdefault("TERM", "xterm-256color")
-        self._start_console_process(
+        self._start_embedded_terminal_process(
             task=task,
             command=codex_console_command(self.workspace, task),
             cwd=self.workspace,
-            env=env,
             title_prefix="codex",
-            startup_text=(
-                f"Starting codex in {self.workspace}\n"
-                f"Task context: {task.name} ({task.path})\n"
-                "Initial task message was passed to codex as the startup prompt.\n"
-                "Waiting for codex output...\n"
-            ),
         )
+
+    def _start_embedded_terminal_process(
+        self,
+        task: TaskSummary,
+        command: list[str],
+        cwd: Path,
+        title_prefix: str,
+    ) -> int | None:
+        session_id = self.next_console_id
+        self.next_console_id += 1
+        title = title_prefix
+        frame = ttk.Frame(self.console_notebook)
+        self.console_notebook.add(frame, text=title)
+        self.console_notebook.select(frame)
+        frame.update_idletasks()
+        socket_id = frame.winfo_id()
+        process = subprocess.Popen(
+            embedded_terminal_command(
+                socket_id=socket_id,
+                cwd=cwd,
+                command=command,
+                font_size=self.text_font_size,
+                theme=self.theme,
+            ),
+            cwd=self.workspace,
+            close_fds=True,
+        )
+        session = ConsoleSession(
+            session_id=session_id,
+            title=title,
+            task_path=task.path,
+            kind=title_prefix,
+            frame=frame,
+            text=None,
+            process=process,
+            fd=None,
+            chunks=[],
+        )
+        self.console_sessions[session_id] = session
+        self._renumber_console_tabs(task)
+        if self.selected_task is not None and self.selected_task.path == task.path:
+            self._show_console_tab(session)
+        self._activate_console(session_id)
+        return session_id
 
     def _start_console_process(
         self,
@@ -744,10 +784,11 @@ class WorkspaceGui:
             return
         if session.process.poll() is None:
             session.process.terminate()
-        try:
-            os.close(session.fd)
-        except OSError:
-            pass
+        if session.fd is not None:
+            try:
+                os.close(session.fd)
+            except OSError:
+                pass
         self._forget_console_tab(session)
         session.frame.destroy()
         if self.active_console_id == session_id:
@@ -817,8 +858,11 @@ class WorkspaceGui:
         self.active_console_id = session_id
         self._show_console_tab(session)
         self.console_notebook.select(session.frame)
-        session.text.see(tk.END)
-        session.text.focus_set()
+        if session.text is not None:
+            session.text.see(tk.END)
+            session.text.focus_set()
+        else:
+            session.frame.focus_set()
 
     def _session_for_selected_console_tab(self) -> ConsoleSession | None:
         try:
@@ -869,7 +913,7 @@ class WorkspaceGui:
         if session is None:
             return "break"
         sequence = self._console_key_sequence(event)
-        if sequence:
+        if sequence and session.fd is not None:
             try:
                 os.write(session.fd, sequence)
             except OSError:
@@ -884,7 +928,7 @@ class WorkspaceGui:
             text.selection_get()
         except tk.TclError:
             session = self._active_console()
-            if session is not None:
+            if session is not None and session.fd is not None:
                 try:
                     os.write(session.fd, b"\x03")
                 except OSError:
@@ -915,7 +959,8 @@ class WorkspaceGui:
         except tk.TclError:
             return
         try:
-            os.write(session.fd, text.encode())
+            if session.fd is not None:
+                os.write(session.fd, text.encode())
         except OSError:
             return
 
@@ -926,6 +971,9 @@ class WorkspaceGui:
         self.console_context_menu.tk_popup(event.x_root, event.y_root)
         self.console_context_menu.grab_release()
         return "break"
+
+    def _hide_console_context_menu(self, _event: tk.Event[tk.Misc]) -> None:
+        self.console_context_menu.unpost()
 
     def _console_key_sequence(self, event: tk.Event[tk.Misc]) -> bytes:
         keysym = event.keysym
@@ -964,7 +1012,7 @@ class WorkspaceGui:
 
     def _append_console_output(self, session_id: int, chunks: list[ConsoleChunk]) -> None:
         session = self.console_sessions.get(session_id)
-        if session is None:
+        if session is None or session.text is None:
             return
         session.chunks.extend(chunks)
         for chunk in chunks:
@@ -1096,8 +1144,9 @@ class WorkspaceGui:
             if isinstance(widget, tk.Text):
                 self._configure_text_tags(widget)
         for session in getattr(self, "console_sessions", {}).values():
-            session.text.configure(font=self.fixed_font)
-            self._configure_console_tags(session.text)
+            if session.text is not None:
+                session.text.configure(font=self.fixed_font)
+                self._configure_console_tags(session.text)
 
     def _apply_theme(self) -> None:
         colors = _theme_colors(self.theme)
@@ -1151,7 +1200,8 @@ class WorkspaceGui:
             if isinstance(widget, tk.Text):
                 self._apply_text_theme(widget, colors)
         for session in getattr(self, "console_sessions", {}).values():
-            self._apply_text_theme(session.text, colors)
+            if session.text is not None:
+                self._apply_text_theme(session.text, colors)
 
     def _apply_text_theme(self, widget: tk.Text, colors: dict[str, str]) -> None:
         widget.configure(
@@ -1173,7 +1223,7 @@ class WorkspaceGui:
         )
 
     def _is_console_tab_selected(self) -> bool:
-        return self.notebook.tab(self.notebook.select(), "text") == "Console"
+        return self.notebook.tab(self.notebook.select(), "text") == "Actions"
 
     def close(self) -> None:
         self._save_settings()
@@ -1210,6 +1260,30 @@ def codex_console_command(workspace: Path, task: TaskSummary) -> list[str]:
         str(workspace),
         "--no-alt-screen",
         codex_task_context_message(task, workspace),
+    ]
+
+
+def embedded_terminal_command(
+    socket_id: int,
+    cwd: Path,
+    command: list[str],
+    font_size: int,
+    theme: str,
+) -> list[str]:
+    return [
+        sys.executable,
+        "-m",
+        "codex_tools.tools.workspace_gui.vte_terminal",
+        "--socket-id",
+        str(socket_id),
+        "--cwd",
+        str(cwd),
+        "--font-size",
+        str(font_size),
+        "--theme",
+        theme,
+        "--",
+        *command,
     ]
 
 

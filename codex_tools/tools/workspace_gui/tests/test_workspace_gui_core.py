@@ -21,6 +21,7 @@ from codex_tools.tools.workspace_gui.core import run_task_check
 from codex_tools.tools.workspace_gui.ui import codex_console_command
 from codex_tools.tools.workspace_gui.ui import console_tab_title
 from codex_tools.tools.workspace_gui.ui import codex_task_context_message
+from codex_tools.tools.workspace_gui.ui import embedded_terminal_command
 from codex_tools.tools.workspace_gui.ui import render_git_status
 
 
@@ -152,6 +153,30 @@ def test_codex_console_command_passes_prompt_and_workspace(tmp_path: Path) -> No
         "--no-alt-screen",
         codex_task_context_message(summary, tmp_path),
     ]
+
+
+def test_embedded_terminal_command_wraps_child_command(tmp_path: Path) -> None:
+    command = embedded_terminal_command(
+        socket_id=123,
+        cwd=tmp_path,
+        command=["codex", "--help"],
+        font_size=16,
+        theme="dark",
+    )
+
+    assert command[1:11] == [
+        "-m",
+        "codex_tools.tools.workspace_gui.vte_terminal",
+        "--socket-id",
+        "123",
+        "--cwd",
+        str(tmp_path),
+        "--font-size",
+        "16",
+        "--theme",
+        "dark",
+    ]
+    assert command[-3:] == ["--", "codex", "--help"]
 
 
 def test_console_tab_title_uses_stack_index_before_kind() -> None:
