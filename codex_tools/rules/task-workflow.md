@@ -82,11 +82,35 @@ These rules apply to every task directory under the workspace root.
    generated output unless the task explicitly asks for generated artifact
    patching.
 10. For runtime products that combine multiple target artifacts, maintain a
-   task-owned artifact manifest based on
-   `codex_tools/paf_workspace/templates/product-artifacts.yaml`. Keep it under
-   the task's `dev/` tree and update it when artifact paths, domain roles, or
-   compile databases change.
-11. Keep commit-ready source/tooling changes separate from review/report
-   artifacts unless the user asks to include both. Review tasks place reports
-   under `report/`; source tasks should not accumulate report output as a side
-   effect.
+    task-owned artifact manifest based on
+    `codex_tools/paf_workspace/templates/product-artifacts.yaml`. Keep it under
+    the task's `dev/` tree and update it when artifact paths, domain roles, or
+    compile databases change.
+11. Task-local GUI actions may be declared in `TASK_ACTIONS.json` at the task
+    root. Use this when repeated build, test, smoke, report, or cleanup commands
+    are useful from the local workspace GUI without involving an AI agent.
+    The file is JSON with an `actions` list:
+
+    ```json
+    {
+      "actions": [
+        {
+          "id": "unit-tests",
+          "label": "Unit tests",
+          "command": ["scripts/run-unit-tests.sh"],
+          "cwd": ".",
+          "env": {"EXAMPLE": "value"}
+        }
+      ]
+    }
+    ```
+
+    `id`, `label`, and `command` are required. `command` may be either a string
+    shell command or an argv list. `cwd` is optional, defaults to `.`, and must
+    stay inside the task directory. `env` is optional and must be a string map.
+    Prefer commands under `scripts/` for repeatable task routines; keep
+    one-off experiments out of `TASK_ACTIONS.json`.
+12. Keep commit-ready source/tooling changes separate from review/report
+    artifacts unless the user asks to include both. Review tasks place reports
+    under `report/`; source tasks should not accumulate report output as a side
+    effect.

@@ -1,10 +1,13 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import json
+import os
 from pathlib import Path
 import re
 import subprocess
 import textwrap
+from typing import Any
 
 from codex_tools.paf_workspace.task_check import check_task
 from codex_tools.paf_workspace.task_check import render_text
@@ -13,6 +16,7 @@ from codex_tools.paf_workspace.task_check import render_text
 TASK_CONTEXT_BUDGET = 8_000
 TASKS_DIR_NAME = "tasks"
 MARKDOWN_TABLE_WIDTH = 96
+TASK_ACTIONS_FILE = "TASK_ACTIONS.json"
 
 
 @dataclass(frozen=True)
@@ -38,6 +42,15 @@ class GitRepoStatus:
 class MarkdownChunk:
     text: str
     tag: str
+
+
+@dataclass(frozen=True)
+class TaskAction:
+    action_id: str
+    label: str
+    command: str | tuple[str, ...]
+    cwd: Path
+    env: dict[str, str]
 
 
 def rough_token_count(text: str) -> int:
@@ -191,6 +204,109 @@ def read_task_file(task: TaskSummary, filename: str) -> str:
 def run_task_check(task: TaskSummary, workspace: Path) -> str:
     checks = check_task(task.path, workspace=workspace.resolve())
     return render_text(task.path, checks)
+
+
+def load_task_actions(task: TaskSummary) -> tuple[list[TaskAction], list[str]]:
+    path = task.path / TASK_ACTIONS_FILE
+    if not path.is_file():
+        return [], []
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as error:
+        return [], [f"{TASK_ACTIONS_FILE}: {error}"]
+
+    entries = data.get("actions") if isinstance(data, dict) else None
+    if not isinstance(entries, list):
+        return [], [f"{TASK_ACTIONS_FILE}: expected object with actions list"]
+
+    actions: list[TaskAction] = []
+    errors: list[str] = []
+    seen: set[str] = set()
+    for index, entry in enumerate(entries, start=1):
+        action, error = _parse_task_action(task, entry, index)
+        if error is not None:
+            errors.append(error)
+            continue
+        if action.action_id in seen:
+            errors.append(f"{TASK_ACTIONS_FILE}: duplicate action id {action.action_id!r}")
+            continue
+        seen.add(action.action_id)
+        actions.append(action)
+    return actions, errors
+
+
+def run_task_action(action: TaskAction) -> str:
+    env = os.environ.copy()
+    env.update(action.env)
+    command = list(action.command) if isinstance(action.command, tuple) else action.command
+    completed = subprocess.run(
+        command,
+        cwd=action.cwd,
+        env=env,
+        shell=isinstance(action.command, str),
+        check=False,
+        text=True,
+        capture_output=True,
+    )
+    output = completed.stdout
+    if completed.stderr:
+        output += completed.stderr
+    output += f"\nexit code: {completed.returncode}\n"
+    return output
+
+
+def _parse_task_action(
+    task: TaskSummary,
+    entry: object,
+    index: int,
+) -> tuple[TaskAction, None] | tuple[None, str]:
+    if not isinstance(entry, dict):
+        return None, f"{TASK_ACTIONS_FILE}: action {index} must be an object"
+
+    action_id = _string_field(entry, "id")
+    label = _string_field(entry, "label")
+    command = _command_field(entry.get("command"))
+    if action_id is None:
+        return None, f"{TASK_ACTIONS_FILE}: action {index} missing string id"
+    if label is None:
+        return None, f"{TASK_ACTIONS_FILE}: action {index} missing string label"
+    if command is None:
+        return None, f"{TASK_ACTIONS_FILE}: action {index} missing command"
+
+    cwd_text = _string_field(entry, "cwd") or "."
+    cwd = (task.path / cwd_text).resolve()
+    try:
+        cwd.relative_to(task.path.resolve())
+    except ValueError:
+        return None, f"{TASK_ACTIONS_FILE}: action {action_id!r} cwd escapes task"
+
+    env_data = entry.get("env", {})
+    if not isinstance(env_data, dict) or not all(
+        isinstance(key, str) and isinstance(value, str)
+        for key, value in env_data.items()
+    ):
+        return None, f"{TASK_ACTIONS_FILE}: action {action_id!r} env must be string map"
+
+    return TaskAction(
+        action_id=action_id,
+        label=label,
+        command=command,
+        cwd=cwd,
+        env=dict(env_data),
+    ), None
+
+
+def _string_field(entry: dict[str, Any], name: str) -> str | None:
+    value = entry.get(name)
+    return value if isinstance(value, str) and value else None
+
+
+def _command_field(value: object) -> str | tuple[str, ...] | None:
+    if isinstance(value, str) and value:
+        return value
+    if isinstance(value, list) and value and all(isinstance(item, str) for item in value):
+        return tuple(value)
+    return None
 
 
 def find_dev_git_repos(task: TaskSummary) -> list[Path]:

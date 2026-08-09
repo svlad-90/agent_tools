@@ -15,12 +15,15 @@ from tkinter import messagebox
 from tkinter import ttk
 
 from .core import TASK_CONTEXT_BUDGET
+from .core import TaskAction
 from .core import TaskSummary
 from .core import discover_tasks
 from .core import find_dev_git_repos
 from .core import git_status
+from .core import load_task_actions
 from .core import read_task_file
 from .core import render_markdown_chunks
+from .core import run_task_action
 from .core import run_task_check
 
 
@@ -32,6 +35,7 @@ class WorkspaceGui:
         self.selected_task: TaskSummary | None = None
         self.messages: queue.Queue[tuple[str, str]] = queue.Queue()
         self.action_transcripts: dict[Path, str] = {}
+        self.task_actions: list[TaskAction] = []
         self.git_repo_options: list[Path] = []
         self.git_repos_loaded_for: Path | None = None
         self.running_actions: set[tuple[str, Path]] = set()
@@ -112,10 +116,12 @@ class WorkspaceGui:
     def _add_details_tab(self) -> tuple[tk.Text, tk.Text]:
         frame = ttk.Frame(self.notebook)
         details = ttk.PanedWindow(frame, orient=tk.VERTICAL)
+        self.details_pane = details
         details.pack(fill=tk.BOTH, expand=True)
         description_text = self._add_labeled_text_pane(details, "Description")
         context_text = self._add_labeled_text_pane(details, "Context")
         self.notebook.add(frame, text="Details")
+        self.root.after_idle(self._set_details_default_split)
         return description_text, context_text
 
     def _add_labeled_text_pane(self, parent: ttk.PanedWindow, title: str) -> tk.Text:
@@ -141,6 +147,11 @@ class WorkspaceGui:
             padx=2,
             pady=2,
         )
+        ttk.Button(toolbar, text="Reload actions", command=self.reload_selected_task_actions).pack(
+            side=tk.LEFT,
+            padx=2,
+            pady=2,
+        )
         self.git_repo_var = tk.StringVar(value="")
         self.git_repo_combo = ttk.Combobox(
             toolbar,
@@ -160,6 +171,8 @@ class WorkspaceGui:
             padx=2,
             pady=2,
         )
+        self.task_actions_frame = ttk.Frame(frame)
+        self.task_actions_frame.pack(side=tk.TOP, fill=tk.X)
         text = tk.Text(frame, wrap=tk.WORD, undo=False, font=self.text_font)
         scroll = ttk.Scrollbar(frame, orient=tk.VERTICAL, command=text.yview)
         text.configure(yscrollcommand=scroll.set)
@@ -204,7 +217,11 @@ class WorkspaceGui:
         self._set_markdown(self.description_text, read_task_file(task, "TASK_DESCRIPTION.md"))
         self._set_markdown(self.context_text, read_task_file(task, "TASK_CONTEXT.md"))
         self._reset_actions_tab(task)
-        self._set_text(self.actions_text, self.action_transcripts.get(task.path, ""))
+        action_errors = self._load_task_action_buttons(task)
+        text = self.action_transcripts.get(task.path, "")
+        if action_errors:
+            text += action_errors
+        self._set_text(self.actions_text, text)
 
     def _on_task_double_clicked(self, _event: object) -> None:
         self.open_task()
@@ -268,11 +285,49 @@ class WorkspaceGui:
         if task is not None:
             self._ensure_git_repos_loaded(task)
 
+    def run_custom_task_action(self, action: TaskAction) -> None:
+        task = self._require_task()
+        if task is None:
+            return
+        self._run_transcript_background(
+            action.label,
+            ("task action", task.path / action.action_id),
+            task.path,
+            lambda: run_task_action(action),
+            self.actions_text,
+        )
+
+    def reload_selected_task_actions(self) -> None:
+        task = self._require_task()
+        if task is None:
+            return
+        action_errors = self._load_task_action_buttons(task)
+        text = self.action_transcripts.get(task.path, "")
+        if action_errors:
+            text += action_errors
+        self._set_text(self.actions_text, text)
+
     def _reset_actions_tab(self, task: TaskSummary) -> None:
         self.git_repo_options = []
         self.git_repos_loaded_for = None
         self.git_repo_combo.configure(values=(), state=tk.DISABLED)
         self.git_repo_var.set("")
+        self.task_actions = []
+
+    def _load_task_action_buttons(self, task: TaskSummary) -> str:
+        for child in self.task_actions_frame.winfo_children():
+            child.destroy()
+        actions, errors = load_task_actions(task)
+        self.task_actions = actions
+        for action in actions:
+            ttk.Button(
+                self.task_actions_frame,
+                text=action.label,
+                command=lambda item=action: self.run_custom_task_action(item),
+            ).pack(side=tk.LEFT, padx=2, pady=2)
+        if not errors:
+            return ""
+        return "\n".join(errors) + "\n\n"
 
     def _ensure_git_repos_loaded(self, task: TaskSummary) -> None:
         if self.git_repos_loaded_for == task.path:
@@ -400,6 +455,16 @@ class WorkspaceGui:
         self.action_transcripts[transcript_key] = self.action_transcripts.get(transcript_key, "") + text
         if self.selected_task is not None and self.selected_task.path == transcript_key:
             self._set_text(target or self.actions_text, self.action_transcripts[transcript_key])
+
+    def _set_details_default_split(self) -> None:
+        height = self.details_pane.winfo_height()
+        if height <= 1:
+            self.root.after(50, self._set_details_default_split)
+            return
+        try:
+            self.details_pane.sashpos(0, max(120, height // 3))
+        except tk.TclError:
+            return
 
     def adjust_font_size(self, delta: int) -> None:
         self.font_size = max(8, min(28, self.font_size + delta))

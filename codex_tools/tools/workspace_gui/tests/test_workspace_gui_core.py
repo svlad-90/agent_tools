@@ -1,15 +1,19 @@
 from __future__ import annotations
 
 from pathlib import Path
+import json
 import subprocess
+import sys
 
 from codex_tools.tools.workspace_gui.core import TASK_CONTEXT_BUDGET
 from codex_tools.tools.workspace_gui.core import TaskSummary
 from codex_tools.tools.workspace_gui.core import discover_tasks
 from codex_tools.tools.workspace_gui.core import find_dev_git_repos
 from codex_tools.tools.workspace_gui.core import git_status
+from codex_tools.tools.workspace_gui.core import load_task_actions
 from codex_tools.tools.workspace_gui.core import render_markdown_chunks
 from codex_tools.tools.workspace_gui.core import rough_token_count
+from codex_tools.tools.workspace_gui.core import run_task_action
 from codex_tools.tools.workspace_gui.core import run_task_check
 from codex_tools.tools.workspace_gui.ui import render_git_status
 
@@ -113,6 +117,70 @@ def test_render_git_status_reports_one_repo(tmp_path: Path) -> None:
 
     assert str(repo) in report
     assert report.count("##") == 1
+
+
+def test_load_task_actions_and_run_command(tmp_path: Path) -> None:
+    task = tmp_path / "tasks" / "sample-task"
+    scripts = task / "scripts"
+    scripts.mkdir(parents=True)
+    (task / "TASK_DESCRIPTION.md").write_text("# Description\n", encoding="utf-8")
+    (task / "TASK_CONTEXT.md").write_text(_task_context(), encoding="utf-8")
+    (task / "TASK_ACTIONS.json").write_text(
+        json.dumps(
+            {
+                "actions": [
+                    {
+                        "id": "unit",
+                        "label": "Unit tests",
+                        "command": [
+                            sys.executable,
+                            "-c",
+                            "import os; print(os.environ['SAMPLE_FLAG'])",
+                        ],
+                        "cwd": "scripts",
+                        "env": {"SAMPLE_FLAG": "ok"},
+                    }
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    actions, errors = load_task_actions(discover_tasks_with_context(task, tmp_path))
+    report = run_task_action(actions[0])
+
+    assert errors == []
+    assert actions[0].label == "Unit tests"
+    assert actions[0].cwd == scripts.resolve()
+    assert "ok" in report
+    assert "exit code: 0" in report
+
+
+def test_load_task_actions_rejects_escaping_cwd(tmp_path: Path) -> None:
+    task = tmp_path / "tasks" / "sample-task"
+    task.mkdir(parents=True)
+    (task / "TASK_DESCRIPTION.md").write_text("# Description\n", encoding="utf-8")
+    (task / "TASK_CONTEXT.md").write_text(_task_context(), encoding="utf-8")
+    (task / "TASK_ACTIONS.json").write_text(
+        json.dumps(
+            {
+                "actions": [
+                    {
+                        "id": "bad",
+                        "label": "Bad",
+                        "command": "echo bad",
+                        "cwd": "..",
+                    }
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    actions, errors = load_task_actions(discover_tasks_with_context(task, tmp_path))
+
+    assert actions == []
+    assert "cwd escapes task" in errors[0]
 
 
 def discover_tasks_with_context(task: Path, workspace: Path) -> TaskSummary:
