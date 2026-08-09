@@ -10,8 +10,9 @@ from codex_tools.tools.workspace_gui.core import TaskSummary
 from codex_tools.tools.workspace_gui.core import discover_tasks
 from codex_tools.tools.workspace_gui.core import find_dev_git_repos
 from codex_tools.tools.workspace_gui.core import git_status
-from codex_tools.tools.workspace_gui.core import load_workspace_gui_settings
 from codex_tools.tools.workspace_gui.core import load_task_actions
+from codex_tools.tools.workspace_gui.core import load_workspace_gui_settings
+from codex_tools.tools.workspace_gui.core import parse_console_output
 from codex_tools.tools.workspace_gui.core import render_markdown_chunks
 from codex_tools.tools.workspace_gui.core import rough_token_count
 from codex_tools.tools.workspace_gui.core import save_workspace_gui_settings
@@ -134,6 +135,17 @@ def test_workspace_gui_settings_clamp_bad_font_size(tmp_path: Path) -> None:
     settings_path.write_text('{"font_size": 100}', encoding="utf-8")
 
     assert load_workspace_gui_settings(settings_path) == {"font_size": 28}
+
+
+def test_parse_console_output_preserves_color_tags() -> None:
+    chunks = parse_console_output("\x1b[01;32muser\x1b[00m:\x1b[34m~/task\x1b[00m$ \r\n")
+
+    assert [(chunk.text, chunk.tags) for chunk in chunks] == [
+        ("user", ("console_bold", "console_fg_green")),
+        (":", ()),
+        ("~/task", ("console_fg_blue",)),
+        ("$ \n", ()),
+    ]
 
 
 def test_load_task_actions_and_run_command(tmp_path: Path) -> None:

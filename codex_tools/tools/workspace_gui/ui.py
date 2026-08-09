@@ -17,6 +17,7 @@ from tkinter import messagebox
 from tkinter import ttk
 
 from .core import TASK_CONTEXT_BUDGET
+from .core import ConsoleChunk
 from .core import TaskAction
 from .core import TaskSummary
 from .core import discover_tasks
@@ -24,6 +25,7 @@ from .core import find_dev_git_repos
 from .core import git_status
 from .core import load_task_actions
 from .core import load_workspace_gui_settings
+from .core import parse_console_output
 from .core import read_task_file
 from .core import render_markdown_chunks
 from .core import run_task_action
@@ -37,7 +39,7 @@ class WorkspaceGui:
         self.workspace = workspace.resolve()
         self.tasks: list[TaskSummary] = []
         self.selected_task: TaskSummary | None = None
-        self.messages: queue.Queue[tuple[str, str]] = queue.Queue()
+        self.messages: queue.Queue[tuple[str, object]] = queue.Queue()
         self.action_transcripts: dict[Path, str] = {}
         self.task_actions: list[TaskAction] = []
         self.git_repo_options: list[Path] = []
@@ -218,6 +220,7 @@ class WorkspaceGui:
         body.rowconfigure(0, weight=1)
         body.columnconfigure(0, weight=1)
         self.notebook.add(frame, text="Console")
+        self._configure_console_tags(text)
         return text
 
     def refresh_tasks(self) -> None:
@@ -553,7 +556,8 @@ class WorkspaceGui:
                 break
             if not data:
                 break
-            self.messages.put(("console", data.decode(errors="replace")))
+            chunks = parse_console_output(data.decode(errors="replace"))
+            self.messages.put(("console", chunks))
 
     def _on_console_key(self, event: tk.Event[tk.Misc]) -> str:
         fd = self.console_fd
@@ -608,8 +612,9 @@ class WorkspaceGui:
         self.console_text.delete("1.0", tk.END)
         self.console_text.insert(tk.END, text)
 
-    def _append_console_output(self, text: str) -> None:
-        self.console_text.insert(tk.END, text)
+    def _append_console_output(self, chunks: list[ConsoleChunk]) -> None:
+        for chunk in chunks:
+            self.console_text.insert(tk.END, chunk.text, chunk.tags)
         self.console_text.see(tk.END)
 
     def _set_markdown(self, widget: tk.Text, text: str) -> None:
@@ -628,6 +633,29 @@ class WorkspaceGui:
         widget.tag_configure("code", font=self.fixed_font, lmargin1=12, lmargin2=12)
         widget.tag_configure("table", font=self.fixed_font)
         widget.tag_configure("paragraph", spacing1=1, spacing3=2)
+
+    def _configure_console_tags(self, widget: tk.Text) -> None:
+        widget.tag_configure("console_bold", font=self.fixed_font)
+        colors = {
+            "console_fg_black": "#202124",
+            "console_fg_red": "#b3261e",
+            "console_fg_green": "#137333",
+            "console_fg_yellow": "#b06000",
+            "console_fg_blue": "#174ea6",
+            "console_fg_magenta": "#9c27b0",
+            "console_fg_cyan": "#007b83",
+            "console_fg_white": "#f1f3f4",
+            "console_fg_bright_black": "#5f6368",
+            "console_fg_bright_red": "#d93025",
+            "console_fg_bright_green": "#188038",
+            "console_fg_bright_yellow": "#f9ab00",
+            "console_fg_bright_blue": "#1a73e8",
+            "console_fg_bright_magenta": "#c61aff",
+            "console_fg_bright_cyan": "#00acc1",
+            "console_fg_bright_white": "#ffffff",
+        }
+        for tag, color in colors.items():
+            widget.tag_configure(tag, foreground=color)
 
     def _append_action(self, transcript_key: Path, text: str, target: tk.Text | None = None) -> None:
         self.action_transcripts[transcript_key] = self.action_transcripts.get(transcript_key, "") + text
