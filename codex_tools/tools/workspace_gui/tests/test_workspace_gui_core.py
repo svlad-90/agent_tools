@@ -24,6 +24,8 @@ from codex_tools.tools.workspace_gui.gtk_ui import WorkspaceGtkGui
 from codex_tools.tools.workspace_gui.gtk_ui import codex_task_context_message as gtk_codex_task_context_message
 from codex_tools.tools.workspace_gui.gtk_ui import task_action_shell_command as gtk_task_action_shell_command
 from codex_tools.tools.workspace_gui.gtk_ui import _is_pane_separator_event as gtk_is_pane_separator_event
+from codex_tools.tools.workspace_gui.gtk_ui import _task_init_command as gtk_task_init_command
+from codex_tools.tools.workspace_gui.gtk_ui import _task_path_for_name as gtk_task_path_for_name
 from codex_tools.tools.workspace_gui.gtk_ui import _theme_colors as gtk_theme_colors
 from codex_tools.tools.workspace_gui.ui import codex_console_command
 from codex_tools.tools.workspace_gui.ui import console_paste_text
@@ -320,6 +322,28 @@ def test_gtk_pane_separator_hit_test_uses_orientation() -> None:
     assert not gtk_is_pane_separator_event(horizontal, FakePaneEvent(120, 100))
     assert gtk_is_pane_separator_event(vertical, FakePaneEvent(40, 205))
     assert not gtk_is_pane_separator_event(vertical, FakePaneEvent(200, 220))
+
+
+def test_gtk_task_path_for_name_stays_under_tasks(tmp_path: Path) -> None:
+    assert gtk_task_path_for_name(tmp_path, "sample-task") == tmp_path / "tasks" / "sample-task"
+    assert gtk_task_path_for_name(tmp_path, "") is None
+    assert gtk_task_path_for_name(tmp_path, "..") is None
+    assert gtk_task_path_for_name(tmp_path, "../outside") is None
+    assert gtk_task_path_for_name(tmp_path, "nested/task") is None
+
+
+def test_gtk_task_init_command_uses_task_check_layout(tmp_path: Path) -> None:
+    task_path = tmp_path / "tasks" / "sample-task"
+
+    command = gtk_task_init_command(tmp_path, task_path)
+
+    assert command[:3] == [sys.executable, "-m", "codex_tools.paf_workspace.task_check"]
+    assert command[3:] == [
+        str(task_path),
+        "--workspace",
+        str(tmp_path),
+        "--init-layout",
+    ]
 
 
 def test_console_tab_title_uses_stack_index_before_kind() -> None:

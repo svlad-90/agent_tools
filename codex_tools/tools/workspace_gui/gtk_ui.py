@@ -6,6 +6,7 @@ import argparse
 import os
 import shlex
 import shutil
+import subprocess
 import sys
 
 import gi
@@ -36,12 +37,16 @@ from .core import save_workspace_gui_settings
 TRANSLATIONS = {
     "en": {
         "actions": "Actions",
+        "add_task": "Add task",
         "button_font_size": "Button font size",
         "cancel": "Cancel",
         "close": "Close",
         "confirm_close_console_body": "The console session will be closed.",
         "confirm_close_console_title": "Close console?",
+        "confirm_delete_task_body": "This will permanently delete the task directory.",
+        "confirm_delete_task_title": "Delete selected task?",
         "context": "context",
+        "delete_task": "Delete task",
         "desc": "desc",
         "details": "Details",
         "git_status": "Git status",
@@ -50,6 +55,8 @@ TRANSLATIONS = {
         "missing_desc": "missing desc",
         "new": "New",
         "ok": "OK",
+        "open_dev": "Open dev folder",
+        "open_task": "Open task folder",
         "open_workspace": "Open Workspace",
         "refresh": "Refresh",
         "reload_actions": "Reload actions",
@@ -59,8 +66,10 @@ TRANSLATIONS = {
         "select_task_first": "Select a task first",
         "settings": "Settings",
         "settings_title": "Workspace GUI settings",
+        "task_already_exists": "Task already exists",
         "task": "Task",
         "task_details": "Task Details",
+        "task_name": "Task name",
         "tasks": "tasks",
         "text_font_size": "Text font size",
         "theme": "Theme",
@@ -68,12 +77,16 @@ TRANSLATIONS = {
     },
     "ru": {
         "actions": "Действия",
+        "add_task": "Добавить задачу",
         "button_font_size": "Размер шрифта кнопок",
         "cancel": "Отмена",
         "close": "Закрыть",
         "confirm_close_console_body": "Консольная сессия будет закрыта.",
         "confirm_close_console_title": "Закрыть консоль?",
+        "confirm_delete_task_body": "Папка задачи будет удалена безвозвратно.",
+        "confirm_delete_task_title": "Удалить выбранную задачу?",
         "context": "контекст",
+        "delete_task": "Удалить задачу",
         "desc": "описание",
         "details": "Детали",
         "git_status": "Git status",
@@ -82,6 +95,8 @@ TRANSLATIONS = {
         "missing_desc": "нет описания",
         "new": "Новая",
         "ok": "OK",
+        "open_dev": "Открыть dev",
+        "open_task": "Открыть папку задачи",
         "open_workspace": "Открыть workspace",
         "refresh": "Обновить",
         "reload_actions": "Обновить actions",
@@ -91,8 +106,10 @@ TRANSLATIONS = {
         "select_task_first": "Сначала выбери задачу",
         "settings": "Настройки",
         "settings_title": "Настройки Workspace GUI",
+        "task_already_exists": "Задача уже существует",
         "task": "Задача",
         "task_details": "Детали задачи",
+        "task_name": "Имя задачи",
         "tasks": "задач",
         "text_font_size": "Размер шрифта текста",
         "theme": "Тема",
@@ -100,12 +117,16 @@ TRANSLATIONS = {
     },
     "uk": {
         "actions": "Дії",
+        "add_task": "Додати задачу",
         "button_font_size": "Розмір шрифту кнопок",
         "cancel": "Скасувати",
         "close": "Закрити",
         "confirm_close_console_body": "Консольну сесію буде закрито.",
         "confirm_close_console_title": "Закрити консоль?",
+        "confirm_delete_task_body": "Папку задачі буде видалено безповоротно.",
+        "confirm_delete_task_title": "Видалити вибрану задачу?",
         "context": "контекст",
+        "delete_task": "Видалити задачу",
         "desc": "опис",
         "details": "Деталі",
         "git_status": "Git status",
@@ -114,6 +135,8 @@ TRANSLATIONS = {
         "missing_desc": "немає опису",
         "new": "Нова",
         "ok": "OK",
+        "open_dev": "Відкрити dev",
+        "open_task": "Відкрити папку задачі",
         "open_workspace": "Відкрити workspace",
         "refresh": "Оновити",
         "reload_actions": "Оновити actions",
@@ -123,8 +146,10 @@ TRANSLATIONS = {
         "select_task_first": "Спочатку вибери задачу",
         "settings": "Налаштування",
         "settings_title": "Налаштування Workspace GUI",
+        "task_already_exists": "Задача вже існує",
         "task": "Задача",
         "task_details": "Деталі задачі",
+        "task_name": "Назва задачі",
         "tasks": "задач",
         "text_font_size": "Розмір шрифту тексту",
         "theme": "Тема",
@@ -209,6 +234,8 @@ class WorkspaceGtkGui:
         self.task_view.append_column(self.task_column)
         self.task_view.get_selection().connect("changed", self._on_task_selected)
         self.task_view.connect("row-activated", lambda *_: self.open_task())
+        self.task_view.add_events(Gdk.EventMask.BUTTON_PRESS_MASK)
+        self.task_view.connect("button-press-event", self._on_task_view_button_press)
         task_scroll = Gtk.ScrolledWindow()
         task_scroll.set_min_content_width(360)
         task_scroll.add(self.task_view)
@@ -289,9 +316,138 @@ class WorkspaceGtkGui:
         self._load_task_action_buttons()
         self._refresh_console_tabs_for_task(self.selected_task)
 
+    def _on_task_view_button_press(self, tree: Gtk.TreeView, event: Gdk.EventButton) -> bool:
+        if event.button != 3:
+            return False
+        hit = tree.get_path_at_pos(int(event.x), int(event.y))
+        if hit is not None:
+            path, _column, _cell_x, _cell_y = hit
+            tree.get_selection().select_path(path)
+        self._task_context_menu().popup_at_pointer(event)
+        return True
+
+    def _task_context_menu(self) -> Gtk.Menu:
+        has_task = self.selected_task is not None
+        menu = Gtk.Menu()
+        items = (
+            (self._tr("refresh"), self.refresh_tasks, True),
+            (self._tr("open_workspace"), lambda *_: open_path(self.workspace), True),
+            (self._tr("open_dev"), self.open_task_dev, has_task),
+            (self._tr("open_task"), self.open_task, has_task),
+            (self._tr("add_task"), self.add_task, True),
+            (self._tr("delete_task"), self.delete_selected_task, has_task),
+        )
+        for index, (label, callback, sensitive) in enumerate(items):
+            if index in (2, 4):
+                menu.append(Gtk.SeparatorMenuItem())
+            item = Gtk.MenuItem(label=label)
+            item.set_sensitive(sensitive)
+            item.connect("activate", callback)
+            menu.append(item)
+        menu.show_all()
+        return menu
+
     def open_task(self, *_args: object) -> None:
         if self.selected_task is not None:
             open_path(self.selected_task.path)
+
+    def open_task_dev(self, *_args: object) -> None:
+        if self.selected_task is not None:
+            open_path(self.selected_task.path / "dev")
+
+    def add_task(self, *_args: object) -> None:
+        task_name = self._prompt_task_name()
+        if task_name is None:
+            return
+        task_path = _task_path_for_name(self.workspace, task_name)
+        if task_path is None:
+            self._show_error(f"Invalid task name: {task_name}")
+            return
+        if task_path.exists():
+            self._show_error(f"{self._tr('task_already_exists')}: {task_path}")
+            return
+        result = subprocess.run(
+            _task_init_command(self.workspace, task_path),
+            cwd=self.workspace,
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+        if result.returncode != 0:
+            self._show_error((result.stderr or result.stdout or "task init failed").strip())
+            return
+        self.selected_task = TaskSummary(task_path.name, task_path, False, False, 0, 0, False)
+        self.refresh_tasks()
+
+    def delete_selected_task(self, *_args: object) -> None:
+        task = self._require_task()
+        if task is None or not self._confirm_delete_task(task):
+            return
+        self._close_sessions_for_task(task)
+        shutil.rmtree(task.path)
+        self.selected_task = None
+        self.refresh_tasks()
+
+    def _prompt_task_name(self) -> str | None:
+        dialog = Gtk.Dialog(
+            title=self._tr("add_task"),
+            transient_for=self.window,
+            flags=Gtk.DialogFlags.MODAL,
+        )
+        dialog.add_button(self._tr("cancel"), Gtk.ResponseType.CANCEL)
+        dialog.add_button(self._tr("ok"), Gtk.ResponseType.OK)
+        content = dialog.get_content_area()
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        box.set_border_width(12)
+        content.add(box)
+        label = Gtk.Label(label=self._tr("task_name"))
+        label.set_xalign(0)
+        entry = Gtk.Entry()
+        box.pack_start(label, False, False, 0)
+        box.pack_start(entry, False, False, 0)
+        dialog.show_all()
+        response = dialog.run()
+        task_name = entry.get_text().strip()
+        dialog.destroy()
+        if response != Gtk.ResponseType.OK or not task_name:
+            return None
+        return task_name
+
+    def _confirm_delete_task(self, task: TaskSummary) -> bool:
+        dialog = Gtk.MessageDialog(
+            transient_for=self.window,
+            flags=Gtk.DialogFlags.MODAL,
+            message_type=Gtk.MessageType.WARNING,
+            buttons=Gtk.ButtonsType.NONE,
+            text=self._tr("confirm_delete_task_title"),
+        )
+        dialog.format_secondary_text(f"{self._tr('confirm_delete_task_body')}\n{task.path}")
+        dialog.add_button(self._tr("cancel"), Gtk.ResponseType.CANCEL)
+        dialog.add_button(self._tr("delete_task"), Gtk.ResponseType.OK)
+        response = dialog.run()
+        dialog.destroy()
+        return response == Gtk.ResponseType.OK
+
+    def _show_error(self, message: str) -> None:
+        dialog = Gtk.MessageDialog(
+            transient_for=self.window,
+            flags=Gtk.DialogFlags.MODAL,
+            message_type=Gtk.MessageType.ERROR,
+            buttons=Gtk.ButtonsType.OK,
+            text=message,
+        )
+        dialog.run()
+        dialog.destroy()
+
+    def _close_sessions_for_task(self, task: TaskSummary) -> None:
+        for session_id, session in list(self.terminal_sessions.items()):
+            if session.task_path != task.path:
+                continue
+            page_num = self.console_notebook.page_num(session.page)
+            if page_num >= 0:
+                self.console_notebook.remove_page(page_num)
+            self.terminal_sessions.pop(session_id, None)
+            session.page.destroy()
 
     def open_settings(self, *_args: object) -> None:
         dialog = Gtk.Dialog(
@@ -895,6 +1051,32 @@ def _is_pane_separator_event(pane: Gtk.Paned, event: Gdk.EventButton, tolerance:
     if pane.get_orientation() == Gtk.Orientation.HORIZONTAL:
         return abs(event.x - position) <= tolerance
     return abs(event.y - position) <= tolerance
+
+
+def _task_path_for_name(workspace: Path, task_name: str) -> Path | None:
+    if not task_name or task_name in {".", ".."}:
+        return None
+    if "/" in task_name or "\\" in task_name:
+        return None
+    task_path = (workspace / "tasks" / task_name).resolve()
+    tasks_root = (workspace / "tasks").resolve()
+    try:
+        task_path.relative_to(tasks_root)
+    except ValueError:
+        return None
+    return task_path
+
+
+def _task_init_command(workspace: Path, task_path: Path) -> list[str]:
+    return [
+        sys_executable(),
+        "-m",
+        "codex_tools.paf_workspace.task_check",
+        str(task_path),
+        "--workspace",
+        str(workspace),
+        "--init-layout",
+    ]
 
 
 def _update_text_tag(tag: Gtk.TextTag | None, **properties: object) -> None:
