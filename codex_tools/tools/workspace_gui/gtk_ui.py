@@ -499,19 +499,18 @@ class WorkspaceGtkGui:
                 artifact_path = value
                 if task is not None:
                     group = _artifact_group(task, artifact_path)
-        delete_file = Gtk.MenuItem(label=self._tr("delete_artifact"))
-        delete_group = Gtk.MenuItem(label=self._tr("delete_artifact_group"))
-        delete_all = Gtk.MenuItem(label=self._tr("delete_all_artifacts"))
-        delete_file.set_sensitive(task is not None and artifact_path is not None)
-        delete_group.set_sensitive(task is not None and group is not None)
-        delete_all.set_sensitive(task is not None)
-        delete_file.connect("activate", lambda *_: self._delete_artifacts(artifact_path=artifact_path))
-        delete_group.connect("activate", lambda *_: self._delete_artifacts(group=group))
-        delete_all.connect("activate", lambda *_: self._delete_artifacts(delete_all=True))
-        menu.append(delete_file)
-        menu.append(delete_group)
-        menu.append(Gtk.SeparatorMenuItem())
-        menu.append(delete_all)
+        action = _artifact_context_action(artifact_path, group)
+        if action == "artifact":
+            item = Gtk.MenuItem(label=self._tr("delete_artifact"))
+            item.connect("activate", lambda *_: self._delete_artifacts(artifact_path=artifact_path))
+        elif action == "group":
+            item = Gtk.MenuItem(label=self._tr("delete_artifact_group"))
+            item.connect("activate", lambda *_: self._delete_artifacts(group=group))
+        else:
+            item = Gtk.MenuItem(label=self._tr("delete_all_artifacts"))
+            item.connect("activate", lambda *_: self._delete_artifacts(delete_all=True))
+        item.set_sensitive(task is not None)
+        menu.append(item)
         menu.show_all()
         return menu
 
@@ -1765,6 +1764,14 @@ def _artifact_delete_paths(
     if group == "diff_reports":
         return _files_under(task.path / "report" / "diff")
     return []
+
+
+def _artifact_context_action(artifact_path: Path | None, group: str | None) -> str:
+    if artifact_path is not None:
+        return "artifact"
+    if group is not None:
+        return "group"
+    return "all"
 
 
 def _files_under(root: Path) -> list[Path]:

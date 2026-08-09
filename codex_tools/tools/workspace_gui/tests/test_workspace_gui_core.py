@@ -24,6 +24,7 @@ from codex_tools.tools.workspace_gui.gtk_ui import WorkspaceGtkGui
 from codex_tools.tools.workspace_gui.gtk_ui import TRANSLATIONS as GTK_TRANSLATIONS
 from codex_tools.tools.workspace_gui.gtk_ui import codex_task_context_message as gtk_codex_task_context_message
 from codex_tools.tools.workspace_gui.gtk_ui import task_action_shell_command as gtk_task_action_shell_command
+from codex_tools.tools.workspace_gui.gtk_ui import _artifact_context_action as gtk_artifact_context_action
 from codex_tools.tools.workspace_gui.gtk_ui import _artifact_delete_paths as gtk_artifact_delete_paths
 from codex_tools.tools.workspace_gui.gtk_ui import _artifact_monitor_dirs as gtk_artifact_monitor_dirs
 from codex_tools.tools.workspace_gui.gtk_ui import _is_pane_separator_event as gtk_is_pane_separator_event
@@ -248,6 +249,14 @@ def test_gtk_artifact_delete_paths_include_hidden_group_files(tmp_path: Path) ->
         "report/diff/review.html",
     ]
     assert rels(gtk_artifact_delete_paths(summary, delete_all=True)) == sorted(files)
+
+
+def test_gtk_artifact_context_action_matches_clicked_area(tmp_path: Path) -> None:
+    artifact = tmp_path / "tasks" / "sample-task" / "report" / "runtime.log"
+
+    assert gtk_artifact_context_action(artifact, "logs") == "artifact"
+    assert gtk_artifact_context_action(None, "logs") == "group"
+    assert gtk_artifact_context_action(None, None) == "all"
 
 
 def test_rough_token_count_uses_words_and_character_fallback() -> None:
