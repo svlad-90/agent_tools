@@ -152,7 +152,6 @@ class WorkspaceGui:
         self.console_context_menu = tk.Menu(self.root, tearoff=False)
         self.console_context_menu.add_command(label="Copy", command=self._copy_console_selection)
         self.console_context_menu.add_command(label="Paste", command=self._paste_console_clipboard)
-        self.root.bind_all("<Button-1>", self._hide_console_context_menu, add="+")
 
         right = ttk.Frame(main, padding=6)
         main.add(right, weight=3)
@@ -628,16 +627,54 @@ class WorkspaceGui:
                 return
             self.stop_console(session.session_id)
             break
-        env = os.environ.copy()
-        env.setdefault("TERM", "xterm-256color")
-        self._start_console_process(
+        self._start_embedded_terminal_process(
             task=task,
             command=codex_console_command(self.workspace, task),
             cwd=self.workspace,
-            env=env,
             title_prefix="codex",
-            startup_text="",
         )
+
+    def _start_embedded_terminal_process(
+        self,
+        task: TaskSummary,
+        command: list[str],
+        cwd: Path,
+        title_prefix: str,
+    ) -> int | None:
+        session_id = self.next_console_id
+        self.next_console_id += 1
+        frame = ttk.Frame(self.console_notebook)
+        self.console_notebook.add(frame, text=title_prefix)
+        self.console_notebook.select(frame)
+        frame.update_idletasks()
+        process = subprocess.Popen(
+            embedded_terminal_command(
+                socket_id=frame.winfo_id(),
+                cwd=cwd,
+                command=command,
+                font_size=self.text_font_size,
+                theme=self.theme,
+            ),
+            cwd=self.workspace,
+            close_fds=True,
+        )
+        session = ConsoleSession(
+            session_id=session_id,
+            title=title_prefix,
+            task_path=task.path,
+            kind=title_prefix,
+            frame=frame,
+            text=None,
+            process=process,
+            fd=None,
+            chunks=[],
+        )
+        self.console_sessions[session_id] = session
+        self._renumber_console_tabs(task)
+        if self.selected_task is not None and self.selected_task.path == task.path:
+            self._show_console_tab(session)
+        self._activate_console(session_id)
+        return session_id
 
     def _start_console_process(
         self,
@@ -1207,6 +1244,30 @@ def codex_console_command(workspace: Path, task: TaskSummary) -> list[str]:
         str(workspace),
         "--no-alt-screen",
         codex_task_context_message(task, workspace),
+    ]
+
+
+def embedded_terminal_command(
+    socket_id: int,
+    cwd: Path,
+    command: list[str],
+    font_size: int,
+    theme: str,
+) -> list[str]:
+    return [
+        sys.executable,
+        "-m",
+        "codex_tools.tools.workspace_gui.vte_terminal",
+        "--socket-id",
+        str(socket_id),
+        "--cwd",
+        str(cwd),
+        "--font-size",
+        str(font_size),
+        "--theme",
+        theme,
+        "--",
+        *command,
     ]
 
 
