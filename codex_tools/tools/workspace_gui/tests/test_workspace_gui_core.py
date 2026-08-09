@@ -22,6 +22,8 @@ from codex_tools.tools.workspace_gui.core import run_task_action
 from codex_tools.tools.workspace_gui.core import run_task_check
 from codex_tools.tools.workspace_gui.gtk_ui import WorkspaceGtkGui
 from codex_tools.tools.workspace_gui.gtk_ui import codex_task_context_message as gtk_codex_task_context_message
+from codex_tools.tools.workspace_gui.gtk_ui import task_action_shell_command as gtk_task_action_shell_command
+from codex_tools.tools.workspace_gui.gtk_ui import _is_pane_separator_event as gtk_is_pane_separator_event
 from codex_tools.tools.workspace_gui.gtk_ui import _theme_colors as gtk_theme_colors
 from codex_tools.tools.workspace_gui.ui import codex_console_command
 from codex_tools.tools.workspace_gui.ui import console_paste_text
@@ -91,6 +93,24 @@ class FakeConsoleText:
         if index.isdigit():
             return int(index)
         raise AssertionError(f"unsupported index {index!r}")
+
+
+class FakePane:
+    def __init__(self, orientation: object, position: int) -> None:
+        self.orientation = orientation
+        self.position = position
+
+    def get_orientation(self) -> object:
+        return self.orientation
+
+    def get_position(self) -> int:
+        return self.position
+
+
+class FakePaneEvent:
+    def __init__(self, x: float, y: float) -> None:
+        self.x = x
+        self.y = y
 
 
 def test_discover_tasks_reports_description_context_and_budget(tmp_path: Path) -> None:
@@ -274,6 +294,32 @@ def test_task_action_shell_command_runs_in_action_cwd(tmp_path: Path) -> None:
     command = task_action_shell_command(action)
 
     assert command == f"cd {tmp_path / 'scripts'} && FLAG='hello world' python -m pytest"
+
+
+def test_gtk_task_action_shell_command_runs_in_action_cwd(tmp_path: Path) -> None:
+    action = TaskAction(
+        action_id="unit",
+        label="Unit",
+        command=("python", "-m", "pytest"),
+        cwd=tmp_path / "scripts",
+        env={"FLAG": "hello world"},
+    )
+
+    command = gtk_task_action_shell_command(action)
+
+    assert command == f"cd {tmp_path / 'scripts'} && FLAG='hello world' python -m pytest"
+
+
+def test_gtk_pane_separator_hit_test_uses_orientation() -> None:
+    from gi.repository import Gtk
+
+    horizontal = FakePane(Gtk.Orientation.HORIZONTAL, 100)
+    vertical = FakePane(Gtk.Orientation.VERTICAL, 200)
+
+    assert gtk_is_pane_separator_event(horizontal, FakePaneEvent(105, 40))
+    assert not gtk_is_pane_separator_event(horizontal, FakePaneEvent(120, 100))
+    assert gtk_is_pane_separator_event(vertical, FakePaneEvent(40, 205))
+    assert not gtk_is_pane_separator_event(vertical, FakePaneEvent(200, 220))
 
 
 def test_console_tab_title_uses_stack_index_before_kind() -> None:

@@ -39,8 +39,8 @@ TRANSLATIONS = {
         "button_font_size": "Button font size",
         "cancel": "Cancel",
         "close": "Close",
-        "confirm_close_codex_body": "The interactive Codex session will be closed.",
-        "confirm_close_codex_title": "Close Codex console?",
+        "confirm_close_console_body": "The console session will be closed.",
+        "confirm_close_console_title": "Close console?",
         "context": "context",
         "desc": "desc",
         "details": "Details",
@@ -71,8 +71,8 @@ TRANSLATIONS = {
         "button_font_size": "Размер шрифта кнопок",
         "cancel": "Отмена",
         "close": "Закрыть",
-        "confirm_close_codex_body": "Интерактивная сессия Codex будет закрыта.",
-        "confirm_close_codex_title": "Закрыть консоль Codex?",
+        "confirm_close_console_body": "Консольная сессия будет закрыта.",
+        "confirm_close_console_title": "Закрыть консоль?",
         "context": "контекст",
         "desc": "описание",
         "details": "Детали",
@@ -103,8 +103,8 @@ TRANSLATIONS = {
         "button_font_size": "Розмір шрифту кнопок",
         "cancel": "Скасувати",
         "close": "Закрити",
-        "confirm_close_codex_body": "Інтерактивну сесію Codex буде закрито.",
-        "confirm_close_codex_title": "Закрити консоль Codex?",
+        "confirm_close_console_body": "Консольну сесію буде закрито.",
+        "confirm_close_console_title": "Закрити консоль?",
         "context": "контекст",
         "desc": "опис",
         "details": "Деталі",
@@ -463,7 +463,7 @@ class WorkspaceGtkGui:
         page = self.console_notebook.get_nth_page(page_num)
         for session_id, session in list(self.terminal_sessions.items()):
             if session.page is page:
-                if session.kind == "codex" and not self._confirm_close_codex_console():
+                if not self._confirm_close_console():
                     return
                 self.console_notebook.remove_page(page_num)
                 self.terminal_sessions.pop(session_id, None)
@@ -473,12 +473,28 @@ class WorkspaceGtkGui:
     def _send_command_to_task_terminal(self, task: TaskSummary, command: str) -> None:
         session = self._active_terminal_for_task(task) or self._first_terminal_for_task(task)
         if session is None:
-            session_id = self.new_console(task=task)
-            session = self.terminal_sessions.get(session_id) if session_id is not None else None
-        if session is None:
+            self._start_shell_with_initial_command(task, command)
             return
         self._activate_terminal(session.session_id)
         _feed_terminal(session.terminal, command + "\n")
+
+    def _start_shell_with_initial_command(self, task: TaskSummary, command: str) -> int:
+        shell = os.environ.get("SHELL") or "/bin/bash"
+        env = os.environ.copy()
+        env.setdefault("TERM", "xterm-256color")
+        env["PS1"] = f"{task.name}$ "
+        env["PROMPT_COMMAND"] = ""
+        return self._start_terminal(
+            task=task,
+            command=[
+                shell,
+                "-lc",
+                f"{command}\nexec {shlex.quote(shell)}",
+            ],
+            cwd=task.path,
+            env=env,
+            kind="shell",
+        )
 
     def _start_terminal(
         self,
@@ -568,7 +584,7 @@ class WorkspaceGtkGui:
             return None
         page = self.console_notebook.get_nth_page(page_num)
         for session in self._current_task_terminal_sessions(task):
-            if session.page is page and session.kind == "shell":
+            if session.page is page:
                 return session
         return None
 
@@ -630,15 +646,15 @@ class WorkspaceGtkGui:
             dialog.destroy()
         return None
 
-    def _confirm_close_codex_console(self) -> bool:
+    def _confirm_close_console(self) -> bool:
         dialog = Gtk.MessageDialog(
             transient_for=self.window,
             flags=Gtk.DialogFlags.MODAL,
             message_type=Gtk.MessageType.QUESTION,
             buttons=Gtk.ButtonsType.NONE,
-            text=self._tr("confirm_close_codex_title"),
+            text=self._tr("confirm_close_console_title"),
         )
-        dialog.format_secondary_text(self._tr("confirm_close_codex_body"))
+        dialog.format_secondary_text(self._tr("confirm_close_console_body"))
         dialog.add_button(self._tr("cancel"), Gtk.ResponseType.CANCEL)
         dialog.add_button(self._tr("close"), Gtk.ResponseType.OK)
         response = dialog.run()
@@ -710,13 +726,13 @@ class WorkspaceGtkGui:
         return TRANSLATIONS.get(self.language, TRANSLATIONS["en"]).get(key, TRANSLATIONS["en"].get(key, key))
 
     def _on_main_pane_button_press(self, _pane: Gtk.Paned, event: Gdk.EventButton) -> bool:
-        if event.type == Gdk.EventType.DOUBLE_BUTTON_PRESS:
+        if event.type == Gdk.EventType.DOUBLE_BUTTON_PRESS and _is_pane_separator_event(self.main_pane, event):
             self._set_main_default_split()
             return True
         return False
 
     def _on_details_pane_button_press(self, _pane: Gtk.Paned, event: Gdk.EventButton) -> bool:
-        if event.type == Gdk.EventType.DOUBLE_BUTTON_PRESS:
+        if event.type == Gdk.EventType.DOUBLE_BUTTON_PRESS and _is_pane_separator_event(self.details_pane, event):
             self._set_details_default_split()
             return True
         return False
@@ -872,6 +888,13 @@ def _button(label: str, callback: object) -> Gtk.Button:
     button = Gtk.Button(label=label)
     button.connect("clicked", callback)
     return button
+
+
+def _is_pane_separator_event(pane: Gtk.Paned, event: Gdk.EventButton, tolerance: int = 8) -> bool:
+    position = pane.get_position()
+    if pane.get_orientation() == Gtk.Orientation.HORIZONTAL:
+        return abs(event.x - position) <= tolerance
+    return abs(event.y - position) <= tolerance
 
 
 def _update_text_tag(tag: Gtk.TextTag | None, **properties: object) -> None:
