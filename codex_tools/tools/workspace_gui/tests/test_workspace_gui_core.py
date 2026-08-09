@@ -18,6 +18,7 @@ from codex_tools.tools.workspace_gui.core import rough_token_count
 from codex_tools.tools.workspace_gui.core import save_workspace_gui_settings
 from codex_tools.tools.workspace_gui.core import run_task_action
 from codex_tools.tools.workspace_gui.core import run_task_check
+from codex_tools.tools.workspace_gui.ui import console_tab_title
 from codex_tools.tools.workspace_gui.ui import codex_task_context_message
 from codex_tools.tools.workspace_gui.ui import render_git_status
 
@@ -137,19 +138,44 @@ def test_codex_task_context_message_points_at_selected_task(tmp_path: Path) -> N
     assert "TASK_CONTEXT.md" in message
 
 
+def test_console_tab_title_uses_stack_index_before_kind() -> None:
+    assert console_tab_title(1, "shell") == "1 shell"
+    assert console_tab_title(2, "codex") == "2 codex"
+
+
 def test_workspace_gui_settings_persist_font_size(tmp_path: Path) -> None:
     settings_path = tmp_path / "settings.json"
 
-    save_workspace_gui_settings({"font_size": 17}, settings_path)
+    save_workspace_gui_settings(
+        {"text_font_size": 17, "button_font_size": 14, "theme": "dark"},
+        settings_path,
+    )
 
-    assert load_workspace_gui_settings(settings_path) == {"font_size": 17}
+    assert load_workspace_gui_settings(settings_path) == {
+        "text_font_size": 17,
+        "button_font_size": 14,
+        "theme": "dark",
+    }
+
+
+def test_workspace_gui_settings_migrate_old_font_size(tmp_path: Path) -> None:
+    settings_path = tmp_path / "settings.json"
+    settings_path.write_text('{"font_size": 17}', encoding="utf-8")
+
+    assert load_workspace_gui_settings(settings_path) == {"text_font_size": 17}
 
 
 def test_workspace_gui_settings_clamp_bad_font_size(tmp_path: Path) -> None:
     settings_path = tmp_path / "settings.json"
-    settings_path.write_text('{"font_size": 100}', encoding="utf-8")
+    settings_path.write_text(
+        '{"text_font_size": 100, "button_font_size": 4, "theme": "blue"}',
+        encoding="utf-8",
+    )
 
-    assert load_workspace_gui_settings(settings_path) == {"font_size": 28}
+    assert load_workspace_gui_settings(settings_path) == {
+        "text_font_size": 28,
+        "button_font_size": 8,
+    }
 
 
 def test_parse_console_output_preserves_color_tags() -> None:

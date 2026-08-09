@@ -18,6 +18,7 @@ TASKS_DIR_NAME = "tasks"
 MARKDOWN_TABLE_WIDTH = 96
 TASK_ACTIONS_FILE = "TASK_ACTIONS.json"
 WORKSPACE_GUI_SETTINGS_FILE = "settings.json"
+WORKSPACE_GUI_THEMES = ("light", "dark")
 ANSI_ESCAPE_RE = re.compile(r"\x1b(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])")
 ANSI_OSC_RE = re.compile(r"\x1b\][^\x07]*(?:\x07|\x1b\\)")
 
@@ -222,7 +223,7 @@ def workspace_gui_settings_path() -> Path:
     return Path.home() / ".config" / "codex_tools" / "workspace_gui" / WORKSPACE_GUI_SETTINGS_FILE
 
 
-def load_workspace_gui_settings(path: Path | None = None) -> dict[str, int]:
+def load_workspace_gui_settings(path: Path | None = None) -> dict[str, int | str]:
     settings_path = path or workspace_gui_settings_path()
     if not settings_path.is_file():
         return {}
@@ -232,13 +233,20 @@ def load_workspace_gui_settings(path: Path | None = None) -> dict[str, int]:
         return {}
     if not isinstance(data, dict):
         return {}
-    font_size = data.get("font_size")
-    if isinstance(font_size, int):
-        return {"font_size": max(8, min(28, font_size))}
-    return {}
+    settings: dict[str, int | str] = {}
+    text_font_size = data.get("text_font_size", data.get("font_size"))
+    button_font_size = data.get("button_font_size")
+    theme = data.get("theme")
+    if isinstance(text_font_size, int):
+        settings["text_font_size"] = max(8, min(28, text_font_size))
+    if isinstance(button_font_size, int):
+        settings["button_font_size"] = max(8, min(28, button_font_size))
+    if isinstance(theme, str) and theme in WORKSPACE_GUI_THEMES:
+        settings["theme"] = theme
+    return settings
 
 
-def save_workspace_gui_settings(settings: dict[str, int], path: Path | None = None) -> None:
+def save_workspace_gui_settings(settings: dict[str, int | str], path: Path | None = None) -> None:
     settings_path = path or workspace_gui_settings_path()
     try:
         settings_path.parent.mkdir(parents=True, exist_ok=True)
