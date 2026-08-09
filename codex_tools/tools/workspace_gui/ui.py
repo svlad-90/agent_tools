@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 import argparse
+import fcntl
 import os
 import platform
 import pty
@@ -12,6 +13,8 @@ import queue
 import select
 import shutil
 import subprocess
+import struct
+import termios
 import threading
 import tkinter as tk
 from tkinter import font as tkfont
@@ -656,6 +659,8 @@ class WorkspaceGui:
             startup_text=(
                 f"Starting codex in {self.workspace}\n"
                 f"Task context: {task.name} ({task.path})\n"
+                "Initial task message was passed to codex as the startup prompt.\n"
+                "Waiting for codex output...\n"
             ),
         )
 
@@ -673,6 +678,7 @@ class WorkspaceGui:
         except OSError as error:
             messagebox.showerror("Console", f"Could not start console: {error}")
             return None
+        _set_pty_size(slave_fd, rows=30, columns=120)
         try:
             process = subprocess.Popen(
                 command,
@@ -836,6 +842,17 @@ class WorkspaceGui:
                 break
             chunks = parse_console_output(data.decode(errors="replace"))
             self.messages.put(("console", (session_id, chunks)))
+        session = self.console_sessions.get(session_id)
+        if session is None:
+            return
+        return_code = session.process.poll()
+        if return_code is None:
+            try:
+                return_code = session.process.wait(timeout=0.2)
+            except subprocess.TimeoutExpired:
+                return
+        chunks = [ConsoleChunk(f"\n[process exited with code {return_code}]\n", ())]
+        self.messages.put(("console", (session_id, chunks)))
 
     def _on_console_key(self, event: tk.Event[tk.Misc]) -> str:
         if event.state & 0x4 and event.keysym.lower() == "c":
@@ -1176,6 +1193,14 @@ def _codex_executable() -> str:
     if local_bin.is_file():
         return str(local_bin)
     return "codex"
+
+
+def _set_pty_size(fd: int, rows: int, columns: int) -> None:
+    try:
+        size = struct.pack("HHHH", rows, columns, 0, 0)
+        fcntl.ioctl(fd, termios.TIOCSWINSZ, size)
+    except OSError:
+        return
 
 
 def console_tab_title(index: int, kind: str) -> str:
