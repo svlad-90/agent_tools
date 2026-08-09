@@ -1,0 +1,23 @@
+name: yocto
+schema: schema.yaml
+projection:
+  prefix: YAML_CONF_
+requires:
+  env:
+    WORKSPACE_ROOT: /workspace
+    PAF_ROOT: /workspace/agent_tools/.cache/paf
+    PYTHONPATH: /workspace/agent_tools/.cache/paf:/workspace/agent_tools:/workspace
+  mounts:
+    - source: ${WORKSPACE_ROOT}
+      target: /workspace
+      mode: rw
+  images:
+    yocto-xen:
+      image: codex/yocto-xen:kirkstone-22.04
+      dockerfile: agent_tools/paf_workspace/domains/environments/assets/yocto-xen/Dockerfile
+      context: agent_tools/paf_workspace/domains/environments/assets/yocto-xen
+      network: host
+  containers:
+    yocto-xen-workspace:
+      image: yocto-xen
+      workdir: /workspace

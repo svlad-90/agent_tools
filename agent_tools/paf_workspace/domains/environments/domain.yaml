@@ -1,0 +1,84 @@
+name: environments
+schema: schema.yaml
+projection:
+  prefix: YAML_CONF_
+requires:
+  env:
+    WORKSPACE_ROOT: /workspace
+    PAF_ROOT: /workspace/agent_tools/.cache/paf
+    PYTHONPATH: /workspace/agent_tools/.cache/paf:/workspace/agent_tools:/workspace
+  mounts:
+    - source: ${WORKSPACE_ROOT}
+      target: /workspace
+      mode: rw
+  images:
+    zephyr-xen:
+      image: codex/zephyr-xen:24.04
+      dockerfile: agent_tools/paf_workspace/domains/environments/assets/zephyr-xen/Dockerfile
+      context: agent_tools/paf_workspace/domains/environments/assets/zephyr-xen
+      network: host
+      capabilities:
+        - workspace_tools
+        - cpp_source_analysis
+    yocto-xen:
+      image: codex/yocto-xen:kirkstone-22.04
+      dockerfile: agent_tools/paf_workspace/domains/environments/assets/yocto-xen/Dockerfile
+      context: agent_tools/paf_workspace/domains/environments/assets/yocto-xen
+      network: host
+      capabilities:
+        - workspace_tools
+        - cpp_source_analysis
+    agent-tools-act:
+      image: agent-tools-act:24.04
+      dockerfile: agent_tools/paf_workspace/domains/environments/assets/agent-tools-act/Dockerfile
+      context: agent_tools/paf_workspace/domains/environments/assets/agent-tools-act
+      network: host
+      capabilities:
+        - workspace_tools
+    moulin-act:
+      image: moulin-act:22.04
+      dockerfile: agent_tools/paf_workspace/domains/environments/assets/moulin-act/Dockerfile
+      context: agent_tools/paf_workspace/domains/environments/assets/moulin-act
+      network: host
+      capabilities:
+        - workspace_tools
+        - cpp_source_analysis
+    zephyr-xenlib-act:
+      image: zephyr-xenlib-act:22.04
+      dockerfile: agent_tools/paf_workspace/domains/environments/assets/zephyr-xenlib-act/Dockerfile
+      context: agent_tools/paf_workspace/domains/environments/assets/zephyr-xenlib-act
+      network: host
+      capabilities:
+        - workspace_tools
+        - cpp_source_analysis
+  containers:
+    zephyr-xen-workspace:
+      image: zephyr-xen
+      workdir: /workspace
+    yocto-xen-workspace:
+      image: yocto-xen
+      workdir: /workspace
+    agent-tools-act-workspace:
+      image: agent-tools-act
+      workdir: ${WORKSPACE_ROOT}
+      mounts:
+        - source: /var/run/docker.sock
+          target: /var/run/docker.sock
+          mode: rw
+        - source: ${WORKSPACE_ROOT}
+          target: ${WORKSPACE_ROOT}
+          mode: rw
+    moulin-act-workspace:
+      image: moulin-act
+      workdir: ${WORKSPACE_ROOT}
+      mounts:
+        - source: ${WORKSPACE_ROOT}
+          target: ${WORKSPACE_ROOT}
+          mode: rw
+    zephyr-xenlib-act-workspace:
+      image: zephyr-xenlib-act
+      workdir: ${WORKSPACE_ROOT}
+      mounts:
+        - source: ${WORKSPACE_ROOT}
+          target: ${WORKSPACE_ROOT}
+          mode: rw

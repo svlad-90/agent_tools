@@ -4,13 +4,13 @@ on:
   push:
     paths:
       - ".github/workflows/diff-report.yml"
-      - "codex_tools/tools/diff_report/**"
-      - "codex_tools/tools/code_map/**"
+      - "agent_tools/tools/diff_report/**"
+      - "agent_tools/tools/code_map/**"
   pull_request:
     paths:
       - ".github/workflows/diff-report.yml"
-      - "codex_tools/tools/diff_report/**"
-      - "codex_tools/tools/code_map/**"
+      - "agent_tools/tools/diff_report/**"
+      - "agent_tools/tools/code_map/**"
   workflow_dispatch:
 
 jobs:
@@ -27,4 +27,4 @@ jobs:
           python-version: "3.11"
 
       - name: Run diff report regression tests
-        run: bash codex_tools/tools/diff_report/tests/run-ci.sh
+        run: bash agent_tools/tools/diff_report/tests/run-ci.sh

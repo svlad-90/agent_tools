@@ -4,11 +4,11 @@ on:
   push:
     paths:
       - ".github/workflows/commit-msg.yml"
-      - "codex_tools/tools/commit_msg/**"
+      - "agent_tools/tools/commit_msg/**"
   pull_request:
     paths:
       - ".github/workflows/commit-msg.yml"
-      - "codex_tools/tools/commit_msg/**"
+      - "agent_tools/tools/commit_msg/**"
   workflow_dispatch:
 
 jobs:
@@ -30,4 +30,4 @@ jobs:
           python -m pip install pytest
 
       - name: Run commit message tool tests
-        run: PYTHONPATH=. python -m pytest -q codex_tools/tools/commit_msg/tests
+        run: PYTHONPATH=. python -m pytest -q agent_tools/tools/commit_msg/tests

@@ -1,0 +1,102 @@
+$schema: https://json-schema.org/draft/2020-12/schema
+type: object
+properties:
+  case:
+    type: object
+    properties:
+      name:
+        type: string
+        minLength: 1
+      domain:
+        type: string
+      workspace:
+        type: string
+    additionalProperties: false
+  uses:
+    type: array
+    items:
+      type: object
+      required:
+        - domain
+      properties:
+        domain:
+          type: string
+      additionalProperties: false
+  environments:
+    type: object
+    properties:
+      zephyr_xen:
+        type: object
+        properties:
+          image:
+            type: string
+            default: zephyr-xen
+          container:
+            type: string
+            default: zephyr-xen-workspace
+          build_network:
+            type: string
+            default: host
+        additionalProperties: false
+      agent_tools_act:
+        type: object
+        properties:
+          image:
+            type: string
+            default: agent-tools-act
+          container:
+            type: string
+            default: agent-tools-act-workspace
+          workflow:
+            type: string
+            default: .github/workflows/diff-report.yml
+          runner_image:
+            type: string
+            default: ghcr.io/catthehacker/ubuntu:act-latest
+          build_network:
+            type: string
+            default: host
+        additionalProperties: false
+      moulin_act:
+        type: object
+        properties:
+          image:
+            type: string
+            default: moulin-act
+          container:
+            type: string
+            default: moulin-act-workspace
+          repo_root:
+            type: string
+            default: ${WORKSPACE_ROOT}/moulin-svlad-90
+          build_network:
+            type: string
+            default: host
+        additionalProperties: false
+      zephyr_xenlib_act:
+        type: object
+        properties:
+          image:
+            type: string
+            default: zephyr-xenlib-act
+          container:
+            type: string
+            default: zephyr-xenlib-act-workspace
+          repo_root:
+            type: string
+            default: ${WORKSPACE_ROOT}/zephyr-xenlib-builders/dev/zephyr-xenlib
+          token_file:
+            type: string
+          project:
+            type: string
+            default: zephyr-dom0-xt
+          targets:
+            type: array
+            items:
+              type: string
+          build_network:
+            type: string
+            default: host
+        additionalProperties: false
+    additionalProperties: false
+additionalProperties: true

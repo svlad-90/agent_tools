@@ -1,12 +1,12 @@
-# Keep this repository focused on the reusable Codex workspace setup.
+# Keep this repository focused on the reusable agent workspace setup.
 *
 
 !AGENTS.md
 !CLAUDE.md
 !README.md
-!workspace-gui
-!workspace-gui.sh
-!workspace-gui.desktop
+!agent-workspace
+!agent-workspace.sh
+!agent-workspace.desktop
 !tasks/
 !tasks/.gitignore
 !tasks/.gitkeep
@@ -15,8 +15,8 @@
 !.github/workflows/diff-report.yml
 !.github/workflows/paf-workspace.yml
 !.github/workflows/commit-msg.yml
-!codex_tools/
-!codex_tools/**
+!agent_tools/
+!agent_tools/**
 !.gitignore
 
 __pycache__/

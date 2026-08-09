@@ -1,0 +1,12 @@
+case:
+  name: agent-tools-act-environment
+  domain: environments
+  workspace: .
+
+environments:
+  agent_tools_act:
+    image: agent-tools-act
+    container: agent-tools-act-workspace
+    workflow: .github/workflows/diff-report.yml
+    runner_image: ghcr.io/catthehacker/ubuntu:act-latest
+    build_network: host

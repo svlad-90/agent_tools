@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=Agent Workspace
+Comment=Open the local agent workspace task dashboard
+Exec=/home/vladyslav_goncharuk/Projects/new_dev/agent-workspace
+Path=/home/vladyslav_goncharuk/Projects/new_dev
+Icon=agent-workspace
+Terminal=false
+StartupWMClass=agent-workspace
+Categories=Development;

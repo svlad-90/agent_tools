@@ -1,28 +1,28 @@
 # Workspace instructions
 
 Before working in this directory or any of its subdirectories, read and follow
-all instruction files in `codex_tools/rules/`.
+all instruction files in `agent_tools/rules/`.
 
 These rules apply to the entire workspace unless a more specific `AGENTS.md` or
 `CLAUDE.md` deeper in the directory tree overrides them for its own agent.
 
 Current rule files:
 
-- `codex_tools/rules/python-code.md`
-- `codex_tools/rules/cpp-code.md`
-- `codex_tools/rules/task-workflow.md`
-- `codex_tools/rules/reusable-environments.md`
-- `codex_tools/rules/git-commits.md`
-- `codex_tools/rules/diff-reports.md`
-- `codex_tools/rules/workspace-skills.md`
-- `codex_tools/rules/xen-zephyr-abi.md`
+- `agent_tools/rules/python-code.md`
+- `agent_tools/rules/cpp-code.md`
+- `agent_tools/rules/task-workflow.md`
+- `agent_tools/rules/reusable-environments.md`
+- `agent_tools/rules/git-commits.md`
+- `agent_tools/rules/diff-reports.md`
+- `agent_tools/rules/workspace-skills.md`
+- `agent_tools/rules/xen-zephyr-abi.md`
 
-Workspace-local skills live under `codex_tools/skills/`. When a task matches a
+Workspace-local skills live under `agent_tools/skills/`. When a task matches a
 workspace-local skill, read that skill's `SKILL.md` before acting and follow it
 in addition to the rule files above.
 
-Recurring findings live under `codex_tools/knowledge/`. Before starting a task,
-read `codex_tools/knowledge/README.md`, identify matching topic files, and scan
+Recurring findings live under `agent_tools/knowledge/`. Before starting a task,
+read `agent_tools/knowledge/README.md`, identify matching topic files, and scan
 those findings for known patterns that could save investigation time.
 
 ## Task layout
@@ -49,7 +49,7 @@ Every task in this workspace must live in its own directory under
   `.svg` file before the task is considered complete.
 
 Diff/review reports must be delivered as GitHub-style HTML under
-`report/diff/`; follow `codex_tools/rules/diff-reports.md` for the artifact
+`report/diff/`; follow `agent_tools/rules/diff-reports.md` for the artifact
 set and generation workflow. Markdown files may be used for short notes or
 navigation, but they are not a substitute for the HTML diff review report.
 
@@ -83,7 +83,7 @@ they reduce outgoing tokens, avoid repeated reasoning, or make recurring work
 easier to rerun reliably. Do not create scripts for one-off commands or tiny
 tasks when a script would add more overhead than value.
 
-Follow `codex_tools/rules/git-commits.md` for commit message formatting.
+Follow `agent_tools/rules/git-commits.md` for commit message formatting.
 
 ## File references
 
@@ -93,4 +93,4 @@ useful. The plain path must be copyable from the terminal and should not use
 `file://`, editor-specific URI schemes, or relative paths.
 
 Workspace infrastructure such as `.git`, `.agents`, `.codex`, `CLAUDE.md`, and
-`codex_tools/` stays at the workspace root and is not a task.
+`agent_tools/` stays at the workspace root and is not a task.

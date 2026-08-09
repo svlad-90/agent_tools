@@ -1,0 +1,43 @@
+#!/usr/bin/env sh
+set -eu
+
+repo_root="$(git rev-parse --show-toplevel)"
+workspace_root=""
+installed_workspace_root=""
+
+if [ -n "${installed_workspace_root}" ] &&
+   [ -f "${installed_workspace_root}/agent_tools/tools/push_guard/__init__.py" ]; then
+  workspace_root="${installed_workspace_root}"
+fi
+
+if [ -z "${workspace_root}" ]; then
+  search_dir="${repo_root}"
+  while [ "${search_dir}" != "/" ]; do
+    if [ -f "${search_dir}/agent_tools/tools/push_guard/__init__.py" ]; then
+      workspace_root="${search_dir}"
+      break
+    fi
+    search_dir="$(dirname "${search_dir}")"
+  done
+fi
+
+if [ -z "${workspace_root}" ]; then
+  echo "push_guard: cannot find workspace agent_tools directory" >&2
+  exit 1
+fi
+
+export PYTHONPATH="${workspace_root}:${PYTHONPATH:-}"
+stdin_text="$(cat)"
+
+if [ "${CODEX_PUSH_GUARD_OVERRIDE:-0}" = "1" ]; then
+  printf '%s\n' "${stdin_text}" |
+    python -m agent_tools.tools.push_guard check --allow-override
+else
+  printf '%s\n' "${stdin_text}" |
+    python -m agent_tools.tools.push_guard check
+fi
+
+printf '%s\n' "${stdin_text}" |
+  python -m agent_tools.tools.commit_msg.workflow \
+    --repo "${repo_root}" \
+    --pre-push-check

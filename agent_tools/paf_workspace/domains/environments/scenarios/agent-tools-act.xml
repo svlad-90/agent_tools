@@ -1,0 +1,32 @@
+<paf_config>
+    <phase name="ensure">
+        <task name="paf_workspace.domains.environments.tasks.act.ensure_agent_tools_act_image"/>
+    </phase>
+
+    <phase name="image_check">
+        <task name="paf_workspace.domains.environments.tasks.act.check_agent_tools_act_image"/>
+    </phase>
+
+    <phase name="check">
+        <task name="paf_workspace.domains.environments.tasks.act.check_agent_tools_act_tools"/>
+    </phase>
+
+    <phase name="validate">
+        <task name="paf_workspace.domains.environments.tasks.act.validate_agent_tools_act"/>
+    </phase>
+
+    <phase name="push_guard">
+        <task name="paf_workspace.tasks.record_push_guard_success"/>
+    </phase>
+
+    <scenario name="check-only">
+        <phase name="image_check"/>
+        <phase name="check"/>
+    </scenario>
+
+    <scenario name="validate">
+        <phase name="ensure"/>
+        <phase name="validate"/>
+        <phase name="push_guard"/>
+    </scenario>
+</paf_config>
