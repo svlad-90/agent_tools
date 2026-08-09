@@ -63,6 +63,8 @@ class WorkspaceGui:
         self.git_repos_loaded_for: Path | None = None
         self.console_sessions: dict[int, ConsoleSession] = {}
         self.active_console_id: int | None = None
+        self.console_context_text: tk.Text | None = None
+        self.console_context_selection = ""
         self.next_console_id = 1
         default_font_size = int(tkfont.nametofont("TkDefaultFont").cget("size"))
         settings = load_workspace_gui_settings()
@@ -618,7 +620,24 @@ class WorkspaceGui:
         task = self._require_task()
         if task is None:
             return
-        self._send_command_to_task_console(task, shlex.join(codex_console_command(self.workspace, task)))
+        for session in self._current_task_console_sessions(task):
+            if session.kind != "codex":
+                continue
+            if session.process.poll() is None:
+                self._activate_console(session.session_id)
+                return
+            self.stop_console(session.session_id)
+            break
+        env = os.environ.copy()
+        env.setdefault("TERM", "xterm-256color")
+        self._start_console_process(
+            task=task,
+            command=codex_console_command(self.workspace, task),
+            cwd=self.workspace,
+            env=env,
+            title_prefix="codex",
+            startup_text="",
+        )
 
     def _start_console_process(
         self,
@@ -692,6 +711,9 @@ class WorkspaceGui:
         session = self.console_sessions.pop(session_id, None)
         if session is None:
             return
+        if self.console_context_text is session.text:
+            self.console_context_text = None
+            self.console_context_selection = ""
         if session.process.poll() is None:
             session.process.terminate()
         if session.fd is not None:
@@ -852,16 +874,24 @@ class WorkspaceGui:
         return "break"
 
     def _copy_console_selection(self) -> None:
-        text = self._current_console_text()
-        if text is not None:
-            text.event_generate("<<Copy>>")
+        text = self.console_context_text or self._current_console_text()
+        if text is None:
+            return
+        selected_text = self.console_context_selection
+        if not selected_text:
+            try:
+                selected_text = text.selection_get()
+            except tk.TclError:
+                return
+        self.root.clipboard_clear()
+        self.root.clipboard_append(selected_text)
 
     def _on_console_paste(self, _event: tk.Event[tk.Misc]) -> str:
         self._paste_console_clipboard()
         return "break"
 
     def _paste_console_clipboard(self) -> None:
-        session = self._active_console()
+        session = self._session_for_console_text(self.console_context_text) or self._active_console()
         if session is None:
             return
         try:
@@ -877,13 +907,29 @@ class WorkspaceGui:
     def _on_console_context_menu(self, event: tk.Event[tk.Misc]) -> str:
         widget = event.widget
         if isinstance(widget, tk.Text):
+            self.console_context_text = widget
+            try:
+                self.console_context_selection = widget.selection_get()
+            except tk.TclError:
+                self.console_context_selection = ""
             widget.focus_set()
+            session = self._session_for_console_text(widget)
+            if session is not None:
+                self._activate_console(session.session_id)
         self.console_context_menu.tk_popup(event.x_root, event.y_root)
         self.console_context_menu.grab_release()
         return "break"
 
     def _hide_console_context_menu(self, _event: tk.Event[tk.Misc]) -> None:
         self.console_context_menu.unpost()
+
+    def _session_for_console_text(self, text: tk.Text | None) -> ConsoleSession | None:
+        if text is None:
+            return None
+        for session in self.console_sessions.values():
+            if session.text is text:
+                return session
+        return None
 
     def _console_key_sequence(self, event: tk.Event[tk.Misc]) -> bytes:
         keysym = event.keysym
