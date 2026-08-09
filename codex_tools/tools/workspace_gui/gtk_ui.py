@@ -284,10 +284,13 @@ class WorkspaceGtkGui:
         self.detail_original_text: dict[Gtk.TextView, str] = {}
         self.detail_filenames: dict[Gtk.TextView, str] = {}
 
+        GLib.set_prgname("workspace-gui")
         self.window = Gtk.Window(title=f"{self._tr('window_title')} - {self.workspace}")
         icon_path = _workspace_gui_icon_path()
         if icon_path.is_file():
+            Gtk.Window.set_default_icon_from_file(str(icon_path))
             self.window.set_icon_from_file(str(icon_path))
+        self.window.set_icon_name("workspace-gui")
         self.header_bar = Gtk.HeaderBar(title=f"{self._tr('window_title')} - {self.workspace}")
         self.header_bar.set_show_close_button(True)
         self.window.set_titlebar(self.header_bar)
@@ -316,7 +319,7 @@ class WorkspaceGtkGui:
         main.connect("button-press-event", self._on_main_pane_button_press)
         root.pack_start(main, True, True, 0)
 
-        self.task_store = Gtk.ListStore(str, object, str, str, int)
+        self.task_store = Gtk.ListStore(str, object, str, bool, str, bool, int, bool)
         self.task_view = Gtk.TreeView(model=self.task_store)
         task_renderer = Gtk.CellRendererText()
         self.task_column = Gtk.TreeViewColumn(
@@ -324,8 +327,11 @@ class WorkspaceGtkGui:
             task_renderer,
             text=0,
             cell_background=2,
-            foreground=3,
-            weight=4,
+            cell_background_set=3,
+            foreground=4,
+            foreground_set=5,
+            weight=6,
+            weight_set=7,
         )
         self.task_view.append_column(self.task_column)
         self.task_view.get_selection().connect("changed", self._on_task_selected)
@@ -1257,10 +1263,16 @@ class WorkspaceGtkGui:
                 session.kind == "codex" and session.task_path == task.path
                 for session in self.terminal_sessions.values()
             )
-            background, foreground, weight = _task_row_style(has_codex, self.theme)
+            background, background_set, foreground, foreground_set, weight, weight_set = _task_row_style(
+                has_codex,
+                self.theme,
+            )
             self.task_store[row_iter][2] = background
-            self.task_store[row_iter][3] = foreground
-            self.task_store[row_iter][4] = weight
+            self.task_store[row_iter][3] = background_set
+            self.task_store[row_iter][4] = foreground
+            self.task_store[row_iter][5] = foreground_set
+            self.task_store[row_iter][6] = weight
+            self.task_store[row_iter][7] = weight_set
             row_iter = self.task_store.iter_next(row_iter)
 
     def _actions_tab_active(self) -> bool:
@@ -1669,14 +1681,17 @@ def _terminal_clipboard_shortcut(keyval: int, state: int) -> str | None:
     return None
 
 
-def _task_row_style(has_codex: bool, theme: str) -> tuple[str, str, int]:
+def _task_row_style(has_codex: bool, theme: str) -> tuple[str, bool, str, bool, int, bool]:
     if not has_codex:
-        return ("", "", int(Pango.Weight.NORMAL))
+        return ("", False, "", False, int(Pango.Weight.NORMAL), False)
     colors = _theme_colors(theme)
     return (
         colors["codex_running_background"],
+        True,
         colors["codex_running_foreground"],
+        True,
         int(Pango.Weight.BOLD),
+        True,
     )
 
 

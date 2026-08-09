@@ -577,11 +577,21 @@ def test_gtk_terminal_clipboard_shortcut_requires_ctrl_shift() -> None:
 def test_gtk_task_row_style_highlights_codex_tasks() -> None:
     from gi.repository import Pango
 
-    assert gtk_task_row_style(False, "dark") == ("", "", int(Pango.Weight.NORMAL))
+    assert gtk_task_row_style(False, "dark") == (
+        "",
+        False,
+        "",
+        False,
+        int(Pango.Weight.NORMAL),
+        False,
+    )
     assert gtk_task_row_style(True, "dark") == (
         "#26384d",
+        True,
         "#ffffff",
+        True,
         int(Pango.Weight.BOLD),
+        True,
     )
 
 
@@ -627,6 +637,12 @@ def test_gtk_workspace_gui_icon_is_packaged() -> None:
 
     assert icon_path.name == "workspace-gui.svg"
     assert icon_path.is_file()
+
+
+def test_workspace_gui_desktop_uses_icon_name() -> None:
+    desktop = Path(__file__).resolve().parents[4] / "workspace-gui.desktop"
+
+    assert "Icon=workspace-gui\n" in desktop.read_text(encoding="utf-8")
 
 
 def test_gtk_markdown_tags_are_configured() -> None:
