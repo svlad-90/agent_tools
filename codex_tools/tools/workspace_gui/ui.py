@@ -6,7 +6,9 @@ from pathlib import Path
 import argparse
 import os
 import platform
+import pty
 import queue
+import select
 import subprocess
 import threading
 import tkinter as tk
@@ -41,6 +43,9 @@ class WorkspaceGui:
         self.git_repo_options: list[Path] = []
         self.git_repos_loaded_for: Path | None = None
         self.running_actions: set[tuple[str, Path]] = set()
+        self.console_process: subprocess.Popen[bytes] | None = None
+        self.console_fd: int | None = None
+        self.console_task_path: Path | None = None
         default_font_size = int(tkfont.nametofont("TkDefaultFont").cget("size"))
         settings = load_workspace_gui_settings()
         self.font_size = settings.get("font_size", default_font_size)
@@ -63,6 +68,7 @@ class WorkspaceGui:
 
         self.root.title(f"Workspace GUI - {self.workspace}")
         self.root.geometry("1180x760")
+        self.root.protocol("WM_DELETE_WINDOW", self.close)
         self._apply_font_size()
         self._build_ui()
         self.refresh_tasks()
@@ -116,11 +122,14 @@ class WorkspaceGui:
         self.notebook.pack(fill=tk.BOTH, expand=True)
         self.description_text, self.context_text = self._add_details_tab()
         self.actions_text = self._add_actions_tab()
+        self.console_text = self._add_console_tab()
+        self.notebook.bind("<<NotebookTabChanged>>", self._on_notebook_tab_changed)
 
     def _add_details_tab(self) -> tuple[tk.Text, tk.Text]:
         frame = ttk.Frame(self.notebook)
         details = ttk.PanedWindow(frame, orient=tk.VERTICAL)
         self.details_pane = details
+        details.bind("<Double-Button-1>", self._on_details_split_double_clicked)
         details.pack(fill=tk.BOTH, expand=True)
         description_text = self._add_labeled_text_pane(details, "Description")
         context_text = self._add_labeled_text_pane(details, "Context")
@@ -186,6 +195,31 @@ class WorkspaceGui:
         self._configure_text_tags(text)
         return text
 
+    def _add_console_tab(self) -> tk.Text:
+        frame = ttk.Frame(self.notebook)
+        toolbar = ttk.Frame(frame)
+        toolbar.pack(side=tk.TOP, fill=tk.X)
+        ttk.Button(toolbar, text="Restart", command=self.restart_console).pack(
+            side=tk.LEFT,
+            padx=2,
+            pady=2,
+        )
+        body = ttk.Frame(frame)
+        body.pack(side=tk.TOP, fill=tk.BOTH, expand=True)
+        text = tk.Text(body, wrap=tk.NONE, undo=False, font=self.fixed_font)
+        text.bind("<Key>", self._on_console_key)
+        text.bind("<Button-1>", lambda _event: text.focus_set())
+        scroll_y = ttk.Scrollbar(body, orient=tk.VERTICAL, command=text.yview)
+        scroll_x = ttk.Scrollbar(body, orient=tk.HORIZONTAL, command=text.xview)
+        text.configure(yscrollcommand=scroll_y.set, xscrollcommand=scroll_x.set)
+        text.grid(row=0, column=0, sticky="nsew")
+        scroll_y.grid(row=0, column=1, sticky="ns")
+        scroll_x.grid(row=1, column=0, sticky="ew")
+        body.rowconfigure(0, weight=1)
+        body.columnconfigure(0, weight=1)
+        self.notebook.add(frame, text="Console")
+        return text
+
     def refresh_tasks(self) -> None:
         selected_name = self.selected_task.name if self.selected_task is not None else None
         self.tasks = discover_tasks(self.workspace)
@@ -234,6 +268,11 @@ class WorkspaceGui:
         if action_errors:
             text += action_errors
         self._set_text(self.actions_text, text)
+        if self.console_task_path is not None and self.console_task_path != task.path:
+            self.stop_console()
+            self._set_console_text(f"Console ready for {task.path}\n")
+        if self._is_console_tab_selected():
+            self.start_console(task)
 
     def _on_task_double_clicked(self, _event: object) -> None:
         self.open_task()
@@ -247,6 +286,10 @@ class WorkspaceGui:
         self._on_task_selected(event)
         self.task_context_menu.tk_popup(event.x_root, event.y_root)
         self.task_context_menu.grab_release()
+
+    def _on_notebook_tab_changed(self, _event: object) -> None:
+        if self.selected_task is not None and self._is_console_tab_selected():
+            self.start_console(self.selected_task)
 
     def open_task(self) -> None:
         task = self._require_task()
@@ -432,7 +475,122 @@ class WorkspaceGui:
                 target_id, transcript_key, text = payload.split("\n", 2)
                 target = targets.get(target_id)
                 self._append_action(Path(transcript_key), text, target=target)
+            elif kind == "console":
+                self._append_console_output(payload)
         self.root.after(100, self._poll_messages)
+
+    def start_console(self, task: TaskSummary) -> None:
+        if (
+            self.console_process is not None
+            and self.console_process.poll() is None
+            and self.console_task_path == task.path
+        ):
+            return
+        self.stop_console()
+        self.console_task_path = task.path
+        self._set_console_text(f"Starting shell in {task.path}\n")
+        shell = os.environ.get("SHELL") or "/bin/bash"
+        try:
+            master_fd, slave_fd = pty.openpty()
+        except OSError as error:
+            self._set_console_text(f"Could not start console: {error}\n")
+            return
+        env = os.environ.copy()
+        env.setdefault("TERM", "xterm-256color")
+        try:
+            self.console_process = subprocess.Popen(
+                [shell],
+                cwd=task.path,
+                env=env,
+                stdin=slave_fd,
+                stdout=slave_fd,
+                stderr=slave_fd,
+                close_fds=True,
+                start_new_session=True,
+            )
+        except OSError as error:
+            os.close(master_fd)
+            self._set_console_text(f"Could not start {shell}: {error}\n")
+            return
+        finally:
+            os.close(slave_fd)
+        self.console_fd = master_fd
+        threading.Thread(target=self._read_console, args=(master_fd,), daemon=True).start()
+        self.console_text.focus_set()
+
+    def restart_console(self) -> None:
+        task = self._require_task()
+        if task is None:
+            return
+        self.stop_console()
+        self.start_console(task)
+
+    def stop_console(self) -> None:
+        process = self.console_process
+        fd = self.console_fd
+        self.console_process = None
+        self.console_fd = None
+        self.console_task_path = None
+        if process is not None and process.poll() is None:
+            process.terminate()
+        if fd is not None:
+            try:
+                os.close(fd)
+            except OSError:
+                return
+
+    def _read_console(self, fd: int) -> None:
+        while True:
+            try:
+                ready, _, _ = select.select([fd], [], [], 0.2)
+                if not ready:
+                    process = self.console_process
+                    if process is None or process.poll() is not None:
+                        break
+                    continue
+                data = os.read(fd, 4096)
+            except OSError:
+                break
+            if not data:
+                break
+            self.messages.put(("console", data.decode(errors="replace")))
+
+    def _on_console_key(self, event: tk.Event[tk.Misc]) -> str:
+        fd = self.console_fd
+        if fd is None:
+            return "break"
+        sequence = self._console_key_sequence(event)
+        if sequence:
+            try:
+                os.write(fd, sequence)
+            except OSError:
+                return "break"
+        return "break"
+
+    def _console_key_sequence(self, event: tk.Event[tk.Misc]) -> bytes:
+        keysym = event.keysym
+        state = event.state
+        if state & 0x4 and keysym.lower() == "c":
+            return b"\x03"
+        if state & 0x4 and keysym.lower() == "d":
+            return b"\x04"
+        special = {
+            "Return": b"\r",
+            "BackSpace": b"\x7f",
+            "Tab": b"\t",
+            "Escape": b"\x1b",
+            "Up": b"\x1b[A",
+            "Down": b"\x1b[B",
+            "Right": b"\x1b[C",
+            "Left": b"\x1b[D",
+            "Home": b"\x1b[H",
+            "End": b"\x1b[F",
+            "Delete": b"\x1b[3~",
+        }
+        if keysym in special:
+            return special[keysym]
+        char = getattr(event, "char", "")
+        return char.encode() if char else b""
 
     def _require_task(self) -> TaskSummary | None:
         if self.selected_task is None:
@@ -445,6 +603,14 @@ class WorkspaceGui:
         widget.delete("1.0", tk.END)
         widget.insert(tk.END, text)
         widget.configure(state=tk.DISABLED)
+
+    def _set_console_text(self, text: str) -> None:
+        self.console_text.delete("1.0", tk.END)
+        self.console_text.insert(tk.END, text)
+
+    def _append_console_output(self, text: str) -> None:
+        self.console_text.insert(tk.END, text)
+        self.console_text.see(tk.END)
 
     def _set_markdown(self, widget: tk.Text, text: str) -> None:
         widget.configure(state=tk.NORMAL)
@@ -478,6 +644,10 @@ class WorkspaceGui:
         except tk.TclError:
             return
 
+    def _on_details_split_double_clicked(self, _event: tk.Event[tk.Misc]) -> str:
+        self._set_details_default_split()
+        return "break"
+
     def adjust_font_size(self, delta: int) -> None:
         self.font_size = max(8, min(28, self.font_size + delta))
         self._apply_font_size()
@@ -500,6 +670,15 @@ class WorkspaceGui:
             widget = getattr(self, widget_name, None)
             if isinstance(widget, tk.Text):
                 self._configure_text_tags(widget)
+        if isinstance(getattr(self, "console_text", None), tk.Text):
+            self.console_text.configure(font=self.fixed_font)
+
+    def _is_console_tab_selected(self) -> bool:
+        return self.notebook.tab(self.notebook.select(), "text") == "Console"
+
+    def close(self) -> None:
+        self.stop_console()
+        self.root.destroy()
 
 
 def render_git_status(repo: Path) -> str:
