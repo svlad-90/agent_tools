@@ -313,9 +313,17 @@ class WorkspaceGtkGui:
         main.connect("button-press-event", self._on_main_pane_button_press)
         root.pack_start(main, True, True, 0)
 
-        self.task_store = Gtk.ListStore(str, object)
+        self.task_store = Gtk.ListStore(str, object, str, str, int)
         self.task_view = Gtk.TreeView(model=self.task_store)
-        self.task_column = Gtk.TreeViewColumn(self._tr("task"), Gtk.CellRendererText(), text=0)
+        task_renderer = Gtk.CellRendererText()
+        self.task_column = Gtk.TreeViewColumn(
+            self._tr("task"),
+            task_renderer,
+            text=0,
+            cell_background=2,
+            foreground=3,
+            weight=4,
+        )
         self.task_view.append_column(self.task_column)
         self.task_view.get_selection().connect("changed", self._on_task_selected)
         self.task_view.connect("row-activated", lambda *_: self.open_task())
@@ -406,9 +414,10 @@ class WorkspaceGtkGui:
         self.task_store.clear()
         selected_iter = None
         for task in self.tasks:
-            row_iter = self.task_store.append([task.name, task])
+            row_iter = self.task_store.append([task.name, task, *_task_row_style(False, self.theme)])
             if task.name == selected_name:
                 selected_iter = row_iter
+        self._refresh_task_row_styles()
         self.summary_label.set_text(f"{len(self.tasks)} {self._tr('tasks')}")
         if selected_iter is not None:
             self.task_view.get_selection().select_iter(selected_iter)
@@ -1232,6 +1241,21 @@ class WorkspaceGtkGui:
             context.add_class("codex-running")
         else:
             context.remove_class("codex-running")
+        self._refresh_task_row_styles()
+
+    def _refresh_task_row_styles(self) -> None:
+        row_iter = self.task_store.get_iter_first()
+        while row_iter is not None:
+            task = self.task_store[row_iter][1]
+            has_codex = any(
+                session.kind == "codex" and session.task_path == task.path
+                for session in self.terminal_sessions.values()
+            )
+            background, foreground, weight = _task_row_style(has_codex, self.theme)
+            self.task_store[row_iter][2] = background
+            self.task_store[row_iter][3] = foreground
+            self.task_store[row_iter][4] = weight
+            row_iter = self.task_store.iter_next(row_iter)
 
     def _actions_tab_active(self) -> bool:
         page_num = self.notebook.get_current_page()
@@ -1565,6 +1589,7 @@ class WorkspaceGtkGui:
             self._set_markdown(self.context_view, read_task_file(self.selected_task, "TASK_CONTEXT.md"))
         for session in self.terminal_sessions.values():
             self._apply_terminal_theme(session.terminal)
+        self._refresh_task_row_styles()
 
     def close(self, *_args: object) -> None:
         if self.task_actions_monitor is not None:
@@ -1630,6 +1655,17 @@ def _terminal_clipboard_shortcut(keyval: int, state: int) -> str | None:
     if keyval in {Gdk.KEY_v, Gdk.KEY_V}:
         return "paste"
     return None
+
+
+def _task_row_style(has_codex: bool, theme: str) -> tuple[str, str, int]:
+    if not has_codex:
+        return ("", "", int(Pango.Weight.NORMAL))
+    colors = _theme_colors(theme)
+    return (
+        colors["codex_running_background"],
+        colors["codex_running_foreground"],
+        int(Pango.Weight.BOLD),
+    )
 
 
 def _task_actions_signature(task: TaskSummary) -> tuple[Path, int | None]:
