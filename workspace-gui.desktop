@@ -6,4 +6,5 @@ Exec=/home/vladyslav_goncharuk/Projects/new_dev/workspace-gui
 Path=/home/vladyslav_goncharuk/Projects/new_dev
 Icon=workspace-gui
 Terminal=false
+StartupWMClass=workspace-gui
 Categories=Development;

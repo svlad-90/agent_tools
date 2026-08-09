@@ -41,6 +41,7 @@ from codex_tools.tools.workspace_gui.gtk_ui import _terminal_session_sort_key as
 from codex_tools.tools.workspace_gui.gtk_ui import _terminal_tab_label as gtk_terminal_tab_label
 from codex_tools.tools.workspace_gui.gtk_ui import _theme_colors as gtk_theme_colors
 from codex_tools.tools.workspace_gui.gtk_ui import _workspace_gui_icon_path as gtk_workspace_gui_icon_path
+from codex_tools.tools.workspace_gui.gtk_ui import _workspace_gui_runtime_icon_path as gtk_workspace_gui_runtime_icon_path
 from codex_tools.tools.workspace_gui.ui import codex_console_command
 from codex_tools.tools.workspace_gui.ui import console_paste_text
 from codex_tools.tools.workspace_gui.ui import console_tab_title
@@ -641,8 +642,16 @@ def test_gtk_workspace_gui_icon_is_packaged() -> None:
 
 def test_workspace_gui_desktop_uses_icon_name() -> None:
     desktop = Path(__file__).resolve().parents[4] / "workspace-gui.desktop"
+    content = desktop.read_text(encoding="utf-8")
 
-    assert "Icon=workspace-gui\n" in desktop.read_text(encoding="utf-8")
+    assert "Icon=workspace-gui\n" in content
+    assert "StartupWMClass=workspace-gui\n" in content
+
+
+def test_gtk_workspace_gui_runtime_icon_falls_back_to_packaged_icon(monkeypatch: object, tmp_path: Path) -> None:
+    monkeypatch.setattr(Path, "home", lambda: tmp_path)  # type: ignore[attr-defined]
+
+    assert gtk_workspace_gui_runtime_icon_path() == gtk_workspace_gui_icon_path()
 
 
 def test_gtk_markdown_tags_are_configured() -> None:

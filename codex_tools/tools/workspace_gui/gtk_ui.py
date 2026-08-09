@@ -284,9 +284,12 @@ class WorkspaceGtkGui:
         self.detail_original_text: dict[Gtk.TextView, str] = {}
         self.detail_filenames: dict[Gtk.TextView, str] = {}
 
+        GLib.set_application_name("Workspace GUI")
         GLib.set_prgname("workspace-gui")
+        Gdk.set_program_class("workspace-gui")
         self.window = Gtk.Window(title=f"{self._tr('window_title')} - {self.workspace}")
-        icon_path = _workspace_gui_icon_path()
+        self.window.set_wmclass("workspace-gui", "Workspace GUI")
+        icon_path = _workspace_gui_runtime_icon_path()
         if icon_path.is_file():
             Gtk.Window.set_default_icon_from_file(str(icon_path))
             self.window.set_icon_from_file(str(icon_path))
@@ -2115,6 +2118,13 @@ def _svg_open_command(path: Path) -> list[str] | None:
 
 def _workspace_gui_icon_path() -> Path:
     return Path(__file__).with_name("assets") / "workspace-gui.svg"
+
+
+def _workspace_gui_runtime_icon_path() -> Path:
+    installed = Path.home() / ".local/share/icons/hicolor/256x256/apps/workspace-gui.png"
+    if installed.is_file():
+        return installed
+    return _workspace_gui_icon_path()
 
 
 def main(argv: list[str] | None = None) -> int:
