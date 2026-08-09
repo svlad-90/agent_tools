@@ -116,6 +116,8 @@ class WorkspaceGui:
         ttk.Label(toolbar, textvariable=self.summary_var).pack(side=tk.LEFT, padx=12)
 
         main = ttk.PanedWindow(self.root, orient=tk.HORIZONTAL)
+        self.main_pane = main
+        main.bind("<Double-Button-1>", self._on_main_split_double_clicked)
         main.pack(fill=tk.BOTH, expand=True)
 
         left = ttk.Frame(main, padding=6)
@@ -149,6 +151,7 @@ class WorkspaceGui:
         self.actions_text = self._add_actions_tab()
         self._add_console_tab()
         self.notebook.bind("<<NotebookTabChanged>>", self._on_notebook_tab_changed)
+        self.root.after_idle(self._set_main_default_split)
 
     def _add_details_tab(self) -> tuple[tk.Text, tk.Text]:
         frame = ttk.Frame(self.notebook)
@@ -1002,6 +1005,20 @@ class WorkspaceGui:
 
     def _on_details_split_double_clicked(self, _event: tk.Event[tk.Misc]) -> str:
         self._set_details_default_split()
+        return "break"
+
+    def _set_main_default_split(self) -> None:
+        width = self.main_pane.winfo_width()
+        if width <= 1:
+            self.root.after(50, self._set_main_default_split)
+            return
+        try:
+            self.main_pane.sashpos(0, max(260, width // 3))
+        except tk.TclError:
+            return
+
+    def _on_main_split_double_clicked(self, _event: tk.Event[tk.Misc]) -> str:
+        self._set_main_default_split()
         return "break"
 
     def adjust_font_size(self, delta: int) -> None:
