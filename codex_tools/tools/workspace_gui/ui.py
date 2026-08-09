@@ -86,6 +86,10 @@ class WorkspaceGui:
             family=tkfont.nametofont("TkDefaultFont").cget("family"),
             size=self.button_font_size,
         )
+        self.ui_font = tkfont.Font(
+            family=tkfont.nametofont("TkDefaultFont").cget("family"),
+            size=self.button_font_size,
+        )
         self.h1_font = tkfont.Font(family=self.text_font.cget("family"), size=self.text_font_size + 6, weight="bold")
         self.h2_font = tkfont.Font(family=self.text_font.cget("family"), size=self.text_font_size + 4, weight="bold")
         self.h3_font = tkfont.Font(family=self.text_font.cget("family"), size=self.text_font_size + 2, weight="bold")
@@ -363,6 +367,7 @@ class WorkspaceGui:
             to=28,
             textvariable=text_size_var,
             width=6,
+            font=self.ui_font,
         ).grid(row=0, column=1, sticky=tk.W, pady=4)
         ttk.Label(frame, text="Button font size").grid(row=1, column=0, sticky=tk.W, pady=4)
         tk.Spinbox(
@@ -371,6 +376,7 @@ class WorkspaceGui:
             to=28,
             textvariable=button_size_var,
             width=6,
+            font=self.ui_font,
         ).grid(row=1, column=1, sticky=tk.W, pady=4)
         ttk.Label(frame, text="Theme").grid(row=2, column=0, sticky=tk.W, pady=4)
         theme_combo = ttk.Combobox(
@@ -379,6 +385,7 @@ class WorkspaceGui:
             textvariable=theme_var,
             state="readonly",
             width=10,
+            font=self.ui_font,
         )
         theme_combo.grid(row=2, column=1, sticky=tk.W, pady=4)
 
@@ -1031,12 +1038,18 @@ class WorkspaceGui:
         self.fixed_font.configure(size=self.text_font_size)
         self.tree_font.configure(size=self.text_font_size)
         self.button_font.configure(size=self.button_font_size)
+        self.ui_font.configure(size=self.button_font_size)
         self.h1_font.configure(size=self.text_font_size + 6)
         self.h2_font.configure(size=self.text_font_size + 4)
         self.h3_font.configure(size=self.text_font_size + 2)
         row_height = self.tree_font.metrics("linespace") + 8
+        tab_padding_y = max(4, self.button_font_size // 3)
         self.style.configure("Workspace.Treeview", font=self.tree_font, rowheight=row_height)
         self.style.configure("TButton", font=self.button_font)
+        self.style.configure("TLabel", font=self.ui_font)
+        self.style.configure("TNotebook.Tab", font=self.ui_font, padding=(8, tab_padding_y))
+        self.style.configure("TCombobox", font=self.ui_font)
+        self.style.configure("TEntry", font=self.ui_font)
         for widget_name in (
             "description_text",
             "context_text",
@@ -1055,7 +1068,17 @@ class WorkspaceGui:
         self.style.configure("TFrame", background=colors["background"])
         self.style.configure("TLabel", background=colors["background"], foreground=colors["foreground"])
         self.style.configure("TNotebook", background=colors["background"])
-        self.style.configure("TNotebook.Tab", padding=(8, 4))
+        self.style.configure("TNotebook.Tab", background=colors["background"], foreground=colors["foreground"])
+        self.style.configure(
+            "TCombobox",
+            fieldbackground=colors["text_background"],
+            foreground=colors["foreground"],
+        )
+        self.style.configure(
+            "TEntry",
+            fieldbackground=colors["text_background"],
+            foreground=colors["foreground"],
+        )
         self.style.configure(
             "Workspace.Treeview",
             background=colors["text_background"],
