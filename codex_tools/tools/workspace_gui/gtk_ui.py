@@ -56,6 +56,7 @@ TRANSLATIONS = {
         "delete_all_artifacts": "Delete all task artifacts",
         "delete_artifact": "Delete artifact",
         "delete_artifact_group": "Delete artifact group",
+        "delete_artifacts": "Delete artifacts",
         "delete_task": "Delete task",
         "desc": "desc",
         "details": "Details",
@@ -109,6 +110,7 @@ TRANSLATIONS = {
         "delete_all_artifacts": "Удалить все артефакты задачи",
         "delete_artifact": "Удалить артефакт",
         "delete_artifact_group": "Удалить группу артефактов",
+        "delete_artifacts": "Удалить артефакты",
         "delete_task": "Удалить задачу",
         "desc": "описание",
         "details": "Детали",
@@ -162,6 +164,7 @@ TRANSLATIONS = {
         "delete_all_artifacts": "Видалити всі артефакти задачі",
         "delete_artifact": "Видалити артефакт",
         "delete_artifact_group": "Видалити групу артефактів",
+        "delete_artifacts": "Видалити артефакти",
         "delete_task": "Видалити задачу",
         "desc": "опис",
         "details": "Деталі",
@@ -349,12 +352,12 @@ class WorkspaceGtkGui:
     def _add_artifacts_tab(self) -> None:
         self.artifact_store = Gtk.TreeStore(str, str, object, bool)
         self.artifact_view = Gtk.TreeView(model=self.artifact_store)
-        self.artifact_view.append_column(
-            Gtk.TreeViewColumn(self._tr("artifacts"), Gtk.CellRendererText(), text=0)
-        )
-        self.artifact_view.append_column(
-            Gtk.TreeViewColumn("", Gtk.CellRendererText(), text=1)
-        )
+        name_column = Gtk.TreeViewColumn(self._tr("artifacts"), Gtk.CellRendererText(), text=0)
+        name_column.set_expand(True)
+        path_column = Gtk.TreeViewColumn("", Gtk.CellRendererText(), text=1)
+        path_column.set_expand(False)
+        self.artifact_view.append_column(name_column)
+        self.artifact_view.append_column(path_column)
         self.artifact_view.connect("row-activated", self._on_artifact_row_activated)
         self.artifact_view.add_events(Gdk.EventMask.BUTTON_PRESS_MASK)
         self.artifact_view.connect("button-press-event", self._on_artifact_view_button_press)
@@ -549,7 +552,7 @@ class WorkspaceGtkGui:
             preview = f"{preview}\n..."
         dialog.format_secondary_text(f"{self._tr('confirm_delete_artifacts_body')}\n{preview}")
         dialog.add_button(self._tr("cancel"), Gtk.ResponseType.CANCEL)
-        dialog.add_button(self._tr("delete_artifact"), Gtk.ResponseType.OK)
+        dialog.add_button(self._tr("delete_artifacts"), Gtk.ResponseType.OK)
         response = dialog.run()
         dialog.destroy()
         return response == Gtk.ResponseType.OK
@@ -2007,16 +2010,22 @@ def open_path(path: Path) -> None:
 
 def open_artifact_path(path: Path) -> None:
     if path.suffix.casefold() == ".svg":
-        browser = os.environ.get("BROWSER")
-        if browser:
-            subprocess.Popen([browser, str(path)])
+        command = _svg_open_command(path)
+        if command is not None:
+            subprocess.Popen(command)
             return
-        for executable in ("xdg-open", "firefox", "google-chrome", "chromium", "chromium-browser"):
-            resolved = shutil.which(executable)
-            if resolved is not None:
-                subprocess.Popen([resolved, str(path)])
-                return
     open_path(path)
+
+
+def _svg_open_command(path: Path) -> list[str] | None:
+    browser = os.environ.get("BROWSER")
+    if browser:
+        return [*shlex.split(browser), str(path)]
+    for executable in ("firefox", "google-chrome", "chromium", "chromium-browser", "xdg-open"):
+        resolved = shutil.which(executable)
+        if resolved is not None:
+            return [resolved, str(path)]
+    return None
 
 
 def main(argv: list[str] | None = None) -> int:

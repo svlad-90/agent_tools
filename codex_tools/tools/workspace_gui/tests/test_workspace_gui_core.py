@@ -28,6 +28,7 @@ from codex_tools.tools.workspace_gui.gtk_ui import _artifact_context_action as g
 from codex_tools.tools.workspace_gui.gtk_ui import _artifact_delete_paths as gtk_artifact_delete_paths
 from codex_tools.tools.workspace_gui.gtk_ui import _artifact_monitor_dirs as gtk_artifact_monitor_dirs
 from codex_tools.tools.workspace_gui.gtk_ui import _is_pane_separator_event as gtk_is_pane_separator_event
+from codex_tools.tools.workspace_gui.gtk_ui import _svg_open_command as gtk_svg_open_command
 from codex_tools.tools.workspace_gui.gtk_ui import _task_artifact_entries as gtk_task_artifact_entries
 from codex_tools.tools.workspace_gui.gtk_ui import _iter_git_repos as gtk_iter_git_repos
 from codex_tools.tools.workspace_gui.gtk_ui import _task_init_command as gtk_task_init_command
@@ -561,6 +562,28 @@ def test_gtk_codex_prompt_includes_selected_language(tmp_path: Path) -> None:
 def test_gtk_translates_codex_and_repo_scan_labels() -> None:
     assert GTK_TRANSLATIONS["ru"]["run_codex"] == "Запустить Codex"
     assert GTK_TRANSLATIONS["ru"]["scanning_repos"] == "Сканирование репозиториев..."
+    assert GTK_TRANSLATIONS["ru"]["delete_artifacts"] == "Удалить артефакты"
+
+
+def test_gtk_svg_open_command_prefers_browser(monkeypatch: object, tmp_path: Path) -> None:
+    path = tmp_path / "flow.svg"
+    monkeypatch.setenv("BROWSER", "firefox --new-tab")  # type: ignore[attr-defined]
+
+    assert gtk_svg_open_command(path) == ["firefox", "--new-tab", str(path)]
+
+
+def test_gtk_svg_open_command_uses_browser_before_xdg_open(monkeypatch: object, tmp_path: Path) -> None:
+    path = tmp_path / "flow.svg"
+    monkeypatch.delenv("BROWSER", raising=False)  # type: ignore[attr-defined]
+
+    def fake_which(executable: str) -> str | None:
+        if executable in {"firefox", "xdg-open"}:
+            return f"/usr/bin/{executable}"
+        return None
+
+    monkeypatch.setattr("codex_tools.tools.workspace_gui.gtk_ui.shutil.which", fake_which)  # type: ignore[attr-defined]
+
+    assert gtk_svg_open_command(path) == ["/usr/bin/firefox", str(path)]
 
 
 def test_gtk_markdown_tags_are_configured() -> None:
