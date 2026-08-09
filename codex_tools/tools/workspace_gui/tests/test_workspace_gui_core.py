@@ -149,10 +149,12 @@ def test_codex_console_command_passes_prompt_and_workspace(tmp_path: Path) -> No
 
     command = codex_console_command(tmp_path, summary)
 
-    assert command[-4:] == [
+    assert command[-6:] == [
+        "exec",
         "--cd",
         str(tmp_path),
-        "--no-alt-screen",
+        "--color",
+        "never",
         codex_task_context_message(summary, tmp_path),
     ]
 

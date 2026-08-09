@@ -58,7 +58,6 @@ class WorkspaceGui:
         self.tasks: list[TaskSummary] = []
         self.selected_task: TaskSummary | None = None
         self.messages: queue.Queue[tuple[str, object]] = queue.Queue()
-        self.action_transcripts: dict[Path, str] = {}
         self.task_actions: list[TaskAction] = []
         self.git_repo_options: list[Path] = []
         self.git_repos_loaded_for: Path | None = None
@@ -154,13 +153,9 @@ class WorkspaceGui:
         self.notebook = ttk.Notebook(right)
         self.notebook.pack(fill=tk.BOTH, expand=True)
         self.description_text, self.context_text = self._add_details_tab()
-        self.actions_text = self._add_actions_tab()
+        self._add_actions_tab()
         self.notebook.bind("<<NotebookTabChanged>>", self._on_notebook_tab_changed)
         self.root.after_idle(self._set_main_default_split)
-        self.console_context_menu = tk.Menu(self.root, tearoff=False)
-        self.console_context_menu.add_command(label="Copy", command=self._copy_console_selection)
-        self.console_context_menu.add_command(label="Paste", command=self._paste_console_clipboard)
-        self.root.bind_all("<Button-1>", self._hide_console_context_menu, add="+")
 
     def _add_details_tab(self) -> tuple[tk.Text, tk.Text]:
         frame = ttk.Frame(self.notebook)
@@ -188,7 +183,7 @@ class WorkspaceGui:
         self._configure_text_tags(text)
         return text
 
-    def _add_actions_tab(self) -> tk.Text:
+    def _add_actions_tab(self) -> None:
         frame = ttk.Frame(self.notebook)
         pane = ttk.PanedWindow(frame, orient=tk.VERTICAL)
         pane.pack(fill=tk.BOTH, expand=True)
@@ -227,12 +222,13 @@ class WorkspaceGui:
         )
         self.task_actions_frame = ttk.Frame(actions_frame)
         self.task_actions_frame.pack(side=tk.TOP, fill=tk.X)
-        text = tk.Text(actions_frame, wrap=tk.WORD, undo=False, font=self.text_font)
-        scroll = ttk.Scrollbar(actions_frame, orient=tk.VERTICAL, command=text.yview)
-        text.configure(yscrollcommand=scroll.set)
-        text.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-        scroll.pack(side=tk.RIGHT, fill=tk.Y)
-        self._configure_text_tags(text)
+        self.actions_message_var = tk.StringVar(value="")
+        ttk.Label(actions_frame, textvariable=self.actions_message_var).pack(
+            side=tk.TOP,
+            anchor=tk.W,
+            padx=2,
+            pady=(2, 4),
+        )
 
         console_frame = ttk.Frame(pane)
         console_toolbar = ttk.Frame(console_frame)
@@ -258,14 +254,11 @@ class WorkspaceGui:
         pane.add(actions_frame, weight=2)
         pane.add(console_frame, weight=1)
         self.notebook.add(frame, text="Actions")
-        return text
 
     def _create_console_text(self, parent: ttk.Frame) -> tk.Text:
         text = tk.Text(parent, wrap=tk.WORD, undo=False, font=self.fixed_font)
         text.bind("<Key>", self._on_console_key)
         text.bind("<Button-1>", lambda _event: text.focus_set())
-        text.bind("<Button-3>", self._on_console_context_menu)
-        text.bind("<Button-2>", self._on_console_context_menu)
         scroll_y = ttk.Scrollbar(parent, orient=tk.VERTICAL, command=text.yview)
         text.configure(yscrollcommand=scroll_y.set)
         text.grid(row=0, column=0, sticky="nsew")
@@ -320,10 +313,10 @@ class WorkspaceGui:
         self._set_markdown(self.context_text, read_task_file(task, "TASK_CONTEXT.md"))
         self._reset_actions_tab(task)
         action_errors = self._load_task_action_buttons(task)
-        text = self.action_transcripts.get(task.path, "")
+        messages = []
         if action_errors:
-            text += action_errors
-        self._set_text(self.actions_text, text)
+            messages.append(action_errors.strip())
+        self.actions_message_var.set("\n".join(messages))
         if self._is_console_tab_selected():
             self.activate_console_for_task(task)
 
@@ -475,10 +468,7 @@ class WorkspaceGui:
         if task is None:
             return
         action_errors = self._load_task_action_buttons(task)
-        text = self.action_transcripts.get(task.path, "")
-        if action_errors:
-            text += action_errors
-        self._set_text(self.actions_text, text)
+        self.actions_message_var.set(action_errors.strip())
 
     def _reset_actions_tab(self, task: TaskSummary) -> None:
         self.git_repo_options = []
@@ -515,7 +505,7 @@ class WorkspaceGui:
         if not labels:
             self.git_repo_var.set("")
             self.git_repo_combo.configure(state=tk.DISABLED)
-            self._append_action(task.path, "No git repositories found under dev/.\n\n")
+            self.actions_message_var.set("No git repositories found under dev/.")
             return
         self.git_repo_combo.configure(state="readonly")
         self.git_repo_var.set(labels[0])
@@ -544,21 +534,12 @@ class WorkspaceGui:
             return str(repo)
 
     def _poll_messages(self) -> None:
-        targets = {
-            str(id(self.actions_text)): self.actions_text,
-        }
         while True:
             try:
                 kind, payload = self.messages.get_nowait()
             except queue.Empty:
                 break
-            if kind == "append":
-                if not isinstance(payload, str):
-                    continue
-                target_id, transcript_key, text = payload.split("\n", 2)
-                target = targets.get(target_id)
-                self._append_action(Path(transcript_key), text, target=target)
-            elif kind == "console":
+            if kind == "console":
                 if (
                     not isinstance(payload, tuple)
                     or len(payload) != 2
@@ -880,17 +861,6 @@ class WorkspaceGui:
         except OSError:
             return
 
-    def _on_console_context_menu(self, event: tk.Event[tk.Misc]) -> str:
-        widget = event.widget
-        if isinstance(widget, tk.Text):
-            widget.focus_set()
-        self.console_context_menu.tk_popup(event.x_root, event.y_root)
-        self.console_context_menu.grab_release()
-        return "break"
-
-    def _hide_console_context_menu(self, _event: tk.Event[tk.Misc]) -> None:
-        self.console_context_menu.unpost()
-
     def _console_key_sequence(self, event: tk.Event[tk.Misc]) -> bytes:
         keysym = event.keysym
         state = event.state
@@ -996,11 +966,6 @@ class WorkspaceGui:
         for tag, color in colors.items():
             widget.tag_configure(tag, foreground=color)
 
-    def _append_action(self, transcript_key: Path, text: str, target: tk.Text | None = None) -> None:
-        self.action_transcripts[transcript_key] = self.action_transcripts.get(transcript_key, "") + text
-        if self.selected_task is not None and self.selected_task.path == transcript_key:
-            self._set_text(target or self.actions_text, self.action_transcripts[transcript_key])
-
     def _set_details_default_split(self) -> None:
         height = self.details_pane.winfo_height()
         if height <= 1:
@@ -1054,7 +1019,6 @@ class WorkspaceGui:
         for widget_name in (
             "description_text",
             "context_text",
-            "actions_text",
         ):
             widget = getattr(self, widget_name, None)
             if isinstance(widget, tk.Text):
@@ -1101,16 +1065,9 @@ class WorkspaceGui:
             background=colors["text_background"],
             foreground=colors["foreground"],
         )
-        console_menu = getattr(self, "console_context_menu", None)
-        if isinstance(console_menu, tk.Menu):
-            console_menu.configure(
-                background=colors["text_background"],
-                foreground=colors["foreground"],
-            )
         for widget_name in (
             "description_text",
             "context_text",
-            "actions_text",
         ):
             widget = getattr(self, widget_name, None)
             if isinstance(widget, tk.Text):
@@ -1172,9 +1129,11 @@ def codex_task_context_message(task: TaskSummary, workspace: Path) -> str:
 def codex_console_command(workspace: Path, task: TaskSummary) -> list[str]:
     return [
         _codex_executable(),
+        "exec",
         "--cd",
         str(workspace),
-        "--no-alt-screen",
+        "--color",
+        "never",
         codex_task_context_message(task, workspace),
     ]
 
