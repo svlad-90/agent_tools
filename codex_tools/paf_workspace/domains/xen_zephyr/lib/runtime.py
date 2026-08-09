@@ -970,6 +970,7 @@ def run_command(args: argparse.Namespace) -> RunResult:
             prefixed_line = f"[{source}] {line}"
             output.write(prefixed_line)
             output.flush()
+            print(prefixed_line, end="", flush=True)
 
             stats = source_stats.setdefault(source, SourceStats())
             stats.lines += 1

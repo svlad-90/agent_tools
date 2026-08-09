@@ -86,9 +86,10 @@ These rules apply to every task directory under the workspace root.
     `codex_tools/paf_workspace/templates/product-artifacts.yaml`. Keep it under
     the task's `dev/` tree and update it when artifact paths, domain roles, or
     compile databases change.
-11. Task-local GUI actions may be declared in `TASK_ACTIONS.json` at the task
-    root. Use this when repeated build, test, smoke, report, or cleanup commands
-    are useful from the local workspace GUI without involving an AI agent.
+11. Task-local GUI actions are the normal way to expose repeated task commands
+    in `workspace-gui`. Declare them in `TASK_ACTIONS.json` at the task root
+    whenever a task has useful build, component-build, test, smoke, report, or
+    cleanup commands that a human may rerun without involving an AI agent.
     The file is JSON with an `actions` list:
 
     ```json
