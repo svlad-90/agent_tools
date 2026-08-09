@@ -644,7 +644,7 @@ class WorkspaceGui:
     ) -> int | None:
         session_id = self.next_console_id
         self.next_console_id += 1
-        frame = ttk.Frame(self.console_notebook)
+        frame = tk.Frame(self.console_notebook, container=True)
         self.console_notebook.add(frame, text=title_prefix)
         self.console_notebook.select(frame)
         frame.update_idletasks()
@@ -1350,7 +1350,8 @@ def task_action_shell_command(action: TaskAction) -> str:
 
 
 def console_paste_text(text: str) -> str:
-    return text.replace("\r\n", "\n").replace("\r", "\n").rstrip("\n")
+    lines = text.replace("\r\n", "\n").replace("\r", "\n").splitlines()
+    return " ".join(line.strip() for line in lines if line.strip())
 
 
 def sys_executable() -> str:

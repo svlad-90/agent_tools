@@ -346,8 +346,9 @@ def test_parse_console_output_keeps_carriage_return_control() -> None:
 
 
 def test_console_paste_text_normalizes_newlines_without_trailing_enter() -> None:
-    assert console_paste_text("one\r\ntwo\r\n") == "one\ntwo"
-    assert console_paste_text("one\rtwo\n\n") == "one\ntwo"
+    assert console_paste_text("one\r\ntwo\r\n") == "one two"
+    assert console_paste_text("one\rtwo\n\n") == "one two"
+    assert console_paste_text("\n  one  \n\n  two\t\n") == "one two"
 
 
 def test_console_renderer_does_not_backspace_past_input_floor() -> None:
