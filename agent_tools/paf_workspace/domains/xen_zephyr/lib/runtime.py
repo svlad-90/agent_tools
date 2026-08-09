@@ -24,6 +24,7 @@ XEN_SWITCH_BYTE_DELAY_SEC = 0.05
 SERIAL_INPUT_RE = re.compile(r"\(XEN\) \*\*\* Serial input to DOM(\d+)")
 HARNESS_DOMAIN_RE = re.compile(r"\[xen-harness\]\[(dom0|domu\d+|xen|host)\]")
 XEN_GUEST_PREFIX_RE = re.compile(r"^\(d(\d+)\) ")
+TERMINAL_ESCAPE_RE = re.compile(r"\x1b(?:\[[0-?]*[ -/]*[@-~]|[0-~])")
 HOST_LINE_PREFIXES = (
     "qemu-system-",
 )
@@ -711,6 +712,10 @@ def all_markers_found(
     )
 
 
+def terminal_safe_line(line: str) -> str:
+    return TERMINAL_ESCAPE_RE.sub("", line)
+
+
 def write_stdin_events(
     stdin: TextIO,
     events: list[StdinEvent],
@@ -970,7 +975,7 @@ def run_command(args: argparse.Namespace) -> RunResult:
             prefixed_line = f"[{source}] {line}"
             output.write(prefixed_line)
             output.flush()
-            print(prefixed_line, end="", flush=True)
+            print(terminal_safe_line(prefixed_line), end="", flush=True)
 
             stats = source_stats.setdefault(source, SourceStats())
             stats.lines += 1
