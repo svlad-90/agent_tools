@@ -24,7 +24,9 @@ from codex_tools.tools.workspace_gui.gtk_ui import WorkspaceGtkGui
 from codex_tools.tools.workspace_gui.gtk_ui import TRANSLATIONS as GTK_TRANSLATIONS
 from codex_tools.tools.workspace_gui.gtk_ui import codex_task_context_message as gtk_codex_task_context_message
 from codex_tools.tools.workspace_gui.gtk_ui import task_action_shell_command as gtk_task_action_shell_command
+from codex_tools.tools.workspace_gui.gtk_ui import _artifact_monitor_dirs as gtk_artifact_monitor_dirs
 from codex_tools.tools.workspace_gui.gtk_ui import _is_pane_separator_event as gtk_is_pane_separator_event
+from codex_tools.tools.workspace_gui.gtk_ui import _task_artifact_entries as gtk_task_artifact_entries
 from codex_tools.tools.workspace_gui.gtk_ui import _iter_git_repos as gtk_iter_git_repos
 from codex_tools.tools.workspace_gui.gtk_ui import _task_init_command as gtk_task_init_command
 from codex_tools.tools.workspace_gui.gtk_ui import _task_actions_signature as gtk_task_actions_signature
@@ -182,6 +184,30 @@ def test_gtk_iter_git_repos_yields_nested_repos(tmp_path: Path) -> None:
     summary = TaskSummary("sample-task", task, True, True, 1, 1, False)
 
     assert list(gtk_iter_git_repos(summary)) == [nested_repo, repo]
+
+
+def test_gtk_task_artifact_entries_groups_task_outputs(tmp_path: Path) -> None:
+    task = tmp_path / "tasks" / "sample-task"
+    (task / "report" / "diff").mkdir(parents=True)
+    (task / "report" / "puml").mkdir(parents=True)
+    (task / "report" / "runtime.log").write_text("log", encoding="utf-8")
+    (task / "report" / "diff" / "review.html").write_text("<html>", encoding="utf-8")
+    (task / "report" / "puml" / "flow.svg").write_text("<svg>", encoding="utf-8")
+    (task / "report" / "notes.md").write_text("notes", encoding="utf-8")
+    summary = TaskSummary("sample-task", task, True, True, 1, 1, False)
+
+    entries = gtk_task_artifact_entries(summary)
+
+    assert [(entry.group, entry.path.name) for entry in entries] == [
+        ("logs", "runtime.log"),
+        ("diagrams", "flow.svg"),
+        ("diff_reports", "review.html"),
+    ]
+    assert gtk_artifact_monitor_dirs(summary) == [
+        task / "report",
+        task / "report" / "diff",
+        task / "report" / "puml",
+    ]
 
 
 def test_rough_token_count_uses_words_and_character_fallback() -> None:

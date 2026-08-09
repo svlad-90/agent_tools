@@ -42,6 +42,7 @@ TRANSLATIONS = {
     "en": {
         "actions": "Actions",
         "add_task": "Add task",
+        "artifacts": "Artifacts",
         "button_font_size": "Button font size",
         "cancel": "Cancel",
         "close": "Close",
@@ -53,9 +54,12 @@ TRANSLATIONS = {
         "delete_task": "Delete task",
         "desc": "desc",
         "details": "Details",
+        "diagrams": "Diagrams",
+        "diff_reports": "Diff reports",
         "edit": "Edit",
         "git_status": "Git status",
         "language": "Language",
+        "logs": "Logs",
         "missing_context": "missing context",
         "missing_desc": "missing desc",
         "new": "New",
@@ -86,6 +90,7 @@ TRANSLATIONS = {
     "ru": {
         "actions": "Действия",
         "add_task": "Добавить задачу",
+        "artifacts": "Артефакты",
         "button_font_size": "Размер шрифта кнопок",
         "cancel": "Отмена",
         "close": "Закрыть",
@@ -97,9 +102,12 @@ TRANSLATIONS = {
         "delete_task": "Удалить задачу",
         "desc": "описание",
         "details": "Детали",
+        "diagrams": "Диаграммы",
+        "diff_reports": "Diff-отчеты",
         "edit": "Редактировать",
         "git_status": "Git status",
         "language": "Язык",
+        "logs": "Логи",
         "missing_context": "нет контекста",
         "missing_desc": "нет описания",
         "new": "Новая",
@@ -130,6 +138,7 @@ TRANSLATIONS = {
     "uk": {
         "actions": "Дії",
         "add_task": "Додати задачу",
+        "artifacts": "Артефакти",
         "button_font_size": "Розмір шрифту кнопок",
         "cancel": "Скасувати",
         "close": "Закрити",
@@ -141,9 +150,12 @@ TRANSLATIONS = {
         "delete_task": "Видалити задачу",
         "desc": "опис",
         "details": "Деталі",
+        "diagrams": "Діаграми",
+        "diff_reports": "Diff-звіти",
         "edit": "Редагувати",
         "git_status": "Git status",
         "language": "Мова",
+        "logs": "Логи",
         "missing_context": "немає контексту",
         "missing_desc": "немає опису",
         "new": "Нова",
@@ -193,6 +205,12 @@ _TASK_ACTIONS_MONITOR_EVENTS = {
     if event is not None
 }
 
+_ARTIFACT_MONITOR_EVENTS = _TASK_ACTIONS_MONITOR_EVENTS
+
+_LOG_SUFFIXES = {".log"}
+_DIAGRAM_SUFFIXES = {".puml", ".svg", ".png"}
+_DIFF_REPORT_SUFFIXES = {".html", ".json", ".diff", ".patch"}
+
 
 @dataclass
 class TerminalSession:
@@ -202,6 +220,12 @@ class TerminalSession:
     terminal: Vte.Terminal
     page: Gtk.Widget
     child_pid: int | None = None
+
+
+@dataclass(frozen=True)
+class ArtifactEntry:
+    group: str
+    path: Path
 
 
 class WorkspaceGtkGui:
@@ -222,6 +246,8 @@ class WorkspaceGtkGui:
         self.task_actions_signature: tuple[Path | None, int | None] = (None, None)
         self.task_actions_monitor: Gio.FileMonitor | None = None
         self.task_actions_monitor_path: Path | None = None
+        self.artifact_monitors: list[Gio.FileMonitor] = []
+        self.artifact_monitor_path: Path | None = None
         self.terminal_sessions: dict[int, TerminalSession] = {}
         self.next_terminal_id = 1
 
@@ -285,6 +311,7 @@ class WorkspaceGtkGui:
         self.notebook = Gtk.Notebook()
         main.pack2(self.notebook, resize=True, shrink=False)
         self._add_details_tab()
+        self._add_artifacts_tab()
         self._add_actions_tab()
         self.notebook.connect("switch-page", self._on_main_notebook_switch_page)
         GLib.idle_add(self._set_main_default_split)
@@ -303,6 +330,21 @@ class WorkspaceGtkGui:
         GLib.idle_add(self._set_details_default_split)
         self.details_tab_label = Gtk.Label(label=self._tr("details"))
         self.notebook.append_page(pane, self.details_tab_label)
+
+    def _add_artifacts_tab(self) -> None:
+        self.artifact_store = Gtk.TreeStore(str, str, object, bool)
+        self.artifact_view = Gtk.TreeView(model=self.artifact_store)
+        self.artifact_view.append_column(
+            Gtk.TreeViewColumn(self._tr("artifacts"), Gtk.CellRendererText(), text=0)
+        )
+        self.artifact_view.append_column(
+            Gtk.TreeViewColumn("", Gtk.CellRendererText(), text=1)
+        )
+        self.artifact_view.connect("row-activated", self._on_artifact_row_activated)
+        scrolled = Gtk.ScrolledWindow()
+        scrolled.add(self.artifact_view)
+        self.artifacts_tab_label = Gtk.Label(label=self._tr("artifacts"))
+        self.notebook.append_page(scrolled, self.artifacts_tab_label)
 
     def _add_actions_tab(self) -> None:
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
@@ -367,6 +409,8 @@ class WorkspaceGtkGui:
         if cached_repos is not None:
             self._set_git_repos(self.selected_task, cached_repos)
         self._watch_task_actions(self.selected_task)
+        self._watch_task_artifacts(self.selected_task)
+        self._load_task_artifacts(self.selected_task)
         self._load_task_action_buttons()
         self._refresh_console_tabs_for_task(self.selected_task)
         if self._actions_tab_active():
@@ -382,6 +426,69 @@ class WorkspaceGtkGui:
         if page is self.actions_page:
             self._load_task_action_buttons()
             self._ensure_default_console_for_selected_task()
+
+    def _load_task_artifacts(self, task: TaskSummary) -> None:
+        self.artifact_store.clear()
+        groups = {
+            "logs": self.artifact_store.append(None, [self._tr("logs"), "", None, True]),
+            "diagrams": self.artifact_store.append(None, [self._tr("diagrams"), "", None, True]),
+            "diff_reports": self.artifact_store.append(None, [self._tr("diff_reports"), "", None, True]),
+        }
+        for entry in _task_artifact_entries(task):
+            rel_path = _artifact_relative_label(task, entry.path)
+            self.artifact_store.append(
+                groups[entry.group],
+                [entry.path.name, rel_path, entry.path, False],
+            )
+        self.artifact_view.expand_all()
+
+    def _on_artifact_row_activated(
+        self,
+        _view: Gtk.TreeView,
+        tree_path: Gtk.TreePath,
+        _column: Gtk.TreeViewColumn,
+    ) -> None:
+        row_iter = self.artifact_store.get_iter(tree_path)
+        is_group = bool(self.artifact_store[row_iter][3])
+        artifact_path = self.artifact_store[row_iter][2]
+        if is_group or artifact_path is None:
+            return
+        open_path(artifact_path)
+
+    def _watch_task_artifacts(self, task: TaskSummary, *, force: bool = False) -> None:
+        if not force and self.artifact_monitor_path == task.path:
+            return
+        self._clear_artifact_monitors()
+        self.artifact_monitor_path = task.path
+        for path in _artifact_monitor_dirs(task):
+            try:
+                monitor = Gio.File.new_for_path(str(path)).monitor_directory(
+                    Gio.FileMonitorFlags.NONE,
+                    None,
+                )
+            except GLib.Error:
+                continue
+            monitor.connect("changed", self._on_task_artifact_dir_changed)
+            self.artifact_monitors.append(monitor)
+
+    def _clear_artifact_monitors(self) -> None:
+        for monitor in self.artifact_monitors:
+            monitor.cancel()
+        self.artifact_monitors = []
+
+    def _on_task_artifact_dir_changed(
+        self,
+        _monitor: Gio.FileMonitor,
+        _file: Gio.File,
+        _other_file: Gio.File | None,
+        event_type: Gio.FileMonitorEvent,
+    ) -> None:
+        if event_type not in _ARTIFACT_MONITOR_EVENTS:
+            return
+        task = self.selected_task
+        if task is not None:
+            self._watch_task_artifacts(task, force=True)
+            self._load_task_artifacts(task)
 
     def _on_task_view_button_press(self, tree: Gtk.TreeView, event: Gdk.EventButton) -> bool:
         if event.button != 3:
@@ -1189,7 +1296,10 @@ class WorkspaceGtkGui:
                 widget.set_label(self._tr(key))
         self.task_column.set_title(self._tr("task"))
         self.details_tab_label.set_text(self._tr("details"))
+        self.artifacts_tab_label.set_text(self._tr("artifacts"))
         self.actions_tab_label.set_text(self._tr("actions"))
+        if self.selected_task is not None:
+            self._load_task_artifacts(self.selected_task)
 
     def _tr(self, key: str) -> str:
         return TRANSLATIONS.get(self.language, TRANSLATIONS["en"]).get(key, TRANSLATIONS["en"].get(key, key))
@@ -1346,6 +1456,7 @@ class WorkspaceGtkGui:
     def close(self, *_args: object) -> None:
         if self.task_actions_monitor is not None:
             self.task_actions_monitor.cancel()
+        self._clear_artifact_monitors()
         self._save_settings()
         Gtk.main_quit()
 
@@ -1464,6 +1575,68 @@ def _repo_label(task: TaskSummary, repo: Path) -> str:
         return str(repo.relative_to(task.path))
     except ValueError:
         return str(repo)
+
+
+def _task_artifact_entries(task: TaskSummary) -> list[ArtifactEntry]:
+    entries: list[ArtifactEntry] = []
+    for path in _task_artifact_files(task):
+        group = _artifact_group(task, path)
+        if group is not None:
+            entries.append(ArtifactEntry(group, path))
+    return sorted(
+        entries,
+        key=lambda entry: (_artifact_group_sort_key(entry.group), _artifact_relative_label(task, entry.path).casefold()),
+    )
+
+
+def _task_artifact_files(task: TaskSummary) -> Iterator[Path]:
+    report = task.path / "report"
+    if not report.is_dir():
+        return
+    for root, dirs, files in os.walk(report):
+        dirs.sort()
+        for filename in sorted(files, key=str.casefold):
+            yield Path(root) / filename
+
+
+def _artifact_group(task: TaskSummary, path: Path) -> str | None:
+    suffix = path.suffix.casefold()
+    try:
+        rel = path.relative_to(task.path)
+    except ValueError:
+        return None
+    parts = rel.parts
+    if len(parts) >= 2 and parts[0] == "report" and parts[1] == "diff" and suffix in _DIFF_REPORT_SUFFIXES:
+        return "diff_reports"
+    if len(parts) >= 2 and parts[0] == "report" and parts[1] == "puml" and suffix in _DIAGRAM_SUFFIXES:
+        return "diagrams"
+    if suffix in _LOG_SUFFIXES:
+        return "logs"
+    return None
+
+
+def _artifact_group_sort_key(group: str) -> int:
+    order = {"logs": 0, "diagrams": 1, "diff_reports": 2}
+    return order.get(group, 99)
+
+
+def _artifact_relative_label(task: TaskSummary, path: Path) -> str:
+    try:
+        return str(path.relative_to(task.path))
+    except ValueError:
+        return str(path)
+
+
+def _artifact_monitor_dirs(task: TaskSummary) -> list[Path]:
+    roots = (task.path / "report", task.path / "report" / "diff", task.path / "report" / "puml")
+    dirs: set[Path] = set()
+    for root in roots:
+        if not root.is_dir():
+            continue
+        for current, child_dirs, _files in os.walk(root):
+            child_dirs.sort()
+            dirs.add(Path(current))
+    return sorted(dirs, key=lambda path: str(path).casefold())
 
 
 def _iter_git_repos(task: TaskSummary) -> Iterator[Path]:
