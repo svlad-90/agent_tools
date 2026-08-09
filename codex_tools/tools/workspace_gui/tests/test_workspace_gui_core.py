@@ -154,6 +154,12 @@ def test_parse_console_output_keeps_backspace_control() -> None:
     assert [(chunk.text, chunk.tags) for chunk in chunks] == [("abc\b \b", ())]
 
 
+def test_parse_console_output_drops_terminal_title_sequence() -> None:
+    chunks = parse_console_output("\x1b]0;user@host:~/task\x07task$ ")
+
+    assert [(chunk.text, chunk.tags) for chunk in chunks] == [("task$ ", ())]
+
+
 def test_load_task_actions_and_run_command(tmp_path: Path) -> None:
     task = tmp_path / "tasks" / "sample-task"
     scripts = task / "scripts"

@@ -502,6 +502,8 @@ class WorkspaceGui:
             return
         env = os.environ.copy()
         env.setdefault("TERM", "xterm-256color")
+        env["PS1"] = f"{task.name}$ "
+        env["PROMPT_COMMAND"] = ""
         try:
             self.console_process = subprocess.Popen(
                 [shell],

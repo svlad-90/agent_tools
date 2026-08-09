@@ -19,6 +19,7 @@ MARKDOWN_TABLE_WIDTH = 96
 TASK_ACTIONS_FILE = "TASK_ACTIONS.json"
 WORKSPACE_GUI_SETTINGS_FILE = "settings.json"
 ANSI_ESCAPE_RE = re.compile(r"\x1b(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])")
+ANSI_OSC_RE = re.compile(r"\x1b\][^\x07]*(?:\x07|\x1b\\)")
 
 
 @dataclass(frozen=True)
@@ -247,6 +248,7 @@ def save_workspace_gui_settings(settings: dict[str, int], path: Path | None = No
 
 
 def parse_console_output(text: str) -> list[ConsoleChunk]:
+    text = ANSI_OSC_RE.sub("", text)
     text = text.replace("\r\n", "\n")
     text = text.replace("\r", "\n")
     chunks: list[ConsoleChunk] = []
