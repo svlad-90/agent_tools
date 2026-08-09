@@ -147,6 +147,10 @@ class WorkspaceGui:
         self.task_context_menu = tk.Menu(self.root, tearoff=False)
         self.task_context_menu.add_command(label="Open Task", command=self.open_task)
         self.task_context_menu.add_command(label="Open dev/", command=self.open_dev)
+        self.console_context_menu = tk.Menu(self.root, tearoff=False)
+        self.console_context_menu.add_command(label="Copy", command=self._copy_console_selection)
+        self.console_context_menu.add_command(label="Paste", command=self._paste_console_clipboard)
+        self.root.bind_all("<Button-1>", self._hide_console_context_menu, add="+")
 
         right = ttk.Frame(main, padding=6)
         main.add(right, weight=3)
@@ -185,10 +189,9 @@ class WorkspaceGui:
 
     def _add_actions_tab(self) -> None:
         frame = ttk.Frame(self.notebook)
-        pane = ttk.PanedWindow(frame, orient=tk.VERTICAL)
-        pane.pack(fill=tk.BOTH, expand=True)
 
-        actions_frame = ttk.Frame(pane)
+        actions_frame = ttk.Frame(frame)
+        actions_frame.pack(side=tk.TOP, fill=tk.X)
         toolbar = ttk.Frame(actions_frame)
         toolbar.pack(side=tk.TOP, fill=tk.X)
         ttk.Button(toolbar, text="Run task_check", command=self.run_selected_task_check).pack(
@@ -230,7 +233,8 @@ class WorkspaceGui:
             pady=(2, 4),
         )
 
-        console_frame = ttk.Frame(pane)
+        console_frame = ttk.Frame(frame)
+        console_frame.pack(side=tk.TOP, fill=tk.BOTH, expand=True)
         console_toolbar = ttk.Frame(console_frame)
         console_toolbar.pack(side=tk.TOP, fill=tk.X)
         ttk.Button(console_toolbar, text="New", command=self.new_console).pack(
@@ -251,14 +255,14 @@ class WorkspaceGui:
         self.console_notebook = ttk.Notebook(console_frame)
         self.console_notebook.pack(side=tk.TOP, fill=tk.BOTH, expand=True)
         self.console_notebook.bind("<<NotebookTabChanged>>", self._on_console_session_tab_changed)
-        pane.add(actions_frame, weight=2)
-        pane.add(console_frame, weight=1)
         self.notebook.add(frame, text="Actions")
 
     def _create_console_text(self, parent: ttk.Frame) -> tk.Text:
         text = tk.Text(parent, wrap=tk.WORD, undo=False, font=self.fixed_font)
         text.bind("<Key>", self._on_console_key)
         text.bind("<Button-1>", lambda _event: text.focus_set())
+        text.bind("<Button-3>", self._on_console_context_menu)
+        text.bind("<Button-2>", self._on_console_context_menu)
         scroll_y = ttk.Scrollbar(parent, orient=tk.VERTICAL, command=text.yview)
         text.configure(yscrollcommand=scroll_y.set)
         text.grid(row=0, column=0, sticky="nsew")
@@ -578,28 +582,37 @@ class WorkspaceGui:
         )
 
     def _send_command_to_task_console(self, task: TaskSummary, command: str) -> None:
-        session = self._writable_console_for_task(task)
+        session, created = self._writable_console_for_task(task)
         if session is None or session.fd is None:
             messagebox.showerror("Console", "Could not open a writable console for this task.")
             return
         self._activate_console(session.session_id)
-        try:
-            os.write(session.fd, command.encode() + b"\r")
-        except OSError as error:
-            messagebox.showerror("Console", f"Could not write to console: {error}")
 
-    def _writable_console_for_task(self, task: TaskSummary) -> ConsoleSession | None:
+        def write_command() -> None:
+            if session.fd is None or session.process.poll() is not None:
+                return
+            try:
+                os.write(session.fd, command.encode() + b"\r")
+            except OSError as error:
+                messagebox.showerror("Console", f"Could not write to console: {error}")
+
+        if created:
+            self.root.after(250, write_command)
+            return
+        write_command()
+
+    def _writable_console_for_task(self, task: TaskSummary) -> tuple[ConsoleSession | None, bool]:
         active = self._active_console()
         if active is not None and active.task_path == task.path and active.fd is not None:
             if active.process.poll() is None:
-                return active
+                return active, False
         for session in self._current_task_console_sessions(task):
             if session.fd is not None and session.process.poll() is None:
-                return session
+                return session, False
         session_id = self.new_console(task)
         if session_id is None:
-            return None
-        return self.console_sessions.get(session_id)
+            return None, False
+        return self.console_sessions.get(session_id), True
 
     def run_codex_console(self) -> None:
         task = self._require_task()
@@ -861,6 +874,17 @@ class WorkspaceGui:
         except OSError:
             return
 
+    def _on_console_context_menu(self, event: tk.Event[tk.Misc]) -> str:
+        widget = event.widget
+        if isinstance(widget, tk.Text):
+            widget.focus_set()
+        self.console_context_menu.tk_popup(event.x_root, event.y_root)
+        self.console_context_menu.grab_release()
+        return "break"
+
+    def _hide_console_context_menu(self, _event: tk.Event[tk.Misc]) -> None:
+        self.console_context_menu.unpost()
+
     def _console_key_sequence(self, event: tk.Event[tk.Misc]) -> bytes:
         keysym = event.keysym
         state = event.state
@@ -1065,6 +1089,10 @@ class WorkspaceGui:
             background=colors["text_background"],
             foreground=colors["foreground"],
         )
+        self.console_context_menu.configure(
+            background=colors["text_background"],
+            foreground=colors["foreground"],
+        )
         for widget_name in (
             "description_text",
             "context_text",
@@ -1129,11 +1157,9 @@ def codex_task_context_message(task: TaskSummary, workspace: Path) -> str:
 def codex_console_command(workspace: Path, task: TaskSummary) -> list[str]:
     return [
         _codex_executable(),
-        "exec",
         "--cd",
         str(workspace),
-        "--color",
-        "never",
+        "--no-alt-screen",
         codex_task_context_message(task, workspace),
     ]
 
