@@ -1126,6 +1126,7 @@ class WorkspaceGtkGui:
         terminal.add_events(Gdk.EventMask.BUTTON_PRESS_MASK)
         terminal.connect("button-press-event", self._on_terminal_button_press)
         terminal.connect("popup-menu", self._on_terminal_popup_menu)
+        terminal.connect("key-press-event", self._on_terminal_key_press)
         terminal.spawn_async(
             Vte.PtyFlags.DEFAULT,
             str(cwd),
@@ -1280,6 +1281,16 @@ class WorkspaceGtkGui:
             None,
         )
         return True
+
+    def _on_terminal_key_press(self, terminal: Vte.Terminal, event: Gdk.EventKey) -> bool:
+        shortcut = _terminal_clipboard_shortcut(event.keyval, int(event.state))
+        if shortcut == "copy":
+            terminal.copy_clipboard()
+            return True
+        if shortcut == "paste":
+            terminal.paste_clipboard()
+            return True
+        return False
 
     def _terminal_context_menu(self, terminal: Vte.Terminal) -> Gtk.Menu:
         menu = Gtk.Menu()
@@ -1608,6 +1619,17 @@ def _is_empty_notebook_tab_area(notebook: Gtk.Notebook, event: Gdk.EventButton) 
 
 def _terminal_session_sort_key(kind: str, session_id: int) -> tuple[int, int]:
     return (0 if kind == "codex" else 1, session_id)
+
+
+def _terminal_clipboard_shortcut(keyval: int, state: int) -> str | None:
+    modifiers = int(Gdk.ModifierType.CONTROL_MASK | Gdk.ModifierType.SHIFT_MASK)
+    if (state & modifiers) != modifiers:
+        return None
+    if keyval in {Gdk.KEY_c, Gdk.KEY_C}:
+        return "copy"
+    if keyval in {Gdk.KEY_v, Gdk.KEY_V}:
+        return "paste"
+    return None
 
 
 def _task_actions_signature(task: TaskSummary) -> tuple[Path, int | None]:

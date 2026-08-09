@@ -34,6 +34,7 @@ from codex_tools.tools.workspace_gui.gtk_ui import _iter_git_repos as gtk_iter_g
 from codex_tools.tools.workspace_gui.gtk_ui import _task_init_command as gtk_task_init_command
 from codex_tools.tools.workspace_gui.gtk_ui import _task_actions_signature as gtk_task_actions_signature
 from codex_tools.tools.workspace_gui.gtk_ui import _task_path_for_name as gtk_task_path_for_name
+from codex_tools.tools.workspace_gui.gtk_ui import _terminal_clipboard_shortcut as gtk_terminal_clipboard_shortcut
 from codex_tools.tools.workspace_gui.gtk_ui import _terminal_palette as gtk_terminal_palette
 from codex_tools.tools.workspace_gui.gtk_ui import _terminal_session_sort_key as gtk_terminal_session_sort_key
 from codex_tools.tools.workspace_gui.gtk_ui import _theme_colors as gtk_theme_colors
@@ -547,6 +548,20 @@ def test_gtk_terminal_session_sort_key_keeps_codex_first() -> None:
         ("shell", 1),
         ("shell", 2),
     ]
+
+
+def test_gtk_terminal_clipboard_shortcut_requires_ctrl_shift() -> None:
+    from gi.repository import Gdk
+
+    ctrl_shift = int(Gdk.ModifierType.CONTROL_MASK | Gdk.ModifierType.SHIFT_MASK)
+    ctrl = int(Gdk.ModifierType.CONTROL_MASK)
+
+    assert gtk_terminal_clipboard_shortcut(Gdk.KEY_c, ctrl_shift) == "copy"
+    assert gtk_terminal_clipboard_shortcut(Gdk.KEY_C, ctrl_shift) == "copy"
+    assert gtk_terminal_clipboard_shortcut(Gdk.KEY_v, ctrl_shift) == "paste"
+    assert gtk_terminal_clipboard_shortcut(Gdk.KEY_V, ctrl_shift) == "paste"
+    assert gtk_terminal_clipboard_shortcut(Gdk.KEY_c, ctrl) is None
+    assert gtk_terminal_clipboard_shortcut(Gdk.KEY_x, ctrl_shift) is None
 
 
 def test_gtk_codex_prompt_includes_selected_language(tmp_path: Path) -> None:
