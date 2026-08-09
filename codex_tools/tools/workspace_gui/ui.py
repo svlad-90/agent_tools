@@ -1069,6 +1069,11 @@ class WorkspaceGui:
         self.style.configure("TLabel", background=colors["background"], foreground=colors["foreground"])
         self.style.configure("TNotebook", background=colors["background"])
         self.style.configure("TNotebook.Tab", background=colors["background"], foreground=colors["foreground"])
+        self.style.map(
+            "TNotebook.Tab",
+            background=[("selected", colors["tab_selected_background"])],
+            foreground=[("selected", colors["tab_selected_foreground"])],
+        )
         self.style.configure(
             "TCombobox",
             fieldbackground=colors["text_background"],
@@ -1185,6 +1190,8 @@ def _theme_colors(theme: str) -> dict[str, str]:
             "text_background": "#111315",
             "selection_background": "#315f86",
             "selection_foreground": "#ffffff",
+            "tab_selected_background": "#dfe1e5",
+            "tab_selected_foreground": "#202124",
         }
     return {
         "background": "#f4f4f4",
@@ -1192,6 +1199,8 @@ def _theme_colors(theme: str) -> dict[str, str]:
         "text_background": "#ffffff",
         "selection_background": "#4d708f",
         "selection_foreground": "#ffffff",
+        "tab_selected_background": "#ffffff",
+        "tab_selected_foreground": "#202124",
     }
 
 
