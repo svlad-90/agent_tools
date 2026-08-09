@@ -20,6 +20,7 @@ from codex_tools.tools.workspace_gui.core import rough_token_count
 from codex_tools.tools.workspace_gui.core import save_workspace_gui_settings
 from codex_tools.tools.workspace_gui.core import run_task_action
 from codex_tools.tools.workspace_gui.core import run_task_check
+from codex_tools.tools.workspace_gui.gtk_ui import WorkspaceGtkGui
 from codex_tools.tools.workspace_gui.gtk_ui import _theme_colors as gtk_theme_colors
 from codex_tools.tools.workspace_gui.ui import codex_console_command
 from codex_tools.tools.workspace_gui.ui import console_paste_text
@@ -343,6 +344,20 @@ def test_gtk_theme_colors_cover_widget_css_keys() -> None:
 
     assert required <= set(gtk_theme_colors("dark"))
     assert required <= set(gtk_theme_colors("light"))
+
+
+def test_gtk_markdown_tags_are_configured() -> None:
+    from gi.repository import Gtk
+
+    gui = object.__new__(WorkspaceGtkGui)
+    gui.text_font_size = 13
+    buffer = Gtk.TextBuffer()
+
+    gui._ensure_markdown_tags(buffer)
+
+    assert buffer.get_tag_table().lookup("h1") is not None
+    assert buffer.get_tag_table().lookup("list") is not None
+    assert buffer.get_tag_table().lookup("table") is not None
 
 
 def test_parse_console_output_preserves_color_tags() -> None:

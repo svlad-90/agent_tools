@@ -28,6 +28,7 @@ from .core import git_status
 from .core import load_task_actions
 from .core import load_workspace_gui_settings
 from .core import read_task_file
+from .core import render_markdown_chunks
 from .core import save_workspace_gui_settings
 
 
@@ -128,9 +129,9 @@ class WorkspaceGtkGui:
 
         console_toolbar = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
         box.pack_start(console_toolbar, False, False, 0)
+        console_toolbar.pack_start(_button("Run codex", self.run_codex_console), False, False, 0)
         console_toolbar.pack_start(_button("New", self.new_console), False, False, 0)
         console_toolbar.pack_start(_button("Close", self.close_active_console), False, False, 0)
-        console_toolbar.pack_start(_button("Run codex", self.run_codex_console), False, False, 0)
 
         self.console_notebook = Gtk.Notebook()
         box.pack_start(self.console_notebook, True, True, 0)
@@ -167,8 +168,8 @@ class WorkspaceGtkGui:
         if row_iter is None:
             return
         self.selected_task = model[row_iter][2]
-        self._set_text(self.description_view, read_task_file(self.selected_task, "TASK_DESCRIPTION.md"))
-        self._set_text(self.context_view, read_task_file(self.selected_task, "TASK_CONTEXT.md"))
+        self._set_markdown(self.description_view, read_task_file(self.selected_task, "TASK_DESCRIPTION.md"))
+        self._set_markdown(self.context_view, read_task_file(self.selected_task, "TASK_CONTEXT.md"))
         self._reset_actions()
         self._load_task_action_buttons()
         self._refresh_console_tabs_for_task(self.selected_task)
@@ -458,6 +459,40 @@ class WorkspaceGtkGui:
     def _set_text(self, view: Gtk.TextView, text: str) -> None:
         view.get_buffer().set_text(text)
 
+    def _set_markdown(self, view: Gtk.TextView, text: str) -> None:
+        buffer = view.get_buffer()
+        self._ensure_markdown_tags(buffer)
+        buffer.set_text("")
+        for chunk in render_markdown_chunks(text):
+            end = buffer.get_end_iter()
+            buffer.insert_with_tags_by_name(end, chunk.text, chunk.tag)
+
+    def _ensure_markdown_tags(self, buffer: Gtk.TextBuffer) -> None:
+        if buffer.get_tag_table().lookup("paragraph") is not None:
+            return
+        buffer.create_tag("paragraph", font=f"Sans {self.text_font_size}")
+        buffer.create_tag("h1", font=f"Sans Bold {self.text_font_size + 6}", pixels_above_lines=8)
+        buffer.create_tag("h2", font=f"Sans Bold {self.text_font_size + 4}", pixels_above_lines=6)
+        buffer.create_tag("h3", font=f"Sans Bold {self.text_font_size + 2}", pixels_above_lines=4)
+        buffer.create_tag(
+            "list",
+            font=f"Sans {self.text_font_size}",
+            left_margin=24,
+            indent=-12,
+        )
+        buffer.create_tag(
+            "code",
+            font=f"Monospace {self.text_font_size}",
+            left_margin=12,
+            right_margin=12,
+        )
+        buffer.create_tag(
+            "table",
+            font=f"Monospace {self.text_font_size}",
+            left_margin=12,
+            right_margin=12,
+        )
+
     def _apply_window_geometry(self) -> None:
         size = self.window_geometry.split("+", 1)[0]
         if "x" not in size:
@@ -493,6 +528,10 @@ class WorkspaceGtkGui:
         notebook tab:checked {{
             background: {colors['tab_selected_background']};
             color: {colors['tab_selected_foreground']};
+        }}
+        notebook stack {{
+            background: {colors['terminal_background']};
+            color: {colors['foreground']};
         }}
         treeview {{
             background: {colors['text_background']};
