@@ -17,6 +17,7 @@ gi.require_version("Gtk", "3.0")
 gi.require_version("Gdk", "3.0")
 gi.require_version("Vte", "2.91")
 from gi.repository import Gdk
+from gi.repository import Gio
 from gi.repository import GLib
 from gi.repository import Gtk
 from gi.repository import Pango
@@ -178,6 +179,20 @@ CODEX_LANGUAGE_INSTRUCTIONS = {
     "uk": "Відповідай користувачу українською мовою.",
 }
 
+_TASK_ACTIONS_MONITOR_EVENTS = {
+    event
+    for event in (
+        getattr(Gio.FileMonitorEvent, "CHANGED", None),
+        getattr(Gio.FileMonitorEvent, "CHANGES_DONE_HINT", None),
+        getattr(Gio.FileMonitorEvent, "CREATED", None),
+        getattr(Gio.FileMonitorEvent, "DELETED", None),
+        getattr(Gio.FileMonitorEvent, "MOVED_IN", None),
+        getattr(Gio.FileMonitorEvent, "MOVED_OUT", None),
+        getattr(Gio.FileMonitorEvent, "RENAMED", None),
+    )
+    if event is not None
+}
+
 
 @dataclass
 class TerminalSession:
@@ -205,6 +220,8 @@ class WorkspaceGtkGui:
         self.repo_scans_in_progress: set[Path] = set()
         self.pending_git_status_for: Path | None = None
         self.task_actions_signature: tuple[Path | None, int | None] = (None, None)
+        self.task_actions_monitor: Gio.FileMonitor | None = None
+        self.task_actions_monitor_path: Path | None = None
         self.terminal_sessions: dict[int, TerminalSession] = {}
         self.next_terminal_id = 1
 
@@ -233,7 +250,6 @@ class WorkspaceGtkGui:
         self._build_ui()
         self._apply_css()
         self.refresh_tasks()
-        GLib.timeout_add(2000, self._poll_task_actions)
 
     def _build_ui(self) -> None:
         root = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
@@ -350,6 +366,7 @@ class WorkspaceGtkGui:
         cached_repos = self.git_repo_cache.get(self.selected_task.path)
         if cached_repos is not None:
             self._set_git_repos(self.selected_task, cached_repos)
+        self._watch_task_actions(self.selected_task)
         self._load_task_action_buttons()
         self._refresh_console_tabs_for_task(self.selected_task)
         if self._actions_tab_active():
@@ -767,11 +784,43 @@ class WorkspaceGtkGui:
             self.repo_status_message = self._tr("no_git_repos")
         self._update_actions_message()
 
-    def _poll_task_actions(self) -> bool:
+    def _watch_task_actions(self, task: TaskSummary) -> None:
+        if self.task_actions_monitor_path == task.path:
+            return
+        if self.task_actions_monitor is not None:
+            self.task_actions_monitor.cancel()
+            self.task_actions_monitor = None
+        self.task_actions_monitor_path = task.path
+        try:
+            monitor = Gio.File.new_for_path(str(task.path)).monitor_directory(
+                Gio.FileMonitorFlags.NONE,
+                None,
+            )
+        except GLib.Error as error:
+            self.task_action_errors = [str(error)]
+            self._update_actions_message()
+            return
+        monitor.connect("changed", self._on_task_actions_dir_changed)
+        self.task_actions_monitor = monitor
+
+    def _on_task_actions_dir_changed(
+        self,
+        _monitor: Gio.FileMonitor,
+        file: Gio.File,
+        _other_file: Gio.File | None,
+        event_type: Gio.FileMonitorEvent,
+    ) -> None:
+        if event_type not in _TASK_ACTIONS_MONITOR_EVENTS:
+            return
+        if file.get_basename() != TASK_ACTIONS_FILE:
+            return
         task = self.selected_task
-        if task is not None and _task_actions_signature(task) != self.task_actions_signature:
-            self._load_task_action_buttons()
-        return True
+        if task is None:
+            return
+        signature = _task_actions_signature(task)
+        if signature == self.task_actions_signature:
+            return
+        self._load_task_action_buttons()
 
     def _update_actions_message(self) -> None:
         task = self.selected_task
@@ -1295,6 +1344,8 @@ class WorkspaceGtkGui:
             self._apply_terminal_theme(session.terminal)
 
     def close(self, *_args: object) -> None:
+        if self.task_actions_monitor is not None:
+            self.task_actions_monitor.cancel()
         self._save_settings()
         Gtk.main_quit()
 
