@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Iterator
 from dataclasses import dataclass
 from pathlib import Path
 import argparse
@@ -57,16 +58,18 @@ TRANSLATIONS = {
         "missing_context": "missing context",
         "missing_desc": "missing desc",
         "new": "New",
+        "no_git_repos": "No git repositories found under dev/.",
         "ok": "OK",
         "open_dev": "Open dev folder",
         "open_task": "Open task folder",
         "open_workspace": "Open Workspace",
         "refresh": "Refresh",
         "reload_actions": "Reload actions",
-        "run_codex": "Run codex",
+        "run_codex": "Run Codex",
         "run_task_check": "Run task_check",
         "save": "Save",
         "scan_repos": "Scan repos",
+        "scanning_repos": "Scanning repositories...",
         "select_task_first": "Select a task first",
         "settings": "Settings",
         "settings_title": "Workspace GUI settings",
@@ -99,16 +102,18 @@ TRANSLATIONS = {
         "missing_context": "нет контекста",
         "missing_desc": "нет описания",
         "new": "Новая",
+        "no_git_repos": "В dev/ не найдены git-репозитории.",
         "ok": "OK",
         "open_dev": "Открыть dev",
         "open_task": "Открыть папку задачи",
         "open_workspace": "Открыть workspace",
         "refresh": "Обновить",
         "reload_actions": "Обновить actions",
-        "run_codex": "Run codex",
+        "run_codex": "Запустить Codex",
         "run_task_check": "Run task_check",
         "save": "Сохранить",
-        "scan_repos": "Сканировать repo",
+        "scan_repos": "Сканировать репо",
+        "scanning_repos": "Сканирование репозиториев...",
         "select_task_first": "Сначала выбери задачу",
         "settings": "Настройки",
         "settings_title": "Настройки Workspace GUI",
@@ -141,16 +146,18 @@ TRANSLATIONS = {
         "missing_context": "немає контексту",
         "missing_desc": "немає опису",
         "new": "Нова",
+        "no_git_repos": "У dev/ не знайдено git-репозиторії.",
         "ok": "OK",
         "open_dev": "Відкрити dev",
         "open_task": "Відкрити папку задачі",
         "open_workspace": "Відкрити workspace",
         "refresh": "Оновити",
         "reload_actions": "Оновити actions",
-        "run_codex": "Run codex",
+        "run_codex": "Запустити Codex",
         "run_task_check": "Run task_check",
         "save": "Зберегти",
-        "scan_repos": "Сканувати repo",
+        "scan_repos": "Сканувати репо",
+        "scanning_repos": "Сканування репозиторіїв...",
         "select_task_first": "Спочатку вибери задачу",
         "settings": "Налаштування",
         "settings_title": "Налаштування Workspace GUI",
@@ -188,9 +195,15 @@ class WorkspaceGtkGui:
         self.tasks: list[TaskSummary] = []
         self.selected_task: TaskSummary | None = None
         self.task_actions: list[TaskAction] = []
+        self.task_action_errors: list[str] = []
+        self.repo_status_message = ""
         self.git_repo_options: list[Path] = []
         self.git_repos_loaded_for: Path | None = None
+        self.git_repo_cache: dict[Path, list[Path]] = {}
         self.repo_scan_generation = 0
+        self.repo_scan_generations: dict[Path, int] = {}
+        self.repo_scans_in_progress: set[Path] = set()
+        self.pending_git_status_for: Path | None = None
         self.task_actions_signature: tuple[Path | None, int | None] = (None, None)
         self.terminal_sessions: dict[int, TerminalSession] = {}
         self.next_terminal_id = 1
@@ -281,12 +294,6 @@ class WorkspaceGtkGui:
         self.actions_tab_label = Gtk.Label(label=self._tr("actions"))
         self.notebook.append_page(box, self.actions_tab_label)
 
-        codex_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
-        box.pack_start(codex_row, False, False, 0)
-        self.run_codex_button = self._button("run_codex", self.run_codex_console)
-        self.run_codex_button.set_hexpand(True)
-        codex_row.pack_start(self.run_codex_button, True, True, 0)
-
         repo_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
         box.pack_start(repo_row, False, False, 0)
         self.git_repo_combo = Gtk.ComboBoxText()
@@ -303,6 +310,12 @@ class WorkspaceGtkGui:
         self.actions_message = Gtk.Label(label="")
         self.actions_message.set_xalign(0)
         box.pack_start(self.actions_message, False, False, 0)
+
+        codex_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
+        box.pack_start(codex_row, False, False, 0)
+        self.run_codex_button = self._button("run_codex", self.run_codex_console)
+        self.run_codex_button.set_hexpand(True)
+        codex_row.pack_start(self.run_codex_button, True, True, 0)
 
         self.console_notebook = Gtk.Notebook()
         self.console_notebook.add_events(Gdk.EventMask.BUTTON_PRESS_MASK)
@@ -334,6 +347,9 @@ class WorkspaceGtkGui:
         self._set_markdown(self.description_view, read_task_file(self.selected_task, "TASK_DESCRIPTION.md"))
         self._set_markdown(self.context_view, read_task_file(self.selected_task, "TASK_CONTEXT.md"))
         self._reset_actions()
+        cached_repos = self.git_repo_cache.get(self.selected_task.path)
+        if cached_repos is not None:
+            self._set_git_repos(self.selected_task, cached_repos)
         self._load_task_action_buttons()
         self._refresh_console_tabs_for_task(self.selected_task)
         if self._actions_tab_active():
@@ -614,8 +630,11 @@ class WorkspaceGtkGui:
         task = self._require_task()
         if task is None:
             return
-        self._ensure_git_repos_loaded(task)
         repo = self._selected_git_repo()
+        if repo is None:
+            self.pending_git_status_for = task.path
+            self._refresh_git_repos_async(task)
+            return
         if repo is not None:
             self._send_command_to_task_terminal(task, shlex.join(["git", "-C", str(repo), "status", "--short", "--branch"]))
 
@@ -636,9 +655,10 @@ class WorkspaceGtkGui:
         self.task_actions = []
         self.git_repo_options = []
         self.git_repos_loaded_for = None
+        self.repo_status_message = ""
         self.git_repo_combo.remove_all()
         self._clear_task_action_buttons()
-        self.actions_message.set_text("")
+        self._update_actions_message()
 
     def _clear_task_action_buttons(self) -> None:
         for child in self.task_actions_box.get_children():
@@ -653,7 +673,8 @@ class WorkspaceGtkGui:
         self._clear_task_action_buttons()
         self.task_actions = actions
         self.task_actions_signature = _task_actions_signature(task)
-        self.actions_message.set_text("\n".join(errors))
+        self.task_action_errors = errors
+        self._update_actions_message()
         for action in actions:
             self.task_actions_box.pack_start(
                 _button(action.label, lambda _button, item=action: self.run_custom_task_action(item)),
@@ -665,31 +686,69 @@ class WorkspaceGtkGui:
 
     def _ensure_git_repos_loaded(self, task: TaskSummary) -> None:
         if self.git_repos_loaded_for != task.path:
+            cached = self.git_repo_cache.get(task.path)
+            if cached is not None:
+                self._set_git_repos(task, cached)
+                return
             self._refresh_git_repos(task)
 
     def _refresh_git_repos_async(self, task: TaskSummary) -> None:
         self.repo_scan_generation += 1
         generation = self.repo_scan_generation
         task_path = task.path
-        self.actions_message.set_text("Scanning repositories...")
+        self.repo_scan_generations[task_path] = generation
+        self.repo_scans_in_progress.add(task_path)
+        self.git_repo_cache[task_path] = []
+        if self.selected_task is not None and self.selected_task.path == task_path:
+            self.git_repo_options = []
+            self.git_repos_loaded_for = task_path
+            self.repo_status_message = ""
+            self.git_repo_combo.remove_all()
+        self._update_actions_message()
 
         def worker() -> None:
-            repos = find_dev_git_repos(task)
-            GLib.idle_add(self._apply_git_repo_scan_result, task_path, generation, repos)
+            for repo in _iter_git_repos(task):
+                GLib.idle_add(self._append_git_repo_scan_result, task_path, generation, repo)
+            GLib.idle_add(self._finish_git_repo_scan_result, task_path, generation)
 
         threading.Thread(target=worker, daemon=True).start()
 
-    def _apply_git_repo_scan_result(
+    def _append_git_repo_scan_result(
         self,
         task_path: Path,
         generation: int,
-        repos: list[Path],
+        repo: Path,
     ) -> bool:
-        if generation != self.repo_scan_generation:
+        if self.repo_scan_generations.get(task_path) != generation:
             return False
+        cached = self.git_repo_cache.setdefault(task_path, [])
+        if repo not in cached:
+            cached.append(repo)
         if self.selected_task is None or self.selected_task.path != task_path:
             return False
-        self._set_git_repos(self.selected_task, repos)
+        if repo not in self.git_repo_options:
+            self.git_repo_options.append(repo)
+            self.git_repo_combo.append_text(_repo_label(self.selected_task, repo))
+            if len(self.git_repo_options) == 1:
+                self.git_repo_combo.set_active(0)
+        self.repo_status_message = ""
+        self._update_actions_message()
+        return False
+
+    def _finish_git_repo_scan_result(self, task_path: Path, generation: int) -> bool:
+        if self.repo_scan_generations.get(task_path) != generation:
+            return False
+        self.repo_scans_in_progress.discard(task_path)
+        repos = self.git_repo_cache.get(task_path, [])
+        if self.selected_task is not None and self.selected_task.path == task_path:
+            if not repos:
+                self.repo_status_message = self._tr("no_git_repos")
+            self._update_actions_message()
+        if self.pending_git_status_for == task_path:
+            self.pending_git_status_for = None
+            repo = self._selected_git_repo()
+            if repo is not None:
+                self.run_selected_git_status()
         return False
 
     def _refresh_git_repos(self, task: TaskSummary) -> None:
@@ -703,15 +762,26 @@ class WorkspaceGtkGui:
             self.git_repo_combo.append_text(_repo_label(task, repo))
         if self.git_repo_options:
             self.git_repo_combo.set_active(0)
-            self.actions_message.set_text("")
+            self.repo_status_message = ""
         else:
-            self.actions_message.set_text("No git repositories found under dev/.")
+            self.repo_status_message = self._tr("no_git_repos")
+        self._update_actions_message()
 
     def _poll_task_actions(self) -> bool:
         task = self.selected_task
         if task is not None and _task_actions_signature(task) != self.task_actions_signature:
             self._load_task_action_buttons()
         return True
+
+    def _update_actions_message(self) -> None:
+        task = self.selected_task
+        messages: list[str] = []
+        if task is not None and task.path in self.repo_scans_in_progress:
+            messages.append(self._tr("scanning_repos"))
+        if self.repo_status_message:
+            messages.append(self.repo_status_message)
+        messages.extend(getattr(self, "task_action_errors", []))
+        self.actions_message.set_text("\n".join(messages))
 
     def _selected_git_repo(self) -> Path | None:
         index = self.git_repo_combo.get_active()
@@ -772,7 +842,7 @@ class WorkspaceGtkGui:
                 GLib.timeout_add(250, self._send_command_to_session_once, session_id, command + "\n")
             return
         self._activate_terminal(session.session_id)
-        _feed_terminal(session.terminal, command + "\n")
+        GLib.timeout_add(50, self._send_command_to_session_once, session.session_id, command + "\n")
 
     def _send_command_to_session_once(self, session_id: int, command: str) -> bool:
         session = self.terminal_sessions.get(session_id)
@@ -1345,6 +1415,20 @@ def _repo_label(task: TaskSummary, repo: Path) -> str:
         return str(repo)
 
 
+def _iter_git_repos(task: TaskSummary) -> Iterator[Path]:
+    dev = task.path / "dev"
+    if not dev.is_dir():
+        return
+    for root, dirs, _files in os.walk(dev):
+        dirs.sort()
+        root_path = Path(root)
+        if ".git" in dirs:
+            yield root_path
+            dirs[:] = []
+            continue
+        dirs[:] = [name for name in dirs if name != ".git"]
+
+
 def codex_task_context_message(task: TaskSummary, workspace: Path, language: str = "en") -> str:
     return (
         f"We are working in workspace task `{task.name}`. "
@@ -1412,10 +1496,27 @@ def _codex_executable() -> str:
 
 def _feed_terminal(terminal: Vte.Terminal, text: str) -> None:
     data = text.encode()
-    try:
-        terminal.feed_child(data, len(data))
-    except TypeError:
-        terminal.feed_child(text, len(text))
+    attempts = (
+        lambda: terminal.feed_child(text),
+        lambda: terminal.feed_child(text, len(text)),
+        lambda: terminal.feed_child(data),
+        lambda: terminal.feed_child(data, len(data)),
+    )
+    for attempt in attempts:
+        try:
+            attempt()
+            return
+        except TypeError:
+            continue
+    feed_binary = getattr(terminal, "feed_child_binary", None)
+    if feed_binary is not None:
+        try:
+            feed_binary(data)
+            return
+        except TypeError:
+            feed_binary(data, len(data))
+            return
+    raise TypeError("VTE Terminal.feed_child signature is unsupported")
 
 
 def _terminal_env(env: dict[str, str]) -> list[str]:

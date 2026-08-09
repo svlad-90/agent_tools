@@ -21,9 +21,11 @@ from codex_tools.tools.workspace_gui.core import save_workspace_gui_settings
 from codex_tools.tools.workspace_gui.core import run_task_action
 from codex_tools.tools.workspace_gui.core import run_task_check
 from codex_tools.tools.workspace_gui.gtk_ui import WorkspaceGtkGui
+from codex_tools.tools.workspace_gui.gtk_ui import TRANSLATIONS as GTK_TRANSLATIONS
 from codex_tools.tools.workspace_gui.gtk_ui import codex_task_context_message as gtk_codex_task_context_message
 from codex_tools.tools.workspace_gui.gtk_ui import task_action_shell_command as gtk_task_action_shell_command
 from codex_tools.tools.workspace_gui.gtk_ui import _is_pane_separator_event as gtk_is_pane_separator_event
+from codex_tools.tools.workspace_gui.gtk_ui import _iter_git_repos as gtk_iter_git_repos
 from codex_tools.tools.workspace_gui.gtk_ui import _task_init_command as gtk_task_init_command
 from codex_tools.tools.workspace_gui.gtk_ui import _task_actions_signature as gtk_task_actions_signature
 from codex_tools.tools.workspace_gui.gtk_ui import _task_path_for_name as gtk_task_path_for_name
@@ -169,6 +171,17 @@ def test_find_dev_git_repos_and_status(tmp_path: Path) -> None:
     assert repos == [repo]
     assert status.error is None
     assert status.branch_line.startswith("##")
+
+
+def test_gtk_iter_git_repos_yields_nested_repos(tmp_path: Path) -> None:
+    task = tmp_path / "tasks" / "sample-task"
+    repo = task / "dev" / "repo"
+    nested_repo = task / "dev" / "container" / "nested"
+    (repo / ".git").mkdir(parents=True)
+    (nested_repo / ".git").mkdir(parents=True)
+    summary = TaskSummary("sample-task", task, True, True, 1, 1, False)
+
+    assert list(gtk_iter_git_repos(summary)) == [nested_repo, repo]
 
 
 def test_rough_token_count_uses_words_and_character_fallback() -> None:
@@ -468,6 +481,11 @@ def test_gtk_codex_prompt_includes_selected_language(tmp_path: Path) -> None:
     message = gtk_codex_task_context_message(summary, tmp_path, "uk")
 
     assert "Відповідай користувачу українською мовою." in message
+
+
+def test_gtk_translates_codex_and_repo_scan_labels() -> None:
+    assert GTK_TRANSLATIONS["ru"]["run_codex"] == "Запустить Codex"
+    assert GTK_TRANSLATIONS["ru"]["scanning_repos"] == "Сканирование репозиториев..."
 
 
 def test_gtk_markdown_tags_are_configured() -> None:
