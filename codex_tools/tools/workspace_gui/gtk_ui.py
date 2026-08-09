@@ -8,6 +8,7 @@ import shlex
 import shutil
 import subprocess
 import sys
+import threading
 
 import gi
 
@@ -20,6 +21,7 @@ from gi.repository import Gtk
 from gi.repository import Pango
 from gi.repository import Vte
 
+from .core import TASK_ACTIONS_FILE
 from .core import TaskAction
 from .core import TaskSummary
 from .core import WORKSPACE_GUI_LANGUAGES
@@ -188,6 +190,8 @@ class WorkspaceGtkGui:
         self.task_actions: list[TaskAction] = []
         self.git_repo_options: list[Path] = []
         self.git_repos_loaded_for: Path | None = None
+        self.repo_scan_generation = 0
+        self.task_actions_signature: tuple[Path | None, int | None] = (None, None)
         self.terminal_sessions: dict[int, TerminalSession] = {}
         self.next_terminal_id = 1
 
@@ -216,6 +220,7 @@ class WorkspaceGtkGui:
         self._build_ui()
         self._apply_css()
         self.refresh_tasks()
+        GLib.timeout_add(2000, self._poll_task_actions)
 
     def _build_ui(self) -> None:
         root = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
@@ -252,6 +257,7 @@ class WorkspaceGtkGui:
         main.pack2(self.notebook, resize=True, shrink=False)
         self._add_details_tab()
         self._add_actions_tab()
+        self.notebook.connect("switch-page", self._on_main_notebook_switch_page)
         GLib.idle_add(self._set_main_default_split)
 
     def _add_details_tab(self) -> None:
@@ -271,29 +277,32 @@ class WorkspaceGtkGui:
 
     def _add_actions_tab(self) -> None:
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
+        self.actions_page = box
         self.actions_tab_label = Gtk.Label(label=self._tr("actions"))
         self.notebook.append_page(box, self.actions_tab_label)
 
-        toolbar = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
-        box.pack_start(toolbar, False, False, 0)
-        toolbar.pack_start(self._button("run_task_check", self.run_selected_task_check), False, False, 0)
-        toolbar.pack_start(self._button("reload_actions", self.reload_selected_task_actions), False, False, 0)
+        codex_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
+        box.pack_start(codex_row, False, False, 0)
+        self.run_codex_button = self._button("run_codex", self.run_codex_console)
+        self.run_codex_button.set_hexpand(True)
+        codex_row.pack_start(self.run_codex_button, True, True, 0)
+
+        repo_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
+        box.pack_start(repo_row, False, False, 0)
         self.git_repo_combo = Gtk.ComboBoxText()
         self.git_repo_combo.set_hexpand(True)
-        toolbar.pack_start(self.git_repo_combo, True, True, 0)
-        toolbar.pack_start(self._button("scan_repos", self.scan_selected_git_repos), False, False, 0)
-        toolbar.pack_start(self._button("git_status", self.run_selected_git_status), False, False, 0)
+        repo_row.pack_start(self.git_repo_combo, True, True, 0)
+        repo_row.pack_start(self._button("scan_repos", self.scan_selected_git_repos), False, False, 0)
 
+        action_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
+        box.pack_start(action_row, False, False, 0)
+        action_row.pack_start(self._button("run_task_check", self.run_selected_task_check), False, False, 0)
+        action_row.pack_start(self._button("git_status", self.run_selected_git_status), False, False, 0)
         self.task_actions_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
-        box.pack_start(self.task_actions_box, False, False, 0)
+        action_row.pack_start(self.task_actions_box, False, False, 0)
         self.actions_message = Gtk.Label(label="")
         self.actions_message.set_xalign(0)
         box.pack_start(self.actions_message, False, False, 0)
-
-        console_toolbar = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
-        box.pack_start(console_toolbar, False, False, 0)
-        self.run_codex_button = self._button("run_codex", self.run_codex_console)
-        console_toolbar.pack_start(self.run_codex_button, False, False, 0)
 
         self.console_notebook = Gtk.Notebook()
         self.console_notebook.add_events(Gdk.EventMask.BUTTON_PRESS_MASK)
@@ -327,7 +336,19 @@ class WorkspaceGtkGui:
         self._reset_actions()
         self._load_task_action_buttons()
         self._refresh_console_tabs_for_task(self.selected_task)
+        if self._actions_tab_active():
+            self._ensure_default_console_for_selected_task()
         self._update_codex_button_state()
+
+    def _on_main_notebook_switch_page(
+        self,
+        _notebook: Gtk.Notebook,
+        page: Gtk.Widget,
+        _page_num: int,
+    ) -> None:
+        if page is self.actions_page:
+            self._load_task_action_buttons()
+            self._ensure_default_console_for_selected_task()
 
     def _on_task_view_button_press(self, tree: Gtk.TreeView, event: Gdk.EventButton) -> bool:
         if event.button != 3:
@@ -601,10 +622,9 @@ class WorkspaceGtkGui:
     def scan_selected_git_repos(self, *_args: object) -> None:
         task = self._require_task()
         if task is not None:
-            self._refresh_git_repos(task)
+            self._refresh_git_repos_async(task)
 
     def reload_selected_task_actions(self, *_args: object) -> None:
-        self._reset_actions()
         self._load_task_action_buttons()
 
     def run_custom_task_action(self, action: TaskAction) -> None:
@@ -617,16 +637,22 @@ class WorkspaceGtkGui:
         self.git_repo_options = []
         self.git_repos_loaded_for = None
         self.git_repo_combo.remove_all()
+        self._clear_task_action_buttons()
+        self.actions_message.set_text("")
+
+    def _clear_task_action_buttons(self) -> None:
         for child in self.task_actions_box.get_children():
             self.task_actions_box.remove(child)
-        self.actions_message.set_text("")
 
     def _load_task_action_buttons(self) -> None:
         task = self._require_task(show_dialog=False)
         if task is None:
+            self.task_actions_signature = (None, None)
             return
         actions, errors = load_task_actions(task)
+        self._clear_task_action_buttons()
         self.task_actions = actions
+        self.task_actions_signature = _task_actions_signature(task)
         self.actions_message.set_text("\n".join(errors))
         for action in actions:
             self.task_actions_box.pack_start(
@@ -641,16 +667,51 @@ class WorkspaceGtkGui:
         if self.git_repos_loaded_for != task.path:
             self._refresh_git_repos(task)
 
+    def _refresh_git_repos_async(self, task: TaskSummary) -> None:
+        self.repo_scan_generation += 1
+        generation = self.repo_scan_generation
+        task_path = task.path
+        self.actions_message.set_text("Scanning repositories...")
+
+        def worker() -> None:
+            repos = find_dev_git_repos(task)
+            GLib.idle_add(self._apply_git_repo_scan_result, task_path, generation, repos)
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _apply_git_repo_scan_result(
+        self,
+        task_path: Path,
+        generation: int,
+        repos: list[Path],
+    ) -> bool:
+        if generation != self.repo_scan_generation:
+            return False
+        if self.selected_task is None or self.selected_task.path != task_path:
+            return False
+        self._set_git_repos(self.selected_task, repos)
+        return False
+
     def _refresh_git_repos(self, task: TaskSummary) -> None:
-        self.git_repo_options = find_dev_git_repos(task)
+        self._set_git_repos(task, find_dev_git_repos(task))
+
+    def _set_git_repos(self, task: TaskSummary, repos: list[Path]) -> None:
+        self.git_repo_options = repos
         self.git_repos_loaded_for = task.path
         self.git_repo_combo.remove_all()
         for repo in self.git_repo_options:
             self.git_repo_combo.append_text(_repo_label(task, repo))
         if self.git_repo_options:
             self.git_repo_combo.set_active(0)
+            self.actions_message.set_text("")
         else:
             self.actions_message.set_text("No git repositories found under dev/.")
+
+    def _poll_task_actions(self) -> bool:
+        task = self.selected_task
+        if task is not None and _task_actions_signature(task) != self.task_actions_signature:
+            self._load_task_action_buttons()
+        return True
 
     def _selected_git_repo(self) -> Path | None:
         index = self.git_repo_combo.get_active()
@@ -820,11 +881,14 @@ class WorkspaceGtkGui:
     def _close_console_session(self, session: TerminalSession) -> bool:
         if not self._confirm_close_console():
             return False
+        task = self._task_for_path(session.task_path)
         page_num = self.console_notebook.page_num(session.page)
         if page_num >= 0:
             self.console_notebook.remove_page(page_num)
         self.terminal_sessions.pop(session.session_id, None)
         session.page.destroy()
+        if self.selected_task is not None and self.selected_task.path == task.path:
+            self._ensure_default_console_for_selected_task()
         self._update_codex_button_state()
         return True
 
@@ -839,6 +903,18 @@ class WorkspaceGtkGui:
             context.add_class("codex-running")
         else:
             context.remove_class("codex-running")
+
+    def _actions_tab_active(self) -> bool:
+        page_num = self.notebook.get_current_page()
+        if page_num < 0:
+            return False
+        return self.notebook.get_nth_page(page_num) is self.actions_page
+
+    def _ensure_default_console_for_selected_task(self) -> None:
+        task = self.selected_task
+        if task is None or self._current_task_terminal_sessions(task):
+            return
+        self.new_console(task=task)
 
     def _active_shell_for_task(self, task: TaskSummary) -> TerminalSession | None:
         page_num = self.console_notebook.get_current_page()
@@ -1198,6 +1274,14 @@ def _is_empty_notebook_tab_area(notebook: Gtk.Notebook, event: Gdk.EventButton) 
 
 def _terminal_session_sort_key(kind: str, session_id: int) -> tuple[int, int]:
     return (0 if kind == "codex" else 1, session_id)
+
+
+def _task_actions_signature(task: TaskSummary) -> tuple[Path, int | None]:
+    path = task.path / TASK_ACTIONS_FILE
+    try:
+        return (path, path.stat().st_mtime_ns)
+    except FileNotFoundError:
+        return (path, None)
 
 
 def _task_path_for_name(workspace: Path, task_name: str) -> Path | None:

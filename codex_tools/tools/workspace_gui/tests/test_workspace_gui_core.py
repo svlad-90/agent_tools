@@ -25,6 +25,7 @@ from codex_tools.tools.workspace_gui.gtk_ui import codex_task_context_message as
 from codex_tools.tools.workspace_gui.gtk_ui import task_action_shell_command as gtk_task_action_shell_command
 from codex_tools.tools.workspace_gui.gtk_ui import _is_pane_separator_event as gtk_is_pane_separator_event
 from codex_tools.tools.workspace_gui.gtk_ui import _task_init_command as gtk_task_init_command
+from codex_tools.tools.workspace_gui.gtk_ui import _task_actions_signature as gtk_task_actions_signature
 from codex_tools.tools.workspace_gui.gtk_ui import _task_path_for_name as gtk_task_path_for_name
 from codex_tools.tools.workspace_gui.gtk_ui import _terminal_palette as gtk_terminal_palette
 from codex_tools.tools.workspace_gui.gtk_ui import _terminal_session_sort_key as gtk_terminal_session_sort_key
@@ -346,6 +347,20 @@ def test_gtk_task_init_command_uses_task_check_layout(tmp_path: Path) -> None:
         str(tmp_path),
         "--init-layout",
     ]
+
+
+def test_gtk_task_actions_signature_tracks_file_mtime(tmp_path: Path) -> None:
+    task = tmp_path / "tasks" / "sample-task"
+    task.mkdir(parents=True)
+    summary = TaskSummary("sample-task", task, True, True, 1, 1, False)
+
+    assert gtk_task_actions_signature(summary) == (task / "TASK_ACTIONS.json", None)
+
+    actions_file = task / "TASK_ACTIONS.json"
+    actions_file.write_text('{"actions": []}', encoding="utf-8")
+
+    assert gtk_task_actions_signature(summary)[0] == actions_file
+    assert gtk_task_actions_signature(summary)[1] is not None
 
 
 def test_console_tab_title_uses_stack_index_before_kind() -> None:
