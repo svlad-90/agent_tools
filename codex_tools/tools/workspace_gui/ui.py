@@ -72,6 +72,7 @@ class WorkspaceGui:
         self.text_font_size = int(settings.get("text_font_size", default_font_size))
         self.button_font_size = int(settings.get("button_font_size", default_font_size))
         self.theme = str(settings.get("theme", "light"))
+        self.window_geometry = str(settings.get("geometry", "1180x760"))
         self.style = ttk.Style(self.root)
         self.text_font = tkfont.Font(
             family=tkfont.nametofont("TkTextFont").cget("family"),
@@ -98,7 +99,7 @@ class WorkspaceGui:
         self.h3_font = tkfont.Font(family=self.text_font.cget("family"), size=self.text_font_size + 2, weight="bold")
 
         self.root.title(f"Workspace GUI - {self.workspace}")
-        self.root.geometry("1180x760")
+        self.root.geometry(self.window_geometry)
         self.root.protocol("WM_DELETE_WINDOW", self.close)
         self._apply_font_size()
         self._build_ui()
@@ -159,6 +160,9 @@ class WorkspaceGui:
         self._add_console_tab()
         self.notebook.bind("<<NotebookTabChanged>>", self._on_notebook_tab_changed)
         self.root.after_idle(self._set_main_default_split)
+        self.console_context_menu = tk.Menu(self.root, tearoff=False)
+        self.console_context_menu.add_command(label="Copy", command=self._copy_console_selection)
+        self.console_context_menu.add_command(label="Paste", command=self._paste_console_clipboard)
 
     def _add_details_tab(self) -> tuple[tk.Text, tk.Text]:
         frame = ttk.Frame(self.notebook)
@@ -258,6 +262,8 @@ class WorkspaceGui:
         text = tk.Text(parent, wrap=tk.WORD, undo=False, font=self.fixed_font)
         text.bind("<Key>", self._on_console_key)
         text.bind("<Button-1>", lambda _event: text.focus_set())
+        text.bind("<Button-3>", self._on_console_context_menu)
+        text.bind("<Button-2>", self._on_console_context_menu)
         scroll_y = ttk.Scrollbar(parent, orient=tk.VERTICAL, command=text.yview)
         text.configure(yscrollcommand=scroll_y.set)
         text.grid(row=0, column=0, sticky="nsew")
@@ -688,7 +694,7 @@ class WorkspaceGui:
                 stdout=slave_fd,
                 stderr=slave_fd,
                 close_fds=True,
-                start_new_session=True,
+                preexec_fn=lambda: _make_controlling_terminal(slave_fd),
             )
         except OSError as error:
             os.close(master_fd)
@@ -888,23 +894,37 @@ class WorkspaceGui:
         return "break"
 
     def _on_console_copy(self, _event: tk.Event[tk.Misc]) -> str:
+        self._copy_console_selection()
+        return "break"
+
+    def _copy_console_selection(self) -> None:
         text = self._current_console_text()
         if text is not None:
             text.event_generate("<<Copy>>")
-        return "break"
 
     def _on_console_paste(self, _event: tk.Event[tk.Misc]) -> str:
+        self._paste_console_clipboard()
+        return "break"
+
+    def _paste_console_clipboard(self) -> None:
         session = self._active_console()
         if session is None:
-            return "break"
+            return
         try:
             text = self.root.clipboard_get()
         except tk.TclError:
-            return "break"
+            return
         try:
             os.write(session.fd, text.encode())
         except OSError:
-            return "break"
+            return
+
+    def _on_console_context_menu(self, event: tk.Event[tk.Misc]) -> str:
+        widget = event.widget
+        if isinstance(widget, tk.Text):
+            widget.focus_set()
+        self.console_context_menu.tk_popup(event.x_root, event.y_root)
+        self.console_context_menu.grab_release()
         return "break"
 
     def _console_key_sequence(self, event: tk.Event[tk.Misc]) -> bytes:
@@ -1116,6 +1136,12 @@ class WorkspaceGui:
             background=colors["text_background"],
             foreground=colors["foreground"],
         )
+        console_menu = getattr(self, "console_context_menu", None)
+        if isinstance(console_menu, tk.Menu):
+            console_menu.configure(
+                background=colors["text_background"],
+                foreground=colors["foreground"],
+            )
         for widget_name in (
             "description_text",
             "context_text",
@@ -1142,6 +1168,7 @@ class WorkspaceGui:
                 "text_font_size": self.text_font_size,
                 "button_font_size": self.button_font_size,
                 "theme": self.theme,
+                "geometry": self.root.geometry(),
             }
         )
 
@@ -1149,6 +1176,7 @@ class WorkspaceGui:
         return self.notebook.tab(self.notebook.select(), "text") == "Console"
 
     def close(self) -> None:
+        self._save_settings()
         self.stop_all_consoles()
         self.root.destroy()
 
@@ -1199,6 +1227,14 @@ def _set_pty_size(fd: int, rows: int, columns: int) -> None:
     try:
         size = struct.pack("HHHH", rows, columns, 0, 0)
         fcntl.ioctl(fd, termios.TIOCSWINSZ, size)
+    except OSError:
+        return
+
+
+def _make_controlling_terminal(fd: int) -> None:
+    os.setsid()
+    try:
+        fcntl.ioctl(fd, termios.TIOCSCTTY, 0)
     except OSError:
         return
 

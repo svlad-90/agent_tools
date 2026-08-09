@@ -163,7 +163,12 @@ def test_workspace_gui_settings_persist_font_size(tmp_path: Path) -> None:
     settings_path = tmp_path / "settings.json"
 
     save_workspace_gui_settings(
-        {"text_font_size": 17, "button_font_size": 14, "theme": "dark"},
+        {
+            "text_font_size": 17,
+            "button_font_size": 14,
+            "theme": "dark",
+            "geometry": "1200x800+10+20",
+        },
         settings_path,
     )
 
@@ -171,6 +176,7 @@ def test_workspace_gui_settings_persist_font_size(tmp_path: Path) -> None:
         "text_font_size": 17,
         "button_font_size": 14,
         "theme": "dark",
+        "geometry": "1200x800+10+20",
     }
 
 
@@ -184,7 +190,10 @@ def test_workspace_gui_settings_migrate_old_font_size(tmp_path: Path) -> None:
 def test_workspace_gui_settings_clamp_bad_font_size(tmp_path: Path) -> None:
     settings_path = tmp_path / "settings.json"
     settings_path.write_text(
-        '{"text_font_size": 100, "button_font_size": 4, "theme": "blue"}',
+        (
+            '{"text_font_size": 100, "button_font_size": 4, '
+            '"theme": "blue", "geometry": "bad"}'
+        ),
         encoding="utf-8",
     )
 
