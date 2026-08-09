@@ -6,6 +6,7 @@ import subprocess
 import sys
 
 from codex_tools.tools.workspace_gui.core import TASK_CONTEXT_BUDGET
+from codex_tools.tools.workspace_gui.core import TaskAction
 from codex_tools.tools.workspace_gui.core import TaskSummary
 from codex_tools.tools.workspace_gui.core import discover_tasks
 from codex_tools.tools.workspace_gui.core import find_dev_git_repos
@@ -21,8 +22,9 @@ from codex_tools.tools.workspace_gui.core import run_task_check
 from codex_tools.tools.workspace_gui.ui import codex_console_command
 from codex_tools.tools.workspace_gui.ui import console_tab_title
 from codex_tools.tools.workspace_gui.ui import codex_task_context_message
-from codex_tools.tools.workspace_gui.ui import embedded_terminal_command
 from codex_tools.tools.workspace_gui.ui import render_git_status
+from codex_tools.tools.workspace_gui.ui import task_action_shell_command
+from codex_tools.tools.workspace_gui.ui import task_check_shell_command
 
 
 def test_discover_tasks_reports_description_context_and_budget(tmp_path: Path) -> None:
@@ -155,28 +157,30 @@ def test_codex_console_command_passes_prompt_and_workspace(tmp_path: Path) -> No
     ]
 
 
-def test_embedded_terminal_command_wraps_child_command(tmp_path: Path) -> None:
-    command = embedded_terminal_command(
-        socket_id=123,
-        cwd=tmp_path,
-        command=["codex", "--help"],
-        font_size=16,
-        theme="dark",
+def test_task_check_shell_command_runs_from_workspace(tmp_path: Path) -> None:
+    task = tmp_path / "tasks" / "sample-task"
+    task.mkdir(parents=True)
+    summary = discover_tasks_with_context(task, tmp_path)
+
+    command = task_check_shell_command(tmp_path, summary)
+
+    assert command.startswith(f"cd {tmp_path} && ")
+    assert "codex_tools.paf_workspace.task_check" in command
+    assert str(task) in command
+
+
+def test_task_action_shell_command_runs_in_action_cwd(tmp_path: Path) -> None:
+    action = TaskAction(
+        action_id="unit",
+        label="Unit",
+        command=("python", "-m", "pytest"),
+        cwd=tmp_path / "scripts",
+        env={"FLAG": "hello world"},
     )
 
-    assert command[1:11] == [
-        "-m",
-        "codex_tools.tools.workspace_gui.vte_terminal",
-        "--socket-id",
-        "123",
-        "--cwd",
-        str(tmp_path),
-        "--font-size",
-        "16",
-        "--theme",
-        "dark",
-    ]
-    assert command[-3:] == ["--", "codex", "--help"]
+    command = task_action_shell_command(action)
+
+    assert command == f"cd {tmp_path / 'scripts'} && FLAG='hello world' python -m pytest"
 
 
 def test_console_tab_title_uses_stack_index_before_kind() -> None:

@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -11,6 +10,7 @@ import platform
 import pty
 import queue
 import select
+import shlex
 import shutil
 import subprocess
 import struct
@@ -35,8 +35,6 @@ from .core import load_workspace_gui_settings
 from .core import parse_console_output
 from .core import read_task_file
 from .core import render_markdown_chunks
-from .core import run_task_action
-from .core import run_task_check
 from .core import save_workspace_gui_settings
 
 
@@ -64,7 +62,6 @@ class WorkspaceGui:
         self.task_actions: list[TaskAction] = []
         self.git_repo_options: list[Path] = []
         self.git_repos_loaded_for: Path | None = None
-        self.running_actions: set[tuple[str, Path]] = set()
         self.console_sessions: dict[int, ConsoleSession] = {}
         self.active_console_id: int | None = None
         self.next_console_id = 1
@@ -450,13 +447,7 @@ class WorkspaceGui:
         task = self._require_task()
         if task is None:
             return
-        self._run_transcript_background(
-            "task_check",
-            ("task_check", task.path),
-            task.path,
-            lambda: run_task_check(task, self.workspace),
-            self.actions_text,
-        )
+        self._send_command_to_task_console(task, task_check_shell_command(self.workspace, task))
 
     def run_selected_git_status(self) -> None:
         task = self._require_task()
@@ -466,14 +457,7 @@ class WorkspaceGui:
         repo = self._selected_git_repo()
         if repo is None:
             return
-        self._run_transcript_background(
-            "git status",
-            ("git status", repo),
-            task.path,
-            lambda: render_git_status(repo),
-            self.actions_text,
-            detail=self._repo_label(task, repo),
-        )
+        self._send_command_to_task_console(task, shlex.join(["git", "-C", str(repo), "status", "--short", "--branch"]))
 
     def scan_selected_git_repos(self) -> None:
         task = self._require_task()
@@ -484,13 +468,7 @@ class WorkspaceGui:
         task = self._require_task()
         if task is None:
             return
-        self._run_transcript_background(
-            action.label,
-            ("task action", task.path / action.action_id),
-            task.path,
-            lambda: run_task_action(action),
-            self.actions_text,
-        )
+        self._send_command_to_task_console(task, task_action_shell_command(action))
 
     def reload_selected_task_actions(self) -> None:
         task = self._require_task()
@@ -565,43 +543,6 @@ class WorkspaceGui:
         except ValueError:
             return str(repo)
 
-    def _run_transcript_background(
-        self,
-        label: str,
-        running_key: tuple[str, Path],
-        transcript_key: Path,
-        action: Callable[[], str],
-        target: tk.Text,
-        detail: str | None = None,
-    ) -> None:
-        if running_key in self.running_actions:
-            self._append_action(transcript_key, f"running: {label}\n")
-            return
-        self.running_actions.add(running_key)
-        self._append_action(transcript_key, _transcript_header(label, detail))
-        self._run_background(label, running_key, action, target, transcript_key)
-
-    def _run_background(
-        self,
-        label: str,
-        running_key: tuple[str, Path],
-        action: Callable[[], str],
-        target: tk.Text,
-        transcript_key: Path,
-    ) -> None:
-        self._append_action(transcript_key, f"start: {label}\n")
-
-        def worker() -> None:
-            try:
-                result = action()
-            except Exception as error:
-                result = f"{type(error).__name__}: {error}"
-            self.running_actions.discard(running_key)
-            payload = result.rstrip() + f"\n\ndone: {label}\n\n"
-            self.messages.put(("append", f"{id(target)}\n{transcript_key}\n{payload}"))
-
-        threading.Thread(target=worker, daemon=True).start()
-
     def _poll_messages(self) -> None:
         targets = {
             str(id(self.actions_text)): self.actions_text,
@@ -637,16 +578,16 @@ class WorkspaceGui:
                 return
         self.new_console(task)
 
-    def new_console(self, task: TaskSummary | None = None) -> None:
+    def new_console(self, task: TaskSummary | None = None) -> int | None:
         task = task or self._require_task()
         if task is None:
-            return
+            return None
         shell = os.environ.get("SHELL") or "/bin/bash"
         env = os.environ.copy()
         env.setdefault("TERM", "xterm-256color")
         env["PS1"] = f"{task.name}$ "
         env["PROMPT_COMMAND"] = ""
-        self._start_console_process(
+        return self._start_console_process(
             task=task,
             command=[shell],
             cwd=task.path,
@@ -655,60 +596,35 @@ class WorkspaceGui:
             startup_text=f"Starting shell in {task.path}\n",
         )
 
+    def _send_command_to_task_console(self, task: TaskSummary, command: str) -> None:
+        session = self._writable_console_for_task(task)
+        if session is None or session.fd is None:
+            messagebox.showerror("Console", "Could not open a writable console for this task.")
+            return
+        self._activate_console(session.session_id)
+        try:
+            os.write(session.fd, command.encode() + b"\r")
+        except OSError as error:
+            messagebox.showerror("Console", f"Could not write to console: {error}")
+
+    def _writable_console_for_task(self, task: TaskSummary) -> ConsoleSession | None:
+        active = self._active_console()
+        if active is not None and active.task_path == task.path and active.fd is not None:
+            if active.process.poll() is None:
+                return active
+        for session in self._current_task_console_sessions(task):
+            if session.fd is not None and session.process.poll() is None:
+                return session
+        session_id = self.new_console(task)
+        if session_id is None:
+            return None
+        return self.console_sessions.get(session_id)
+
     def run_codex_console(self) -> None:
         task = self._require_task()
         if task is None:
             return
-        self._start_embedded_terminal_process(
-            task=task,
-            command=codex_console_command(self.workspace, task),
-            cwd=self.workspace,
-            title_prefix="codex",
-        )
-
-    def _start_embedded_terminal_process(
-        self,
-        task: TaskSummary,
-        command: list[str],
-        cwd: Path,
-        title_prefix: str,
-    ) -> int | None:
-        session_id = self.next_console_id
-        self.next_console_id += 1
-        title = title_prefix
-        frame = ttk.Frame(self.console_notebook)
-        self.console_notebook.add(frame, text=title)
-        self.console_notebook.select(frame)
-        frame.update_idletasks()
-        socket_id = frame.winfo_id()
-        process = subprocess.Popen(
-            embedded_terminal_command(
-                socket_id=socket_id,
-                cwd=cwd,
-                command=command,
-                font_size=self.text_font_size,
-                theme=self.theme,
-            ),
-            cwd=self.workspace,
-            close_fds=True,
-        )
-        session = ConsoleSession(
-            session_id=session_id,
-            title=title,
-            task_path=task.path,
-            kind=title_prefix,
-            frame=frame,
-            text=None,
-            process=process,
-            fd=None,
-            chunks=[],
-        )
-        self.console_sessions[session_id] = session
-        self._renumber_console_tabs(task)
-        if self.selected_task is not None and self.selected_task.path == task.path:
-            self._show_console_tab(session)
-        self._activate_console(session_id)
-        return session_id
+        self._send_command_to_task_console(task, shlex.join(codex_console_command(self.workspace, task)))
 
     def _start_console_process(
         self,
@@ -1033,7 +949,7 @@ class WorkspaceGui:
 
     def _write_to_console(self, session_id: int, data: bytes) -> None:
         session = self.console_sessions.get(session_id)
-        if session is None:
+        if session is None or session.fd is None:
             return
         try:
             os.write(session.fd, data)
@@ -1263,28 +1179,38 @@ def codex_console_command(workspace: Path, task: TaskSummary) -> list[str]:
     ]
 
 
-def embedded_terminal_command(
-    socket_id: int,
-    cwd: Path,
-    command: list[str],
-    font_size: int,
-    theme: str,
-) -> list[str]:
-    return [
-        sys.executable,
-        "-m",
-        "codex_tools.tools.workspace_gui.vte_terminal",
-        "--socket-id",
-        str(socket_id),
-        "--cwd",
-        str(cwd),
-        "--font-size",
-        str(font_size),
-        "--theme",
-        theme,
-        "--",
-        *command,
-    ]
+def task_check_shell_command(workspace: Path, task: TaskSummary) -> str:
+    return " ".join(
+        [
+            "cd",
+            shlex.quote(str(workspace)),
+            "&&",
+            shlex.join(
+                [
+                    sys_executable(),
+                    "-m",
+                    "codex_tools.paf_workspace.task_check",
+                    str(task.path),
+                    "--workspace",
+                    str(workspace),
+                ]
+            ),
+        ]
+    )
+
+
+def task_action_shell_command(action: TaskAction) -> str:
+    command = action.command if isinstance(action.command, str) else shlex.join(action.command)
+    env = " ".join(
+        f"{key}={shlex.quote(value)}"
+        for key, value in sorted(action.env.items())
+    )
+    prefix = f"{env} " if env else ""
+    return f"cd {shlex.quote(str(action.cwd))} && {prefix}{command}"
+
+
+def sys_executable() -> str:
+    return sys.executable or "python3"
 
 
 def _codex_executable() -> str:
