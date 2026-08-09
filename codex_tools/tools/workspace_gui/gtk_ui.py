@@ -22,6 +22,8 @@ from gi.repository import Vte
 from .core import TASK_CONTEXT_BUDGET
 from .core import TaskAction
 from .core import TaskSummary
+from .core import WORKSPACE_GUI_LANGUAGES
+from .core import WORKSPACE_GUI_THEMES
 from .core import discover_tasks
 from .core import find_dev_git_repos
 from .core import git_status
@@ -30,6 +32,106 @@ from .core import load_workspace_gui_settings
 from .core import read_task_file
 from .core import render_markdown_chunks
 from .core import save_workspace_gui_settings
+
+
+TRANSLATIONS = {
+    "en": {
+        "actions": "Actions",
+        "button_font_size": "Button font size",
+        "cancel": "Cancel",
+        "close": "Close",
+        "context": "context",
+        "desc": "desc",
+        "details": "Details",
+        "git_status": "Git status",
+        "language": "Language",
+        "missing_context": "missing context",
+        "missing_desc": "missing desc",
+        "new": "New",
+        "ok": "OK",
+        "open_workspace": "Open Workspace",
+        "refresh": "Refresh",
+        "reload_actions": "Reload actions",
+        "run_codex": "Run codex",
+        "run_task_check": "Run task_check",
+        "scan_repos": "Scan repos",
+        "select_task_first": "Select a task first",
+        "settings": "Settings",
+        "settings_title": "Workspace GUI settings",
+        "task": "Task",
+        "task_details": "Task Details",
+        "tasks": "tasks",
+        "text_font_size": "Text font size",
+        "theme": "Theme",
+        "window_title": "Workspace GUI",
+    },
+    "ru": {
+        "actions": "Действия",
+        "button_font_size": "Размер шрифта кнопок",
+        "cancel": "Отмена",
+        "close": "Закрыть",
+        "context": "контекст",
+        "desc": "описание",
+        "details": "Детали",
+        "git_status": "Git status",
+        "language": "Язык",
+        "missing_context": "нет контекста",
+        "missing_desc": "нет описания",
+        "new": "Новая",
+        "ok": "OK",
+        "open_workspace": "Открыть workspace",
+        "refresh": "Обновить",
+        "reload_actions": "Обновить actions",
+        "run_codex": "Run codex",
+        "run_task_check": "Run task_check",
+        "scan_repos": "Сканировать repo",
+        "select_task_first": "Сначала выбери задачу",
+        "settings": "Настройки",
+        "settings_title": "Настройки Workspace GUI",
+        "task": "Задача",
+        "task_details": "Детали задачи",
+        "tasks": "задач",
+        "text_font_size": "Размер шрифта текста",
+        "theme": "Тема",
+        "window_title": "Workspace GUI",
+    },
+    "uk": {
+        "actions": "Дії",
+        "button_font_size": "Розмір шрифту кнопок",
+        "cancel": "Скасувати",
+        "close": "Закрити",
+        "context": "контекст",
+        "desc": "опис",
+        "details": "Деталі",
+        "git_status": "Git status",
+        "language": "Мова",
+        "missing_context": "немає контексту",
+        "missing_desc": "немає опису",
+        "new": "Нова",
+        "ok": "OK",
+        "open_workspace": "Відкрити workspace",
+        "refresh": "Оновити",
+        "reload_actions": "Оновити actions",
+        "run_codex": "Run codex",
+        "run_task_check": "Run task_check",
+        "scan_repos": "Сканувати repo",
+        "select_task_first": "Спочатку вибери задачу",
+        "settings": "Налаштування",
+        "settings_title": "Налаштування Workspace GUI",
+        "task": "Задача",
+        "task_details": "Деталі задачі",
+        "tasks": "задач",
+        "text_font_size": "Розмір шрифту тексту",
+        "theme": "Тема",
+        "window_title": "Workspace GUI",
+    },
+}
+
+CODEX_LANGUAGE_INSTRUCTIONS = {
+    "en": "Reply to the user in English.",
+    "ru": "Отвечай пользователю на русском языке.",
+    "uk": "Відповідай користувачу українською мовою.",
+}
 
 
 @dataclass
@@ -57,9 +159,11 @@ class WorkspaceGtkGui:
         self.text_font_size = int(settings.get("text_font_size", 13))
         self.button_font_size = int(settings.get("button_font_size", 13))
         self.theme = str(settings.get("theme", "light"))
+        self.language = str(settings.get("language", "ru"))
         self.window_geometry = str(settings.get("geometry", "1180x760"))
+        self.label_widgets: dict[str, Gtk.Widget] = {}
 
-        self.window = Gtk.Window(title=f"Workspace GUI - {self.workspace}")
+        self.window = Gtk.Window(title=f"{self._tr('window_title')} - {self.workspace}")
         self.window.connect("destroy", self.close)
         self._apply_window_geometry()
         self._build_ui()
@@ -73,8 +177,9 @@ class WorkspaceGtkGui:
         toolbar = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
         toolbar.set_border_width(6)
         root.pack_start(toolbar, False, False, 0)
-        toolbar.pack_start(_button("Refresh", self.refresh_tasks), False, False, 0)
-        toolbar.pack_start(_button("Open Workspace", lambda *_: open_path(self.workspace)), False, False, 0)
+        toolbar.pack_start(self._button("refresh", self.refresh_tasks), False, False, 0)
+        toolbar.pack_start(self._button("open_workspace", lambda *_: open_path(self.workspace)), False, False, 0)
+        toolbar.pack_start(self._button("settings", self.open_settings), False, False, 0)
         self.summary_label = Gtk.Label(label="")
         self.summary_label.set_xalign(0)
         toolbar.pack_start(self.summary_label, False, False, 6)
@@ -84,8 +189,10 @@ class WorkspaceGtkGui:
 
         self.task_store = Gtk.ListStore(str, str, object)
         self.task_view = Gtk.TreeView(model=self.task_store)
-        self.task_view.append_column(Gtk.TreeViewColumn("Task", Gtk.CellRendererText(), text=0))
-        self.task_view.append_column(Gtk.TreeViewColumn("Task Details", Gtk.CellRendererText(), text=1))
+        self.task_column = Gtk.TreeViewColumn(self._tr("task"), Gtk.CellRendererText(), text=0)
+        self.task_details_column = Gtk.TreeViewColumn(self._tr("task_details"), Gtk.CellRendererText(), text=1)
+        self.task_view.append_column(self.task_column)
+        self.task_view.append_column(self.task_details_column)
         self.task_view.get_selection().connect("changed", self._on_task_selected)
         self.task_view.connect("row-activated", lambda *_: self.open_task())
         task_scroll = Gtk.ScrolledWindow()
@@ -105,21 +212,23 @@ class WorkspaceGtkGui:
         pane.pack1(_scrolled(self.description_view), resize=True, shrink=False)
         pane.pack2(_scrolled(self.context_view), resize=True, shrink=False)
         GLib.idle_add(lambda: pane.set_position(max(160, pane.get_allocated_height() // 4)) or False)
-        self.notebook.append_page(pane, Gtk.Label(label="Details"))
+        self.details_tab_label = Gtk.Label(label=self._tr("details"))
+        self.notebook.append_page(pane, self.details_tab_label)
 
     def _add_actions_tab(self) -> None:
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
-        self.notebook.append_page(box, Gtk.Label(label="Actions"))
+        self.actions_tab_label = Gtk.Label(label=self._tr("actions"))
+        self.notebook.append_page(box, self.actions_tab_label)
 
         toolbar = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
         box.pack_start(toolbar, False, False, 0)
-        toolbar.pack_start(_button("Run task_check", self.run_selected_task_check), False, False, 0)
-        toolbar.pack_start(_button("Reload actions", self.reload_selected_task_actions), False, False, 0)
+        toolbar.pack_start(self._button("run_task_check", self.run_selected_task_check), False, False, 0)
+        toolbar.pack_start(self._button("reload_actions", self.reload_selected_task_actions), False, False, 0)
         self.git_repo_combo = Gtk.ComboBoxText()
         self.git_repo_combo.set_hexpand(True)
         toolbar.pack_start(self.git_repo_combo, True, True, 0)
-        toolbar.pack_start(_button("Scan repos", self.scan_selected_git_repos), False, False, 0)
-        toolbar.pack_start(_button("Git status", self.run_selected_git_status), False, False, 0)
+        toolbar.pack_start(self._button("scan_repos", self.scan_selected_git_repos), False, False, 0)
+        toolbar.pack_start(self._button("git_status", self.run_selected_git_status), False, False, 0)
 
         self.task_actions_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
         box.pack_start(self.task_actions_box, False, False, 0)
@@ -129,9 +238,9 @@ class WorkspaceGtkGui:
 
         console_toolbar = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
         box.pack_start(console_toolbar, False, False, 0)
-        console_toolbar.pack_start(_button("Run codex", self.run_codex_console), False, False, 0)
-        console_toolbar.pack_start(_button("New", self.new_console), False, False, 0)
-        console_toolbar.pack_start(_button("Close", self.close_active_console), False, False, 0)
+        console_toolbar.pack_start(self._button("run_codex", self.run_codex_console), False, False, 0)
+        console_toolbar.pack_start(self._button("new", self.new_console), False, False, 0)
+        console_toolbar.pack_start(self._button("close", self.close_active_console), False, False, 0)
 
         self.console_notebook = Gtk.Notebook()
         box.pack_start(self.console_notebook, True, True, 0)
@@ -141,23 +250,21 @@ class WorkspaceGtkGui:
         self.tasks = discover_tasks(self.workspace)
         self.task_store.clear()
         selected_iter = None
-        over_budget = 0
         for task in self.tasks:
             flags = []
             if not task.has_description:
-                flags.append("missing desc")
+                flags.append(self._tr("missing_desc"))
             if not task.has_context:
-                flags.append("missing context")
+                flags.append(self._tr("missing_context"))
             if task.context_over_budget:
-                over_budget += 1
-                flags.append(f"context > {TASK_CONTEXT_BUDGET}")
-            details = f"desc {task.description_tokens}, context {task.context_tokens}"
+                flags.append(f"{self._tr('context')} > {TASK_CONTEXT_BUDGET}")
+            details = f"{self._tr('desc')} {task.description_tokens}, {self._tr('context')} {task.context_tokens}"
             if flags:
                 details = f"{details}, {', '.join(flags)}"
             row_iter = self.task_store.append([task.name, details, task])
             if task.name == selected_name:
                 selected_iter = row_iter
-        self.summary_label.set_text(f"{len(self.tasks)} tasks, {over_budget} over context budget")
+        self.summary_label.set_text(f"{len(self.tasks)} {self._tr('tasks')}")
         if selected_iter is not None:
             self.task_view.get_selection().select_iter(selected_iter)
         elif self.tasks:
@@ -177,6 +284,62 @@ class WorkspaceGtkGui:
     def open_task(self, *_args: object) -> None:
         if self.selected_task is not None:
             open_path(self.selected_task.path)
+
+    def open_settings(self, *_args: object) -> None:
+        dialog = Gtk.Dialog(
+            title=self._tr("settings_title"),
+            transient_for=self.window,
+            flags=Gtk.DialogFlags.MODAL,
+        )
+        dialog.add_button(self._tr("cancel"), Gtk.ResponseType.CANCEL)
+        dialog.add_button(self._tr("ok"), Gtk.ResponseType.OK)
+        content = dialog.get_content_area()
+        grid = Gtk.Grid(column_spacing=10, row_spacing=10)
+        grid.set_border_width(12)
+        content.add(grid)
+
+        text_size = Gtk.SpinButton.new_with_range(8, 28, 1)
+        text_size.set_value(self.text_font_size)
+        button_size = Gtk.SpinButton.new_with_range(8, 28, 1)
+        button_size.set_value(self.button_font_size)
+        theme_combo = Gtk.ComboBoxText()
+        language_combo = Gtk.ComboBoxText()
+        for theme in WORKSPACE_GUI_THEMES:
+            theme_combo.append_text(theme)
+        theme_combo.set_active(WORKSPACE_GUI_THEMES.index(self.theme) if self.theme in WORKSPACE_GUI_THEMES else 0)
+        for language in WORKSPACE_GUI_LANGUAGES:
+            language_combo.append_text(language)
+        language_combo.set_active(
+            WORKSPACE_GUI_LANGUAGES.index(self.language)
+            if self.language in WORKSPACE_GUI_LANGUAGES
+            else 0
+        )
+
+        for row, (label, widget) in enumerate(
+            (
+                (self._tr("text_font_size"), text_size),
+                (self._tr("button_font_size"), button_size),
+                (self._tr("theme"), theme_combo),
+                (self._tr("language"), language_combo),
+            )
+        ):
+            label_widget = Gtk.Label(label=label)
+            label_widget.set_xalign(0)
+            grid.attach(label_widget, 0, row, 1, 1)
+            grid.attach(widget, 1, row, 1, 1)
+
+        dialog.show_all()
+        response = dialog.run()
+        if response == Gtk.ResponseType.OK:
+            self.text_font_size = int(text_size.get_value())
+            self.button_font_size = int(button_size.get_value())
+            self.theme = theme_combo.get_active_text() or self.theme
+            self.language = language_combo.get_active_text() or self.language
+            self._apply_css()
+            self._apply_labels()
+            self.refresh_tasks()
+            self._save_settings()
+        dialog.destroy()
 
     def run_selected_task_check(self, *_args: object) -> None:
         task = self._require_task()
@@ -279,7 +442,7 @@ class WorkspaceGtkGui:
                 return
         self._start_terminal(
             task=task,
-            command=codex_console_command(self.workspace, task),
+            command=codex_console_command(self.workspace, task, self.language),
             cwd=self.workspace,
             env=os.environ.copy(),
             kind="codex",
@@ -450,7 +613,7 @@ class WorkspaceGtkGui:
                 flags=0,
                 message_type=Gtk.MessageType.INFO,
                 buttons=Gtk.ButtonsType.OK,
-                text="Select a task first",
+                text=self._tr("select_task_first"),
             )
             dialog.run()
             dialog.destroy()
@@ -492,6 +655,24 @@ class WorkspaceGtkGui:
             left_margin=12,
             right_margin=12,
         )
+
+    def _button(self, label_key: str, callback: object) -> Gtk.Button:
+        button = _button(self._tr(label_key), callback)
+        self.label_widgets[label_key] = button
+        return button
+
+    def _apply_labels(self) -> None:
+        self.window.set_title(f"{self._tr('window_title')} - {self.workspace}")
+        for key, widget in self.label_widgets.items():
+            if isinstance(widget, Gtk.Button):
+                widget.set_label(self._tr(key))
+        self.task_column.set_title(self._tr("task"))
+        self.task_details_column.set_title(self._tr("task_details"))
+        self.details_tab_label.set_text(self._tr("details"))
+        self.actions_tab_label.set_text(self._tr("actions"))
+
+    def _tr(self, key: str) -> str:
+        return TRANSLATIONS.get(self.language, TRANSLATIONS["en"]).get(key, TRANSLATIONS["en"].get(key, key))
 
     def _apply_window_geometry(self) -> None:
         size = self.window_geometry.split("+", 1)[0]
@@ -570,16 +751,20 @@ class WorkspaceGtkGui:
         terminal.set_color_background(_rgba(colors["terminal_background"]))
 
     def close(self, *_args: object) -> None:
+        self._save_settings()
+        Gtk.main_quit()
+
+    def _save_settings(self) -> None:
         allocation = self.window.get_allocation()
         save_workspace_gui_settings(
             {
                 "text_font_size": self.text_font_size,
                 "button_font_size": self.button_font_size,
                 "theme": self.theme,
+                "language": self.language,
                 "geometry": f"{allocation.width}x{allocation.height}",
             }
         )
-        Gtk.main_quit()
 
 
 def _button(label: str, callback: object) -> Gtk.Button:
@@ -610,23 +795,24 @@ def _repo_label(task: TaskSummary, repo: Path) -> str:
         return str(repo)
 
 
-def codex_task_context_message(task: TaskSummary, workspace: Path) -> str:
+def codex_task_context_message(task: TaskSummary, workspace: Path, language: str = "en") -> str:
     return (
         f"We are working in workspace task `{task.name}`. "
         f"Workspace: {workspace}. "
         f"Task directory: {task.path}. "
         "Before changing files, read that task's TASK_DESCRIPTION.md and "
-        "TASK_CONTEXT.md and treat them as the active task context."
+        "TASK_CONTEXT.md and treat them as the active task context. "
+        f"{CODEX_LANGUAGE_INSTRUCTIONS.get(language, CODEX_LANGUAGE_INSTRUCTIONS['en'])}"
     )
 
 
-def codex_console_command(workspace: Path, task: TaskSummary) -> list[str]:
+def codex_console_command(workspace: Path, task: TaskSummary, language: str = "en") -> list[str]:
     return [
         _codex_executable(),
         "--cd",
         str(workspace),
         "--no-alt-screen",
-        codex_task_context_message(task, workspace),
+        codex_task_context_message(task, workspace, language),
     ]
 
 

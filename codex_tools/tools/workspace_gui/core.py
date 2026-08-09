@@ -19,6 +19,7 @@ MARKDOWN_TABLE_WIDTH = 96
 TASK_ACTIONS_FILE = "TASK_ACTIONS.json"
 WORKSPACE_GUI_SETTINGS_FILE = "settings.json"
 WORKSPACE_GUI_THEMES = ("light", "dark")
+WORKSPACE_GUI_LANGUAGES = ("ru", "uk", "en")
 WORKSPACE_GUI_GEOMETRY_RE = re.compile(r"^\d+x\d+(?:[+-]\d+[+-]\d+)?$")
 ANSI_ESCAPE_RE = re.compile(r"\x1b(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])")
 ANSI_OSC_RE = re.compile(r"\x1b\][^\x07]*(?:\x07|\x1b\\)")
@@ -238,6 +239,7 @@ def load_workspace_gui_settings(path: Path | None = None) -> dict[str, int | str
     text_font_size = data.get("text_font_size", data.get("font_size"))
     button_font_size = data.get("button_font_size")
     theme = data.get("theme")
+    language = data.get("language")
     geometry = data.get("geometry")
     if isinstance(text_font_size, int):
         settings["text_font_size"] = max(8, min(28, text_font_size))
@@ -245,6 +247,8 @@ def load_workspace_gui_settings(path: Path | None = None) -> dict[str, int | str
         settings["button_font_size"] = max(8, min(28, button_font_size))
     if isinstance(theme, str) and theme in WORKSPACE_GUI_THEMES:
         settings["theme"] = theme
+    if isinstance(language, str) and language in WORKSPACE_GUI_LANGUAGES:
+        settings["language"] = language
     if isinstance(geometry, str) and WORKSPACE_GUI_GEOMETRY_RE.fullmatch(geometry):
         settings["geometry"] = geometry
     return settings

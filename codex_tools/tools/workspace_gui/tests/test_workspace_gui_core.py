@@ -21,6 +21,7 @@ from codex_tools.tools.workspace_gui.core import save_workspace_gui_settings
 from codex_tools.tools.workspace_gui.core import run_task_action
 from codex_tools.tools.workspace_gui.core import run_task_check
 from codex_tools.tools.workspace_gui.gtk_ui import WorkspaceGtkGui
+from codex_tools.tools.workspace_gui.gtk_ui import codex_task_context_message as gtk_codex_task_context_message
 from codex_tools.tools.workspace_gui.gtk_ui import _theme_colors as gtk_theme_colors
 from codex_tools.tools.workspace_gui.ui import codex_console_command
 from codex_tools.tools.workspace_gui.ui import console_paste_text
@@ -288,6 +289,7 @@ def test_workspace_gui_settings_persist_font_size(tmp_path: Path) -> None:
             "text_font_size": 17,
             "button_font_size": 14,
             "theme": "dark",
+            "language": "ru",
             "geometry": "1200x800+10+20",
         },
         settings_path,
@@ -297,6 +299,7 @@ def test_workspace_gui_settings_persist_font_size(tmp_path: Path) -> None:
         "text_font_size": 17,
         "button_font_size": 14,
         "theme": "dark",
+        "language": "ru",
         "geometry": "1200x800+10+20",
     }
 
@@ -313,7 +316,7 @@ def test_workspace_gui_settings_clamp_bad_font_size(tmp_path: Path) -> None:
     settings_path.write_text(
         (
             '{"text_font_size": 100, "button_font_size": 4, '
-            '"theme": "blue", "geometry": "bad"}'
+            '"theme": "blue", "language": "bad", "geometry": "bad"}'
         ),
         encoding="utf-8",
     )
@@ -344,6 +347,16 @@ def test_gtk_theme_colors_cover_widget_css_keys() -> None:
 
     assert required <= set(gtk_theme_colors("dark"))
     assert required <= set(gtk_theme_colors("light"))
+
+
+def test_gtk_codex_prompt_includes_selected_language(tmp_path: Path) -> None:
+    task = tmp_path / "tasks" / "sample-task"
+    task.mkdir(parents=True)
+    summary = discover_tasks_with_context(task, tmp_path)
+
+    message = gtk_codex_task_context_message(summary, tmp_path, "uk")
+
+    assert "Відповідай користувачу українською мовою." in message
 
 
 def test_gtk_markdown_tags_are_configured() -> None:
