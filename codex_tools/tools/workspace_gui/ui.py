@@ -39,6 +39,8 @@ class ConsoleSession:
     session_id: int
     title: str
     task_path: Path
+    frame: ttk.Frame
+    text: tk.Text
     process: subprocess.Popen[bytes]
     fd: int
     chunks: list[ConsoleChunk]
@@ -135,7 +137,7 @@ class WorkspaceGui:
         self.notebook.pack(fill=tk.BOTH, expand=True)
         self.description_text, self.context_text = self._add_details_tab()
         self.actions_text = self._add_actions_tab()
-        self.console_text = self._add_console_tab()
+        self._add_console_tab()
         self.notebook.bind("<<NotebookTabChanged>>", self._on_notebook_tab_changed)
 
     def _add_details_tab(self) -> tuple[tk.Text, tk.Text]:
@@ -208,7 +210,7 @@ class WorkspaceGui:
         self._configure_text_tags(text)
         return text
 
-    def _add_console_tab(self) -> tk.Text:
+    def _add_console_tab(self) -> None:
         frame = ttk.Frame(self.notebook)
         toolbar = ttk.Frame(frame)
         toolbar.pack(side=tk.TOP, fill=tk.X)
@@ -222,27 +224,26 @@ class WorkspaceGui:
             padx=2,
             pady=2,
         )
-        self.console_var = tk.StringVar(value="")
-        self.console_combo = ttk.Combobox(
-            toolbar,
-            textvariable=self.console_var,
-            state="readonly",
-            width=42,
+        ttk.Button(toolbar, text="Run codex", command=self.run_codex_console).pack(
+            side=tk.LEFT,
+            padx=2,
+            pady=2,
         )
-        self.console_combo.pack(side=tk.LEFT, padx=2, pady=2)
-        self.console_combo.bind("<<ComboboxSelected>>", self._on_console_selected)
-        body = ttk.Frame(frame)
-        body.pack(side=tk.TOP, fill=tk.BOTH, expand=True)
-        text = tk.Text(body, wrap=tk.CHAR, undo=False, font=self.fixed_font)
+        self.console_notebook = ttk.Notebook(frame)
+        self.console_notebook.pack(side=tk.TOP, fill=tk.BOTH, expand=True)
+        self.console_notebook.bind("<<NotebookTabChanged>>", self._on_console_session_tab_changed)
+        self.notebook.add(frame, text="Console")
+
+    def _create_console_text(self, parent: ttk.Frame) -> tk.Text:
+        text = tk.Text(parent, wrap=tk.WORD, undo=False, font=self.fixed_font)
         text.bind("<Key>", self._on_console_key)
         text.bind("<Button-1>", lambda _event: text.focus_set())
-        scroll_y = ttk.Scrollbar(body, orient=tk.VERTICAL, command=text.yview)
+        scroll_y = ttk.Scrollbar(parent, orient=tk.VERTICAL, command=text.yview)
         text.configure(yscrollcommand=scroll_y.set)
         text.grid(row=0, column=0, sticky="nsew")
         scroll_y.grid(row=0, column=1, sticky="ns")
-        body.rowconfigure(0, weight=1)
-        body.columnconfigure(0, weight=1)
-        self.notebook.add(frame, text="Console")
+        parent.rowconfigure(0, weight=1)
+        parent.columnconfigure(0, weight=1)
         self._configure_console_tags(text)
         return text
 
@@ -513,8 +514,9 @@ class WorkspaceGui:
         self.root.after(100, self._poll_messages)
 
     def activate_console_for_task(self, task: TaskSummary) -> None:
-        for session in self.console_sessions.values():
-            if session.task_path == task.path and session.process.poll() is None:
+        self._refresh_console_tabs_for_task(task)
+        for session in self._current_task_console_sessions(task):
+            if session.process.poll() is None:
                 self._activate_console(session.session_id)
                 return
         self.new_console(task)
@@ -524,19 +526,57 @@ class WorkspaceGui:
         if task is None:
             return
         shell = os.environ.get("SHELL") or "/bin/bash"
-        try:
-            master_fd, slave_fd = pty.openpty()
-        except OSError as error:
-            self._set_console_text(f"Could not start console: {error}\n")
-            return
         env = os.environ.copy()
         env.setdefault("TERM", "xterm-256color")
         env["PS1"] = f"{task.name}$ "
         env["PROMPT_COMMAND"] = ""
+        self._start_console_process(
+            task=task,
+            command=[shell],
+            cwd=task.path,
+            env=env,
+            title_prefix="shell",
+            startup_text=f"Starting shell in {task.path}\n",
+        )
+
+    def run_codex_console(self) -> None:
+        task = self._require_task()
+        if task is None:
+            return
+        env = os.environ.copy()
+        env.setdefault("TERM", "xterm-256color")
+        session_id = self._start_console_process(
+            task=task,
+            command=["codex"],
+            cwd=self.workspace,
+            env=env,
+            title_prefix="codex",
+            startup_text=(
+                f"Starting codex in {self.workspace}\n"
+                f"Task context: {task.name} ({task.path})\n"
+            ),
+        )
+        if session_id is not None:
+            self.root.after(1000, lambda: self._send_codex_task_context(session_id, task))
+
+    def _start_console_process(
+        self,
+        task: TaskSummary,
+        command: list[str],
+        cwd: Path,
+        env: dict[str, str],
+        title_prefix: str,
+        startup_text: str,
+    ) -> int | None:
+        try:
+            master_fd, slave_fd = pty.openpty()
+        except OSError as error:
+            messagebox.showerror("Console", f"Could not start console: {error}")
+            return None
         try:
             process = subprocess.Popen(
-                [shell],
-                cwd=task.path,
+                command,
+                cwd=cwd,
                 env=env,
                 stdin=slave_fd,
                 stdout=slave_fd,
@@ -546,34 +586,47 @@ class WorkspaceGui:
             )
         except OSError as error:
             os.close(master_fd)
-            self._set_console_text(f"Could not start {shell}: {error}\n")
-            return
+            messagebox.showerror("Console", f"Could not start {command[0]}: {error}")
+            return None
         finally:
             os.close(slave_fd)
 
         session_id = self.next_console_id
         self.next_console_id += 1
-        title = f"{task.name} #{session_id}"
+        title = f"{title_prefix} #{session_id}"
+        frame = ttk.Frame(self.console_notebook)
+        text = self._create_console_text(frame)
         session = ConsoleSession(
             session_id=session_id,
             title=title,
             task_path=task.path,
+            frame=frame,
+            text=text,
             process=process,
             fd=master_fd,
-            chunks=[ConsoleChunk(f"Starting shell in {task.path}\n", ())],
+            chunks=[ConsoleChunk(startup_text, ())],
         )
         self.console_sessions[session_id] = session
-        self._refresh_console_selector()
+        for chunk in session.chunks:
+            self._insert_console_chunk(text, chunk)
+        if self.selected_task is not None and self.selected_task.path == task.path:
+            self._show_console_tab(session)
         self._activate_console(session_id)
         threading.Thread(
             target=self._read_console,
             args=(session_id, master_fd),
             daemon=True,
         ).start()
+        return session_id
+
+    def _send_codex_task_context(self, session_id: int, task: TaskSummary) -> None:
+        message = codex_task_context_message(task, self.workspace)
+        self._write_to_console(session_id, message.encode() + b"\r")
 
     def close_active_console(self) -> None:
-        if self.active_console_id is not None:
-            self.stop_console(self.active_console_id)
+        session = self._active_console()
+        if session is not None:
+            self.stop_console(session.session_id)
 
     def stop_console(self, session_id: int) -> None:
         session = self.console_sessions.pop(session_id, None)
@@ -585,35 +638,54 @@ class WorkspaceGui:
             os.close(session.fd)
         except OSError:
             pass
+        self._forget_console_tab(session)
+        session.frame.destroy()
         if self.active_console_id == session_id:
             self.active_console_id = None
-            next_id = next(iter(self.console_sessions), None)
-            if next_id is not None:
-                self._activate_console(next_id)
-            else:
-                self._set_console_text("No console sessions.\n")
-        self._refresh_console_selector()
+            task = self.selected_task
+            if task is not None:
+                next_session = next(iter(self._current_task_console_sessions(task)), None)
+                if next_session is not None:
+                    self._activate_console(next_session.session_id)
 
     def stop_all_consoles(self) -> None:
         for session_id in list(self.console_sessions):
             self.stop_console(session_id)
 
-    def _refresh_console_selector(self) -> None:
-        values = [
-            self.console_sessions[session_id].title
-            for session_id in self.console_sessions
-        ]
-        self.console_combo.configure(values=values)
+    def _refresh_console_tabs_for_task(self, task: TaskSummary) -> None:
+        for tab_id in self.console_notebook.tabs():
+            self.console_notebook.forget(tab_id)
+        for session in self._current_task_console_sessions(task):
+            self._show_console_tab(session)
         active = self._active_console()
-        self.console_var.set(active.title if active is not None else "")
+        if active is not None and active.task_path != task.path:
+            self.active_console_id = None
 
-    def _on_console_selected(self, _event: object) -> None:
-        index = self.console_combo.current()
-        session_ids = list(self.console_sessions)
-        if 0 <= index < len(session_ids):
-            self._activate_console(session_ids[index])
+    def _current_task_console_sessions(self, task: TaskSummary) -> list[ConsoleSession]:
+        return [
+            session
+            for session in self.console_sessions.values()
+            if session.task_path == task.path
+        ]
+
+    def _show_console_tab(self, session: ConsoleSession) -> None:
+        if str(session.frame) not in self.console_notebook.tabs():
+            self.console_notebook.add(session.frame, text=session.title)
+
+    def _forget_console_tab(self, session: ConsoleSession) -> None:
+        if str(session.frame) in self.console_notebook.tabs():
+            self.console_notebook.forget(session.frame)
+
+    def _on_console_session_tab_changed(self, _event: object) -> None:
+        session = self._session_for_selected_console_tab()
+        if session is not None:
+            self.active_console_id = session.session_id
 
     def _active_console(self) -> ConsoleSession | None:
+        session = self._session_for_selected_console_tab()
+        if session is not None:
+            self.active_console_id = session.session_id
+            return session
         if self.active_console_id is None:
             return None
         return self.console_sessions.get(self.active_console_id)
@@ -623,12 +695,22 @@ class WorkspaceGui:
         if session is None:
             return
         self.active_console_id = session_id
-        self.console_text.delete("1.0", tk.END)
-        for chunk in session.chunks:
-            self._insert_console_chunk(chunk)
-        self.console_text.see(tk.END)
-        self.console_text.focus_set()
-        self._refresh_console_selector()
+        self._show_console_tab(session)
+        self.console_notebook.select(session.frame)
+        session.text.see(tk.END)
+        session.text.focus_set()
+
+    def _session_for_selected_console_tab(self) -> ConsoleSession | None:
+        try:
+            selected = self.console_notebook.select()
+        except tk.TclError:
+            return None
+        if not selected:
+            return None
+        for session in self.console_sessions.values():
+            if str(session.frame) == selected:
+                return session
+        return None
 
     def _read_console(self, session_id: int, fd: int) -> None:
         while True:
@@ -664,8 +746,11 @@ class WorkspaceGui:
         return "break"
 
     def _on_console_copy_or_interrupt(self, _event: tk.Event[tk.Misc]) -> str:
+        text = self._current_console_text()
+        if text is None:
+            return "break"
         try:
-            self.console_text.selection_get()
+            text.selection_get()
         except tk.TclError:
             session = self._active_console()
             if session is not None:
@@ -674,11 +759,13 @@ class WorkspaceGui:
                 except OSError:
                     return "break"
             return "break"
-        self.console_text.event_generate("<<Copy>>")
+        text.event_generate("<<Copy>>")
         return "break"
 
     def _on_console_copy(self, _event: tk.Event[tk.Misc]) -> str:
-        self.console_text.event_generate("<<Copy>>")
+        text = self._current_console_text()
+        if text is not None:
+            text.event_generate("<<Copy>>")
         return "break"
 
     def _on_console_paste(self, _event: tk.Event[tk.Misc]) -> str:
@@ -730,28 +817,35 @@ class WorkspaceGui:
         widget.insert(tk.END, text)
         widget.configure(state=tk.DISABLED)
 
-    def _set_console_text(self, text: str) -> None:
-        self.console_text.delete("1.0", tk.END)
-        self.console_text.insert(tk.END, text)
-
     def _append_console_output(self, session_id: int, chunks: list[ConsoleChunk]) -> None:
         session = self.console_sessions.get(session_id)
         if session is None:
             return
         session.chunks.extend(chunks)
-        if self.active_console_id != session_id:
-            return
         for chunk in chunks:
-            self._insert_console_chunk(chunk)
-        self.console_text.see(tk.END)
+            self._insert_console_chunk(session.text, chunk)
+        session.text.see(tk.END)
 
-    def _insert_console_chunk(self, chunk: ConsoleChunk) -> None:
+    def _insert_console_chunk(self, widget: tk.Text, chunk: ConsoleChunk) -> None:
         for char in chunk.text:
             if char == "\b":
-                if self.console_text.index(tk.END) != "2.0":
-                    self.console_text.delete("end-2c", "end-1c")
+                if widget.index(tk.END) != "2.0":
+                    widget.delete("end-2c", "end-1c")
                 continue
-            self.console_text.insert(tk.END, char, chunk.tags)
+            widget.insert(tk.END, char, chunk.tags)
+
+    def _current_console_text(self) -> tk.Text | None:
+        session = self._active_console()
+        return session.text if session is not None else None
+
+    def _write_to_console(self, session_id: int, data: bytes) -> None:
+        session = self.console_sessions.get(session_id)
+        if session is None:
+            return
+        try:
+            os.write(session.fd, data)
+        except OSError:
+            return
 
     def _set_markdown(self, widget: tk.Text, text: str) -> None:
         widget.configure(state=tk.NORMAL)
@@ -834,8 +928,9 @@ class WorkspaceGui:
             widget = getattr(self, widget_name, None)
             if isinstance(widget, tk.Text):
                 self._configure_text_tags(widget)
-        if isinstance(getattr(self, "console_text", None), tk.Text):
-            self.console_text.configure(font=self.fixed_font)
+        for session in getattr(self, "console_sessions", {}).values():
+            session.text.configure(font=self.fixed_font)
+            self._configure_console_tags(session.text)
 
     def _is_console_tab_selected(self) -> bool:
         return self.notebook.tab(self.notebook.select(), "text") == "Console"
@@ -855,6 +950,16 @@ def render_git_status(repo: Path) -> str:
     else:
         lines.append("clean")
     return "\n".join(lines) + "\n"
+
+
+def codex_task_context_message(task: TaskSummary, workspace: Path) -> str:
+    return (
+        f"We are working in workspace task `{task.name}`. "
+        f"Workspace: {workspace}. "
+        f"Task directory: {task.path}. "
+        "Before changing files, read that task's TASK_DESCRIPTION.md and "
+        "TASK_CONTEXT.md and treat them as the active task context."
+    )
 
 
 def _transcript_header(label: str, detail: str | None = None) -> str:

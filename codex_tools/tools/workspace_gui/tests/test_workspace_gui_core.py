@@ -18,6 +18,7 @@ from codex_tools.tools.workspace_gui.core import rough_token_count
 from codex_tools.tools.workspace_gui.core import save_workspace_gui_settings
 from codex_tools.tools.workspace_gui.core import run_task_action
 from codex_tools.tools.workspace_gui.core import run_task_check
+from codex_tools.tools.workspace_gui.ui import codex_task_context_message
 from codex_tools.tools.workspace_gui.ui import render_git_status
 
 
@@ -120,6 +121,20 @@ def test_render_git_status_reports_one_repo(tmp_path: Path) -> None:
 
     assert str(repo) in report
     assert report.count("##") == 1
+
+
+def test_codex_task_context_message_points_at_selected_task(tmp_path: Path) -> None:
+    task = tmp_path / "tasks" / "sample-task"
+    task.mkdir(parents=True)
+    summary = discover_tasks_with_context(task, tmp_path)
+
+    message = codex_task_context_message(summary, tmp_path)
+
+    assert "workspace task `sample-task`" in message
+    assert f"Workspace: {tmp_path}" in message
+    assert f"Task directory: {task}" in message
+    assert "TASK_DESCRIPTION.md" in message
+    assert "TASK_CONTEXT.md" in message
 
 
 def test_workspace_gui_settings_persist_font_size(tmp_path: Path) -> None:
