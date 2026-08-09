@@ -192,7 +192,10 @@ def test_gtk_task_artifact_entries_groups_task_outputs(tmp_path: Path) -> None:
     (task / "report" / "puml").mkdir(parents=True)
     (task / "report" / "runtime.log").write_text("log", encoding="utf-8")
     (task / "report" / "diff" / "review.html").write_text("<html>", encoding="utf-8")
+    (task / "report" / "diff" / "review.diff").write_text("diff", encoding="utf-8")
+    (task / "report" / "diff" / "comments.json").write_text("{}", encoding="utf-8")
     (task / "report" / "puml" / "flow.svg").write_text("<svg>", encoding="utf-8")
+    (task / "report" / "puml" / "flow.puml").write_text("@startuml", encoding="utf-8")
     (task / "report" / "notes.md").write_text("notes", encoding="utf-8")
     summary = TaskSummary("sample-task", task, True, True, 1, 1, False)
 

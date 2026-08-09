@@ -208,8 +208,8 @@ _TASK_ACTIONS_MONITOR_EVENTS = {
 _ARTIFACT_MONITOR_EVENTS = _TASK_ACTIONS_MONITOR_EVENTS
 
 _LOG_SUFFIXES = {".log"}
-_DIAGRAM_SUFFIXES = {".puml", ".svg", ".png"}
-_DIFF_REPORT_SUFFIXES = {".html", ".json", ".diff", ".patch"}
+_DIAGRAM_SUFFIXES = {".svg", ".png"}
+_DIFF_REPORT_SUFFIXES = {".html"}
 
 
 @dataclass
@@ -311,8 +311,8 @@ class WorkspaceGtkGui:
         self.notebook = Gtk.Notebook()
         main.pack2(self.notebook, resize=True, shrink=False)
         self._add_details_tab()
-        self._add_artifacts_tab()
         self._add_actions_tab()
+        self._add_artifacts_tab()
         self.notebook.connect("switch-page", self._on_main_notebook_switch_page)
         GLib.idle_add(self._set_main_default_split)
 
@@ -453,7 +453,7 @@ class WorkspaceGtkGui:
         artifact_path = self.artifact_store[row_iter][2]
         if is_group or artifact_path is None:
             return
-        open_path(artifact_path)
+        open_artifact_path(artifact_path)
 
     def _watch_task_artifacts(self, task: TaskSummary, *, force: bool = False) -> None:
         if not force and self.artifact_monitor_path == task.path:
@@ -506,8 +506,8 @@ class WorkspaceGtkGui:
         items = (
             (self._tr("refresh"), self.refresh_tasks, True),
             (self._tr("open_workspace"), lambda *_: open_path(self.workspace), True),
-            (self._tr("open_dev"), self.open_task_dev, has_task),
             (self._tr("open_task"), self.open_task, has_task),
+            (self._tr("open_dev"), self.open_task_dev, has_task),
             (self._tr("add_task"), self.add_task, True),
             (self._tr("delete_task"), self.delete_selected_task, has_task),
         )
@@ -1855,6 +1855,20 @@ def open_path(path: Path) -> None:
         subprocess.Popen(command)
     except OSError:
         return
+
+
+def open_artifact_path(path: Path) -> None:
+    if path.suffix.casefold() == ".svg":
+        browser = os.environ.get("BROWSER")
+        if browser:
+            subprocess.Popen([browser, str(path)])
+            return
+        for executable in ("xdg-open", "firefox", "google-chrome", "chromium", "chromium-browser"):
+            resolved = shutil.which(executable)
+            if resolved is not None:
+                subprocess.Popen([resolved, str(path)])
+                return
+    open_path(path)
 
 
 def main(argv: list[str] | None = None) -> int:
