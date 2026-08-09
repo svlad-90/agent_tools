@@ -10,9 +10,11 @@ from codex_tools.tools.workspace_gui.core import TaskSummary
 from codex_tools.tools.workspace_gui.core import discover_tasks
 from codex_tools.tools.workspace_gui.core import find_dev_git_repos
 from codex_tools.tools.workspace_gui.core import git_status
+from codex_tools.tools.workspace_gui.core import load_workspace_gui_settings
 from codex_tools.tools.workspace_gui.core import load_task_actions
 from codex_tools.tools.workspace_gui.core import render_markdown_chunks
 from codex_tools.tools.workspace_gui.core import rough_token_count
+from codex_tools.tools.workspace_gui.core import save_workspace_gui_settings
 from codex_tools.tools.workspace_gui.core import run_task_action
 from codex_tools.tools.workspace_gui.core import run_task_check
 from codex_tools.tools.workspace_gui.ui import render_git_status
@@ -117,6 +119,21 @@ def test_render_git_status_reports_one_repo(tmp_path: Path) -> None:
 
     assert str(repo) in report
     assert report.count("##") == 1
+
+
+def test_workspace_gui_settings_persist_font_size(tmp_path: Path) -> None:
+    settings_path = tmp_path / "settings.json"
+
+    save_workspace_gui_settings({"font_size": 17}, settings_path)
+
+    assert load_workspace_gui_settings(settings_path) == {"font_size": 17}
+
+
+def test_workspace_gui_settings_clamp_bad_font_size(tmp_path: Path) -> None:
+    settings_path = tmp_path / "settings.json"
+    settings_path.write_text('{"font_size": 100}', encoding="utf-8")
+
+    assert load_workspace_gui_settings(settings_path) == {"font_size": 28}
 
 
 def test_load_task_actions_and_run_command(tmp_path: Path) -> None:

@@ -21,10 +21,12 @@ from .core import discover_tasks
 from .core import find_dev_git_repos
 from .core import git_status
 from .core import load_task_actions
+from .core import load_workspace_gui_settings
 from .core import read_task_file
 from .core import render_markdown_chunks
 from .core import run_task_action
 from .core import run_task_check
+from .core import save_workspace_gui_settings
 
 
 class WorkspaceGui:
@@ -39,7 +41,9 @@ class WorkspaceGui:
         self.git_repo_options: list[Path] = []
         self.git_repos_loaded_for: Path | None = None
         self.running_actions: set[tuple[str, Path]] = set()
-        self.font_size = int(tkfont.nametofont("TkDefaultFont").cget("size"))
+        default_font_size = int(tkfont.nametofont("TkDefaultFont").cget("size"))
+        settings = load_workspace_gui_settings()
+        self.font_size = settings.get("font_size", default_font_size)
         self.style = ttk.Style(self.root)
         self.text_font = tkfont.Font(
             family=tkfont.nametofont("TkTextFont").cget("family"),
@@ -183,8 +187,10 @@ class WorkspaceGui:
         return text
 
     def refresh_tasks(self) -> None:
+        selected_name = self.selected_task.name if self.selected_task is not None else None
         self.tasks = discover_tasks(self.workspace)
         self.task_tree.delete(*self.task_tree.get_children())
+        task_iids: dict[str, str] = {}
         for index, task in enumerate(self.tasks):
             flags = []
             if not task.has_description:
@@ -203,10 +209,16 @@ class WorkspaceGui:
                 text=task.name,
                 values=(details,),
             )
+            task_iids[task.name] = str(index)
         over_budget = sum(1 for task in self.tasks if task.context_over_budget)
         self.summary_var.set(f"{len(self.tasks)} tasks, {over_budget} over context budget")
         if self.tasks:
-            self.task_tree.selection_set("0")
+            iid = task_iids.get(selected_name or "", "0")
+            self.task_tree.selection_set(iid)
+            self.task_tree.focus(iid)
+            self.task_tree.see(iid)
+        else:
+            self.selected_task = None
 
     def _on_task_selected(self, _event: object) -> None:
         selection = self.task_tree.selection()
@@ -469,6 +481,7 @@ class WorkspaceGui:
     def adjust_font_size(self, delta: int) -> None:
         self.font_size = max(8, min(28, self.font_size + delta))
         self._apply_font_size()
+        save_workspace_gui_settings({"font_size": self.font_size})
 
     def _apply_font_size(self) -> None:
         self.text_font.configure(size=self.font_size)

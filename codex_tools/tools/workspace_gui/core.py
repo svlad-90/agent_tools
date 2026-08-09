@@ -17,6 +17,7 @@ TASK_CONTEXT_BUDGET = 8_000
 TASKS_DIR_NAME = "tasks"
 MARKDOWN_TABLE_WIDTH = 96
 TASK_ACTIONS_FILE = "TASK_ACTIONS.json"
+WORKSPACE_GUI_SETTINGS_FILE = "settings.json"
 
 
 @dataclass(frozen=True)
@@ -204,6 +205,38 @@ def read_task_file(task: TaskSummary, filename: str) -> str:
 def run_task_check(task: TaskSummary, workspace: Path) -> str:
     checks = check_task(task.path, workspace=workspace.resolve())
     return render_text(task.path, checks)
+
+
+def workspace_gui_settings_path() -> Path:
+    config_root = os.environ.get("XDG_CONFIG_HOME")
+    if config_root:
+        return Path(config_root) / "codex_tools" / "workspace_gui" / WORKSPACE_GUI_SETTINGS_FILE
+    return Path.home() / ".config" / "codex_tools" / "workspace_gui" / WORKSPACE_GUI_SETTINGS_FILE
+
+
+def load_workspace_gui_settings(path: Path | None = None) -> dict[str, int]:
+    settings_path = path or workspace_gui_settings_path()
+    if not settings_path.is_file():
+        return {}
+    try:
+        data = json.loads(settings_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+    if not isinstance(data, dict):
+        return {}
+    font_size = data.get("font_size")
+    if isinstance(font_size, int):
+        return {"font_size": max(8, min(28, font_size))}
+    return {}
+
+
+def save_workspace_gui_settings(settings: dict[str, int], path: Path | None = None) -> None:
+    settings_path = path or workspace_gui_settings_path()
+    try:
+        settings_path.parent.mkdir(parents=True, exist_ok=True)
+        settings_path.write_text(json.dumps(settings, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    except OSError:
+        return
 
 
 def load_task_actions(task: TaskSummary) -> tuple[list[TaskAction], list[str]]:
