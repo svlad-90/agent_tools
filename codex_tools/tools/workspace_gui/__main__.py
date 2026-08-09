@@ -1,6 +1,10 @@
 from __future__ import annotations
 
-from .ui import main
+
+try:
+    from .gtk_ui import main
+except (ImportError, ValueError):
+    from .ui import main
 
 
 if __name__ == "__main__":
