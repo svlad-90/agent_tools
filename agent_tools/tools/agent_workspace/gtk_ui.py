@@ -25,16 +25,35 @@ from gi.repository import Pango
 from gi.repository import Vte
 
 from .core import TASK_ACTIONS_FILE
+from .core import TASK_ACTION_LOGS_DIR
 from .core import TaskAction
 from .core import TaskSummary
+from .core import AGENT_WORKSPACE_AGENTS
+from .core import AGENT_WORKSPACE_DEFAULT_AGENT
 from .core import AGENT_WORKSPACE_LANGUAGES
 from .core import AGENT_WORKSPACE_THEMES
+from .core import AGENT_PERMISSION_MARKER
+from .core import PAF_HIDE_TASK_ENV_VAR
+from .core import agent_executable
+from .core import agent_install_command
+from .core import agent_label
+from .core import agent_output_requests_permission
 from .core import discover_tasks
+from .core import find_latest_codex_session_id
+from .core import load_task_agent_session
+from .core import load_task_agent
 from .core import load_task_actions
 from .core import load_agent_workspace_settings
+from .core import new_agent_session_id
+from .core import normalize_agent
 from .core import read_task_file
 from .core import render_markdown_chunks
 from .core import save_agent_workspace_settings
+from .core import save_task_agent
+from .core import save_task_agent_session
+from .core import task_action_log_basename
+from .core import task_agent_session_id_is_valid
+from .core import task_has_valid_agent_session
 
 
 TRANSLATIONS = {
@@ -47,6 +66,10 @@ TRANSLATIONS = {
         "close": "Close",
         "confirm_close_console_body": "The console session will be closed.",
         "confirm_close_console_title": "Close console?",
+        "confirm_close_running_agents_body": "There are running AI agent terminals.\n\n{sessions}\n\nClosing Agent Workspace will stop the local agent processes. Resumable conversations can be restored on the next launch. Continue?",
+        "confirm_close_running_agents_title": "Close Agent Workspace?",
+        "confirm_switch_agent_body": "{current} is already running for this task.\n\nConfirming will close the current session and start {next} with the same task context.",
+        "confirm_switch_agent_title": "Switch AI agent?",
         "confirm_delete_task_body": "This will permanently delete the task directory.",
         "confirm_delete_task_title": "Delete selected task?",
         "confirm_delete_artifacts_body": "Files will be permanently deleted.",
@@ -60,8 +83,11 @@ TRANSLATIONS = {
         "desc": "desc",
         "details": "Details",
         "diagrams": "Diagrams",
+        "default_agent": "Default AI agent",
         "diff_reports": "Diff reports",
         "edit": "Edit",
+        "install_agent_body": "{agent} is not installed or is not available in PATH.\n\nInstall it, then restart Agent Workspace or update PATH.\n\nSuggested install command:\n{command}",
+        "install_agent_title": "AI agent is not installed",
         "language": "Language",
         "logs": "Logs",
         "missing_context": "missing context",
@@ -74,7 +100,9 @@ TRANSLATIONS = {
         "open_workspace": "Open Workspace",
         "refresh": "Refresh",
         "reload_actions": "Reload actions",
-        "run_codex": "Run Codex",
+        "run_ai_agent": "Run AI agent",
+        "ai_agent_running": "AI agent running",
+        "restore_ai_agent_session": "Restore AI agent session",
         "run_task_check": "Run task_check",
         "save": "Save",
         "scan_repos": "Scan repos",
@@ -100,6 +128,10 @@ TRANSLATIONS = {
         "close": "Закрыть",
         "confirm_close_console_body": "Консольная сессия будет закрыта.",
         "confirm_close_console_title": "Закрыть консоль?",
+        "confirm_close_running_agents_body": "Есть запущенные терминалы ИИ агентов.\n\n{sessions}\n\nЗакрытие Agent Workspace остановит локальные процессы агентов. Восстанавливаемые диалоги можно будет открыть при следующем запуске. Продолжить?",
+        "confirm_close_running_agents_title": "Закрыть Agent Workspace?",
+        "confirm_switch_agent_body": "{current} уже запущен для этой задачи.\n\nПодтверждение закроет текущую сессию и запустит {next} с контекстом той же задачи.",
+        "confirm_switch_agent_title": "Сменить ИИ агента?",
         "confirm_delete_task_body": "Папка задачи будет удалена безвозвратно.",
         "confirm_delete_task_title": "Удалить выбранную задачу?",
         "confirm_delete_artifacts_body": "Файлы будут удалены безвозвратно.",
@@ -113,8 +145,11 @@ TRANSLATIONS = {
         "desc": "описание",
         "details": "Детали",
         "diagrams": "Диаграммы",
+        "default_agent": "ИИ агент по умолчанию",
         "diff_reports": "Diff-отчеты",
         "edit": "Редактировать",
+        "install_agent_body": "{agent} не установлен или недоступен в PATH.\n\nУстанови его, затем перезапусти Agent Workspace или обнови PATH.\n\nПредлагаемая команда установки:\n{command}",
+        "install_agent_title": "ИИ агент не установлен",
         "language": "Язык",
         "logs": "Логи",
         "missing_context": "нет контекста",
@@ -127,7 +162,9 @@ TRANSLATIONS = {
         "open_workspace": "Открыть workspace",
         "refresh": "Обновить",
         "reload_actions": "Обновить actions",
-        "run_codex": "Запустить Codex",
+        "run_ai_agent": "Запустить ИИ агента",
+        "ai_agent_running": "ИИ агент запущен",
+        "restore_ai_agent_session": "Восстановить сессию ИИ агента",
         "run_task_check": "Run task_check",
         "save": "Сохранить",
         "scan_repos": "Сканировать репо",
@@ -153,6 +190,10 @@ TRANSLATIONS = {
         "close": "Закрити",
         "confirm_close_console_body": "Консольну сесію буде закрито.",
         "confirm_close_console_title": "Закрити консоль?",
+        "confirm_close_running_agents_body": "Є запущені термінали ІІ агентів.\n\n{sessions}\n\nЗакриття Agent Workspace зупинить локальні процеси агентів. Відновлювані діалоги можна буде відкрити під час наступного запуску. Продовжити?",
+        "confirm_close_running_agents_title": "Закрити Agent Workspace?",
+        "confirm_switch_agent_body": "{current} вже запущено для цієї задачі.\n\nПідтвердження закриє поточну сесію і запустить {next} з контекстом тієї самої задачі.",
+        "confirm_switch_agent_title": "Змінити ІІ агента?",
         "confirm_delete_task_body": "Папку задачі буде видалено безповоротно.",
         "confirm_delete_task_title": "Видалити вибрану задачу?",
         "confirm_delete_artifacts_body": "Файли буде видалено безповоротно.",
@@ -166,8 +207,11 @@ TRANSLATIONS = {
         "desc": "опис",
         "details": "Деталі",
         "diagrams": "Діаграми",
+        "default_agent": "Типовий ІІ агент",
         "diff_reports": "Diff-звіти",
         "edit": "Редагувати",
+        "install_agent_body": "{agent} не встановлено або він недоступний у PATH.\n\nВстанови його, потім перезапусти Agent Workspace або онови PATH.\n\nЗапропонована команда встановлення:\n{command}",
+        "install_agent_title": "ІІ агент не встановлено",
         "language": "Мова",
         "logs": "Логи",
         "missing_context": "немає контексту",
@@ -180,7 +224,9 @@ TRANSLATIONS = {
         "open_workspace": "Відкрити workspace",
         "refresh": "Оновити",
         "reload_actions": "Оновити actions",
-        "run_codex": "Запустити Codex",
+        "run_ai_agent": "Запустити ІІ агента",
+        "ai_agent_running": "ІІ агент запущений",
+        "restore_ai_agent_session": "Відновити сесію ІІ агента",
         "run_task_check": "Run task_check",
         "save": "Зберегти",
         "scan_repos": "Сканувати репо",
@@ -234,6 +280,7 @@ class TerminalSession:
     terminal: Vte.Terminal
     page: Gtk.Widget
     child_pid: int | None = None
+    permission_pending: bool = False
 
 
 @dataclass(frozen=True)
@@ -263,12 +310,14 @@ class WorkspaceGtkGui:
         self.artifact_monitor_path: Path | None = None
         self.terminal_sessions: dict[int, TerminalSession] = {}
         self.next_terminal_id = 1
+        self._updating_agent_selection = False
 
         settings = load_agent_workspace_settings()
         self.text_font_size = int(settings.get("text_font_size", 13))
         self.button_font_size = int(settings.get("button_font_size", 13))
         self.theme = str(settings.get("theme", "light"))
         self.language = str(settings.get("language", "ru"))
+        self.default_agent = normalize_agent(settings.get("default_agent", AGENT_WORKSPACE_DEFAULT_AGENT))
         self.window_geometry = str(settings.get("geometry", "1180x760"))
         self.last_window_width = 1180
         self.last_window_height = 760
@@ -293,6 +342,7 @@ class WorkspaceGtkGui:
         self.header_bar.set_show_close_button(True)
         self.window.set_titlebar(self.header_bar)
         self.window.connect("configure-event", self._on_window_configure)
+        self.window.connect("delete-event", self._on_window_delete_event)
         self.window.connect("destroy", self.close)
         self._apply_window_geometry()
         self._build_ui()
@@ -407,9 +457,15 @@ class WorkspaceGtkGui:
 
         codex_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
         box.pack_start(codex_row, False, False, 0)
-        self.run_codex_button = self._button("run_codex", self.run_codex_console)
-        self.run_codex_button.set_hexpand(True)
-        codex_row.pack_start(self.run_codex_button, True, True, 0)
+        self.agent_combo = Gtk.ComboBoxText()
+        for agent in AGENT_WORKSPACE_AGENTS:
+            self.agent_combo.append_text(agent)
+        self.agent_combo.set_active(AGENT_WORKSPACE_AGENTS.index(self.default_agent))
+        self.agent_combo.connect("changed", self._on_agent_selected)
+        codex_row.pack_start(self.agent_combo, False, False, 0)
+        self.run_ai_agent_button = self._button("run_ai_agent", self.run_ai_agent_console)
+        self.run_ai_agent_button.set_hexpand(True)
+        codex_row.pack_start(self.run_ai_agent_button, True, True, 0)
 
         self.console_notebook = Gtk.Notebook()
         self.console_notebook.add_events(Gdk.EventMask.BUTTON_PRESS_MASK)
@@ -422,7 +478,7 @@ class WorkspaceGtkGui:
         self.task_store.clear()
         selected_iter = None
         for task in self.tasks:
-            row_iter = self.task_store.append([task.name, task, *_task_row_style(False, self.theme)])
+            row_iter = self.task_store.append([self._task_label(task), task, *_task_row_style(False, False, self.theme)])
             if task.name == selected_name:
                 selected_iter = row_iter
         self._refresh_task_row_styles()
@@ -449,6 +505,7 @@ class WorkspaceGtkGui:
         self._watch_task_artifacts(self.selected_task)
         self._load_task_artifacts(self.selected_task)
         self._load_task_action_buttons()
+        self._set_selected_agent(load_task_agent(self.selected_task, self.default_agent))
         self._refresh_console_tabs_for_task(self.selected_task)
         if self._actions_tab_active():
             self._ensure_default_console_for_selected_task()
@@ -830,6 +887,7 @@ class WorkspaceGtkGui:
         button_size.set_value(self.button_font_size)
         theme_combo = Gtk.ComboBoxText()
         language_combo = Gtk.ComboBoxText()
+        default_agent_combo = Gtk.ComboBoxText()
         for theme in AGENT_WORKSPACE_THEMES:
             theme_combo.append_text(theme)
         theme_combo.set_active(AGENT_WORKSPACE_THEMES.index(self.theme) if self.theme in AGENT_WORKSPACE_THEMES else 0)
@@ -840,6 +898,13 @@ class WorkspaceGtkGui:
             if self.language in AGENT_WORKSPACE_LANGUAGES
             else 0
         )
+        for agent in AGENT_WORKSPACE_AGENTS:
+            default_agent_combo.append_text(agent)
+        default_agent_combo.set_active(
+            AGENT_WORKSPACE_AGENTS.index(self.default_agent)
+            if self.default_agent in AGENT_WORKSPACE_AGENTS
+            else 0
+        )
 
         for row, (label, widget) in enumerate(
             (
@@ -847,6 +912,7 @@ class WorkspaceGtkGui:
                 (self._tr("button_font_size"), button_size),
                 (self._tr("theme"), theme_combo),
                 (self._tr("language"), language_combo),
+                (self._tr("default_agent"), default_agent_combo),
             )
         ):
             label_widget = Gtk.Label(label=label)
@@ -861,6 +927,9 @@ class WorkspaceGtkGui:
             self.button_font_size = int(button_size.get_value())
             self.theme = theme_combo.get_active_text() or self.theme
             self.language = language_combo.get_active_text() or self.language
+            self.default_agent = normalize_agent(default_agent_combo.get_active_text())
+            if self.selected_task is None:
+                self._set_selected_agent(self.default_agent)
             self._apply_runtime_style()
             self._apply_labels()
             self.refresh_tasks()
@@ -1114,23 +1183,169 @@ class WorkspaceGtkGui:
             kind="shell",
         )
 
-    def run_codex_console(self, *_args: object) -> None:
+    def _selected_agent(self) -> str:
+        return normalize_agent(self.agent_combo.get_active_text())
+
+    def _set_selected_agent(self, agent: str) -> None:
+        agent = normalize_agent(agent)
+        self._updating_agent_selection = True
+        try:
+            self.agent_combo.set_active(AGENT_WORKSPACE_AGENTS.index(agent))
+        finally:
+            self._updating_agent_selection = False
+
+    def _on_agent_selected(self, *_args: object) -> None:
+        if self._updating_agent_selection:
+            return
+        task = self.selected_task
+        if task is not None:
+            agent = self._selected_agent()
+            current = self._running_agent_session(task)
+            if current is None or current.kind == agent:
+                save_task_agent(task, agent)
+                self._update_codex_button_state()
+                return
+            self._switch_task_agent(task, agent, start_if_changed=True)
+
+    def run_ai_agent_console(self, *_args: object) -> None:
         task = self._require_task()
         if task is None:
             return
+        agent = self._selected_agent()
+        self._switch_task_agent(task, agent, start_if_changed=True)
+
+    def _switch_task_agent(self, task: TaskSummary, agent: str, *, start_if_changed: bool) -> None:
+        agent = normalize_agent(agent)
+        current = self._running_agent_session(task)
+        if current is not None and current.kind == agent:
+            save_task_agent_session(task, agent)
+            self._activate_terminal(current.session_id)
+            self._update_codex_button_state()
+            return
+        if current is not None:
+            if not start_if_changed:
+                self._set_selected_agent(current.kind)
+                save_task_agent(task, current.kind)
+                return
+            if not self._confirm_agent_switch(current.kind, agent):
+                self._set_selected_agent(current.kind)
+                save_task_agent(task, current.kind)
+                return
+        if not self._ensure_agent_installed(agent):
+            if current is not None:
+                self._set_selected_agent(current.kind)
+            return
+        if current is not None:
+            save_task_agent_session(task, current.kind)
+            self._close_console_session(current, confirm=False, ensure_default=False)
+        session_state = load_task_agent_session(task, agent)
+        session_id = session_state.session_id
+        if agent == "codex" and session_state.resume and session_id is None:
+            session_id = find_latest_codex_session_id(task, self.workspace)
+            if session_id is not None:
+                save_task_agent_session(task, agent, session_id=session_id)
+        if agent == "claude" and session_id is None:
+            session_id = new_agent_session_id()
+        save_task_agent_session(task, agent, session_id=session_id)
         for session in self._current_task_terminal_sessions(task):
-            if session.kind == "codex":
+            if session.kind == agent:
                 self._activate_terminal(session.session_id)
                 self._update_codex_button_state()
                 return
         self._start_terminal(
             task=task,
-            command=codex_console_command(self.workspace, task, self.language),
+            command=ai_agent_console_command(
+                self.workspace,
+                task,
+                agent,
+                self.language,
+                resume=session_state.resume,
+                resume_session_id=session_id,
+            ),
             cwd=self.workspace,
             env=os.environ.copy(),
-            kind="codex",
+            kind=agent,
         )
         self._update_codex_button_state()
+
+    def _running_agent_session(self, task: TaskSummary) -> TerminalSession | None:
+        for session in self._current_task_terminal_sessions(task):
+            if session.kind in AGENT_WORKSPACE_AGENTS:
+                return session
+        return None
+
+    def _running_agent_sessions(self) -> list[TerminalSession]:
+        return [
+            session
+            for session in self.terminal_sessions.values()
+            if session.kind in AGENT_WORKSPACE_AGENTS
+        ]
+
+    def _confirm_agent_switch(self, current_agent: str, next_agent: str) -> bool:
+        dialog = Gtk.MessageDialog(
+            transient_for=self.window,
+            flags=Gtk.DialogFlags.MODAL,
+            message_type=Gtk.MessageType.WARNING,
+            buttons=Gtk.ButtonsType.OK_CANCEL,
+            text=self._tr("confirm_switch_agent_title"),
+        )
+        dialog.format_secondary_text(
+            self._tr("confirm_switch_agent_body").format(
+                current=agent_label(current_agent),
+                next=agent_label(next_agent),
+            )
+        )
+        response = dialog.run()
+        dialog.destroy()
+        return response == Gtk.ResponseType.OK
+
+    def _ensure_agent_installed(self, agent: str) -> bool:
+        if agent_executable(agent):
+            return True
+        dialog = Gtk.MessageDialog(
+            transient_for=self.window,
+            flags=Gtk.DialogFlags.MODAL,
+            message_type=Gtk.MessageType.ERROR,
+            buttons=Gtk.ButtonsType.OK,
+            text=self._tr("install_agent_title"),
+        )
+        dialog.format_secondary_text(
+            self._tr("install_agent_body").format(
+                agent=agent_label(agent),
+                command=agent_install_command(agent),
+            )
+        )
+        dialog.run()
+        dialog.destroy()
+        return False
+
+    def _confirm_close_with_running_agents(self) -> bool:
+        sessions = self._running_agent_sessions()
+        if not sessions:
+            return True
+        labels = ", ".join(
+            f"{agent_label(session.kind)} ({session.task_path.name})"
+            for session in sessions[:5]
+        )
+        if len(sessions) > 5:
+            labels += f", and {len(sessions) - 5} more"
+        dialog = Gtk.MessageDialog(
+            transient_for=self.window,
+            flags=Gtk.DialogFlags.MODAL,
+            message_type=Gtk.MessageType.WARNING,
+            buttons=Gtk.ButtonsType.OK_CANCEL,
+            text=self._tr("confirm_close_running_agents_title"),
+        )
+        dialog.format_secondary_text(
+            self._tr("confirm_close_running_agents_body").format(sessions=labels)
+        )
+        response = dialog.run()
+        dialog.destroy()
+        return response == Gtk.ResponseType.OK
+
+    def run_codex_console(self, *_args: object) -> None:
+        self._set_selected_agent("codex")
+        self.run_ai_agent_console()
 
     def close_active_console(self, *_args: object) -> None:
         page_num = self.console_notebook.get_current_page()
@@ -1177,6 +1392,7 @@ class WorkspaceGtkGui:
         terminal.connect("button-press-event", self._on_terminal_button_press)
         terminal.connect("popup-menu", self._on_terminal_popup_menu)
         terminal.connect("key-press-event", self._on_terminal_key_press)
+        terminal.connect("contents-changed", self._on_terminal_contents_changed)
         terminal.spawn_async(
             Vte.PtyFlags.DEFAULT,
             str(cwd),
@@ -1235,7 +1451,7 @@ class WorkspaceGtkGui:
 
     def _show_terminal_tab(self, session: TerminalSession) -> None:
         if self.console_notebook.page_num(session.page) < 0:
-            if session.kind == "codex":
+            if session.kind in AGENT_WORKSPACE_AGENTS:
                 self.console_notebook.insert_page(session.page, Gtk.Label(label=session.kind), 0)
             else:
                 self.console_notebook.append_page(session.page, Gtk.Label(label=session.kind))
@@ -1260,16 +1476,23 @@ class WorkspaceGtkGui:
         self.new_console(task=self.selected_task)
         return True
 
-    def _close_console_session(self, session: TerminalSession) -> bool:
-        if not self._confirm_close_console():
+    def _close_console_session(
+        self,
+        session: TerminalSession,
+        *,
+        confirm: bool = True,
+        ensure_default: bool = True,
+    ) -> bool:
+        if confirm and not self._confirm_close_console():
             return False
         task = self._task_for_path(session.task_path)
         page_num = self.console_notebook.page_num(session.page)
         if page_num >= 0:
             self.console_notebook.remove_page(page_num)
         self.terminal_sessions.pop(session.session_id, None)
+        session.permission_pending = False
         session.page.destroy()
-        if self.selected_task is not None and self.selected_task.path == task.path:
+        if ensure_default and self.selected_task is not None and self.selected_task.path == task.path:
             self._ensure_default_console_for_selected_task()
         self._update_codex_button_state()
         return True
@@ -1277,28 +1500,54 @@ class WorkspaceGtkGui:
     def _update_codex_button_state(self) -> None:
         task = self.selected_task
         running = task is not None and any(
-            session.kind == "codex"
+            session.kind in AGENT_WORKSPACE_AGENTS
             for session in self._current_task_terminal_sessions(task)
         )
-        context = self.run_codex_button.get_style_context()
+        context = self.run_ai_agent_button.get_style_context()
         if running:
             context.add_class("codex-running")
         else:
             context.remove_class("codex-running")
+        self._update_ai_agent_button_label()
         self._refresh_task_row_styles()
+
+    def _update_ai_agent_button_label(self) -> None:
+        task = self.selected_task
+        label_key = "run_ai_agent"
+        if task is not None:
+            agent = self._selected_agent()
+            current = self._running_agent_session(task)
+            if current is not None and current.kind == agent:
+                label_key = "ai_agent_running"
+            else:
+                session_state = load_task_agent_session(task, agent)
+                session_id = session_state.session_id
+                if agent == "codex" and session_state.resume and session_id is None:
+                    session_id = find_latest_codex_session_id(task, self.workspace)
+                    if session_id is not None:
+                        save_task_agent_session(task, agent, session_id=session_id)
+                if task_agent_session_id_is_valid(task, self.workspace, agent):
+                    label_key = "restore_ai_agent_session"
+        self.run_ai_agent_button.set_label(self._tr(label_key))
+
+    def _task_has_resumable_agent_session(self, task: TaskSummary) -> bool:
+        return task_has_valid_agent_session(task, self.workspace)
 
     def _refresh_task_row_styles(self) -> None:
         row_iter = self.task_store.get_iter_first()
         while row_iter is not None:
             task = self.task_store[row_iter][1]
-            has_codex = any(
-                session.kind == "codex" and session.task_path == task.path
+            has_agent = any(
+                session.kind in AGENT_WORKSPACE_AGENTS and session.task_path == task.path
                 for session in self.terminal_sessions.values()
             )
+            has_session = self._task_has_resumable_agent_session(task)
             background, background_set, foreground, foreground_set, weight, weight_set = _task_row_style(
-                has_codex,
+                has_agent,
+                has_session,
                 self.theme,
             )
+            self.task_store[row_iter][0] = self._task_label(task)
             self.task_store[row_iter][2] = background
             self.task_store[row_iter][3] = background_set
             self.task_store[row_iter][4] = foreground
@@ -1357,7 +1606,15 @@ class WorkspaceGtkGui:
         return True
 
     def _on_terminal_key_press(self, terminal: Vte.Terminal, event: Gdk.EventKey) -> bool:
-        shortcut = _terminal_clipboard_shortcut(event.keyval, int(event.state))
+        session = self._session_for_terminal(terminal)
+        if session is not None and session.kind in AGENT_WORKSPACE_AGENTS and session.permission_pending:
+            session.permission_pending = False
+            self._refresh_task_row_styles()
+        shortcut = _terminal_clipboard_shortcut(
+            event.keyval,
+            int(event.state),
+            getattr(event, "hardware_keycode", None),
+        )
         if shortcut == "copy":
             terminal.copy_clipboard()
             return True
@@ -1365,6 +1622,16 @@ class WorkspaceGtkGui:
             terminal.paste_clipboard()
             return True
         return False
+
+    def _on_terminal_contents_changed(self, terminal: Vte.Terminal) -> None:
+        session = self._session_for_terminal(terminal)
+        if session is None or session.kind not in AGENT_WORKSPACE_AGENTS:
+            return
+        if session.permission_pending:
+            return
+        if agent_output_requests_permission(_terminal_text_tail(terminal)):
+            session.permission_pending = True
+            self._refresh_task_row_styles()
 
     def _terminal_context_menu(self, terminal: Vte.Terminal) -> Gtk.Menu:
         menu = Gtk.Menu()
@@ -1393,6 +1660,19 @@ class WorkspaceGtkGui:
             if session.terminal is terminal:
                 return session
         return None
+
+    def _task_has_pending_agent_permission(self, task: TaskSummary) -> bool:
+        return any(
+            session.kind in AGENT_WORKSPACE_AGENTS
+            and session.task_path == task.path
+            and session.permission_pending
+            for session in self.terminal_sessions.values()
+        )
+
+    def _task_label(self, task: TaskSummary) -> str:
+        if self._task_has_pending_agent_permission(task):
+            return f"{AGENT_PERMISSION_MARKER} {task.name}"
+        return task.name
 
     def _require_task(self, show_dialog: bool = True) -> TaskSummary | None:
         if self.selected_task is not None:
@@ -1487,6 +1767,7 @@ class WorkspaceGtkGui:
         self.actions_tab_label.set_text(self._tr("actions"))
         if self.selected_task is not None:
             self._load_task_artifacts(self.selected_task)
+        self._update_ai_agent_button_label()
 
     def _tr(self, key: str) -> str:
         return TRANSLATIONS.get(self.language, TRANSLATIONS["en"]).get(key, TRANSLATIONS["en"].get(key, key))
@@ -1641,6 +1922,9 @@ class WorkspaceGtkGui:
             self._apply_terminal_theme(session.terminal)
         self._refresh_task_row_styles()
 
+    def _on_window_delete_event(self, *_args: object) -> bool:
+        return not self._confirm_close_with_running_agents()
+
     def close(self, *_args: object) -> None:
         if self.task_actions_monitor is not None:
             self.task_actions_monitor.cancel()
@@ -1655,6 +1939,7 @@ class WorkspaceGtkGui:
                 "button_font_size": self.button_font_size,
                 "theme": self.theme,
                 "language": self.language,
+                "default_agent": self.default_agent,
                 "geometry": (
                     f"{self.last_window_width}x{self.last_window_height}"
                     f"+{self.last_window_x}+{self.last_window_y}"
@@ -1693,37 +1978,64 @@ def _is_empty_notebook_tab_area(notebook: Gtk.Notebook, event: Gdk.EventButton) 
 
 
 def _terminal_session_sort_key(kind: str, session_id: int) -> tuple[int, int]:
-    return (0 if kind == "codex" else 1, session_id)
+    return (0 if kind in AGENT_WORKSPACE_AGENTS else 1, session_id)
 
 
 def _terminal_tab_label(kind: str, shell_index: int) -> str:
-    if kind == "codex":
-        return "codex"
+    if kind in AGENT_WORKSPACE_AGENTS:
+        return agent_label(kind)
     return f"{kind} {shell_index}"
 
 
-def _terminal_clipboard_shortcut(keyval: int, state: int) -> str | None:
+def _terminal_clipboard_shortcut(keyval: int, state: int, hardware_keycode: int | None = None) -> str | None:
     modifiers = int(Gdk.ModifierType.CONTROL_MASK | Gdk.ModifierType.SHIFT_MASK)
     if (state & modifiers) != modifiers:
         return None
-    if keyval in {Gdk.KEY_c, Gdk.KEY_C}:
+    if hardware_keycode in {54}:
         return "copy"
-    if keyval in {Gdk.KEY_v, Gdk.KEY_V}:
+    if hardware_keycode in {55}:
+        return "paste"
+    char = chr(Gdk.keyval_to_unicode(keyval)).casefold() if Gdk.keyval_to_unicode(keyval) else ""
+    key_name = Gdk.keyval_name(keyval) or ""
+    key_name = key_name.casefold()
+    if char in {"c", "с"} or key_name in {"c", "cyrillic_es"}:
+        return "copy"
+    if char in {"v", "м"} or key_name in {"v", "cyrillic_em"}:
         return "paste"
     return None
 
 
-def _task_row_style(has_codex: bool, theme: str) -> tuple[str, bool, str, bool, int, bool]:
-    if not has_codex:
-        return ("", False, "", False, int(Pango.Weight.NORMAL), False)
+def _task_row_style(
+    has_agent: bool,
+    has_session: bool,
+    theme: str,
+) -> tuple[str, bool, str, bool, int, bool]:
     colors = _theme_colors(theme)
+    if has_agent:
+        return (
+            colors["codex_running_background"],
+            True,
+            colors["codex_running_foreground"],
+            True,
+            int(Pango.Weight.BOLD),
+            True,
+        )
+    if has_session:
+        return (
+            colors["agent_session_background"],
+            True,
+            colors["agent_session_foreground"],
+            True,
+            int(Pango.Weight.BOLD),
+            True,
+        )
     return (
-        colors["codex_running_background"],
-        True,
-        colors["codex_running_foreground"],
-        True,
-        int(Pango.Weight.BOLD),
-        True,
+        "",
+        False,
+        "",
+        False,
+        int(Pango.Weight.NORMAL),
+        False,
     )
 
 
@@ -1781,6 +2093,23 @@ def _text_buffer_text(buffer: Gtk.TextBuffer) -> str:
     start = buffer.get_start_iter()
     end = buffer.get_end_iter()
     return buffer.get_text(start, end, True)
+
+
+def _terminal_text_tail(terminal: Vte.Terminal, limit: int = 4000) -> str:
+    def include_all(*_args: object) -> bool:
+        return True
+
+    try:
+        result = terminal.get_text(include_all, None)
+    except TypeError:
+        result = terminal.get_text(include_all)
+    if isinstance(result, tuple):
+        text = result[0]
+    else:
+        text = result
+    if not isinstance(text, str):
+        return ""
+    return text[-limit:]
 
 
 def _scrolled(widget: Gtk.Widget) -> Gtk.ScrolledWindow:
@@ -1907,7 +2236,7 @@ def _files_under(root: Path) -> list[Path]:
     return paths
 
 
-def codex_task_context_message(task: TaskSummary, workspace: Path, language: str = "en") -> str:
+def ai_agent_task_context_message(task: TaskSummary, workspace: Path, language: str = "en") -> str:
     return (
         f"We are working in workspace task `{task.name}`. "
         f"Workspace: {workspace}. "
@@ -1918,13 +2247,67 @@ def codex_task_context_message(task: TaskSummary, workspace: Path, language: str
     )
 
 
-def codex_console_command(workspace: Path, task: TaskSummary, language: str = "en") -> list[str]:
+def codex_task_context_message(task: TaskSummary, workspace: Path, language: str = "en") -> str:
+    return ai_agent_task_context_message(task, workspace, language)
+
+
+def ai_agent_console_command(
+    workspace: Path,
+    task: TaskSummary,
+    agent: str,
+    language: str = "en",
+    *,
+    resume: bool = False,
+    resume_session_id: str | None = None,
+) -> list[str]:
+    agent = normalize_agent(agent)
+    if agent == "claude":
+        command = [_claude_executable()]
+        if resume and resume_session_id:
+            command.extend(["--resume", resume_session_id])
+        elif resume:
+            command.append("--continue")
+        else:
+            if resume_session_id:
+                command.extend(["--session-id", resume_session_id])
+            command.append(ai_agent_task_context_message(task, workspace, language))
+        return command
+    return codex_console_command(
+        workspace,
+        task,
+        language,
+        resume=resume,
+        resume_session_id=resume_session_id,
+    )
+
+
+def codex_console_command(
+    workspace: Path,
+    task: TaskSummary,
+    language: str = "en",
+    *,
+    resume: bool = False,
+    resume_session_id: str | None = None,
+) -> list[str]:
+    if resume:
+        command = [
+            _codex_executable(),
+            "resume",
+            "--cd",
+            str(workspace),
+            "--no-alt-screen",
+        ]
+        if resume_session_id:
+            command.append(resume_session_id)
+        else:
+            command.append("--last")
+        return command
     return [
         _codex_executable(),
         "--cd",
         str(workspace),
         "--no-alt-screen",
-        codex_task_context_message(task, workspace, language),
+        ai_agent_task_context_message(task, workspace, language),
     ]
 
 
@@ -1952,12 +2335,33 @@ def task_check_shell_command(workspace: Path, task: TaskSummary) -> str:
 
 def task_action_shell_command(action: TaskAction) -> str:
     command = action.command if isinstance(action.command, str) else shlex.join(action.command)
+    env_values = dict(action.env)
+    env_values[PAF_HIDE_TASK_ENV_VAR] = "1"
     env = " ".join(
         f"{key}={shlex.quote(value)}"
-        for key, value in sorted(action.env.items())
+        for key, value in sorted(env_values.items())
     )
     prefix = f"{env} " if env else ""
-    return f"cd {shlex.quote(str(action.cwd))} && {prefix}{command}"
+    log_name = task_action_log_basename(action.action_id)
+    inner = "\n".join(
+        [
+            "set -o pipefail",
+            "__agent_task_dir=$PWD",
+            'while [ "$__agent_task_dir" != "/" ] && [ ! -f "$__agent_task_dir/TASK_DESCRIPTION.md" ]; do',
+            '    __agent_task_dir=$(dirname "$__agent_task_dir")',
+            "done",
+            'if [ ! -f "$__agent_task_dir/TASK_DESCRIPTION.md" ]; then',
+            "    __agent_task_dir=$PWD",
+            "fi",
+            f"__agent_log_dir=\"$__agent_task_dir/{TASK_ACTION_LOGS_DIR.as_posix()}\"",
+            'mkdir -p "$__agent_log_dir"',
+            f"__agent_log=\"$__agent_log_dir/{log_name}-$(date +%Y%m%d-%H%M%S).log\"",
+            'echo "Logging task action to $__agent_log"',
+            f"({prefix}{command}) 2>&1 | tee -a \"$__agent_log\"",
+            "exit ${PIPESTATUS[0]}",
+        ]
+    )
+    return f"cd {shlex.quote(str(action.cwd))} && bash -lc {shlex.quote(inner)}"
 
 
 def sys_executable() -> str:
@@ -1965,13 +2369,11 @@ def sys_executable() -> str:
 
 
 def _codex_executable() -> str:
-    executable = shutil.which("codex")
-    if executable:
-        return executable
-    local_bin = Path.home() / ".local" / "bin" / "codex"
-    if local_bin.is_file():
-        return str(local_bin)
-    return "codex"
+    return agent_executable("codex") or "codex"
+
+
+def _claude_executable() -> str:
+    return agent_executable("claude") or "claude"
 
 
 def _feed_terminal(terminal: Vte.Terminal, text: str) -> None:
@@ -2058,6 +2460,8 @@ def _theme_colors(theme: str) -> dict[str, str]:
             "codex_running_border": "#7aa2f7",
             "codex_running_foreground": "#ffffff",
             "codex_running_glow": "rgba(122, 162, 247, 0.75)",
+            "agent_session_background": "#4b3713",
+            "agent_session_foreground": "#ffe6a3",
             "text_background": "#111315",
             "terminal_background": "#111315",
             "control_background": "#2b2f33",
@@ -2080,6 +2484,8 @@ def _theme_colors(theme: str) -> dict[str, str]:
         "codex_running_border": "#2f6fbb",
         "codex_running_foreground": "#14345f",
         "codex_running_glow": "rgba(47, 111, 187, 0.45)",
+        "agent_session_background": "#fff1c2",
+        "agent_session_foreground": "#5c3b00",
         "text_background": "#ffffff",
         "terminal_background": "#ffffff",
         "control_background": "#f8f8f8",

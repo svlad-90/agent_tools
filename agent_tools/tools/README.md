@@ -88,8 +88,9 @@ python -m agent_tools.tools.push_guard status --repo <target-repo>
 ## Agent Workspace
 
 Use `agent_workspace` for the local task dashboard. It is agent-neutral by
-design: Codex is one supported interactive terminal session, while the
-workspace and task controls are useful without any AI session running.
+design: Codex and Claude Code are supported interactive terminal sessions,
+while the workspace and task controls are useful without any AI session
+running.
 
 ```sh
 ./agent-workspace
@@ -97,9 +98,15 @@ workspace and task controls are useful without any AI session running.
 
 It lists workspace tasks, renders `TASK_DESCRIPTION.md` and `TASK_CONTEXT.md`,
 opens task and `dev/` folders, edits task descriptions on demand, runs
-`task_check`, discovers repositories under `dev/`, shows `git status`, runs
-task-declared actions from `TASK_ACTIONS.json` in the active console, manages
-per-task terminal tabs, starts one interactive Codex session per task, and
-shows task artifacts from `report/`, `report/diff/`, and `report/puml/` with
-open and cleanup actions. GUI settings persist theme, language, text size,
-button text size, and window geometry.
+compact `task_check`, discovers repositories under `dev/`, runs task-declared
+actions from `TASK_ACTIONS.json` in the active console, manages per-task
+terminal tabs, starts one interactive AI agent session per task, and shows task
+artifacts from `report/`, `report/diff/`, and `report/puml/` with open and
+cleanup actions. GUI settings persist theme, language, text size, button text
+size, window geometry, and the default AI agent. The selected agent is saved per
+task; switching between running AI agents requires confirmation, and missing
+agent commands show an installation prompt. Closing the window warns when AI
+agent sessions are still running. Tasks with agent sessions that appear to be
+waiting for permission or approval are marked with `⚠` in the task list.
+GUI-launched task actions set `PAF_HIDE_TASK_ENV=1` to keep PAF parameter dumps
+out of the console.

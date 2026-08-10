@@ -12,6 +12,9 @@ from typing import Sequence
 
 
 ZERO_SHA = "0" * 40
+FORBIDDEN_PUSH_PATH_PREFIXES = (
+    "agent_tools/paf_workspace/domains/environments/private_envs/",
+)
 
 
 def _run_git(args: Sequence[str], *, cwd: Path) -> str:
@@ -115,12 +118,43 @@ def _pushed_commits(stdin_text: str, repo: Path) -> list[str]:
     return [_head_commit(repo, "HEAD")]
 
 
+def _pushed_paths(repo: Path, commits: Sequence[str]) -> set[str]:
+    paths: set[str] = set()
+    for commit in commits:
+        output = _run_git(["diff-tree", "--root", "--no-commit-id", "--name-only", "-r", commit], cwd=repo)
+        paths.update(path for path in output.splitlines() if path)
+    return paths
+
+
+def _forbidden_pushed_paths(repo: Path, commits: Sequence[str]) -> list[str]:
+    forbidden: list[str] = []
+    for path in sorted(_pushed_paths(repo, commits)):
+        normalized = path.replace("\\", "/")
+        if any(normalized.startswith(prefix) for prefix in FORBIDDEN_PUSH_PATH_PREFIXES):
+            forbidden.append(path)
+    return forbidden
+
+
 def check(args: argparse.Namespace) -> int:
     repo = _repo_root(Path.cwd())
     stdin_text = sys.stdin.read()
+    commits = _pushed_commits(stdin_text, repo)
+    forbidden_paths = _forbidden_pushed_paths(repo, commits)
+    if forbidden_paths:
+        print("push_guard: push blocked; private environment files are forbidden:", file=sys.stderr)
+        for path in forbidden_paths:
+            print(f"  {path}", file=sys.stderr)
+        print(
+            "Keep private reusable environment overlays under "
+            "agent_tools/paf_workspace/domains/environments/private_envs/, "
+            "but leave that directory untracked.",
+            file=sys.stderr,
+        )
+        return 1
+
     missing = [
         commit
-        for commit in _pushed_commits(stdin_text, repo)
+        for commit in commits
         if not _stamp_path(repo, commit).is_file()
     ]
     if not missing:

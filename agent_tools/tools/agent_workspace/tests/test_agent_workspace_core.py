@@ -7,21 +7,34 @@ import sys
 
 from agent_tools.tools.agent_workspace.core import TASK_CONTEXT_BUDGET
 from agent_tools.tools.agent_workspace.core import ConsoleChunk
+from agent_tools.tools.agent_workspace.core import PAF_HIDE_TASK_ENV_VAR
 from agent_tools.tools.agent_workspace.core import TaskAction
 from agent_tools.tools.agent_workspace.core import TaskSummary
+from agent_tools.tools.agent_workspace.core import agent_executable
+from agent_tools.tools.agent_workspace.core import agent_install_command
+from agent_tools.tools.agent_workspace.core import agent_output_requests_permission
+from agent_tools.tools.agent_workspace.core import codex_session_id_exists
 from agent_tools.tools.agent_workspace.core import discover_tasks
 from agent_tools.tools.agent_workspace.core import find_dev_git_repos
+from agent_tools.tools.agent_workspace.core import find_latest_codex_session_id
+from agent_tools.tools.agent_workspace.core import load_task_agent
+from agent_tools.tools.agent_workspace.core import load_task_agent_session
 from agent_tools.tools.agent_workspace.core import load_task_actions
 from agent_tools.tools.agent_workspace.core import load_agent_workspace_settings
 from agent_tools.tools.agent_workspace.core import parse_console_output
 from agent_tools.tools.agent_workspace.core import render_markdown_chunks
 from agent_tools.tools.agent_workspace.core import rough_token_count
 from agent_tools.tools.agent_workspace.core import save_agent_workspace_settings
+from agent_tools.tools.agent_workspace.core import save_task_agent
+from agent_tools.tools.agent_workspace.core import save_task_agent_session
 from agent_tools.tools.agent_workspace.core import run_task_action
 from agent_tools.tools.agent_workspace.core import run_task_check
+from agent_tools.tools.agent_workspace.core import task_agent_session_id_is_valid
+from agent_tools.tools.agent_workspace.core import task_has_valid_agent_session
 from agent_tools.tools.agent_workspace.gtk_ui import WorkspaceGtkGui
 from agent_tools.tools.agent_workspace.gtk_ui import TerminalSession
 from agent_tools.tools.agent_workspace.gtk_ui import TRANSLATIONS as GTK_TRANSLATIONS
+from agent_tools.tools.agent_workspace.gtk_ui import ai_agent_console_command as gtk_ai_agent_console_command
 from agent_tools.tools.agent_workspace.gtk_ui import codex_task_context_message as gtk_codex_task_context_message
 from agent_tools.tools.agent_workspace.gtk_ui import task_action_shell_command as gtk_task_action_shell_command
 from agent_tools.tools.agent_workspace.gtk_ui import task_check_shell_command as gtk_task_check_shell_command
@@ -39,6 +52,7 @@ from agent_tools.tools.agent_workspace.gtk_ui import _terminal_clipboard_shortcu
 from agent_tools.tools.agent_workspace.gtk_ui import _terminal_palette as gtk_terminal_palette
 from agent_tools.tools.agent_workspace.gtk_ui import _terminal_session_sort_key as gtk_terminal_session_sort_key
 from agent_tools.tools.agent_workspace.gtk_ui import _terminal_tab_label as gtk_terminal_tab_label
+from agent_tools.tools.agent_workspace.gtk_ui import _terminal_text_tail as gtk_terminal_text_tail
 from agent_tools.tools.agent_workspace.gtk_ui import _theme_colors as gtk_theme_colors
 from agent_tools.tools.agent_workspace.gtk_ui import _agent_workspace_icon_path as gtk_agent_workspace_icon_path
 from agent_tools.tools.agent_workspace.gtk_ui import _agent_workspace_runtime_icon_path as gtk_agent_workspace_runtime_icon_path
@@ -48,8 +62,10 @@ from agent_tools.tools.agent_workspace.ui import console_tab_title
 from agent_tools.tools.agent_workspace.ui import ConsoleSession
 from agent_tools.tools.agent_workspace.ui import codex_task_context_message
 from agent_tools.tools.agent_workspace.ui import embedded_terminal_command
+from agent_tools.tools.agent_workspace.ui import ai_agent_console_command
 from agent_tools.tools.agent_workspace.ui import task_action_shell_command
 from agent_tools.tools.agent_workspace.ui import task_check_shell_command
+from agent_tools.tools.agent_workspace.ui import _tk_control_shortcut
 from agent_tools.tools.agent_workspace.ui import AgentWorkspace
 from agent_tools.tools.agent_workspace.actions import main as actions_main
 from gi.repository import Gdk
@@ -132,8 +148,24 @@ class FakePaneEvent:
 
 
 class FakeGtkKeyEvent:
-    def __init__(self, keyval: int) -> None:
+    def __init__(self, keyval: int, state: int = 0, hardware_keycode: int | None = None) -> None:
         self.keyval = keyval
+        self.state = state
+        self.hardware_keycode = hardware_keycode
+
+
+class FakeTkKeyEvent:
+    def __init__(
+        self,
+        state: int = 0,
+        keysym: str = "",
+        char: str = "",
+        keycode: int | None = None,
+    ) -> None:
+        self.state = state
+        self.keysym = keysym
+        self.char = char
+        self.keycode = keycode
 
 
 class FakeGtkTerminal:
@@ -142,6 +174,32 @@ class FakeGtkTerminal:
 
     def feed_child(self, data: object, *_args: object) -> None:
         self.fed.append(data)
+
+
+class FakeGtkTextTerminal:
+    def __init__(self, text: str) -> None:
+        self.text = text
+
+    def get_text(self, *_args: object) -> tuple[str, None]:
+        return self.text, None
+
+
+class FakeButton:
+    def __init__(self) -> None:
+        self.text = ""
+
+    def configure(self, **kwargs: object) -> None:
+        text = kwargs.get("text")
+        if isinstance(text, str):
+            self.text = text
+
+
+class FakeStringVar:
+    def __init__(self, value: str) -> None:
+        self.value = value
+
+    def get(self) -> str:
+        return self.value
 
 
 def test_discover_tasks_reports_description_context_and_budget(tmp_path: Path) -> None:
@@ -404,6 +462,66 @@ def test_codex_console_command_passes_prompt_and_workspace(tmp_path: Path) -> No
     ]
 
 
+def test_codex_console_command_can_resume_session(tmp_path: Path) -> None:
+    task = tmp_path / "tasks" / "sample-task"
+    task.mkdir(parents=True)
+    summary = discover_tasks_with_context(task, tmp_path)
+    session_id = "019feba2-e25e-76e1-9468-aa399758268f"
+
+    command = codex_console_command(tmp_path, summary, resume=True, resume_session_id=session_id)
+
+    assert command[-5:] == [
+        "resume",
+        "--cd",
+        str(tmp_path),
+        "--no-alt-screen",
+        session_id,
+    ]
+    assert codex_task_context_message(summary, tmp_path) not in command
+
+
+def test_ai_agent_console_command_supports_claude(tmp_path: Path) -> None:
+    task = tmp_path / "tasks" / "sample-task"
+    task.mkdir(parents=True)
+    summary = discover_tasks_with_context(task, tmp_path)
+
+    command = ai_agent_console_command(tmp_path, summary, "claude")
+
+    assert command[0].endswith("claude")
+    assert "workspace task `sample-task`" in command[-1]
+
+
+def test_ai_agent_console_command_can_continue_claude(tmp_path: Path) -> None:
+    task = tmp_path / "tasks" / "sample-task"
+    task.mkdir(parents=True)
+    summary = discover_tasks_with_context(task, tmp_path)
+
+    command = ai_agent_console_command(tmp_path, summary, "claude", resume=True)
+
+    assert command == [command[0], "--continue"]
+    assert command[0].endswith("claude")
+
+
+def test_ai_agent_console_command_can_use_claude_session_id(tmp_path: Path) -> None:
+    task = tmp_path / "tasks" / "sample-task"
+    task.mkdir(parents=True)
+    summary = discover_tasks_with_context(task, tmp_path)
+    session_id = "019feba2-e25e-76e1-9468-aa399758268f"
+
+    first_command = ai_agent_console_command(tmp_path, summary, "claude", resume_session_id=session_id)
+    resume_command = ai_agent_console_command(
+        tmp_path,
+        summary,
+        "claude",
+        resume=True,
+        resume_session_id=session_id,
+    )
+
+    assert first_command[:3] == [first_command[0], "--session-id", session_id]
+    assert "workspace task `sample-task`" in first_command[-1]
+    assert resume_command == [resume_command[0], "--resume", session_id]
+
+
 def test_embedded_terminal_command_uses_vte_launcher(tmp_path: Path) -> None:
     command = embedded_terminal_command(
         socket_id=42,
@@ -457,7 +575,15 @@ def test_task_action_shell_command_runs_in_action_cwd(tmp_path: Path) -> None:
 
     command = task_action_shell_command(action)
 
-    assert command == f"cd {tmp_path / 'scripts'} && FLAG='hello world' python -m pytest"
+    assert command.startswith(f"cd {tmp_path / 'scripts'} && bash -lc ")
+    assert "report/logs" in command
+    assert "unit-$(date +%Y%m%d-%H%M%S).log" in command
+    assert "tee -a" in command
+    assert "FLAG=" in command
+    assert "hello world" in command
+    assert f"{PAF_HIDE_TASK_ENV_VAR}=1" in command
+    assert "python -m pytest" in command
+    assert "exit ${PIPESTATUS[0]}" in command
 
 
 def test_gtk_task_action_shell_command_runs_in_action_cwd(tmp_path: Path) -> None:
@@ -471,7 +597,15 @@ def test_gtk_task_action_shell_command_runs_in_action_cwd(tmp_path: Path) -> Non
 
     command = gtk_task_action_shell_command(action)
 
-    assert command == f"cd {tmp_path / 'scripts'} && FLAG='hello world' python -m pytest"
+    assert command.startswith(f"cd {tmp_path / 'scripts'} && bash -lc ")
+    assert "report/logs" in command
+    assert "unit-$(date +%Y%m%d-%H%M%S).log" in command
+    assert "tee -a" in command
+    assert "FLAG=" in command
+    assert "hello world" in command
+    assert f"{PAF_HIDE_TASK_ENV_VAR}=1" in command
+    assert "python -m pytest" in command
+    assert "exit ${PIPESTATUS[0]}" in command
 
 
 def test_gtk_pane_separator_hit_test_uses_orientation() -> None:
@@ -525,7 +659,8 @@ def test_gtk_task_actions_signature_tracks_file_mtime(tmp_path: Path) -> None:
 def test_console_tab_title_numbers_shells_only() -> None:
     assert console_tab_title(1, "shell") == "shell 1"
     assert console_tab_title(2, "shell") == "shell 2"
-    assert console_tab_title(0, "codex") == "codex"
+    assert console_tab_title(0, "codex") == "Codex"
+    assert console_tab_title(0, "claude") == "Claude Code"
 
 
 def test_agent_workspace_settings_persist_font_size(tmp_path: Path) -> None:
@@ -537,6 +672,7 @@ def test_agent_workspace_settings_persist_font_size(tmp_path: Path) -> None:
             "button_font_size": 14,
             "theme": "dark",
             "language": "ru",
+            "default_agent": "claude",
             "geometry": "1200x800+10+20",
         },
         settings_path,
@@ -547,6 +683,7 @@ def test_agent_workspace_settings_persist_font_size(tmp_path: Path) -> None:
         "button_font_size": 14,
         "theme": "dark",
         "language": "ru",
+        "default_agent": "claude",
         "geometry": "1200x800+10+20",
     }
 
@@ -563,7 +700,7 @@ def test_agent_workspace_settings_clamp_bad_font_size(tmp_path: Path) -> None:
     settings_path.write_text(
         (
             '{"text_font_size": 100, "button_font_size": 4, '
-            '"theme": "blue", "language": "bad", "geometry": "bad"}'
+            '"theme": "blue", "language": "bad", "default_agent": "bad", "geometry": "bad"}'
         ),
         encoding="utf-8",
     )
@@ -572,6 +709,162 @@ def test_agent_workspace_settings_clamp_bad_font_size(tmp_path: Path) -> None:
         "text_font_size": 28,
         "button_font_size": 8,
     }
+
+
+def test_task_agent_state_persists_per_task(tmp_path: Path) -> None:
+    task = tmp_path / "tasks" / "sample-task"
+    task.mkdir(parents=True)
+    summary = discover_tasks_with_context(task, tmp_path)
+
+    assert load_task_agent(summary, "claude") == "claude"
+
+    save_task_agent(summary, "codex")
+
+    assert load_task_agent(summary, "claude") == "codex"
+
+
+def test_task_agent_session_state_preserves_agent_selection(tmp_path: Path) -> None:
+    task = tmp_path / "tasks" / "sample-task"
+    task.mkdir(parents=True)
+    summary = discover_tasks_with_context(task, tmp_path)
+    session_id = "019feba2-e25e-76e1-9468-aa399758268f"
+
+    save_task_agent(summary, "claude")
+    save_task_agent_session(summary, "codex", session_id=session_id)
+    session = load_task_agent_session(summary, "codex")
+
+    assert load_task_agent(summary, "claude") == "codex"
+    assert session.resume is True
+    assert session.session_id == session_id
+
+
+def test_tk_ai_agent_button_label_reflects_resumable_session(tmp_path: Path) -> None:
+    task = tmp_path / "tasks" / "sample-task"
+    task.mkdir(parents=True)
+    summary = discover_tasks_with_context(task, tmp_path)
+    gui = AgentWorkspace.__new__(AgentWorkspace)
+    gui.selected_task = summary
+    gui.workspace = tmp_path
+    gui.agent_var = FakeStringVar("claude")
+    gui.run_ai_agent_button = FakeButton()
+    gui._running_agent_session = lambda selected_task: None  # type: ignore[method-assign]
+
+    gui._update_ai_agent_button_label()
+    assert gui.run_ai_agent_button.text == "Запустить ИИ агента"
+
+    save_task_agent_session(summary, "claude", session_id="019feba2-e25e-76e1-9468-aa399758268f")
+    gui._update_ai_agent_button_label()
+
+    assert gui.run_ai_agent_button.text == "Восстановить сессию ИИ агента"
+
+    gui._running_agent_session = lambda selected_task: type("Session", (), {"kind": "claude"})()  # type: ignore[method-assign]
+    gui._update_ai_agent_button_label()
+
+    assert gui.run_ai_agent_button.text == "ИИ агент запущен"
+
+
+def test_find_latest_codex_session_id_matches_task_prompt(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    task = workspace / "tasks" / "sample-task"
+    task.mkdir(parents=True)
+    summary = discover_tasks_with_context(task, workspace)
+    home = tmp_path / "home"
+    sessions = home / ".codex" / "sessions" / "2026" / "08" / "10"
+    sessions.mkdir(parents=True)
+    session_id = "019feba2-e25e-76e1-9468-aa399758268f"
+    session_file = sessions / f"rollout-2026-08-10T15-25-48-{session_id}.jsonl"
+    session_file.write_text(
+        json.dumps(
+            {
+                "payload": {
+                    "content": [
+                        {
+                            "text": codex_task_context_message(summary, workspace),
+                        }
+                    ]
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    assert find_latest_codex_session_id(summary, workspace, home=home) == session_id
+
+
+def test_codex_session_id_validation_uses_local_session_files(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    task = workspace / "tasks" / "sample-task"
+    task.mkdir(parents=True)
+    summary = discover_tasks_with_context(task, workspace)
+    home = tmp_path / "home"
+    sessions = home / ".codex" / "sessions" / "2026" / "08" / "10"
+    sessions.mkdir(parents=True)
+    session_id = "019feba2-e25e-76e1-9468-aa399758268f"
+
+    save_task_agent_session(summary, "codex", session_id=session_id)
+    assert not task_agent_session_id_is_valid(summary, workspace, "codex", home=home)
+    assert not codex_session_id_exists(session_id, home=home)
+
+    (sessions / f"rollout-2026-08-10T15-25-48-{session_id}.jsonl").write_text("{}", encoding="utf-8")
+
+    assert codex_session_id_exists(session_id, home=home)
+    assert task_agent_session_id_is_valid(summary, workspace, "codex", home=home)
+
+
+def test_task_has_valid_agent_session_checks_any_agent(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    task = workspace / "tasks" / "sample-task"
+    task.mkdir(parents=True)
+    summary = discover_tasks_with_context(task, workspace)
+
+    assert not task_has_valid_agent_session(summary, workspace)
+
+    save_task_agent_session(summary, "claude", session_id="019feba2-e25e-76e1-9468-aa399758268f")
+
+    assert task_has_valid_agent_session(summary, workspace)
+    assert not task_agent_session_id_is_valid(summary, workspace, "codex")
+
+
+def test_agent_executable_checks_path_and_local_bin(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    monkeypatch.setattr("agent_tools.tools.agent_workspace.core.shutil.which", lambda command: None)
+    monkeypatch.setattr("agent_tools.tools.agent_workspace.core.Path.home", lambda: tmp_path)
+
+    assert agent_executable("claude") is None
+
+    local_claude = tmp_path / ".local" / "bin" / "claude"
+    local_claude.parent.mkdir(parents=True)
+    local_claude.write_text("#!/bin/sh\n", encoding="utf-8")
+
+    assert agent_executable("claude") == str(local_claude)
+
+
+def test_agent_install_commands_are_available() -> None:
+    assert agent_install_command("codex") == "npm install -g @openai/codex"
+    assert agent_install_command("claude") == "npm install -g @anthropic-ai/claude-code"
+
+
+def test_agent_output_requests_permission_detects_approval_prompts() -> None:
+    assert agent_output_requests_permission("Command requires approval before running.")
+    assert agent_output_requests_permission("Do you want to allow this command? yes/no")
+    assert agent_output_requests_permission("\x1b[31mPermission required\x1b[0m")
+    assert agent_output_requests_permission(
+        "Would you like to run the following command?\n\n"
+        "  Environment: local\n\n"
+        "  $ true\n\n"
+        "› 1. Yes, proceed (y)\n"
+        "  2. Yes, and don't ask again for commands that start with `true` (p)\n"
+        "  3. No, and tell Codex what to do differently (esc)\n"
+    )
+    assert not agent_output_requests_permission("Build completed successfully.")
+
+
+def test_gtk_terminal_text_tail_reads_recent_text() -> None:
+    terminal = FakeGtkTextTerminal("a" * 5000 + "requires approval")
+
+    tail = gtk_terminal_text_tail(terminal)
+
+    assert len(tail) == 4000
+    assert tail.endswith("requires approval")
 
 
 def test_gtk_theme_colors_cover_widget_css_keys() -> None:
@@ -610,18 +903,20 @@ def test_gtk_dark_terminal_palette_uses_readable_blue() -> None:
     assert "#0000ff" not in palette
 
 
-def test_gtk_terminal_session_sort_key_keeps_codex_first() -> None:
-    entries = [("shell", 1), ("codex", 3), ("shell", 2)]
+def test_gtk_terminal_session_sort_key_keeps_agents_first() -> None:
+    entries = [("shell", 1), ("claude", 4), ("codex", 3), ("shell", 2)]
 
     assert sorted(entries, key=lambda item: gtk_terminal_session_sort_key(item[0], item[1])) == [
         ("codex", 3),
+        ("claude", 4),
         ("shell", 1),
         ("shell", 2),
     ]
 
 
 def test_gtk_terminal_tab_label_numbers_shells_only() -> None:
-    assert gtk_terminal_tab_label("codex", 0) == "codex"
+    assert gtk_terminal_tab_label("codex", 0) == "Codex"
+    assert gtk_terminal_tab_label("claude", 0) == "Claude Code"
     assert gtk_terminal_tab_label("shell", 1) == "shell 1"
     assert gtk_terminal_tab_label("shell", 2) == "shell 2"
 
@@ -636,14 +931,29 @@ def test_gtk_terminal_clipboard_shortcut_requires_ctrl_shift() -> None:
     assert gtk_terminal_clipboard_shortcut(Gdk.KEY_C, ctrl_shift) == "copy"
     assert gtk_terminal_clipboard_shortcut(Gdk.KEY_v, ctrl_shift) == "paste"
     assert gtk_terminal_clipboard_shortcut(Gdk.KEY_V, ctrl_shift) == "paste"
+    assert gtk_terminal_clipboard_shortcut(Gdk.KEY_Cyrillic_es, ctrl_shift) == "copy"
+    assert gtk_terminal_clipboard_shortcut(Gdk.KEY_Cyrillic_em, ctrl_shift) == "paste"
+    assert gtk_terminal_clipboard_shortcut(Gdk.KEY_x, ctrl_shift, hardware_keycode=54) == "copy"
+    assert gtk_terminal_clipboard_shortcut(Gdk.KEY_x, ctrl_shift, hardware_keycode=55) == "paste"
     assert gtk_terminal_clipboard_shortcut(Gdk.KEY_c, ctrl) is None
     assert gtk_terminal_clipboard_shortcut(Gdk.KEY_x, ctrl_shift) is None
+
+
+def test_tk_control_shortcuts_work_on_cyrillic_layout() -> None:
+    ctrl = 0x4
+
+    assert _tk_control_shortcut(FakeTkKeyEvent(state=ctrl, keysym="Cyrillic_es")) == "c"
+    assert _tk_control_shortcut(FakeTkKeyEvent(state=ctrl, char="м")) == "v"
+    assert _tk_control_shortcut(FakeTkKeyEvent(state=ctrl, keysym="Cyrillic_ve")) == "d"
+    assert _tk_control_shortcut(FakeTkKeyEvent(state=ctrl, keysym="x", keycode=54)) == "c"
+    assert _tk_control_shortcut(FakeTkKeyEvent(state=ctrl, keysym="x", keycode=55)) == "v"
+    assert _tk_control_shortcut(FakeTkKeyEvent(state=0, keysym="Cyrillic_es")) is None
 
 
 def test_gtk_task_row_style_highlights_codex_tasks() -> None:
     from gi.repository import Pango
 
-    assert gtk_task_row_style(False, "dark") == (
+    assert gtk_task_row_style(False, False, "dark") == (
         "",
         False,
         "",
@@ -651,7 +961,15 @@ def test_gtk_task_row_style_highlights_codex_tasks() -> None:
         int(Pango.Weight.NORMAL),
         False,
     )
-    assert gtk_task_row_style(True, "dark") == (
+    assert gtk_task_row_style(False, True, "dark") == (
+        "#4b3713",
+        True,
+        "#ffe6a3",
+        True,
+        int(Pango.Weight.BOLD),
+        True,
+    )
+    assert gtk_task_row_style(True, True, "dark") == (
         "#26384d",
         True,
         "#ffffff",
@@ -671,8 +989,15 @@ def test_gtk_codex_prompt_includes_selected_language(tmp_path: Path) -> None:
     assert "Відповідай користувачу українською мовою." in message
 
 
-def test_gtk_translates_codex_and_repo_scan_labels() -> None:
-    assert GTK_TRANSLATIONS["ru"]["run_codex"] == "Запустить Codex"
+def test_gtk_translates_agent_and_repo_scan_labels() -> None:
+    assert GTK_TRANSLATIONS["ru"]["run_ai_agent"] == "Запустить ИИ агента"
+    assert GTK_TRANSLATIONS["ru"]["ai_agent_running"] == "ИИ агент запущен"
+    assert GTK_TRANSLATIONS["ru"]["restore_ai_agent_session"] == "Восстановить сессию ИИ агента"
+    assert GTK_TRANSLATIONS["ru"]["default_agent"] == "ИИ агент по умолчанию"
+    assert "закроет текущую сессию" in GTK_TRANSLATIONS["ru"]["confirm_switch_agent_body"]
+    assert "локальные процессы агентов" in GTK_TRANSLATIONS["ru"]["confirm_close_running_agents_body"]
+    assert "Восстанавливаемые диалоги" in GTK_TRANSLATIONS["ru"]["confirm_close_running_agents_body"]
+    assert "Предлагаемая команда установки" in GTK_TRANSLATIONS["ru"]["install_agent_body"]
     assert GTK_TRANSLATIONS["ru"]["scanning_repos"] == "Сканирование репозиториев..."
     assert GTK_TRANSLATIONS["ru"]["delete_artifacts"] == "Удалить артефакты"
 
@@ -805,7 +1130,11 @@ def test_load_task_actions_and_run_command(tmp_path: Path) -> None:
                         "command": [
                             sys.executable,
                             "-c",
-                            "import os; print(os.environ['SAMPLE_FLAG'])",
+                            (
+                                "import os; "
+                                "print(os.environ['SAMPLE_FLAG']); "
+                                f"print(os.environ['{PAF_HIDE_TASK_ENV_VAR}'])"
+                            ),
                         ],
                         "cwd": "scripts",
                         "env": {"SAMPLE_FLAG": "ok"},
@@ -823,6 +1152,7 @@ def test_load_task_actions_and_run_command(tmp_path: Path) -> None:
     assert actions[0].label == "Unit tests"
     assert actions[0].cwd == scripts.resolve()
     assert "ok" in report
+    assert "\n1\n" in report
     assert "exit code: 0" in report
 
 

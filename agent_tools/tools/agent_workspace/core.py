@@ -5,9 +5,11 @@ import json
 import os
 from pathlib import Path
 import re
+import shutil
 import subprocess
 import textwrap
 from typing import Any
+import uuid
 
 from agent_tools.paf_workspace.task_check import check_task
 from agent_tools.paf_workspace.task_check import render_text
@@ -17,12 +19,40 @@ TASK_CONTEXT_BUDGET = 8_000
 TASKS_DIR_NAME = "tasks"
 MARKDOWN_TABLE_WIDTH = 96
 TASK_ACTIONS_FILE = "TASK_ACTIONS.json"
+PAF_HIDE_TASK_ENV_VAR = "PAF_HIDE_TASK_ENV"
+TASK_ACTION_LOGS_DIR = Path("report") / "logs"
 AGENT_WORKSPACE_SETTINGS_FILE = "settings.json"
+AGENT_WORKSPACE_TASK_STATE_FILE = ".agent-workspace-state.json"
 AGENT_WORKSPACE_THEMES = ("light", "dark")
 AGENT_WORKSPACE_LANGUAGES = ("ru", "uk", "en")
+AGENT_WORKSPACE_AGENTS = ("codex", "claude")
+AGENT_WORKSPACE_DEFAULT_AGENT = "codex"
+AGENT_WORKSPACE_AGENT_LABELS = {
+    "codex": "Codex",
+    "claude": "Claude Code",
+}
+AGENT_WORKSPACE_AGENT_COMMANDS = {
+    "codex": "codex",
+    "claude": "claude",
+}
+AGENT_WORKSPACE_AGENT_INSTALL_COMMANDS = {
+    "codex": "npm install -g @openai/codex",
+    "claude": "npm install -g @anthropic-ai/claude-code",
+}
+CODEX_SESSION_ID_RE = re.compile(r"([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})")
+AGENT_PERMISSION_MARKER = "⚠"
 AGENT_WORKSPACE_GEOMETRY_RE = re.compile(r"^\d+x\d+(?:[+-]\d+[+-]\d+)?$")
 ANSI_ESCAPE_RE = re.compile(r"\x1b(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])")
 ANSI_OSC_RE = re.compile(r"\x1b\][^\x07]*(?:\x07|\x1b\\)")
+AGENT_PERMISSION_PROMPT_RE = re.compile(
+    r"(?:requires?\s+(?:approval|permission)|"
+    r"(?:allow|approve|grant|proceed|continue)\?|" 
+    r"(?:allow|approve|grant)\s+.*(?:\by\b|\byes\b|\bn\b|\bno\b)|"
+    r"(?:permission|approval)\s+(?:required|needed|requested)|"
+    r"would you like to run the following command\?|"
+    r"do you want to (?:allow|approve|continue|proceed))",
+    re.IGNORECASE,
+)
 
 
 @dataclass(frozen=True)
@@ -55,6 +85,13 @@ class TaskAction:
 class ConsoleChunk:
     text: str
     tags: tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class AgentSessionState:
+    agent: str
+    resume: bool = False
+    session_id: str | None = None
 
 
 def rough_token_count(text: str) -> int:
@@ -217,6 +254,191 @@ def agent_workspace_settings_path() -> Path:
     return Path.home() / ".config" / "agent_tools" / "agent_workspace" / AGENT_WORKSPACE_SETTINGS_FILE
 
 
+def normalize_agent(agent: object) -> str:
+    if isinstance(agent, str) and agent in AGENT_WORKSPACE_AGENTS:
+        return agent
+    return AGENT_WORKSPACE_DEFAULT_AGENT
+
+
+def agent_label(agent: str) -> str:
+    return AGENT_WORKSPACE_AGENT_LABELS.get(normalize_agent(agent), normalize_agent(agent))
+
+
+def agent_command_name(agent: str) -> str:
+    agent = normalize_agent(agent)
+    return AGENT_WORKSPACE_AGENT_COMMANDS.get(agent, agent)
+
+
+def agent_executable(agent: str) -> str | None:
+    command = agent_command_name(agent)
+    executable = shutil.which(command)
+    if executable:
+        return executable
+    local_bin = Path.home() / ".local" / "bin" / command
+    if local_bin.is_file():
+        return str(local_bin)
+    return None
+
+
+def agent_install_command(agent: str) -> str:
+    agent = normalize_agent(agent)
+    return AGENT_WORKSPACE_AGENT_INSTALL_COMMANDS.get(agent, "")
+
+
+def agent_output_requests_permission(text: str) -> bool:
+    normalized = ANSI_OSC_RE.sub("", text)
+    normalized = ANSI_ESCAPE_RE.sub("", normalized)
+    normalized = normalized.replace("\r", "\n")
+    return AGENT_PERMISSION_PROMPT_RE.search(normalized[-4000:]) is not None
+
+
+def task_state_path(task: TaskSummary) -> Path:
+    return task.path / AGENT_WORKSPACE_TASK_STATE_FILE
+
+
+def load_task_state(task: TaskSummary) -> dict[str, Any]:
+    state_path = task_state_path(task)
+    if not state_path.is_file():
+        return {}
+    try:
+        data = json.loads(state_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+    if not isinstance(data, dict):
+        return {}
+    return data
+
+
+def save_task_state(task: TaskSummary, data: dict[str, Any]) -> None:
+    state_path = task_state_path(task)
+    try:
+        state_path.write_text(
+            json.dumps(data, indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
+    except OSError:
+        return
+
+
+def load_task_agent(task: TaskSummary, default_agent: str = AGENT_WORKSPACE_DEFAULT_AGENT) -> str:
+    data = load_task_state(task)
+    return normalize_agent(data.get("agent", default_agent))
+
+
+def save_task_agent(task: TaskSummary, agent: str) -> None:
+    data = load_task_state(task)
+    data["agent"] = normalize_agent(agent)
+    save_task_state(task, data)
+
+
+def load_task_agent_session(task: TaskSummary, agent: str) -> AgentSessionState:
+    agent = normalize_agent(agent)
+    data = load_task_state(task)
+    sessions = data.get("agent_sessions")
+    if not isinstance(sessions, dict):
+        return AgentSessionState(agent=agent)
+    session = sessions.get(agent)
+    if not isinstance(session, dict):
+        return AgentSessionState(agent=agent)
+    session_id = session.get("session_id")
+    if not isinstance(session_id, str) or not CODEX_SESSION_ID_RE.fullmatch(session_id):
+        session_id = None
+    return AgentSessionState(
+        agent=agent,
+        resume=session.get("resume") is True,
+        session_id=session_id,
+    )
+
+
+def save_task_agent_session(task: TaskSummary, agent: str, session_id: str | None = None) -> None:
+    agent = normalize_agent(agent)
+    data = load_task_state(task)
+    data["agent"] = agent
+    sessions = data.get("agent_sessions")
+    if not isinstance(sessions, dict):
+        sessions = {}
+    session: dict[str, Any] = {"resume": True}
+    if isinstance(session_id, str) and CODEX_SESSION_ID_RE.fullmatch(session_id):
+        session["session_id"] = session_id
+    elif isinstance(sessions.get(agent), dict):
+        old_session_id = sessions[agent].get("session_id")
+        if isinstance(old_session_id, str) and CODEX_SESSION_ID_RE.fullmatch(old_session_id):
+            session["session_id"] = old_session_id
+    sessions[agent] = session
+    data["agent_sessions"] = sessions
+    save_task_state(task, data)
+
+
+def new_agent_session_id() -> str:
+    return str(uuid.uuid4())
+
+
+def codex_session_id_exists(session_id: str, home: Path | None = None) -> bool:
+    if not CODEX_SESSION_ID_RE.fullmatch(session_id):
+        return False
+    sessions_dir = (home or Path.home()) / ".codex" / "sessions"
+    if not sessions_dir.is_dir():
+        return False
+    try:
+        next(sessions_dir.rglob(f"*{session_id}.jsonl"))
+    except (OSError, StopIteration):
+        return False
+    return True
+
+
+def task_agent_session_id_is_valid(
+    task: TaskSummary,
+    workspace: Path,
+    agent: str,
+    home: Path | None = None,
+) -> bool:
+    agent = normalize_agent(agent)
+    session = load_task_agent_session(task, agent)
+    if session.session_id is not None:
+        if agent == "codex":
+            return codex_session_id_exists(session.session_id, home=home)
+        return True
+    return agent == "codex" and session.resume and find_latest_codex_session_id(task, workspace, home=home) is not None
+
+
+def task_has_valid_agent_session(task: TaskSummary, workspace: Path, home: Path | None = None) -> bool:
+    return any(
+        task_agent_session_id_is_valid(task, workspace, agent, home=home)
+        for agent in AGENT_WORKSPACE_AGENTS
+    )
+
+
+def find_latest_codex_session_id(task: TaskSummary, workspace: Path, home: Path | None = None) -> str | None:
+    sessions_dir = (home or Path.home()) / ".codex" / "sessions"
+    if not sessions_dir.is_dir():
+        return None
+    needle = (
+        f"We are working in workspace task `{task.name}`. "
+        f"Workspace: {workspace}. "
+        f"Task directory: {task.path}."
+    )
+    try:
+        session_files = sorted(
+            sessions_dir.rglob("*.jsonl"),
+            key=lambda path: path.stat().st_mtime,
+            reverse=True,
+        )
+    except OSError:
+        return None
+    for session_file in session_files:
+        match = CODEX_SESSION_ID_RE.search(session_file.name)
+        if match is None:
+            continue
+        try:
+            with session_file.open("r", encoding="utf-8", errors="replace") as stream:
+                head = stream.read(64_000)
+        except OSError:
+            continue
+        if needle in head:
+            return match.group(1)
+    return None
+
+
 def load_agent_workspace_settings(path: Path | None = None) -> dict[str, int | str]:
     settings_path = path or agent_workspace_settings_path()
     if not settings_path.is_file():
@@ -233,6 +455,7 @@ def load_agent_workspace_settings(path: Path | None = None) -> dict[str, int | s
     theme = data.get("theme")
     language = data.get("language")
     geometry = data.get("geometry")
+    default_agent = data.get("default_agent")
     if isinstance(text_font_size, int):
         settings["text_font_size"] = max(8, min(28, text_font_size))
     if isinstance(button_font_size, int):
@@ -243,6 +466,8 @@ def load_agent_workspace_settings(path: Path | None = None) -> dict[str, int | s
         settings["language"] = language
     if isinstance(geometry, str) and AGENT_WORKSPACE_GEOMETRY_RE.fullmatch(geometry):
         settings["geometry"] = geometry
+    if isinstance(default_agent, str) and default_agent in AGENT_WORKSPACE_AGENTS:
+        settings["default_agent"] = default_agent
     return settings
 
 
@@ -355,6 +580,7 @@ def load_task_actions(task: TaskSummary) -> tuple[list[TaskAction], list[str]]:
 def run_task_action(action: TaskAction) -> str:
     env = os.environ.copy()
     env.update(action.env)
+    env[PAF_HIDE_TASK_ENV_VAR] = "1"
     command = list(action.command) if isinstance(action.command, tuple) else action.command
     completed = subprocess.run(
         command,
@@ -370,6 +596,11 @@ def run_task_action(action: TaskAction) -> str:
         output += completed.stderr
     output += f"\nexit code: {completed.returncode}\n"
     return output
+
+
+def task_action_log_basename(action_id: str) -> str:
+    safe_name = re.sub(r"[^A-Za-z0-9_.-]+", "-", action_id).strip(".-")
+    return safe_name or "task-action"
 
 
 def _parse_task_action(
