@@ -33,9 +33,23 @@ Closing the Agent Workspace window also asks for confirmation while any AI
 agent sessions are still running.
 When a task's AI agent is launched again after the window was restarted, Codex
 resumes the saved session id when one can be matched to that task and falls
-back to the latest Codex session otherwise. Claude Code uses a task-local
-session id and resumes it on the next launch, falling back to its built-in
-continue mode only for older task state that has no saved id.
+back to the latest Codex session otherwise. Claude Code launches with the task
+context prompt, but Agent Workspace does not invent Claude conversation ids;
+without a real Claude Code conversation id, the UI keeps the action as a new
+launch instead of showing a restore action.
+The settings dialog can also set default models and reasoning effort for each
+agent. Model fields are combo boxes: Codex choices are loaded from the local
+Codex model cache with a built-in fallback list, and Claude Code choices use
+the CLI aliases `sonnet`, `opus`, and `fable`. Codex launches use `--model` and
+`-c model_reasoning_effort="..."`; Claude Code launches use `--model` and
+`--effort`. Empty values leave the agent CLI defaults in control. Initial
+defaults are Codex `gpt-5.5` with `medium` reasoning and Claude Code `sonnet`
+with `medium` effort, so new Agent Workspace installs do not silently launch
+Claude's highest-cost default model.
+The reset-session button forgets only the selected task's selected AI-agent
+session in `.agent-workspace-state.json`; it does not delete the underlying
+Codex or Claude Code conversation data, and it does not affect another agent
+type saved for the same task.
 When an agent terminal appears to be waiting for permission or approval, the
 task list marks that task with `⚠` to the left of the task name until input is
 sent to that agent session or the session closes.

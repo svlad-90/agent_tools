@@ -1,101 +1,182 @@
-# Agent workspace tools
+# Agent Workspace Tools
 
-This repository contains a portable agent workspace setup: root `AGENTS.md`
-instructions for Codex, a root `CLAUDE.md` shim for Claude Code, and the
-`agent_tools/` helper package used by those instructions.
+Agent Workspace Tools is a local workspace system for people who work with AI
+agents on real engineering tasks: long-lived context, multiple repositories,
+build environments, validation logs, review reports, and follow-up work that
+must still make sense tomorrow.
 
-The goal is to make the working style reproducible. Clone this repository as a
-workspace root, put task directories next to `agent_tools/`, and supported
-agents will have the same rules, helper commands, review-report tooling, and
-validation conventions available in every task.
+It is intentionally more than a launcher. The repository provides the root
+agent instructions, task layout, workflow checks, reusable helper tools, and a
+desktop dashboard that help a human and one or more AI agents keep the same
+working state.
+
+> For AI agents: this root `README.md` is written for humans. Before doing work
+> in this workspace, follow `AGENTS.md` and the rule files under
+> `agent_tools/rules/`. Treat those files as authoritative agent instructions.
+
+## Why Use It
+
+AI coding sessions are easy to start and hard to keep disciplined. Context gets
+buried in chat history, commands disappear into terminal scrollback, validation
+evidence is hard to hand off, and the next agent often has to rediscover the
+same facts.
+
+This workspace is built around a stricter contract:
+
+- every task has a home under `tasks/<task-name>/`;
+- task state is written down in `TASK_DESCRIPTION.md` and `TASK_CONTEXT.md`;
+- source checkouts, reproducers, scripts, logs, diagrams, and reports have
+  predictable locations;
+- agents load the same workspace rules before editing code;
+- routine checks are exposed as commands instead of being remembered manually;
+- validation status is tracked by level: static, build, runtime, and review.
+
+The result is a workspace that favors continuity over improvisation. It is most
+useful when a task may span several days, several repositories, or several
+agent sessions.
+
+## What Stands Out
+
+- **Agent-neutral task dashboard.** `Agent Workspace` can launch and resume
+  task-local AI agent terminals for Codex and Claude Code, while still being
+  usable with shell sessions and task actions.
+- **Context that survives the chat.** The task files describe the goal,
+  decisions, branches, constraints, validation status, and remaining work in a
+  place future humans and agents can read.
+- **Workspace rules as executable discipline.** Python, C/C++, task workflow,
+  commit, reusable environment, and review-report policies live under
+  `agent_tools/rules/` and are loaded by agent instructions.
+- **Source navigation helpers.** `code_map`, `cpp_code_map`, and `yaml_map`
+  help agents inspect structured source files before making edits.
+- **Review artifacts for humans.** `diff_report` generates GitHub-style HTML
+  reviews with inline comments, summaries, logs, and diagrams under a task's
+  `report/diff/` directory.
+- **Reusable validation workflows.** PAF workspace domains provide a place for
+  repeatable build, environment, and runtime orchestration instead of leaving
+  those steps in ad hoc shell history.
+- **Push hygiene.** Commit formatting and `push_guard` help keep local
+  validation and commit metadata from becoming an afterthought.
+
+## Honest Trade-Offs
+
+This is not a zero-setup productivity toy. The workflow has a real entry cost:
+you need to use task directories, keep context files current, understand which
+validation command matters, and let the rules shape how agents work.
+
+For a tiny one-file experiment, that may feel heavy. For embedded work,
+multi-repository changes, runtime investigations, review reports, or any task
+where another agent must continue later, the structure pays back quickly.
+
+The tools also assume a local developer workstation. Some flows depend on
+Python, Git, a desktop environment, Docker, PAF, libclang, or project-specific
+build inputs. The workspace tries to make those dependencies explicit, but it
+does not make hard build environments disappear.
 
 ## Repository Map
 
-This repository tracks reusable workspace infrastructure only:
+This repository tracks reusable workspace infrastructure:
 
-- `AGENTS.md` - the canonical workspace-level instructions.
+- `AGENTS.md` - canonical workspace-level instructions for AI agents.
 - `CLAUDE.md` - a Claude Code shim that points to `AGENTS.md`.
+- `agent-workspace` - convenience launcher for the desktop dashboard.
 - `agent_tools/tools/` - standalone CLI tools such as `code_map`,
-  `cpp_code_map`, `yaml_map`, `diff_report`, `commit_msg`, and
+  `cpp_code_map`, `yaml_map`, `diff_report`, `commit_msg`, `push_guard`, and
   `agent_workspace`.
-- `agent_tools/paf_workspace/` - PAF orchestration assets, domains,
-  reusable environments, task bootstrap templates, task workflow checks, and
-  PAF workspace tests.
+- `agent_tools/paf_workspace/` - PAF orchestration assets, domains, reusable
+  environments, task bootstrap templates, task workflow checks, and tests.
 - `agent_tools/rules/` - mandatory workspace policy loaded through root agent
   instruction files.
-- `agent_tools/skills/` - operating manuals for specific tools and workflows.
+- `agent_tools/skills/` - workspace-local operating manuals for specific tools
+  and workflows.
 - `agent_tools/knowledge/` - durable findings that should inform future tasks.
 - `.gitignore` - keeps task directories, build outputs, caches, and local
   artifacts out of this setup repository.
 
-Task-specific work does not belong in this repository. Task directories are
-created at the workspace root and are intentionally ignored by Git so the same
-workspace can contain many unrelated development efforts without mixing them
-into the setup history.
+Task-specific source checkouts and artifacts belong under `tasks/<task-name>/`,
+not in the reusable setup tree.
 
-## Workspace contract
+## Task Layout
 
-Every task lives in its own top-level directory under the workspace root. A task
-directory is expected to contain:
+Every task lives under the workspace root:
 
-- `TASK_CONTEXT.md` for active context, decisions, branch information,
-  validation status, constraints, and remaining work.
-- `dev/` for repositories, reproducers, workspaces, build files, and other
-  development inputs.
-- `Dockerfile/` for task-specific Dockerfiles, container build contexts,
-  environment scripts, and reproduction notes.
-- `scripts/` for task-specific scripts that make repeated routine work cheaper
-  and more reliable.
-- `report/` for notes, logs, generated reports, and other non-source artifacts.
-- `report/diff/` for source diffs, patch bundles, HTML diff review reports, and
-  the JSON comments used to generate those reports.
-- `report/puml/` for PlantUML diagrams and adjacent rendered SVG outputs.
+```text
+tasks/
+  my-task/
+    TASK_DESCRIPTION.md
+    TASK_CONTEXT.md
+    dev/
+    Dockerfile/
+    scripts/
+    report/
+      diff/
+      puml/
+```
 
-The `scripts/` directory is a workspace directive, not a mandatory abstraction
-for every command. Use scripts when they reduce repeated reasoning, reduce
-outgoing tokens, or make recurring validation and reproduction steps easier to
-rerun. Avoid scripts for one-off commands or tiny tasks where a script would add
-more overhead than value.
+The main directories have stable roles:
 
-## Workspace rules
+- `TASK_DESCRIPTION.md` holds the original request, intended scope, acceptance
+  criteria, links, and background that should remain useful for the whole task.
+- `TASK_CONTEXT.md` holds active working context: repositories, branches,
+  decisions, validation status, constraints, blockers, and remaining work.
+- `dev/` holds source checkouts, reproducers, build files, and other task
+  inputs.
+- `Dockerfile/` holds task-specific container files and environment notes.
+- `scripts/` holds repeated routine commands when a script is actually useful.
+- `report/` holds logs, notes, generated reports, diagrams, and other
+  non-source artifacts.
+- `report/diff/` holds generated HTML diff reviews, source diffs or patches,
+  and canonical comments JSON.
+- `report/puml/` holds PlantUML diagrams and adjacent rendered SVG files.
 
-The root `AGENTS.md` file requires agents to read and follow all rule files in
-`agent_tools/rules/` before working in the workspace. `CLAUDE.md` delegates
-Claude Code to the same file.
+Use scripts when they reduce repeated reasoning or make validation easier to
+rerun. Avoid scripts for one-off commands where the script adds more process
+than value.
 
-Current rule files:
+## Agent Workspace
 
-- `python-code.md` - use `python -m agent_tools.tools.code_map` when inspecting,
-  editing, or validating Python code.
-- `cpp-code.md` - use `python -m agent_tools.tools.cpp_code_map` when inspecting,
-  editing, or validating C and C++ code.
-- `reusable-environments.md` - keep reusable container environments under
-  `agent_tools/paf_workspace/domains/environments/` and task-specific runtime
-  material under the task directory.
-- `task-workflow.md` - keep task directories, context, validation status, and
-  runtime metadata consistent.
-- `diff-reports.md` - keep diff review artifacts consistent, self-contained,
-  and evidence-led when validation artifacts matter.
-- `git-commits.md` - keep commit messages wrapped and include the required
-  `Signed-off-by` trailer.
-- `workspace-skills.md` and `xen-zephyr-abi.md` - define workspace skill
-  routing and Xen/Zephyr ABI review expectations.
+Launch the desktop dashboard from the workspace root:
 
-More specific `AGENTS.md` or `CLAUDE.md` files inside task directories may
-override the root instructions for their subtree.
+```sh
+./agent-workspace
+```
 
-## Included tools
+The dashboard helps a human operate the workspace without spending agent
+context on routine navigation:
 
-Standalone CLI tools live under `agent_tools/tools/`. The old module paths
-such as `agent_tools.code_map` and `agent_tools.diff_report` are intentionally
-not kept as compatibility shims.
+- browse tasks under `tasks/`;
+- view and edit task descriptions and context;
+- run built-in checks such as `task_check` and repository scans;
+- run task-declared actions from `TASK_ACTIONS.json`;
+- keep per-task terminal tabs;
+- launch and resume Codex or Claude Code sessions for a task;
+- remember the selected AI agent and resumable agent session per task;
+- warn before switching away from or closing running agent sessions;
+- mark tasks whose agent terminal appears to be waiting for permission;
+- browse logs, diagrams, SVGs, and diff-review artifacts.
+
+Task actions are declared at the task root:
+
+```json
+{
+  "actions": [
+    {
+      "id": "unit-tests",
+      "label": "Unit tests",
+      "command": ["scripts/run-unit-tests.sh"],
+      "cwd": ".",
+      "env": {"EXAMPLE": "value"}
+    }
+  ]
+}
+```
+
+## Included CLI Tools
+
+Standalone tools live under `agent_tools/tools/`.
 
 ### `agent_tools.tools.code_map`
 
-Python source inspection and guarded editing support. It can map file structure,
-resolve symbols, inspect exact spans, and parse-check changed Python files.
-
-Typical commands:
+Python source inspection and guarded editing support:
 
 ```sh
 python -m agent_tools.tools.code_map map path/to/file.py
@@ -105,11 +186,7 @@ python -m agent_tools.tools.code_map parse-check path/to/file.py
 
 ### `agent_tools.tools.cpp_code_map`
 
-C and C++ source inspection and validation support built around libclang and
-compile databases. It helps map C++ files, inspect symbols, and parse-check
-changes with explicit build context.
-
-Typical commands:
+C and C++ inspection around libclang and compile databases:
 
 ```sh
 python -m agent_tools.tools.cpp_code_map map path/to/file.cpp --compile-db build
@@ -121,102 +198,96 @@ python -m agent_tools.tools.cpp_code_map parse-check path/to/file.cpp \
 
 ### `agent_tools.tools.diff_report`
 
-GitHub-style HTML diff review report generation. Review artifacts should live
-under a task's `report/diff/` directory, including the source diff, comments
-JSON, and generated HTML.
-
-Reports can include file-level comments, inline comments, guided story steps,
-diagram and log previews, diagram-to-code links, and evidence-led
-`Reviewer Summary` sections that interleave prose with diagram or log previews.
-
-Typical command:
+GitHub-style HTML diff review report generation:
 
 ```sh
 python -m agent_tools.tools.diff_report \
-  --diff-file report/diff/changes.diff \
-  --comments report/diff/comments.json \
-  --output report/diff/review.html
+  --diff-file tasks/my-task/report/diff/changes.diff \
+  --comments tasks/my-task/report/diff/comments.json \
+  --output tasks/my-task/report/diff/review.html
 ```
-
-### `agent_tools.tools.agent_workspace`
-
-Local desktop dashboard for navigating task directories and running routine
-workspace operations without spending agent context. Its visible application
-name is `Agent Workspace`, because the workspace can be driven by Codex, Claude
-Code, shell sessions, or another task-local agent.
-
-Launch it from the workspace root:
-
-```sh
-./agent-workspace
-```
-
-The dashboard provides:
-
-- a task list backed by the `tasks/` directory, with case-insensitive sorting
-  and quick task/folder context actions;
-- rendered `TASK_DESCRIPTION.md` and `TASK_CONTEXT.md` views with editable
-  task descriptions when needed;
-- a task action panel that reads `TASK_ACTIONS.json`, runs actions in the
-  active task terminal, and supports repository scanning, `task_check`, and
-  `git status`;
-- per-task terminal tabs, including an interactive Codex launcher that tells
-  the agent which task is active and which language to use;
-- an artifacts tab for logs, PlantUML/SVG diagrams, and diff-review outputs,
-  with open and cleanup actions;
-- persistent GUI settings for theme, UI language, text size, button text size,
-  and window geometry.
-
-### `agent_tools.tools.yaml_map`
-
-YAML structure inspection helpers for workflows and configuration files.
 
 ### `agent_tools.paf_workspace`
 
-PAF orchestration for reusable workflow automation. This owns domain scenarios,
-profiles, templates, reusable environment definitions, PAF-specific tests, and
-the task workflow checker:
+PAF orchestration for repeatable workflows, reusable environments, and task
+workflow checks:
 
 ```sh
-python -m agent_tools.paf_workspace.task_check <task-dir>
+python -m agent_tools.paf_workspace.task_check tasks/my-task
 ```
 
-## Deployment model
+Other included tools include `yaml_map`, `commit_msg`, `push_guard`, and the
+`agent_workspace` package behind the desktop dashboard.
 
-Use this repository as the root of an agent workspace:
+## Getting Started
+
+Open the workspace repository:
 
 ```sh
 git clone git@github.com:svlad-90/agent_tools.git agent-workspace
 cd agent-workspace
 ```
 
-Then create task directories next to `agent_tools/`:
+Then use one of the normal entry points.
 
-```text
-agent-workspace/
-  AGENTS.md
-  CLAUDE.md
-  agent_tools/
-  some-task/
-    TASK_CONTEXT.md
-    dev/
-    Dockerfile/
-    scripts/
-    report/
+### Start with an AI agent
+
+Open a terminal in the workspace root, start your agent, and ask it to create a
+new task or switch to an existing one. For example:
+
+```sh
+codex
 ```
 
-Because `.gitignore` ignores everything by default and explicitly re-includes
-only the reusable setup files, task directories remain local unless they are
-managed by their own nested repositories.
+Then say something like:
 
-## Maintenance notes
+```text
+Create a new workspace task for investigating <problem>.
+```
 
-- Keep workspace-wide behavior in the root `AGENTS.md`.
+or:
+
+```text
+Switch to the existing workspace task <task-name>.
+```
+
+The agent instructions in `AGENTS.md` tell supported agents how task
+directories, context files, validation notes, and workspace rules are supposed
+to work.
+
+### Start with the GUI
+
+Launch the desktop dashboard:
+
+```sh
+./agent-workspace
+```
+
+From there, create or select a task, inspect its context, run task actions, and
+launch a task-local AI agent session when needed.
+
+### Check the task
+
+After a task exists, `task_check` is the quick sanity check for the workspace
+contract:
+
+```sh
+python -m agent_tools.paf_workspace.task_check tasks/my-task
+```
+
+Because `.gitignore` ignores local task directories and generated artifacts,
+the reusable setup repository can stay clean while each task keeps its own
+working state.
+
+## Maintenance Notes
+
+- Keep agent-facing policy in `AGENTS.md` and `agent_tools/rules/`.
+- Keep this root `README.md` focused on human onboarding and project overview.
 - Keep standalone CLI tools in `agent_tools/tools/`.
-- Keep PAF orchestration and PAF workflow helpers in
+- Keep PAF orchestration and reusable environments in
   `agent_tools/paf_workspace/`.
-- Keep language-specific and workflow-specific requirements in
-  `agent_tools/rules/`.
+- Keep workspace-local skills in `agent_tools/skills/`.
+- Keep durable repeated findings in `agent_tools/knowledge/`.
 - Keep generated caches, task outputs, downloaded repositories, and local
-  reproduction artifacts out of this repository.
-- Commit messages must follow `agent_tools/rules/git-commits.md`.
+  reproduction artifacts out of the reusable setup repository.
+- Follow `agent_tools/rules/git-commits.md` for commit messages.

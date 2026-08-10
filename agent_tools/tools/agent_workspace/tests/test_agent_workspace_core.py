@@ -12,11 +12,16 @@ from agent_tools.tools.agent_workspace.core import TaskAction
 from agent_tools.tools.agent_workspace.core import TaskSummary
 from agent_tools.tools.agent_workspace.core import agent_executable
 from agent_tools.tools.agent_workspace.core import agent_install_command
+from agent_tools.tools.agent_workspace.core import agent_output_reports_missing_session
 from agent_tools.tools.agent_workspace.core import agent_output_requests_permission
+from agent_tools.tools.agent_workspace.core import agent_workspace_setting_or_default
+from agent_tools.tools.agent_workspace.core import clear_task_agent_session
+from agent_tools.tools.agent_workspace.core import codex_model_choices
 from agent_tools.tools.agent_workspace.core import codex_session_id_exists
 from agent_tools.tools.agent_workspace.core import discover_tasks
 from agent_tools.tools.agent_workspace.core import find_dev_git_repos
 from agent_tools.tools.agent_workspace.core import find_latest_codex_session_id
+from agent_tools.tools.agent_workspace.core import find_task_agent_session_id
 from agent_tools.tools.agent_workspace.core import load_task_agent
 from agent_tools.tools.agent_workspace.core import load_task_agent_session
 from agent_tools.tools.agent_workspace.core import load_task_actions
@@ -187,11 +192,15 @@ class FakeGtkTextTerminal:
 class FakeButton:
     def __init__(self) -> None:
         self.text = ""
+        self.state = ""
 
     def configure(self, **kwargs: object) -> None:
         text = kwargs.get("text")
         if isinstance(text, str):
             self.text = text
+        state = kwargs.get("state")
+        if isinstance(state, str):
+            self.state = state
 
 
 class FakeStringVar:
@@ -480,6 +489,16 @@ def test_codex_console_command_can_resume_session(tmp_path: Path) -> None:
     assert codex_task_context_message(summary, tmp_path) not in command
 
 
+def test_codex_console_command_uses_model_and_reasoning(tmp_path: Path) -> None:
+    task = tmp_path / "tasks" / "sample-task"
+    task.mkdir(parents=True)
+    summary = discover_tasks_with_context(task, tmp_path)
+
+    command = codex_console_command(tmp_path, summary, model="gpt-5.5", reasoning_effort="low")
+
+    assert command[:5] == [command[0], "--model", "gpt-5.5", "-c", 'model_reasoning_effort="low"']
+
+
 def test_ai_agent_console_command_supports_claude(tmp_path: Path) -> None:
     task = tmp_path / "tasks" / "sample-task"
     task.mkdir(parents=True)
@@ -491,15 +510,27 @@ def test_ai_agent_console_command_supports_claude(tmp_path: Path) -> None:
     assert "workspace task `sample-task`" in command[-1]
 
 
-def test_ai_agent_console_command_can_continue_claude(tmp_path: Path) -> None:
+def test_ai_agent_console_command_uses_claude_model_and_effort(tmp_path: Path) -> None:
+    task = tmp_path / "tasks" / "sample-task"
+    task.mkdir(parents=True)
+    summary = discover_tasks_with_context(task, tmp_path)
+
+    command = ai_agent_console_command(tmp_path, summary, "claude", model="sonnet", reasoning_effort="low")
+
+    assert command[:5] == [command[0], "--model", "sonnet", "--effort", "low"]
+    assert "workspace task `sample-task`" in command[-1]
+
+
+def test_ai_agent_console_command_starts_claude_when_resume_has_no_session_id(tmp_path: Path) -> None:
     task = tmp_path / "tasks" / "sample-task"
     task.mkdir(parents=True)
     summary = discover_tasks_with_context(task, tmp_path)
 
     command = ai_agent_console_command(tmp_path, summary, "claude", resume=True)
 
-    assert command == [command[0], "--continue"]
     assert command[0].endswith("claude")
+    assert "--continue" not in command
+    assert "workspace task `sample-task`" in command[-1]
 
 
 def test_ai_agent_console_command_can_use_claude_session_id(tmp_path: Path) -> None:
@@ -673,6 +704,10 @@ def test_agent_workspace_settings_persist_font_size(tmp_path: Path) -> None:
             "theme": "dark",
             "language": "ru",
             "default_agent": "claude",
+            "default_codex_model": "gpt-5.5",
+            "default_codex_reasoning": "medium",
+            "default_claude_model": "sonnet",
+            "default_claude_effort": "low",
             "geometry": "1200x800+10+20",
         },
         settings_path,
@@ -684,6 +719,10 @@ def test_agent_workspace_settings_persist_font_size(tmp_path: Path) -> None:
         "theme": "dark",
         "language": "ru",
         "default_agent": "claude",
+        "default_codex_model": "gpt-5.5",
+        "default_codex_reasoning": "medium",
+        "default_claude_model": "sonnet",
+        "default_claude_effort": "low",
         "geometry": "1200x800+10+20",
     }
 
@@ -695,12 +734,26 @@ def test_agent_workspace_settings_migrate_old_font_size(tmp_path: Path) -> None:
     assert load_agent_workspace_settings(settings_path) == {"text_font_size": 17}
 
 
+def test_agent_workspace_setting_or_default_treats_blank_as_missing() -> None:
+    settings = {
+        "default_codex_model": "",
+        "default_codex_reasoning": " ",
+        "default_claude_model": " sonnet ",
+    }
+
+    assert agent_workspace_setting_or_default(settings, "default_codex_model", "gpt-5.5") == "gpt-5.5"
+    assert agent_workspace_setting_or_default(settings, "default_codex_reasoning", "medium") == "medium"
+    assert agent_workspace_setting_or_default(settings, "default_claude_model", "opus") == "sonnet"
+    assert agent_workspace_setting_or_default(settings, "default_claude_effort", "medium") == "medium"
+
+
 def test_agent_workspace_settings_clamp_bad_font_size(tmp_path: Path) -> None:
     settings_path = tmp_path / "settings.json"
     settings_path.write_text(
         (
             '{"text_font_size": 100, "button_font_size": 4, '
-            '"theme": "blue", "language": "bad", "default_agent": "bad", "geometry": "bad"}'
+            '"theme": "blue", "language": "bad", "default_agent": "bad", '
+            '"default_codex_reasoning": "bad", "default_claude_effort": "bad", "geometry": "bad"}'
         ),
         encoding="utf-8",
     )
@@ -738,7 +791,36 @@ def test_task_agent_session_state_preserves_agent_selection(tmp_path: Path) -> N
     assert session.session_id == session_id
 
 
-def test_tk_ai_agent_button_label_reflects_resumable_session(tmp_path: Path) -> None:
+def test_find_task_agent_session_id_is_scoped_to_agent_type(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    task = workspace / "tasks" / "sample-task"
+    task.mkdir(parents=True)
+    summary = discover_tasks_with_context(task, workspace)
+    claude_session_id = "019feba2-e25e-76e1-9468-aa399758268f"
+
+    save_task_agent_session(summary, "claude", session_id=claude_session_id)
+
+    assert find_task_agent_session_id(summary, workspace, "claude") is None
+    assert find_task_agent_session_id(summary, workspace, "codex") is None
+
+
+def test_clear_task_agent_session_only_clears_selected_agent_type(tmp_path: Path) -> None:
+    task = tmp_path / "tasks" / "sample-task"
+    task.mkdir(parents=True)
+    summary = discover_tasks_with_context(task, tmp_path)
+    codex_session_id = "019feba2-e25e-76e1-9468-aa399758268f"
+    claude_session_id = "019feba2-e25e-76e1-9468-aa3997582690"
+
+    save_task_agent_session(summary, "codex", session_id=codex_session_id)
+    save_task_agent_session(summary, "claude", session_id=claude_session_id)
+
+    assert clear_task_agent_session(summary, "claude")
+
+    assert load_task_agent_session(summary, "claude").session_id is None
+    assert load_task_agent_session(summary, "codex").session_id == codex_session_id
+
+
+def test_tk_ai_agent_button_label_reflects_resumable_session(tmp_path: Path, monkeypatch) -> None:
     task = tmp_path / "tasks" / "sample-task"
     task.mkdir(parents=True)
     summary = discover_tasks_with_context(task, tmp_path)
@@ -747,20 +829,60 @@ def test_tk_ai_agent_button_label_reflects_resumable_session(tmp_path: Path) -> 
     gui.workspace = tmp_path
     gui.agent_var = FakeStringVar("claude")
     gui.run_ai_agent_button = FakeButton()
+    gui.reset_ai_agent_button = FakeButton()
     gui._running_agent_session = lambda selected_task: None  # type: ignore[method-assign]
 
     gui._update_ai_agent_button_label()
     assert gui.run_ai_agent_button.text == "Запустить ИИ агента"
+    assert gui.reset_ai_agent_button.state == "disabled"
 
-    save_task_agent_session(summary, "claude", session_id="019feba2-e25e-76e1-9468-aa399758268f")
+    gui.agent_var = FakeStringVar("codex")
+    codex_home = tmp_path / "home"
+    monkeypatch.setenv("HOME", str(codex_home))
+    codex_session_id = "019feba2-e25e-76e1-9468-aa399758268f"
+    codex_session_file = codex_home / ".codex" / "sessions" / f"{codex_session_id}.jsonl"
+    codex_session_file.parent.mkdir(parents=True)
+    codex_session_file.write_text("{}", encoding="utf-8")
+    save_task_agent_session(summary, "codex", session_id=codex_session_id)
+    gui.workspace = tmp_path
     gui._update_ai_agent_button_label()
 
     assert gui.run_ai_agent_button.text == "Восстановить сессию ИИ агента"
+    assert gui.reset_ai_agent_button.state == "normal"
 
-    gui._running_agent_session = lambda selected_task: type("Session", (), {"kind": "claude"})()  # type: ignore[method-assign]
+    gui.agent_var = FakeStringVar("claude")
+    gui._update_ai_agent_button_label()
+
+    assert gui.run_ai_agent_button.text == "Запустить ИИ агента"
+    assert gui.reset_ai_agent_button.state == "disabled"
+
+    gui.agent_var = FakeStringVar("codex")
+    gui._running_agent_session = lambda selected_task: type("Session", (), {"kind": "codex"})()  # type: ignore[method-assign]
     gui._update_ai_agent_button_label()
 
     assert gui.run_ai_agent_button.text == "ИИ агент запущен"
+    assert gui.reset_ai_agent_button.state == "normal"
+
+
+def test_task_session_highlight_uses_each_tasks_saved_agent(tmp_path: Path, monkeypatch) -> None:
+    task = tmp_path / "tasks" / "sample-task"
+    task.mkdir(parents=True)
+    summary = discover_tasks_with_context(task, tmp_path)
+    gui = AgentWorkspace.__new__(AgentWorkspace)
+    gui.workspace = tmp_path
+    gui.default_agent = "codex"
+    gui.agent_var = FakeStringVar("codex")
+
+    home = tmp_path / "home"
+    monkeypatch.setenv("HOME", str(home))
+    session_id = "019feba2-e25e-76e1-9468-aa399758268f"
+    session_file = home / ".codex" / "sessions" / f"{session_id}.jsonl"
+    session_file.parent.mkdir(parents=True)
+    session_file.write_text("{}", encoding="utf-8")
+    save_task_agent(summary, "codex")
+    save_task_agent_session(summary, "codex", session_id=session_id)
+
+    assert gui._task_has_resumable_agent_session(summary)
 
 
 def test_find_latest_codex_session_id_matches_task_prompt(tmp_path: Path) -> None:
@@ -821,7 +943,7 @@ def test_task_has_valid_agent_session_checks_any_agent(tmp_path: Path) -> None:
 
     save_task_agent_session(summary, "claude", session_id="019feba2-e25e-76e1-9468-aa399758268f")
 
-    assert task_has_valid_agent_session(summary, workspace)
+    assert not task_has_valid_agent_session(summary, workspace)
     assert not task_agent_session_id_is_valid(summary, workspace, "codex")
 
 
@@ -843,6 +965,25 @@ def test_agent_install_commands_are_available() -> None:
     assert agent_install_command("claude") == "npm install -g @anthropic-ai/claude-code"
 
 
+def test_codex_model_choices_loads_model_cache_slugs(tmp_path: Path) -> None:
+    cache = tmp_path / "models_cache.json"
+    cache.write_text(
+        json.dumps(
+            {
+                "models": [
+                    {"slug": "gpt-5.6-sol"},
+                    {"slug": "gpt-5.5"},
+                    {"slug": "gpt-5.5"},
+                    {"display_name": "missing slug"},
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    assert codex_model_choices(cache) == ("", "gpt-5.6-sol", "gpt-5.5")
+
+
 def test_agent_output_requests_permission_detects_approval_prompts() -> None:
     assert agent_output_requests_permission("Command requires approval before running.")
     assert agent_output_requests_permission("Do you want to allow this command? yes/no")
@@ -856,6 +997,26 @@ def test_agent_output_requests_permission_detects_approval_prompts() -> None:
         "  3. No, and tell Codex what to do differently (esc)\n"
     )
     assert not agent_output_requests_permission("Build completed successfully.")
+
+
+def test_agent_output_reports_missing_session_detects_cli_error() -> None:
+    assert agent_output_reports_missing_session(
+        "No conversation found with session ID: 71ca3372-3c10-4501-ad2a-145c5b9305de"
+    )
+    assert not agent_output_reports_missing_session("Conversation resumed.")
+
+
+def test_gtk_running_agent_ignores_exited_agent_terminal(tmp_path: Path) -> None:
+    task = tmp_path / "tasks" / "sample-task"
+    task.mkdir(parents=True)
+    summary = discover_tasks_with_context(task, tmp_path)
+    session = TerminalSession(1, summary.path, "claude", object(), object(), exited=True)
+    gui = WorkspaceGtkGui.__new__(WorkspaceGtkGui)
+    gui.terminal_sessions = {1: session}
+    gui._current_task_terminal_sessions = lambda selected_task: [session]  # type: ignore[method-assign]
+
+    assert gui._running_agent_session(summary) is None
+    assert gui._running_agent_sessions() == []
 
 
 def test_gtk_terminal_text_tail_reads_recent_text() -> None:
@@ -993,7 +1154,10 @@ def test_gtk_translates_agent_and_repo_scan_labels() -> None:
     assert GTK_TRANSLATIONS["ru"]["run_ai_agent"] == "Запустить ИИ агента"
     assert GTK_TRANSLATIONS["ru"]["ai_agent_running"] == "ИИ агент запущен"
     assert GTK_TRANSLATIONS["ru"]["restore_ai_agent_session"] == "Восстановить сессию ИИ агента"
+    assert GTK_TRANSLATIONS["ru"]["reset_ai_agent_session"] == "Сбросить сессию"
     assert GTK_TRANSLATIONS["ru"]["default_agent"] == "ИИ агент по умолчанию"
+    assert GTK_TRANSLATIONS["ru"]["default_claude_model"] == "Модель Claude"
+    assert GTK_TRANSLATIONS["ru"]["default_codex_model"] == "Модель Codex"
     assert "закроет текущую сессию" in GTK_TRANSLATIONS["ru"]["confirm_switch_agent_body"]
     assert "локальные процессы агентов" in GTK_TRANSLATIONS["ru"]["confirm_close_running_agents_body"]
     assert "Восстанавливаемые диалоги" in GTK_TRANSLATIONS["ru"]["confirm_close_running_agents_body"]

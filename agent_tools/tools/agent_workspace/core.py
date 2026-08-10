@@ -27,6 +27,23 @@ AGENT_WORKSPACE_THEMES = ("light", "dark")
 AGENT_WORKSPACE_LANGUAGES = ("ru", "uk", "en")
 AGENT_WORKSPACE_AGENTS = ("codex", "claude")
 AGENT_WORKSPACE_DEFAULT_AGENT = "codex"
+AGENT_WORKSPACE_DEFAULT_CODEX_MODEL = "gpt-5.5"
+AGENT_WORKSPACE_DEFAULT_CODEX_REASONING = "medium"
+AGENT_WORKSPACE_DEFAULT_CLAUDE_MODEL = "sonnet"
+AGENT_WORKSPACE_DEFAULT_CLAUDE_EFFORT = "medium"
+AGENT_WORKSPACE_CODEX_MODEL_FALLBACKS = (
+    "",
+    "gpt-5.6-sol",
+    "gpt-5.6-sol-wm",
+    "gpt-5.6-terra",
+    "gpt-5.6-luna",
+    "gpt-5.5",
+    "gpt-5.4",
+    "gpt-5.4-mini",
+    "gpt-5.3-codex-spark",
+)
+AGENT_WORKSPACE_CLAUDE_MODELS = ("", "sonnet", "opus", "fable")
+AGENT_WORKSPACE_REASONING_EFFORTS = ("", "low", "medium", "high", "xhigh", "max")
 AGENT_WORKSPACE_AGENT_LABELS = {
     "codex": "Codex",
     "claude": "Claude Code",
@@ -51,6 +68,10 @@ AGENT_PERMISSION_PROMPT_RE = re.compile(
     r"(?:permission|approval)\s+(?:required|needed|requested)|"
     r"would you like to run the following command\?|"
     r"do you want to (?:allow|approve|continue|proceed))",
+    re.IGNORECASE,
+)
+AGENT_MISSING_SESSION_RE = re.compile(
+    r"no\s+conversation\s+found\s+with\s+session\s+id",
     re.IGNORECASE,
 )
 
@@ -285,11 +306,47 @@ def agent_install_command(agent: str) -> str:
     return AGENT_WORKSPACE_AGENT_INSTALL_COMMANDS.get(agent, "")
 
 
+def codex_model_choices(cache_path: Path | None = None) -> tuple[str, ...]:
+    path = cache_path or (Path.home() / ".codex" / "models_cache.json")
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return AGENT_WORKSPACE_CODEX_MODEL_FALLBACKS
+    models = data.get("models")
+    if not isinstance(models, list):
+        return AGENT_WORKSPACE_CODEX_MODEL_FALLBACKS
+    choices = [""]
+    for model in models:
+        if not isinstance(model, dict):
+            continue
+        slug = model.get("slug")
+        if isinstance(slug, str) and slug and slug not in choices:
+            choices.append(slug)
+    if len(choices) == 1:
+        return AGENT_WORKSPACE_CODEX_MODEL_FALLBACKS
+    return tuple(choices)
+
+
+def agent_workspace_setting_or_default(settings: dict[str, int | str], key: str, default: str) -> str:
+    value = settings.get(key)
+    if not isinstance(value, str):
+        return default
+    value = value.strip()
+    return value or default
+
+
 def agent_output_requests_permission(text: str) -> bool:
     normalized = ANSI_OSC_RE.sub("", text)
     normalized = ANSI_ESCAPE_RE.sub("", normalized)
     normalized = normalized.replace("\r", "\n")
     return AGENT_PERMISSION_PROMPT_RE.search(normalized[-4000:]) is not None
+
+
+def agent_output_reports_missing_session(text: str) -> bool:
+    normalized = ANSI_OSC_RE.sub("", text)
+    normalized = ANSI_ESCAPE_RE.sub("", normalized)
+    normalized = normalized.replace("\r", "\n")
+    return AGENT_MISSING_SESSION_RE.search(normalized[-4000:]) is not None
 
 
 def task_state_path(task: TaskSummary) -> Path:
@@ -369,6 +426,21 @@ def save_task_agent_session(task: TaskSummary, agent: str, session_id: str | Non
     save_task_state(task, data)
 
 
+def clear_task_agent_session(task: TaskSummary, agent: str) -> bool:
+    agent = normalize_agent(agent)
+    data = load_task_state(task)
+    sessions = data.get("agent_sessions")
+    if not isinstance(sessions, dict) or agent not in sessions:
+        return False
+    sessions.pop(agent, None)
+    if sessions:
+        data["agent_sessions"] = sessions
+    else:
+        data.pop("agent_sessions", None)
+    save_task_state(task, data)
+    return True
+
+
 def new_agent_session_id() -> str:
     return str(uuid.uuid4())
 
@@ -392,13 +464,25 @@ def task_agent_session_id_is_valid(
     agent: str,
     home: Path | None = None,
 ) -> bool:
+    return find_task_agent_session_id(task, workspace, agent, home=home) is not None
+
+
+def find_task_agent_session_id(
+    task: TaskSummary,
+    workspace: Path,
+    agent: str,
+    home: Path | None = None,
+) -> str | None:
     agent = normalize_agent(agent)
     session = load_task_agent_session(task, agent)
     if session.session_id is not None:
         if agent == "codex":
-            return codex_session_id_exists(session.session_id, home=home)
-        return True
-    return agent == "codex" and session.resume and find_latest_codex_session_id(task, workspace, home=home) is not None
+            if codex_session_id_exists(session.session_id, home=home):
+                return session.session_id
+    if agent == "codex" and session.resume:
+        return find_latest_codex_session_id(task, workspace, home=home)
+    return None
+
 
 
 def task_has_valid_agent_session(task: TaskSummary, workspace: Path, home: Path | None = None) -> bool:
@@ -456,6 +540,10 @@ def load_agent_workspace_settings(path: Path | None = None) -> dict[str, int | s
     language = data.get("language")
     geometry = data.get("geometry")
     default_agent = data.get("default_agent")
+    default_codex_model = data.get("default_codex_model")
+    default_codex_reasoning = data.get("default_codex_reasoning")
+    default_claude_model = data.get("default_claude_model")
+    default_claude_effort = data.get("default_claude_effort")
     if isinstance(text_font_size, int):
         settings["text_font_size"] = max(8, min(28, text_font_size))
     if isinstance(button_font_size, int):
@@ -468,6 +556,14 @@ def load_agent_workspace_settings(path: Path | None = None) -> dict[str, int | s
         settings["geometry"] = geometry
     if isinstance(default_agent, str) and default_agent in AGENT_WORKSPACE_AGENTS:
         settings["default_agent"] = default_agent
+    if isinstance(default_codex_model, str):
+        settings["default_codex_model"] = default_codex_model.strip()
+    if isinstance(default_codex_reasoning, str) and default_codex_reasoning in AGENT_WORKSPACE_REASONING_EFFORTS:
+        settings["default_codex_reasoning"] = default_codex_reasoning
+    if isinstance(default_claude_model, str):
+        settings["default_claude_model"] = default_claude_model.strip()
+    if isinstance(default_claude_effort, str) and default_claude_effort in AGENT_WORKSPACE_REASONING_EFFORTS:
+        settings["default_claude_effort"] = default_claude_effort
     return settings
 
 
