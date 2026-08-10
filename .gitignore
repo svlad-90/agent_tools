@@ -19,6 +19,10 @@
 !agent_tools/**
 !.gitignore
 
+# Private reusable environment overlays live beside the public environments
+# domain, but must never be committed.
+agent_tools/paf_workspace/domains/environments/private_envs/
+
 __pycache__/
 *.py[cod]
 .pytest_cache/

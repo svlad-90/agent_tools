@@ -271,3 +271,32 @@ class check_cpp_code_map_tools(EnvironmentTask):
             communication_mode=CommunicationMode.PIPE_OUTPUT,
             interaction_mode=InteractionMode.IGNORE_INPUT,
         )
+
+
+class run_container_command(EnvironmentTask):
+    """Run an arbitrary command inside a configured environment container."""
+
+    def __init__(self):
+        super().__init__()
+        self.set_name(run_container_command.__name__)
+
+    def execute(self):
+        command = self.param("ENVIRONMENT_CONTAINER_COMMAND", "") or ""
+        self.assertion(command.strip(), "ENVIRONMENT_CONTAINER_COMMAND must not be empty")
+        self.docker_subprocess_must_succeed(
+            self.container_alias(),
+            command,
+            timeout=int(self.param("ENVIRONMENT_CONTAINER_COMMAND_TIMEOUT_SEC", "0") or "0"),
+            communication_mode=CommunicationMode.PIPE_OUTPUT,
+            interaction_mode=InteractionMode.IGNORE_INPUT,
+            avoid_printing_command=self.bool_param("ENVIRONMENT_CONTAINER_COMMAND_HIDE_COMMAND"),
+            avoid_printing_command_reason=self.param(
+                "ENVIRONMENT_CONTAINER_COMMAND_HIDE_COMMAND_REASON",
+                "The command contains sensitive information",
+            ),
+            avoid_printing_command_output=self.bool_param("ENVIRONMENT_CONTAINER_COMMAND_HIDE_OUTPUT"),
+            avoid_printing_command_output_reason=self.param(
+                "ENVIRONMENT_CONTAINER_COMMAND_HIDE_OUTPUT_REASON",
+                "The command output contains sensitive information",
+            ),
+        )
