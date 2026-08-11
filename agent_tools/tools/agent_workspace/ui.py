@@ -5,7 +5,6 @@ from datetime import datetime
 from pathlib import Path
 import argparse
 import fcntl
-import json
 import os
 import platform
 import pty
@@ -26,6 +25,13 @@ from .core import TASK_CONTEXT_BUDGET
 from .core import ConsoleChunk
 from .core import PAF_HIDE_TASK_ENV_VAR
 from .core import TASK_ACTION_LOGS_DIR
+from .core import AGENT_RUNNING_SPINNER_FRAMES
+from .core import AGENT_STATUS_MANUAL_ENTRIES
+from .core import AGENT_STATUS_MANUAL_MENU_LABEL
+from .core import AGENT_STATUS_MANUAL_SUBTITLE
+from .core import AGENT_STATUS_MANUAL_TITLE
+from .core import AGENT_STATUS_MANUAL_USAGE_ENTRIES
+from .core import AGENT_STATUS_MANUAL_USAGE_TITLE
 from .core import AgentModelSettings
 from .core import TaskAction
 from .core import TaskSummary
@@ -33,10 +39,10 @@ from .core import AGENT_WORKSPACE_AGENTS
 from .core import AGENT_WORKSPACE_CLAUDE_MODELS
 from .core import AGENT_WORKSPACE_REASONING_EFFORTS
 from .core import AGENT_WORKSPACE_THEMES
-from .core import AGENT_PERMISSION_MARKER
 from .core import agent_executable
 from .core import agent_install_command
 from .core import agent_label
+from .core import agent_status_tooltip_text
 from .core import ai_agent_launch_state_for_selection
 from .core import ai_agent_model_settings
 from .core import ai_agent_switch_decision
@@ -65,8 +71,9 @@ from .core import session_is_agent
 from .core import session_is_running_agent
 from .core import session_should_clear_pending_permission
 from .core import task_action_log_basename
+from .core import task_agent_status_text
+from .core import task_agent_session_markers
 from .core import task_for_path
-from .core import task_selected_agent_has_resumable_state
 
 
 @dataclass
@@ -85,6 +92,38 @@ class ConsoleSession:
     exited: bool = False
 
 
+class HoverTooltip:
+    def __init__(self, widget: tk.Widget) -> None:
+        self.widget = widget
+        self.after_id: str | None = None
+        self.window: tk.Toplevel | None = None
+
+    def schedule(self, text: str, x_root: int, y_root: int) -> None:
+        self.cancel()
+        self.after_id = self.widget.after(550, lambda: self.show(text, x_root, y_root))
+
+    def show(self, text: str, x_root: int, y_root: int) -> None:
+        self.after_id = None
+        self.hide()
+        window = tk.Toplevel(self.widget)
+        window.wm_overrideredirect(True)
+        window.wm_geometry(f"+{x_root + 12}+{y_root + 14}")
+        label = ttk.Label(window, text=text, padding=(6, 3), relief=tk.SOLID, borderwidth=1)
+        label.pack()
+        self.window = window
+
+    def cancel(self) -> None:
+        if self.after_id is not None:
+            self.widget.after_cancel(self.after_id)
+            self.after_id = None
+        self.hide()
+
+    def hide(self) -> None:
+        if self.window is not None:
+            self.window.destroy()
+            self.window = None
+
+
 _AI_AGENT_BUTTON_LABELS = {
     "run_ai_agent": "Запустить ИИ агента",
     "restore_ai_agent_session": "Восстановить сессию ИИ агента",
@@ -100,14 +139,13 @@ class AgentWorkspace:
         self.selected_task: TaskSummary | None = None
         self.messages: queue.Queue[tuple[str, object]] = queue.Queue()
         self.task_actions: list[TaskAction] = []
-        self.git_repo_options: list[Path] = []
-        self.git_repos_loaded_for: Path | None = None
         self.console_sessions: dict[int, ConsoleSession] = {}
         self.active_console_id: int | None = None
         self.console_context_text: tk.Text | None = None
         self.console_context_selection = ""
         self.next_console_id = 1
         self._updating_agent_selection = False
+        self._agent_spinner_index = 0
         default_font_size = int(tkfont.nametofont("TkDefaultFont").cget("size"))
         settings = agent_workspace_runtime_settings(
             load_agent_workspace_settings(),
@@ -150,12 +188,14 @@ class AgentWorkspace:
         self.root.title(f"Agent Workspace - {self.workspace}")
         self.root.geometry(self.window_geometry)
         self.root.protocol("WM_DELETE_WINDOW", self.close)
+        self.root.bind_all("<F1>", self._open_manual_from_key)
         self._apply_font_size()
         self._build_ui()
         self._apply_font_size()
         self._apply_theme()
         self.refresh_tasks()
         self._poll_messages()
+        self._animate_agent_status()
 
     def _build_ui(self) -> None:
         toolbar = ttk.Frame(self.root, padding=6)
@@ -179,7 +219,7 @@ class AgentWorkspace:
 
         left = ttk.Frame(main, padding=6)
         main.add(left, weight=1)
-        columns = ("details",)
+        columns = ("agent_status", "details")
         self.task_tree = ttk.Treeview(
             left,
             columns=columns,
@@ -188,9 +228,11 @@ class AgentWorkspace:
             style="Workspace.Treeview",
         )
         self.task_tree.heading("#0", text="Task")
+        self.task_tree.heading("agent_status", text="ИИ")
         self.task_tree.heading("details", text="Task Details")
-        self.task_tree.column("#0", width=260)
-        self.task_tree.column("details", width=270)
+        self.task_tree.column("#0", width=250)
+        self.task_tree.column("agent_status", width=92, minwidth=72, anchor=tk.CENTER, stretch=False)
+        self.task_tree.column("details", width=240)
         self.task_tree.pack(fill=tk.BOTH, expand=True)
         self.task_tree.bind("<<TreeviewSelect>>", self._on_task_selected)
         self.task_tree.bind("<Double-1>", self._on_task_double_clicked)
@@ -199,9 +241,15 @@ class AgentWorkspace:
         self.task_tree.bind("<space>", self._ignore_task_tree_keyboard_activation)
         self.task_tree.bind("<Button-3>", self._on_task_context_menu)
         self.task_tree.bind("<Button-2>", self._on_task_context_menu)
+        self.task_status_tooltip = HoverTooltip(self.task_tree)
+        self.task_tree.bind("<Motion>", self._on_task_tree_motion)
+        self.task_tree.bind("<Leave>", self._hide_task_status_tooltip)
+        self.task_tree.bind("<ButtonPress>", self._hide_task_status_tooltip, add=True)
         self.task_context_menu = tk.Menu(self.root, tearoff=False)
         self.task_context_menu.add_command(label="Open Task", command=self.open_task)
         self.task_context_menu.add_command(label="Open dev/", command=self.open_dev)
+        self.task_context_menu.add_separator()
+        self.task_context_menu.add_command(label=AGENT_STATUS_MANUAL_MENU_LABEL, command=self.open_agent_status_manual)
         self.console_context_menu = tk.Menu(self.root, tearoff=False)
         self.console_context_menu.add_command(label="Copy", command=self._copy_console_selection)
         self.console_context_menu.add_command(label="Paste", command=self._paste_console_clipboard)
@@ -254,20 +302,6 @@ class AgentWorkspace:
             pady=2,
         )
         ttk.Button(toolbar, text="Reload actions", command=self.reload_selected_task_actions).pack(
-            side=tk.LEFT,
-            padx=2,
-            pady=2,
-        )
-        self.git_repo_var = tk.StringVar(value="")
-        self.git_repo_combo = ttk.Combobox(
-            toolbar,
-            textvariable=self.git_repo_var,
-            state="readonly",
-            width=46,
-        )
-        self.git_repo_combo.pack(side=tk.LEFT, padx=2, pady=2)
-        self.git_repo_combo.bind("<<ComboboxSelected>>", self._on_git_repo_selected)
-        ttk.Button(toolbar, text="Scan repos", command=self.scan_selected_git_repos).pack(
             side=tk.LEFT,
             padx=2,
             pady=2,
@@ -369,7 +403,7 @@ class AgentWorkspace:
                 iid=str(index),
                 text=self._task_label(task),
                 tags=self._task_tags(task),
-                values=(details,),
+                values=(self._task_agent_status(task), details),
             )
             task_iids[task.name] = str(index)
         over_budget = sum(1 for task in self.tasks if task.context_over_budget)
@@ -409,15 +443,142 @@ class AgentWorkspace:
     def _ignore_task_tree_keyboard_activation(self, _event: object) -> str:
         return "break"
 
+    def _on_task_tree_motion(self, event: tk.Event[ttk.Treeview]) -> None:
+        column = self.task_tree.identify_column(event.x)
+        region = self.task_tree.identify_region(event.x, event.y)
+        row = self.task_tree.identify_row(event.y)
+        if column == "#1" and region == "cell" and row:
+            values = self.task_tree.item(row, "values")
+            status_text = str(values[0]) if values else ""
+            tooltip_text = agent_status_tooltip_text(status_text)
+            if tooltip_text:
+                self.task_status_tooltip.schedule(tooltip_text, event.x_root, event.y_root)
+            else:
+                self.task_status_tooltip.cancel()
+        else:
+            self.task_status_tooltip.cancel()
+
+    def _hide_task_status_tooltip(self, _event: object | None = None) -> None:
+        self.task_status_tooltip.cancel()
+
     def _on_task_context_menu(self, event: tk.Event[tk.Misc]) -> None:
         row = self.task_tree.identify_row(event.y)
-        if not row:
-            return
-        self.task_tree.selection_set(row)
-        self.task_tree.focus(row)
-        self._on_task_selected(event)
+        if row:
+            self.task_tree.selection_set(row)
+            self.task_tree.focus(row)
+            self._on_task_selected(event)
         self.task_context_menu.tk_popup(event.x_root, event.y_root)
         self.task_context_menu.grab_release()
+
+    def _open_manual_from_key(self, _event: object) -> str:
+        self.open_agent_status_manual()
+        return "break"
+
+    def open_agent_status_manual(self) -> None:
+        colors = _theme_colors(self.theme)
+        window = tk.Toplevel(self.root)
+        window.title(AGENT_STATUS_MANUAL_TITLE)
+        window.transient(self.root)
+        window.resizable(False, False)
+        window.configure(background=colors["background"])
+
+        frame = ttk.Frame(window, padding=18)
+        frame.pack(fill=tk.BOTH, expand=True)
+        title_font = tkfont.Font(family=self.ui_font.actual("family"), size=self.button_font_size + 3, weight="bold")
+        body_font = tkfont.Font(family=self.ui_font.actual("family"), size=self.button_font_size)
+        marker_font = tkfont.Font(family=self.ui_font.actual("family"), size=self.button_font_size + 5, weight="bold")
+
+        tk.Label(
+            frame,
+            text=AGENT_STATUS_MANUAL_TITLE,
+            font=title_font,
+            background=colors["background"],
+            foreground=colors["foreground"],
+        ).grid(row=0, column=0, columnspan=3, sticky=tk.W)
+        tk.Label(
+            frame,
+            text=AGENT_STATUS_MANUAL_SUBTITLE,
+            font=body_font,
+            background=colors["background"],
+            foreground=colors["muted_foreground"],
+        ).grid(row=1, column=0, columnspan=3, sticky=tk.W, pady=(2, 12))
+
+        tk.Label(
+            frame,
+            text=AGENT_STATUS_MANUAL_USAGE_TITLE,
+            font=body_font,
+            background=colors["background"],
+            foreground=colors["foreground"],
+        ).grid(row=2, column=0, columnspan=3, sticky=tk.W, pady=(0, 6))
+
+        row = 3
+        for name, description in AGENT_STATUS_MANUAL_USAGE_ENTRIES:
+            tk.Label(
+                frame,
+                text=name,
+                font=body_font,
+                background=colors["background"],
+                foreground=colors["foreground"],
+            ).grid(row=row, column=0, sticky=tk.W, pady=3)
+            tk.Label(
+                frame,
+                text=description,
+                font=body_font,
+                background=colors["background"],
+                foreground=colors["muted_foreground"],
+            ).grid(row=row, column=1, columnspan=2, sticky=tk.W, padx=(12, 0), pady=3)
+            row += 1
+
+        tk.Label(
+            frame,
+            text=AGENT_STATUS_MANUAL_SUBTITLE,
+            font=body_font,
+            background=colors["background"],
+            foreground=colors["foreground"],
+        ).grid(row=row, column=0, columnspan=3, sticky=tk.W, pady=(14, 6))
+        row += 1
+
+        for marker, label, description in AGENT_STATUS_MANUAL_ENTRIES:
+            display_marker = AGENT_RUNNING_SPINNER_FRAMES[self._agent_spinner_index] if marker == "⚙" else marker
+            tk.Label(
+                frame,
+                text=display_marker,
+                width=4,
+                anchor=tk.CENTER,
+                font=marker_font,
+                background=colors["text_background"],
+                foreground=colors["foreground"],
+                padx=8,
+                pady=4,
+            ).grid(row=row, column=0, sticky=tk.NSEW, pady=4)
+            tk.Label(
+                frame,
+                text=label,
+                font=body_font,
+                background=colors["background"],
+                foreground=colors["foreground"],
+            ).grid(row=row, column=1, sticky=tk.W, padx=(12, 8), pady=4)
+            tk.Label(
+                frame,
+                text=description,
+                font=body_font,
+                background=colors["background"],
+                foreground=colors["muted_foreground"],
+            ).grid(row=row, column=2, sticky=tk.W, pady=4)
+            row += 1
+
+        close_button = ttk.Button(frame, text="OK", command=window.destroy)
+        close_button.grid(row=row, column=0, columnspan=3, sticky=tk.E, pady=(16, 0))
+        window.update_idletasks()
+        width = window.winfo_width()
+        height = window.winfo_height()
+        root_x = self.root.winfo_rootx()
+        root_y = self.root.winfo_rooty()
+        x = root_x + max((self.root.winfo_width() - width) // 2, 0)
+        y = root_y + max((self.root.winfo_height() - height) // 2, 0)
+        window.geometry(f"+{x}+{y}")
+        window.grab_set()
+        close_button.focus_set()
 
     def _on_notebook_tab_changed(self, _event: object) -> None:
         if self.selected_task is not None and self._is_console_tab_selected():
@@ -657,11 +818,6 @@ class AgentWorkspace:
             return
         self._send_command_to_task_console(task, task_check_shell_command(self.workspace, task))
 
-    def scan_selected_git_repos(self) -> None:
-        task = self._require_task()
-        if task is not None:
-            self._ensure_git_repos_loaded(task)
-
     def run_custom_task_action(self, action: TaskAction) -> None:
         task = self._require_task()
         if task is None:
@@ -676,10 +832,6 @@ class AgentWorkspace:
         self.actions_message_var.set(action_errors.strip())
 
     def _reset_actions_tab(self, task: TaskSummary) -> None:
-        self.git_repo_options = []
-        self.git_repos_loaded_for = None
-        self.git_repo_combo.configure(values=(), state=tk.DISABLED)
-        self.git_repo_var.set("")
         self.task_actions = []
 
     def _load_task_action_buttons(self, task: TaskSummary) -> str:
@@ -696,76 +848,6 @@ class AgentWorkspace:
         if not errors:
             return ""
         return "\n".join(errors) + "\n\n"
-
-    def _ensure_git_repos_loaded(self, task: TaskSummary) -> None:
-        if self.git_repos_loaded_for == task.path:
-            return
-        self._refresh_git_repos(task)
-
-    def _refresh_git_repos(self, task: TaskSummary) -> None:
-        completed = subprocess.run(
-            [
-                sys_executable(),
-                "-m",
-                "agent_tools.tools.agent_workspace.actions",
-                "scan-repos",
-                "--workspace",
-                str(self.workspace),
-                "--task",
-                str(task.path),
-            ],
-            check=False,
-            text=True,
-            capture_output=True,
-        )
-        if completed.returncode != 0:
-            self.actions_message_var.set((completed.stderr or completed.stdout).strip())
-            return
-        self.git_repo_options = [Path(path) for path in json.loads(completed.stdout)]
-        self.git_repos_loaded_for = task.path
-        labels = [self._repo_label(task, repo) for repo in self.git_repo_options]
-        self.git_repo_combo.configure(values=labels)
-        if not labels:
-            self.git_repo_var.set("")
-            self.git_repo_combo.configure(state=tk.DISABLED)
-            self.actions_message_var.set("No git repositories found under dev/.")
-            return
-        self.git_repo_combo.configure(state="readonly")
-        self.git_repo_var.set(labels[0])
-
-    def _on_git_repo_selected(self, _event: object) -> None:
-        task = self.selected_task
-        repo = self._current_git_repo_without_dialog()
-        session = self._active_console()
-        if task is None or repo is None or session is None:
-            return
-        if session.kind != "shell" or session.task_path != task.path:
-            return
-        self._write_to_console(
-            session.session_id,
-            f"{shlex.join(['cd', str(repo)])}\n".encode(),
-            protect_current_line=True,
-        )
-
-    def _selected_git_repo(self) -> Path | None:
-        if not self.git_repo_options:
-            messagebox.showinfo("No repository", "No git repositories found under dev/.")
-            return None
-        return self._current_git_repo_without_dialog()
-
-    def _current_git_repo_without_dialog(self) -> Path | None:
-        if not self.git_repo_options:
-            return None
-        index = self.git_repo_combo.current()
-        if index < 0 or index >= len(self.git_repo_options):
-            index = 0
-        return self.git_repo_options[index]
-
-    def _repo_label(self, task: TaskSummary, repo: Path) -> str:
-        try:
-            return str(repo.relative_to(task.path / "dev"))
-        except ValueError:
-            return str(repo)
 
     def _poll_messages(self) -> None:
         while True:
@@ -951,15 +1033,24 @@ class AgentWorkspace:
         self.reset_ai_agent_button.configure(state=tk.NORMAL if state.reset_enabled else tk.DISABLED)
 
     def _task_has_resumable_agent_session(self, task: TaskSummary) -> bool:
-        return task_selected_agent_has_resumable_state(task, self.workspace, self.default_agent)
+        return bool(task_agent_session_markers(task, self.workspace))
 
     def _task_for_path(self, path: Path) -> TaskSummary:
         return task_for_path(self.tasks, path)
 
     def _task_tags(self, task: TaskSummary) -> tuple[str, ...]:
-        if self._task_has_resumable_agent_session(task):
-            return ("agent-session",)
         return ()
+
+    def _task_running_agent_kinds(self, task: TaskSummary) -> tuple[str, ...]:
+        return tuple(
+            session.kind
+            for session in self._current_task_console_sessions(task)
+            if session_is_running_agent(
+                session_kind=session.kind,
+                exited=session.exited,
+            )
+            and session.process.poll() is None
+        )
 
     def _running_agent_session(self, task: TaskSummary) -> ConsoleSession | None:
         for session in self._current_task_console_sessions(task):
@@ -995,39 +1086,51 @@ class AgentWorkspace:
         )
 
     def _task_label(self, task: TaskSummary) -> str:
-        if self._task_has_pending_agent_permission(task):
-            return f"{AGENT_PERMISSION_MARKER} {task.name}"
         return task.name
+
+    def _task_agent_status(self, task: TaskSummary) -> str:
+        return task_agent_status_text(
+            task,
+            self.workspace,
+            permission_pending=self._task_has_pending_agent_permission(task),
+            running_agents=self._task_running_agent_kinds(task),
+            spinner_frame=AGENT_RUNNING_SPINNER_FRAMES[self._agent_spinner_index],
+        )
 
     def _refresh_task_permission_indicators(self) -> None:
         for index, task in enumerate(self.tasks):
             iid = str(index)
             if self.task_tree.exists(iid):
                 self.task_tree.item(iid, text=self._task_label(task))
+                values = list(self.task_tree.item(iid, "values"))
+                if values:
+                    values[0] = self._task_agent_status(task)
+                    self.task_tree.item(iid, values=tuple(values))
 
     def _refresh_task_session_indicators(self) -> None:
         for index, task in enumerate(self.tasks):
             iid = str(index)
             if self.task_tree.exists(iid):
+                self.task_tree.item(iid, text=self._task_label(task))
                 self.task_tree.item(iid, tags=self._task_tags(task))
+                values = list(self.task_tree.item(iid, "values"))
+                if values:
+                    values[0] = self._task_agent_status(task)
+                    self.task_tree.item(iid, values=tuple(values))
         self._refresh_tree_selection_style()
+
+    def _animate_agent_status(self) -> None:
+        self._agent_spinner_index = (self._agent_spinner_index + 1) % len(AGENT_RUNNING_SPINNER_FRAMES)
+        if self._running_agent_sessions():
+            self._refresh_task_session_indicators()
+        self.root.after(120, self._animate_agent_status)
 
     def _refresh_tree_selection_style(self) -> None:
         colors = _theme_colors(self.theme)
-        selected_task_has_session = (
-            self.selected_task is not None
-            and self._task_has_resumable_agent_session(self.selected_task)
-        )
-        if selected_task_has_session:
-            background = colors["agent_session_selected_background"]
-            foreground = colors["agent_session_selected_foreground"]
-        else:
-            background = colors["selection_background"]
-            foreground = colors["selection_foreground"]
         self.style.map(
             "Workspace.Treeview",
-            background=[("selected", background)],
-            foreground=[("selected", foreground)],
+            background=[("selected", colors["selection_background"])],
+            foreground=[("selected", colors["selection_foreground"])],
         )
 
     def _set_agent_selection(self, agent: str) -> None:

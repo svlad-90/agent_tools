@@ -3,7 +3,6 @@ from __future__ import annotations
 from .core import MarkdownChunk
 from .core import TaskSummary
 from .core import discover_tasks
-from .core import find_dev_git_repos
 from .core import read_task_file
 from .core import render_markdown_chunks
 from .core import rough_token_count
@@ -14,7 +13,6 @@ __all__ = [
     "MarkdownChunk",
     "TaskSummary",
     "discover_tasks",
-    "find_dev_git_repos",
     "read_task_file",
     "render_markdown_chunks",
     "rough_token_count",

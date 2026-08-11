@@ -3,16 +3,20 @@ from __future__ import annotations
 from pathlib import Path
 import json
 import os
-import subprocess
 import sys
 
 from agent_tools.tools.agent_workspace.core import TASK_CONTEXT_BUDGET
+from agent_tools.tools.agent_workspace.core import AGENT_STATUS_MANUAL_ENTRIES
+from agent_tools.tools.agent_workspace.core import AGENT_STATUS_MANUAL_MENU_LABEL
+from agent_tools.tools.agent_workspace.core import AGENT_STATUS_MANUAL_TITLE
+from agent_tools.tools.agent_workspace.core import AGENT_STATUS_MANUAL_USAGE_ENTRIES
 from agent_tools.tools.agent_workspace.core import ConsoleChunk
 from agent_tools.tools.agent_workspace.core import PAF_HIDE_TASK_ENV_VAR
 from agent_tools.tools.agent_workspace.core import TaskAction
 from agent_tools.tools.agent_workspace.core import TaskSummary
 from agent_tools.tools.agent_workspace.core import agent_executable
 from agent_tools.tools.agent_workspace.core import agent_install_command
+from agent_tools.tools.agent_workspace.core import agent_status_tooltip_text
 from agent_tools.tools.agent_workspace.core import ai_agent_launch_state
 from agent_tools.tools.agent_workspace.core import ai_agent_launch_state_for_selection
 from agent_tools.tools.agent_workspace.core import ai_agent_model_settings
@@ -29,7 +33,6 @@ from agent_tools.tools.agent_workspace.core import clear_task_agent_session
 from agent_tools.tools.agent_workspace.core import codex_model_choices
 from agent_tools.tools.agent_workspace.core import codex_session_id_exists
 from agent_tools.tools.agent_workspace.core import discover_tasks
-from agent_tools.tools.agent_workspace.core import find_dev_git_repos
 from agent_tools.tools.agent_workspace.core import find_latest_claude_session_id
 from agent_tools.tools.agent_workspace.core import find_latest_codex_session_id
 from agent_tools.tools.agent_workspace.core import find_task_agent_session_id
@@ -53,10 +56,13 @@ from agent_tools.tools.agent_workspace.core import session_marks_task_running_ag
 from agent_tools.tools.agent_workspace.core import session_is_agent
 from agent_tools.tools.agent_workspace.core import session_is_running_agent
 from agent_tools.tools.agent_workspace.core import session_should_clear_pending_permission
+from agent_tools.tools.agent_workspace.core import task_agent_status_text
+from agent_tools.tools.agent_workspace.core import task_agent_session_markers
 from agent_tools.tools.agent_workspace.core import task_agent_has_resumable_state
 from agent_tools.tools.agent_workspace.core import task_agent_session_id_is_valid
 from agent_tools.tools.agent_workspace.core import task_for_path
 from agent_tools.tools.agent_workspace.core import task_has_valid_agent_session
+from agent_tools.tools.agent_workspace.core import task_status_label
 from agent_tools.tools.agent_workspace.core import task_selected_agent_has_resumable_state
 from agent_tools.tools.agent_workspace.gtk_ui import WorkspaceGtkGui
 from agent_tools.tools.agent_workspace.gtk_ui import TerminalSession
@@ -322,30 +328,6 @@ def test_run_task_check_returns_text_report(tmp_path: Path) -> None:
     assert "PASS task-description" not in report
 
 
-def test_find_dev_git_repos(tmp_path: Path) -> None:
-    task = tmp_path / "tasks" / "sample-task"
-    repo = task / "dev" / "repo"
-    repo.mkdir(parents=True)
-    subprocess.run(["git", "-C", str(repo), "init"], check=True, capture_output=True)
-
-    repos = find_dev_git_repos(discover_tasks_with_context(task, tmp_path))
-
-    assert repos == [repo]
-
-
-def test_agent_workspace_actions_scan_repos_outputs_json(tmp_path: Path, capsys: object) -> None:
-    task = tmp_path / "tasks" / "sample-task"
-    repo = task / "dev" / "repo"
-    repo.mkdir(parents=True)
-    subprocess.run(["git", "-C", str(repo), "init"], check=True, capture_output=True)
-
-    exit_code = actions_main(["scan-repos", "--workspace", str(tmp_path), "--task", str(task)])
-
-    captured = capsys.readouterr()
-    assert exit_code == 0
-    assert json.loads(captured.out) == [str(repo)]
-
-
 def test_agent_workspace_actions_task_check_uses_compact_output(tmp_path: Path, capsys: object) -> None:
     task = tmp_path / "tasks" / "sample-task"
     for rel_path in ("dev", "Dockerfile", "scripts", "report/diff", "report/puml"):
@@ -370,40 +352,6 @@ def test_task_table_keyboard_activation_is_ignored() -> None:
     assert gtk_gui._on_task_view_key_press(object(), FakeGtkKeyEvent(Gdk.KEY_KP_Enter))
     assert gtk_gui._on_task_view_key_press(object(), FakeGtkKeyEvent(Gdk.KEY_space))
     assert not gtk_gui._on_task_view_key_press(object(), FakeGtkKeyEvent(Gdk.KEY_Down))
-
-
-def test_tk_repo_selection_changes_active_shell_directory(tmp_path: Path) -> None:
-    task = TaskSummary("sample-task", tmp_path / "tasks" / "sample-task", True, True, 1, 1, False)
-    repo = task.path / "dev" / "repo"
-    gui = object.__new__(AgentWorkspace)
-    gui.selected_task = task
-    session = ConsoleSession(1, "Shell", task.path, "shell", None, None, None, None, [])
-    written: list[tuple[int, bytes, bool]] = []
-    gui._current_git_repo_without_dialog = lambda: repo  # type: ignore[method-assign]
-    gui._active_console = lambda: session  # type: ignore[method-assign]
-    gui._write_to_console = lambda session_id, data, protect_current_line=False: written.append(  # type: ignore[method-assign]
-        (session_id, data, protect_current_line)
-    )
-
-    gui._on_git_repo_selected(object())
-
-    assert written == [(1, f"cd {repo}\n".encode(), True)]
-
-
-def test_gtk_repo_selection_changes_active_shell_directory(tmp_path: Path) -> None:
-    task = TaskSummary("sample-task", tmp_path / "tasks" / "sample-task", True, True, 1, 1, False)
-    repo = task.path / "dev" / "repo"
-    terminal = FakeGtkTerminal()
-    session = TerminalSession(1, task.path, "shell", terminal, object())
-    gui = object.__new__(WorkspaceGtkGui)
-    gui.selected_task = task
-    gui.git_repo_options = [repo]
-    gui.git_repo_combo = type("Combo", (), {"get_active": lambda self: 0})()
-    gui._active_shell_for_task = lambda selected_task: session  # type: ignore[method-assign]
-
-    gui._on_git_repo_selected()
-
-    assert terminal.fed == [f"cd {repo}\n"]
 
 
 def test_gtk_task_artifact_entries_groups_task_outputs(tmp_path: Path) -> None:
@@ -1389,6 +1337,19 @@ def test_task_session_highlight_uses_each_tasks_saved_agent(tmp_path: Path, monk
     assert gui._task_has_resumable_agent_session(summary)
 
 
+def test_task_session_highlight_uses_any_saved_agent_session(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    task = workspace / "tasks" / "sample-task"
+    task.mkdir(parents=True)
+    summary = discover_tasks_with_context(task, workspace)
+    gui = AgentWorkspace.__new__(AgentWorkspace)
+    gui.workspace = workspace
+    gui.default_agent = "codex"
+    save_task_agent_session(summary, "claude", session_id="019feba2-e25e-76e1-9468-aa399758268f")
+
+    assert gui._task_has_resumable_agent_session(summary)
+
+
 def test_find_latest_codex_session_id_matches_task_prompt(tmp_path: Path) -> None:
     workspace = tmp_path / "workspace"
     task = workspace / "tasks" / "sample-task"
@@ -1488,6 +1449,98 @@ def test_task_selected_agent_has_resumable_state_uses_saved_agent(tmp_path: Path
     assert task_selected_agent_has_resumable_state(summary, workspace, "codex")
     clear_task_agent_session(summary, "claude")
     assert not task_selected_agent_has_resumable_state(summary, workspace, "codex")
+
+
+def test_task_agent_session_markers_show_codex_and_claude_sessions(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace = tmp_path / "workspace"
+    task = workspace / "tasks" / "sample-task"
+    task.mkdir(parents=True)
+    summary = discover_tasks_with_context(task, workspace)
+    home = tmp_path / "home"
+    monkeypatch.setenv("HOME", str(home))
+    codex_session_id = "019feba2-e25e-76e1-9468-aa399758268f"
+    codex_session_file = home / ".codex" / "sessions" / f"{codex_session_id}.jsonl"
+    codex_session_file.parent.mkdir(parents=True)
+    codex_session_file.write_text("{}", encoding="utf-8")
+    save_task_agent_session(summary, "codex", session_id=codex_session_id)
+    save_task_agent_session(summary, "claude", session_id="019feba2-e25e-76e1-9468-aa3997582690")
+
+    assert task_agent_session_markers(summary, workspace, home=home) == ("Cx", "Cl")
+
+
+def test_task_agent_status_text_combines_permission_running_and_saved_sessions(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace = tmp_path / "workspace"
+    task = workspace / "tasks" / "sample-task"
+    task.mkdir(parents=True)
+    summary = discover_tasks_with_context(task, workspace)
+    home = tmp_path / "home"
+    monkeypatch.setenv("HOME", str(home))
+    save_task_agent_session(summary, "claude", session_id="019feba2-e25e-76e1-9468-aa3997582690")
+
+    assert (
+        task_agent_status_text(
+            summary,
+            workspace,
+            permission_pending=True,
+            running_agents=("codex",),
+            spinner_frame="⚙⠋",
+            home=home,
+        )
+        == "? Cl Cx"
+    )
+    assert (
+        task_agent_status_text(
+            summary,
+            workspace,
+            permission_pending=False,
+            running_agents=("codex",),
+            spinner_frame="⚙⠋",
+            home=home,
+        )
+        == "⚙⠋ Cl Cx"
+    )
+
+
+def test_agent_status_tooltip_explains_visible_markers_compactly() -> None:
+    assert agent_status_tooltip_text("Cx") == "Codex"
+    assert agent_status_tooltip_text("Cl") == "Claude Code"
+    assert agent_status_tooltip_text("?") == "Ждет подтверждения"
+    assert agent_status_tooltip_text("⚙⠋") == "Агент запущен"
+    assert agent_status_tooltip_text("Cx Cl") == "Codex; Claude Code"
+    assert agent_status_tooltip_text("? Cx") == "Ждет подтверждения; Codex"
+
+
+def test_agent_status_manual_entries_are_structured_for_popup() -> None:
+    assert AGENT_STATUS_MANUAL_MENU_LABEL == "Manual"
+    assert AGENT_STATUS_MANUAL_TITLE == "Manual"
+    assert [entry[0] for entry in AGENT_STATUS_MANUAL_USAGE_ENTRIES] == [
+        "Концепция",
+        "Задачи",
+        "Агент",
+        "Структура",
+        "Действия",
+        "Сброс",
+    ]
+    assert [entry[0] for entry in AGENT_STATUS_MANUAL_ENTRIES] == ["Cx", "Cl", "⚙", "?"]
+    assert all(len(entry) == 3 for entry in AGENT_STATUS_MANUAL_ENTRIES)
+
+
+def test_task_status_label_prefixes_permission_and_agent_session_markers() -> None:
+    assert task_status_label("sample-task", permission_pending=False) == "sample-task"
+    assert (
+        task_status_label(
+            "sample-task",
+            permission_pending=True,
+            session_markers=("Cx", "Cl"),
+        )
+        == "? Cx Cl sample-task"
+    )
 
 
 def test_task_for_path_returns_existing_or_fallback_summary(tmp_path: Path) -> None:
@@ -1902,12 +1955,12 @@ def test_gtk_task_row_style_highlights_codex_tasks() -> None:
         False,
     )
     assert gtk_task_row_style(False, True, "dark") == (
-        "#4b3713",
-        True,
-        "#ffe6a3",
-        True,
-        int(Pango.Weight.BOLD),
-        True,
+        "",
+        False,
+        "",
+        False,
+        int(Pango.Weight.NORMAL),
+        False,
     )
     assert gtk_task_row_style(True, True, "dark") == (
         "#26384d",
@@ -1929,7 +1982,7 @@ def test_gtk_codex_prompt_includes_selected_language(tmp_path: Path) -> None:
     assert "Відповідай користувачу українською мовою." in message
 
 
-def test_gtk_translates_agent_and_repo_scan_labels() -> None:
+def test_gtk_translates_agent_and_manual_labels() -> None:
     assert GTK_TRANSLATIONS["ru"]["run_ai_agent"] == "Запустить ИИ агента"
     assert GTK_TRANSLATIONS["ru"]["ai_agent_running"] == "ИИ агент запущен"
     assert GTK_TRANSLATIONS["ru"]["restore_ai_agent_session"] == "Восстановить сессию ИИ агента"
@@ -1941,8 +1994,16 @@ def test_gtk_translates_agent_and_repo_scan_labels() -> None:
     assert "локальные процессы агентов" in GTK_TRANSLATIONS["ru"]["confirm_close_running_agents_body"]
     assert "Восстанавливаемые диалоги" in GTK_TRANSLATIONS["ru"]["confirm_close_running_agents_body"]
     assert "Предлагаемая команда установки" in GTK_TRANSLATIONS["ru"]["install_agent_body"]
-    assert GTK_TRANSLATIONS["ru"]["scanning_repos"] == "Сканирование репозиториев..."
     assert GTK_TRANSLATIONS["ru"]["delete_artifacts"] == "Удалить артефакты"
+    assert GTK_TRANSLATIONS["uk"]["manual_usage_section"] == "Основи"
+    assert GTK_TRANSLATIONS["uk"]["manual_status_section"] == "Статуси в колонці ШІ"
+    assert GTK_TRANSLATIONS["uk"]["task_agent_status_column"] == "ШІ"
+    assert GTK_TRANSLATIONS["uk"]["run_ai_agent"] == "Запустити ШІ агента"
+    assert GTK_TRANSLATIONS["uk"]["manual_label_reset"] == "Скидання"
+    assert "workspace розбитий на задачі" in GTK_TRANSLATIONS["uk"]["manual_usage_concept"]
+    assert "контексті поточної задачі" in GTK_TRANSLATIONS["uk"]["manual_usage_agent"]
+    assert "TASK_ACTIONS.json" in GTK_TRANSLATIONS["uk"]["manual_usage_actions"]
+    assert "підтвердження" in GTK_TRANSLATIONS["uk"]["manual_status_pending"]
 
 
 def test_gtk_svg_open_command_prefers_browser(monkeypatch: object, tmp_path: Path) -> None:

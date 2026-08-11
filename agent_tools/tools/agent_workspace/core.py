@@ -57,8 +57,47 @@ AGENT_WORKSPACE_AGENT_INSTALL_COMMANDS = {
     "codex": "npm install -g @openai/codex",
     "claude": "npm install -g @anthropic-ai/claude-code",
 }
+AGENT_SESSION_MARKERS = {
+    "codex": "Cx",
+    "claude": "Cl",
+}
+AGENT_RUNNING_SPINNER_FRAMES = (
+    "⚙⠋",
+    "⚙⠙",
+    "⚙⠹",
+    "⚙⠸",
+    "⚙⠼",
+    "⚙⠴",
+    "⚙⠦",
+    "⚙⠧",
+    "⚙⠇",
+    "⚙⠏",
+)
 CODEX_SESSION_ID_RE = re.compile(r"([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})")
-AGENT_PERMISSION_MARKER = "⚠"
+AGENT_PERMISSION_MARKER = "?"
+AGENT_STATUS_TOOLTIPS = {
+    "Cx": "Codex",
+    "Cl": "Claude Code",
+    "?": "Ждет подтверждения",
+}
+AGENT_STATUS_MANUAL_MENU_LABEL = "Manual"
+AGENT_STATUS_MANUAL_TITLE = "Manual"
+AGENT_STATUS_MANUAL_USAGE_TITLE = "Основы"
+AGENT_STATUS_MANUAL_USAGE_ENTRIES = (
+    ("Концепция", "workspace разбит на задачи; каждая задача хранит контекст, артефакты, скрипты и историю работы"),
+    ("Задачи", "создавайте задачу под отдельную цель и выбирайте ее слева, чтобы открыть описание, контекст и терминалы"),
+    ("Агент", "выберите Codex или Claude Code; агент запускается в контексте текущей задачи и получает путь к ней"),
+    ("Структура", "TASK_DESCRIPTION.md, TASK_CONTEXT.md, dev/, scripts/ и report/ держат работу воспроизводимой"),
+    ("Действия", "повторяемые команды оформляйте в TASK_ACTIONS.json; можно попросить агента добавить нужную кнопку"),
+    ("Сброс", "сбрасывает только сохраненную ссылку на сессию выбранного агента, не удаляя историю CLI"),
+)
+AGENT_STATUS_MANUAL_SUBTITLE = "Статусы в колонке ИИ"
+AGENT_STATUS_MANUAL_ENTRIES = (
+    ("Cx", "Codex", "есть сохраненная или восстановимая Codex-сессия"),
+    ("Cl", "Claude Code", "есть сохраненная или восстановимая Claude Code-сессия"),
+    ("⚙", "Агент запущен", "для этой задачи сейчас работает Codex или Claude Code"),
+    ("?", "Ждет подтверждения", "агент остановился на запросе разрешения или подтверждения"),
+)
 AGENT_WORKSPACE_GEOMETRY_RE = re.compile(r"^\d+x\d+(?:[+-]\d+[+-]\d+)?$")
 ANSI_ESCAPE_RE = re.compile(r"\x1b(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])")
 ANSI_OSC_RE = re.compile(r"\x1b\][^\x07]*(?:\x07|\x1b\\)")
@@ -914,6 +953,71 @@ def task_selected_agent_has_resumable_state(
     return task_agent_has_resumable_state(task, workspace, agent, home=home)
 
 
+def task_agent_session_markers(
+    task: TaskSummary,
+    workspace: Path,
+    home: Path | None = None,
+) -> tuple[str, ...]:
+    return tuple(
+        AGENT_SESSION_MARKERS[agent]
+        for agent in AGENT_WORKSPACE_AGENTS
+        if task_agent_has_resumable_state(task, workspace, agent, home=home)
+    )
+
+
+def task_status_label(
+    task_name: str,
+    *,
+    permission_pending: bool,
+    session_markers: tuple[str, ...] = (),
+) -> str:
+    markers: list[str] = []
+    if permission_pending:
+        markers.append(AGENT_PERMISSION_MARKER)
+    markers.extend(session_markers)
+    if not markers:
+        return task_name
+    return f"{' '.join(markers)} {task_name}"
+
+
+def task_agent_status_text(
+    task: TaskSummary,
+    workspace: Path,
+    *,
+    permission_pending: bool,
+    running_agents: tuple[str, ...] = (),
+    spinner_frame: str = "",
+    home: Path | None = None,
+) -> str:
+    markers = list(task_agent_session_markers(task, workspace, home=home))
+    for agent in running_agents:
+        marker = AGENT_SESSION_MARKERS.get(normalize_agent(agent))
+        if marker and marker not in markers:
+            markers.append(marker)
+    parts: list[str] = []
+    if permission_pending:
+        parts.append(AGENT_PERMISSION_MARKER)
+    elif running_agents and spinner_frame:
+        parts.append(spinner_frame)
+    parts.extend(markers)
+    return " ".join(parts)
+
+
+def agent_status_tooltip_text(status_text: str) -> str:
+    status_text = status_text.strip()
+    if not status_text:
+        return ""
+    labels: list[str] = []
+    for marker in status_text.split():
+        if marker.startswith("⚙"):
+            label = "Агент запущен"
+        else:
+            label = AGENT_STATUS_TOOLTIPS.get(marker, "")
+        if label and label not in labels:
+            labels.append(label)
+    return "; ".join(labels)
+
+
 def find_task_agent_session_id(
     task: TaskSummary,
     workspace: Path,
@@ -1236,17 +1340,6 @@ def _command_field(value: object) -> str | tuple[str, ...] | None:
     if isinstance(value, list) and value and all(isinstance(item, str) for item in value):
         return tuple(value)
     return None
-
-
-def find_dev_git_repos(task: TaskSummary) -> list[Path]:
-    dev_dir = task.path / "dev"
-    if not dev_dir.is_dir():
-        return []
-    repos = []
-    for git_dir in sorted(dev_dir.rglob(".git")):
-        if git_dir.is_dir() or git_dir.is_file():
-            repos.append(git_dir.parent)
-    return repos
 
 
 def _file_tokens(path: Path) -> int:

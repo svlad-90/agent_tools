@@ -4,13 +4,11 @@ from collections.abc import Iterator
 from dataclasses import dataclass
 from pathlib import Path
 import argparse
-import json
 import os
 import shlex
 import shutil
 import subprocess
 import sys
-import threading
 
 import gi
 
@@ -26,6 +24,9 @@ from gi.repository import Vte
 
 from .core import TASK_ACTIONS_FILE
 from .core import TASK_ACTION_LOGS_DIR
+from .core import AGENT_RUNNING_SPINNER_FRAMES
+from .core import AGENT_STATUS_MANUAL_MENU_LABEL
+from .core import AGENT_STATUS_MANUAL_TITLE
 from .core import AgentModelSettings
 from .core import TaskAction
 from .core import TaskSummary
@@ -34,11 +35,11 @@ from .core import AGENT_WORKSPACE_CLAUDE_MODELS
 from .core import AGENT_WORKSPACE_LANGUAGES
 from .core import AGENT_WORKSPACE_REASONING_EFFORTS
 from .core import AGENT_WORKSPACE_THEMES
-from .core import AGENT_PERMISSION_MARKER
 from .core import PAF_HIDE_TASK_ENV_VAR
 from .core import agent_executable
 from .core import agent_install_command
 from .core import agent_label
+from .core import agent_status_tooltip_text
 from .core import ai_agent_launch_state_for_selection
 from .core import ai_agent_model_settings
 from .core import ai_agent_switch_decision
@@ -67,8 +68,9 @@ from .core import session_is_agent
 from .core import session_is_running_agent
 from .core import session_should_clear_pending_permission
 from .core import task_action_log_basename
+from .core import task_agent_status_text
+from .core import task_agent_session_markers
 from .core import task_for_path
-from .core import task_selected_agent_has_resumable_state
 
 
 TRANSLATIONS = {
@@ -109,10 +111,27 @@ TRANSLATIONS = {
         "install_agent_title": "AI agent is not installed",
         "language": "Language",
         "logs": "Logs",
+        "manual_label_agent": "Agent",
+        "manual_label_concept": "Concept",
+        "manual_label_structure": "Structure",
+        "manual_label_reset": "Reset",
+        "manual_status_agent_running": "an AI agent is currently running for this task",
+        "manual_status_claude": "there is a saved or resumable Claude Code session",
+        "manual_status_codex": "there is a saved or resumable Codex session",
+        "manual_status_label_running": "Agent running",
+        "manual_status_label_pending": "Waiting for confirmation",
+        "manual_status_pending": "the agent stopped on a permission or approval request",
+        "manual_status_section": "AI column statuses",
+        "manual_usage_actions": "put repeatable commands into TASK_ACTIONS.json; you can ask an agent to add the needed button",
+        "manual_usage_agent": "choose Codex or Claude Code; the agent starts in the current task context and receives the task path",
+        "manual_usage_concept": "the workspace is split into tasks; each task keeps context, artifacts, scripts, and work history",
+        "manual_usage_reset": "clears only the saved session reference for the selected agent, without deleting CLI history",
+        "manual_usage_section": "Basics",
+        "manual_usage_structure": "TASK_DESCRIPTION.md, TASK_CONTEXT.md, dev/, scripts/, and report/ keep the work reproducible",
+        "manual_usage_task": "create a task for each goal and select it on the left to open its description, context, and terminals",
         "missing_context": "missing context",
         "missing_desc": "missing desc",
         "new": "New",
-        "no_git_repos": "No git repositories found under dev/.",
         "ok": "OK",
         "open_dev": "Open dev folder",
         "open_task": "Open task folder",
@@ -125,13 +144,12 @@ TRANSLATIONS = {
         "restore_ai_agent_session": "Restore AI agent session",
         "run_task_check": "Run task_check",
         "save": "Save",
-        "scan_repos": "Scan repos",
-        "scanning_repos": "Scanning repositories...",
         "select_task_first": "Select a task first",
         "settings": "Settings",
         "settings_title": "Agent Workspace settings",
         "task_already_exists": "Task already exists",
         "task": "Task",
+        "task_agent_status_column": "AI",
         "task_details": "Task Details",
         "task_name": "Task name",
         "tasks": "tasks",
@@ -176,10 +194,27 @@ TRANSLATIONS = {
         "install_agent_title": "ИИ агент не установлен",
         "language": "Язык",
         "logs": "Логи",
+        "manual_label_agent": "Агент",
+        "manual_label_concept": "Концепция",
+        "manual_label_structure": "Структура",
+        "manual_label_reset": "Сброс",
+        "manual_status_agent_running": "для этой задачи сейчас работает Codex или Claude Code",
+        "manual_status_claude": "есть сохраненная или восстановимая Claude Code-сессия",
+        "manual_status_codex": "есть сохраненная или восстановимая Codex-сессия",
+        "manual_status_label_running": "Агент запущен",
+        "manual_status_label_pending": "Ждет подтверждения",
+        "manual_status_pending": "агент остановился на запросе разрешения или подтверждения",
+        "manual_status_section": "Статусы в колонке ИИ",
+        "manual_usage_actions": "повторяемые команды оформляйте в TASK_ACTIONS.json; можно попросить агента добавить нужную кнопку",
+        "manual_usage_agent": "выберите Codex или Claude Code; агент запускается в контексте текущей задачи и получает путь к ней",
+        "manual_usage_concept": "workspace разбит на задачи; каждая задача хранит контекст, артефакты, скрипты и историю работы",
+        "manual_usage_reset": "сбрасывает только сохраненную ссылку на сессию выбранного агента, не удаляя историю CLI",
+        "manual_usage_section": "Основы",
+        "manual_usage_structure": "TASK_DESCRIPTION.md, TASK_CONTEXT.md, dev/, scripts/ и report/ держат работу воспроизводимой",
+        "manual_usage_task": "создавайте задачу под отдельную цель и выбирайте ее слева, чтобы открыть описание, контекст и терминалы",
         "missing_context": "нет контекста",
         "missing_desc": "нет описания",
         "new": "Новая",
-        "no_git_repos": "В dev/ не найдены git-репозитории.",
         "ok": "OK",
         "open_dev": "Открыть dev",
         "open_task": "Открыть папку задачи",
@@ -192,13 +227,12 @@ TRANSLATIONS = {
         "restore_ai_agent_session": "Восстановить сессию ИИ агента",
         "run_task_check": "Run task_check",
         "save": "Сохранить",
-        "scan_repos": "Сканировать репо",
-        "scanning_repos": "Сканирование репозиториев...",
         "select_task_first": "Сначала выбери задачу",
         "settings": "Настройки",
         "settings_title": "Настройки Agent Workspace",
         "task_already_exists": "Задача уже существует",
         "task": "Задача",
+        "task_agent_status_column": "ИИ",
         "task_details": "Детали задачи",
         "task_name": "Имя задачи",
         "tasks": "задач",
@@ -215,10 +249,10 @@ TRANSLATIONS = {
         "close": "Закрити",
         "confirm_close_console_body": "Консольну сесію буде закрито.",
         "confirm_close_console_title": "Закрити консоль?",
-        "confirm_close_running_agents_body": "Є запущені термінали ІІ агентів.\n\n{sessions}\n\nЗакриття Agent Workspace зупинить локальні процеси агентів. Відновлювані діалоги можна буде відкрити під час наступного запуску. Продовжити?",
+        "confirm_close_running_agents_body": "Є запущені термінали ШІ агентів.\n\n{sessions}\n\nЗакриття Agent Workspace зупинить локальні процеси агентів. Відновлювані діалоги можна буде відкрити під час наступного запуску. Продовжити?",
         "confirm_close_running_agents_title": "Закрити Agent Workspace?",
         "confirm_switch_agent_body": "{current} вже запущено для цієї задачі.\n\nПідтвердження закриє поточну сесію і запустить {next} з контекстом тієї самої задачі.",
-        "confirm_switch_agent_title": "Змінити ІІ агента?",
+        "confirm_switch_agent_title": "Змінити ШІ агента?",
         "confirm_delete_task_body": "Папку задачі буде видалено безповоротно.",
         "confirm_delete_task_title": "Видалити вибрану задачу?",
         "confirm_delete_artifacts_body": "Файли буде видалено безповоротно.",
@@ -232,7 +266,7 @@ TRANSLATIONS = {
         "desc": "опис",
         "details": "Деталі",
         "diagrams": "Діаграми",
-        "default_agent": "Типовий ІІ агент",
+        "default_agent": "Типовий ШІ агент",
         "default_claude_effort": "Claude effort",
         "default_claude_model": "Модель Claude",
         "default_codex_model": "Модель Codex",
@@ -240,13 +274,30 @@ TRANSLATIONS = {
         "diff_reports": "Diff-звіти",
         "edit": "Редагувати",
         "install_agent_body": "{agent} не встановлено або він недоступний у PATH.\n\nВстанови його, потім перезапусти Agent Workspace або онови PATH.\n\nЗапропонована команда встановлення:\n{command}",
-        "install_agent_title": "ІІ агент не встановлено",
+        "install_agent_title": "ШІ агент не встановлено",
         "language": "Мова",
         "logs": "Логи",
+        "manual_label_agent": "Агент",
+        "manual_label_concept": "Концепція",
+        "manual_label_structure": "Структура",
+        "manual_label_reset": "Скидання",
+        "manual_status_agent_running": "для цієї задачі зараз працює Codex або Claude Code",
+        "manual_status_claude": "є збережена або відновлювана Claude Code-сесія",
+        "manual_status_codex": "є збережена або відновлювана Codex-сесія",
+        "manual_status_label_running": "Агент запущений",
+        "manual_status_label_pending": "Чекає підтвердження",
+        "manual_status_pending": "агент зупинився на запиті дозволу або підтвердження",
+        "manual_status_section": "Статуси в колонці ШІ",
+        "manual_usage_actions": "повторювані команди оформлюй у TASK_ACTIONS.json; можна попросити агента додати потрібну кнопку",
+        "manual_usage_agent": "вибери Codex або Claude Code; агент запускається в контексті поточної задачі й отримує шлях до неї",
+        "manual_usage_concept": "workspace розбитий на задачі; кожна задача зберігає контекст, артефакти, скрипти й історію роботи",
+        "manual_usage_reset": "скидає лише збережене посилання на сесію вибраного агента, не видаляючи історію CLI",
+        "manual_usage_section": "Основи",
+        "manual_usage_structure": "TASK_DESCRIPTION.md, TASK_CONTEXT.md, dev/, scripts/ і report/ тримають роботу відтворюваною",
+        "manual_usage_task": "створюй задачу під окрему ціль і вибирай її зліва, щоб відкрити опис, контекст і термінали",
         "missing_context": "немає контексту",
         "missing_desc": "немає опису",
         "new": "Нова",
-        "no_git_repos": "У dev/ не знайдено git-репозиторії.",
         "ok": "OK",
         "open_dev": "Відкрити dev",
         "open_task": "Відкрити папку задачі",
@@ -254,18 +305,17 @@ TRANSLATIONS = {
         "refresh": "Оновити",
         "reload_actions": "Оновити actions",
         "reset_ai_agent_session": "Скинути сесію",
-        "run_ai_agent": "Запустити ІІ агента",
-        "ai_agent_running": "ІІ агент запущений",
-        "restore_ai_agent_session": "Відновити сесію ІІ агента",
+        "run_ai_agent": "Запустити ШІ агента",
+        "ai_agent_running": "ШІ агент запущений",
+        "restore_ai_agent_session": "Відновити сесію ШІ агента",
         "run_task_check": "Run task_check",
         "save": "Зберегти",
-        "scan_repos": "Сканувати репо",
-        "scanning_repos": "Сканування репозиторіїв...",
         "select_task_first": "Спочатку вибери задачу",
         "settings": "Налаштування",
         "settings_title": "Налаштування Agent Workspace",
         "task_already_exists": "Задача вже існує",
         "task": "Задача",
+        "task_agent_status_column": "ШІ",
         "task_details": "Деталі задачі",
         "task_name": "Назва задачі",
         "tasks": "задач",
@@ -327,13 +377,6 @@ class WorkspaceGtkGui:
         self.selected_task: TaskSummary | None = None
         self.task_actions: list[TaskAction] = []
         self.task_action_errors: list[str] = []
-        self.repo_status_message = ""
-        self.git_repo_options: list[Path] = []
-        self.git_repos_loaded_for: Path | None = None
-        self.git_repo_cache: dict[Path, list[Path]] = {}
-        self.repo_scan_generation = 0
-        self.repo_scan_generations: dict[Path, int] = {}
-        self.repo_scans_in_progress: set[Path] = set()
         self.task_actions_signature: tuple[Path | None, int | None] = (None, None)
         self.task_actions_monitor: Gio.FileMonitor | None = None
         self.task_actions_monitor_path: Path | None = None
@@ -342,6 +385,8 @@ class WorkspaceGtkGui:
         self.terminal_sessions: dict[int, TerminalSession] = {}
         self.next_terminal_id = 1
         self._updating_agent_selection = False
+        self._agent_spinner_index = 0
+        self._closing = False
 
         settings = agent_workspace_runtime_settings(load_agent_workspace_settings(), default_font_size=13)
         self.text_font_size = settings.text_font_size
@@ -377,12 +422,14 @@ class WorkspaceGtkGui:
         self.header_bar.set_show_close_button(True)
         self.window.set_titlebar(self.header_bar)
         self.window.connect("configure-event", self._on_window_configure)
+        self.window.connect("key-press-event", self._on_window_key_press)
         self.window.connect("delete-event", self._on_window_delete_event)
         self.window.connect("destroy", self.close)
         self._apply_window_geometry()
         self._build_ui()
         self._apply_css()
         self.refresh_tasks()
+        GLib.timeout_add(120, self._animate_agent_status)
 
     def _build_ui(self) -> None:
         root = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
@@ -402,24 +449,35 @@ class WorkspaceGtkGui:
         main.connect("button-press-event", self._on_main_pane_button_press)
         root.pack_start(main, True, True, 0)
 
-        self.task_store = Gtk.ListStore(str, object, str, bool, str, bool, int, bool)
+        self.task_store = Gtk.ListStore(str, str, object, str, bool, str, bool, int, bool)
         self.task_view = Gtk.TreeView(model=self.task_store)
+        status_renderer = Gtk.CellRendererText()
+        status_renderer.set_property("xalign", 0.5)
+        self.task_status_header = Gtk.Label(label=self._tr("task_agent_status_column"))
+        self.task_status_header.show()
+        self.task_status_column = Gtk.TreeViewColumn("", status_renderer, text=0)
+        self.task_status_column.set_widget(self.task_status_header)
+        self.task_status_column.set_sizing(Gtk.TreeViewColumnSizing.FIXED)
+        self.task_status_column.set_fixed_width(92)
+        self.task_view.append_column(self.task_status_column)
         task_renderer = Gtk.CellRendererText()
         self.task_column = Gtk.TreeViewColumn(
             self._tr("task"),
             task_renderer,
-            text=0,
-            cell_background=2,
-            cell_background_set=3,
-            foreground=4,
-            foreground_set=5,
-            weight=6,
-            weight_set=7,
+            text=1,
+            cell_background=3,
+            cell_background_set=4,
+            foreground=5,
+            foreground_set=6,
+            weight=7,
+            weight_set=8,
         )
         self.task_view.append_column(self.task_column)
         self.task_view.get_selection().connect("changed", self._on_task_selected)
         self.task_view.connect("key-press-event", self._on_task_view_key_press)
         self.task_view.connect("row-activated", lambda *_: self.open_task())
+        self.task_view.set_has_tooltip(True)
+        self.task_view.connect("query-tooltip", self._on_task_view_query_tooltip)
         self.task_view.add_events(Gdk.EventMask.BUTTON_PRESS_MASK)
         self.task_view.connect("button-press-event", self._on_task_view_button_press)
         task_scroll = Gtk.ScrolledWindow()
@@ -473,14 +531,6 @@ class WorkspaceGtkGui:
         self.actions_tab_label = Gtk.Label(label=self._tr("actions"))
         self.notebook.append_page(box, self.actions_tab_label)
 
-        repo_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
-        box.pack_start(repo_row, False, False, 0)
-        self.git_repo_combo = Gtk.ComboBoxText()
-        self.git_repo_combo.set_hexpand(True)
-        self.git_repo_combo.connect("changed", self._on_git_repo_selected)
-        repo_row.pack_start(self.git_repo_combo, True, True, 0)
-        repo_row.pack_start(self._button("scan_repos", self.scan_selected_git_repos), False, False, 0)
-
         action_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
         box.pack_start(action_row, False, False, 0)
         action_row.pack_start(self._button("run_task_check", self.run_selected_task_check), False, False, 0)
@@ -515,7 +565,9 @@ class WorkspaceGtkGui:
         self.task_store.clear()
         selected_iter = None
         for task in self.tasks:
-            row_iter = self.task_store.append([self._task_label(task), task, *_task_row_style(False, False, self.theme)])
+            row_iter = self.task_store.append(
+                [self._task_agent_status(task), self._task_label(task), task, *_task_row_style(False, False, self.theme)]
+            )
             if task.name == selected_name:
                 selected_iter = row_iter
         self._refresh_task_row_styles()
@@ -529,15 +581,12 @@ class WorkspaceGtkGui:
         model, row_iter = selection.get_selected()
         if row_iter is None:
             return
-        self.selected_task = model[row_iter][1]
+        self.selected_task = model[row_iter][2]
         self._leave_detail_edit_mode(self.description_view)
         self._leave_detail_edit_mode(self.context_view)
         self._set_markdown(self.description_view, read_task_file(self.selected_task, "TASK_DESCRIPTION.md"))
         self._set_markdown(self.context_view, read_task_file(self.selected_task, "TASK_CONTEXT.md"))
         self._reset_actions()
-        cached_repos = self.git_repo_cache.get(self.selected_task.path)
-        if cached_repos is not None:
-            self._set_git_repos(self.selected_task, cached_repos)
         self._watch_task_actions(self.selected_task)
         self._watch_task_artifacts(self.selected_task)
         self._load_task_artifacts(self.selected_task)
@@ -713,7 +762,32 @@ class WorkspaceGtkGui:
         self._task_context_menu().popup_at_pointer(event)
         return True
 
+    def _on_task_view_query_tooltip(
+        self,
+        tree: Gtk.TreeView,
+        x: int,
+        y: int,
+        _keyboard_mode: bool,
+        tooltip: Gtk.Tooltip,
+    ) -> bool:
+        hit = tree.get_path_at_pos(x, y)
+        if hit is None:
+            return False
+        _path, column, _cell_x, _cell_y = hit
+        if column is not self.task_status_column:
+            return False
+        model = tree.get_model()
+        row_iter = model.get_iter(_path)
+        tooltip_text = agent_status_tooltip_text(str(model[row_iter][0]))
+        if not tooltip_text:
+            return False
+        tooltip.set_text(tooltip_text)
+        return True
+
     def _on_task_view_key_press(self, _tree: Gtk.TreeView, event: Gdk.EventKey) -> bool:
+        if event.keyval == Gdk.KEY_F1:
+            self.open_agent_status_manual()
+            return True
         return event.keyval in {Gdk.KEY_Return, Gdk.KEY_KP_Enter, Gdk.KEY_ISO_Enter, Gdk.KEY_space}
 
     def _task_context_menu(self) -> Gtk.Menu:
@@ -734,8 +808,92 @@ class WorkspaceGtkGui:
             item.set_sensitive(sensitive)
             item.connect("activate", callback)
             menu.append(item)
+        menu.append(Gtk.SeparatorMenuItem())
+        manual_item = Gtk.MenuItem(label=AGENT_STATUS_MANUAL_MENU_LABEL)
+        manual_item.connect("activate", self.open_agent_status_manual)
+        menu.append(manual_item)
         menu.show_all()
         return menu
+
+    def open_agent_status_manual(self, *_args: object) -> None:
+        dialog = Gtk.Dialog(
+            title=AGENT_STATUS_MANUAL_TITLE,
+            transient_for=self.window,
+            flags=Gtk.DialogFlags.MODAL,
+        )
+        dialog.set_position(Gtk.WindowPosition.CENTER_ON_PARENT)
+        dialog.add_button(self._tr("ok"), Gtk.ResponseType.OK)
+        content = dialog.get_content_area()
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
+        box.set_border_width(18)
+        content.add(box)
+
+        title = Gtk.Label()
+        title.set_markup(f"<b>{AGENT_STATUS_MANUAL_TITLE}</b>")
+        title.set_xalign(0)
+        box.pack_start(title, False, False, 0)
+        subtitle = Gtk.Label(label=self._tr("manual_status_section"))
+        subtitle.set_xalign(0)
+        basics_title = Gtk.Label()
+        basics_title.set_markup(f"<b>{self._tr('manual_usage_section')}</b>")
+        basics_title.set_xalign(0)
+        box.pack_start(basics_title, False, False, 0)
+
+        usage_grid = Gtk.Grid()
+        usage_grid.set_column_spacing(14)
+        usage_grid.set_row_spacing(8)
+        box.pack_start(usage_grid, False, False, 2)
+        for row, (name, description) in enumerate(self._manual_usage_entries()):
+            name_label = Gtk.Label()
+            name_label.set_markup(f"<b>{name}</b>")
+            name_label.set_xalign(0)
+            description_label = Gtk.Label(label=description)
+            description_label.set_xalign(0)
+            usage_grid.attach(name_label, 0, row, 1, 1)
+            usage_grid.attach(description_label, 1, row, 1, 1)
+
+        subtitle.set_markup(f"<b>{self._tr('manual_status_section')}</b>")
+        subtitle.set_xalign(0)
+        box.pack_start(subtitle, False, False, 0)
+        grid = Gtk.Grid()
+        grid.set_column_spacing(14)
+        grid.set_row_spacing(8)
+        box.pack_start(grid, False, False, 2)
+        for row, (marker, label, description) in enumerate(self._manual_status_entries()):
+            display_marker = AGENT_RUNNING_SPINNER_FRAMES[self._agent_spinner_index] if marker == "⚙" else marker
+            marker_label = Gtk.Label(label=display_marker)
+            marker_label.set_width_chars(4)
+            marker_label.set_xalign(0.5)
+            name_label = Gtk.Label()
+            name_label.set_markup(f"<b>{label}</b>")
+            name_label.set_xalign(0)
+            description_label = Gtk.Label(label=description)
+            description_label.set_xalign(0)
+            grid.attach(marker_label, 0, row, 1, 1)
+            grid.attach(name_label, 1, row, 1, 1)
+            grid.attach(description_label, 2, row, 1, 1)
+
+        dialog.show_all()
+        dialog.run()
+        dialog.destroy()
+
+    def _manual_usage_entries(self) -> tuple[tuple[str, str], ...]:
+        return (
+            (self._tr("manual_label_concept"), self._tr("manual_usage_concept")),
+            (self._tr("task"), self._tr("manual_usage_task")),
+            (self._tr("manual_label_agent"), self._tr("manual_usage_agent")),
+            (self._tr("manual_label_structure"), self._tr("manual_usage_structure")),
+            (self._tr("actions"), self._tr("manual_usage_actions")),
+            (self._tr("manual_label_reset"), self._tr("manual_usage_reset")),
+        )
+
+    def _manual_status_entries(self) -> tuple[tuple[str, str, str], ...]:
+        return (
+            ("Cx", "Codex", self._tr("manual_status_codex")),
+            ("Cl", "Claude Code", self._tr("manual_status_claude")),
+            ("⚙", self._tr("manual_status_label_running"), self._tr("manual_status_agent_running")),
+            ("?", self._tr("manual_status_label_pending"), self._tr("manual_status_pending")),
+        )
 
     def open_task(self, *_args: object) -> None:
         if self.selected_task is not None:
@@ -1013,11 +1171,6 @@ class WorkspaceGtkGui:
         if task is not None:
             self._send_command_to_task_terminal(task, task_check_shell_command(self.workspace, task))
 
-    def scan_selected_git_repos(self, *_args: object) -> None:
-        task = self._require_task()
-        if task is not None:
-            self._refresh_git_repos_async(task)
-
     def reload_selected_task_actions(self, *_args: object) -> None:
         self._load_task_action_buttons()
 
@@ -1028,10 +1181,6 @@ class WorkspaceGtkGui:
 
     def _reset_actions(self) -> None:
         self.task_actions = []
-        self.git_repo_options = []
-        self.git_repos_loaded_for = None
-        self.repo_status_message = ""
-        self.git_repo_combo.remove_all()
         self._clear_task_action_buttons()
         self._update_actions_message()
 
@@ -1058,121 +1207,6 @@ class WorkspaceGtkGui:
                 0,
             )
         self.task_actions_box.show_all()
-
-    def _ensure_git_repos_loaded(self, task: TaskSummary) -> None:
-        if self.git_repos_loaded_for != task.path:
-            cached = self.git_repo_cache.get(task.path)
-            if cached is not None:
-                self._set_git_repos(task, cached)
-                return
-            self._refresh_git_repos(task)
-
-    def _refresh_git_repos_async(self, task: TaskSummary) -> None:
-        self.repo_scan_generation += 1
-        generation = self.repo_scan_generation
-        task_path = task.path
-        self.repo_scan_generations[task_path] = generation
-        self.repo_scans_in_progress.add(task_path)
-        self.git_repo_cache[task_path] = []
-        if self.selected_task is not None and self.selected_task.path == task_path:
-            self.git_repo_options = []
-            self.git_repos_loaded_for = task_path
-            self.repo_status_message = ""
-            self.git_repo_combo.remove_all()
-        self._update_actions_message()
-
-        def worker() -> None:
-            completed = subprocess.run(
-                [
-                    sys_executable(),
-                    "-m",
-                    "agent_tools.tools.agent_workspace.actions",
-                    "scan-repos",
-                    "--workspace",
-                    str(self.workspace),
-                    "--task",
-                    str(task.path),
-                ],
-                check=False,
-                text=True,
-                capture_output=True,
-            )
-            if completed.returncode != 0:
-                GLib.idle_add(self._finish_git_repo_scan_result, task_path, generation)
-                return
-            for repo in [Path(path) for path in json.loads(completed.stdout)]:
-                GLib.idle_add(self._append_git_repo_scan_result, task_path, generation, repo)
-            GLib.idle_add(self._finish_git_repo_scan_result, task_path, generation)
-
-        threading.Thread(target=worker, daemon=True).start()
-
-    def _append_git_repo_scan_result(
-        self,
-        task_path: Path,
-        generation: int,
-        repo: Path,
-    ) -> bool:
-        if self.repo_scan_generations.get(task_path) != generation:
-            return False
-        cached = self.git_repo_cache.setdefault(task_path, [])
-        if repo not in cached:
-            cached.append(repo)
-        if self.selected_task is None or self.selected_task.path != task_path:
-            return False
-        if repo not in self.git_repo_options:
-            self.git_repo_options.append(repo)
-            self.git_repo_combo.append_text(_repo_label(self.selected_task, repo))
-            if len(self.git_repo_options) == 1:
-                self.git_repo_combo.set_active(0)
-        self.repo_status_message = ""
-        self._update_actions_message()
-        return False
-
-    def _finish_git_repo_scan_result(self, task_path: Path, generation: int) -> bool:
-        if self.repo_scan_generations.get(task_path) != generation:
-            return False
-        self.repo_scans_in_progress.discard(task_path)
-        repos = self.git_repo_cache.get(task_path, [])
-        if self.selected_task is not None and self.selected_task.path == task_path:
-            if not repos:
-                self.repo_status_message = self._tr("no_git_repos")
-            self._update_actions_message()
-        return False
-
-    def _refresh_git_repos(self, task: TaskSummary) -> None:
-        completed = subprocess.run(
-            [
-                sys_executable(),
-                "-m",
-                "agent_tools.tools.agent_workspace.actions",
-                "scan-repos",
-                "--workspace",
-                str(self.workspace),
-                "--task",
-                str(task.path),
-            ],
-            check=False,
-            text=True,
-            capture_output=True,
-        )
-        if completed.returncode != 0:
-            self.repo_status_message = (completed.stderr or completed.stdout).strip()
-            self._update_actions_message()
-            return
-        self._set_git_repos(task, [Path(path) for path in json.loads(completed.stdout)])
-
-    def _set_git_repos(self, task: TaskSummary, repos: list[Path]) -> None:
-        self.git_repo_options = repos
-        self.git_repos_loaded_for = task.path
-        self.git_repo_combo.remove_all()
-        for repo in self.git_repo_options:
-            self.git_repo_combo.append_text(_repo_label(task, repo))
-        if self.git_repo_options:
-            self.git_repo_combo.set_active(0)
-            self.repo_status_message = ""
-        else:
-            self.repo_status_message = self._tr("no_git_repos")
-        self._update_actions_message()
 
     def _watch_task_actions(self, task: TaskSummary) -> None:
         if self.task_actions_monitor_path == task.path:
@@ -1213,30 +1247,9 @@ class WorkspaceGtkGui:
         self._load_task_action_buttons()
 
     def _update_actions_message(self) -> None:
-        task = self.selected_task
         messages: list[str] = []
-        if task is not None and task.path in self.repo_scans_in_progress:
-            messages.append(self._tr("scanning_repos"))
-        if self.repo_status_message:
-            messages.append(self.repo_status_message)
         messages.extend(getattr(self, "task_action_errors", []))
         self.actions_message.set_text("\n".join(messages))
-
-    def _selected_git_repo(self) -> Path | None:
-        index = self.git_repo_combo.get_active()
-        if index < 0 or index >= len(self.git_repo_options):
-            return None
-        return self.git_repo_options[index]
-
-    def _on_git_repo_selected(self, *_args: object) -> None:
-        task = self.selected_task
-        if task is None:
-            return
-        repo = self._selected_git_repo()
-        session = self._active_shell_for_task(task)
-        if repo is None or session is None:
-            return
-        _feed_terminal(session.terminal, f"{shlex.join(['cd', str(repo)])}\n")
 
     def new_console(self, *_args: object, task: TaskSummary | None = None) -> int | None:
         task = task or self._require_task()
@@ -1633,12 +1646,28 @@ class WorkspaceGtkGui:
         self.reset_ai_agent_button.set_sensitive(state.reset_enabled)
 
     def _task_has_resumable_agent_session(self, task: TaskSummary) -> bool:
-        return task_selected_agent_has_resumable_state(task, self.workspace, self.default_agent)
+        return bool(task_agent_session_markers(task, self.workspace))
+
+    def _task_running_agent_kinds(self, task: TaskSummary) -> tuple[str, ...]:
+        return tuple(
+            session.kind
+            for session in self._current_task_terminal_sessions(task)
+            if session_is_running_agent(session_kind=session.kind, exited=session.exited)
+        )
+
+    def _task_agent_status(self, task: TaskSummary) -> str:
+        return task_agent_status_text(
+            task,
+            self.workspace,
+            permission_pending=self._task_has_pending_agent_permission(task),
+            running_agents=self._task_running_agent_kinds(task),
+            spinner_frame=AGENT_RUNNING_SPINNER_FRAMES[self._agent_spinner_index],
+        )
 
     def _refresh_task_row_styles(self) -> None:
         row_iter = self.task_store.get_iter_first()
         while row_iter is not None:
-            task = self.task_store[row_iter][1]
+            task = self.task_store[row_iter][2]
             has_agent = any(
                 session_marks_task_running_agent(
                     session_kind=session.kind,
@@ -1654,14 +1683,23 @@ class WorkspaceGtkGui:
                 has_session,
                 self.theme,
             )
-            self.task_store[row_iter][0] = self._task_label(task)
-            self.task_store[row_iter][2] = background
-            self.task_store[row_iter][3] = background_set
-            self.task_store[row_iter][4] = foreground
-            self.task_store[row_iter][5] = foreground_set
-            self.task_store[row_iter][6] = weight
-            self.task_store[row_iter][7] = weight_set
+            self.task_store[row_iter][0] = self._task_agent_status(task)
+            self.task_store[row_iter][1] = self._task_label(task)
+            self.task_store[row_iter][3] = background
+            self.task_store[row_iter][4] = background_set
+            self.task_store[row_iter][5] = foreground
+            self.task_store[row_iter][6] = foreground_set
+            self.task_store[row_iter][7] = weight
+            self.task_store[row_iter][8] = weight_set
             row_iter = self.task_store.iter_next(row_iter)
+
+    def _animate_agent_status(self) -> bool:
+        if self._closing:
+            return False
+        self._agent_spinner_index = (self._agent_spinner_index + 1) % len(AGENT_RUNNING_SPINNER_FRAMES)
+        if self._running_agent_sessions():
+            self._refresh_task_row_styles()
+        return True
 
     def _actions_tab_active(self) -> bool:
         page_num = self.notebook.get_current_page()
@@ -1710,6 +1748,9 @@ class WorkspaceGtkGui:
         return True
 
     def _on_terminal_key_press(self, terminal: Vte.Terminal, event: Gdk.EventKey) -> bool:
+        if event.keyval == Gdk.KEY_F1:
+            self.open_agent_status_manual()
+            return True
         session = self._session_for_terminal(terminal)
         if session is not None and session_should_clear_pending_permission(
             session_kind=session.kind,
@@ -1791,8 +1832,6 @@ class WorkspaceGtkGui:
         )
 
     def _task_label(self, task: TaskSummary) -> str:
-        if self._task_has_pending_agent_permission(task):
-            return f"{AGENT_PERMISSION_MARKER} {task.name}"
         return task.name
 
     def _require_task(self, show_dialog: bool = True) -> TaskSummary | None:
@@ -1882,6 +1921,7 @@ class WorkspaceGtkGui:
         for key, widget in self.label_widgets.items():
             if isinstance(widget, Gtk.Button):
                 widget.set_label(self._tr(key))
+        self.task_status_header.set_text(self._tr("task_agent_status_column"))
         self.task_column.set_title(self._tr("task"))
         self.details_tab_label.set_text(self._tr("details"))
         self.artifacts_tab_label.set_text(self._tr("artifacts"))
@@ -1939,6 +1979,12 @@ class WorkspaceGtkGui:
             self.last_window_height = event.height
             self.last_window_x = event.x
             self.last_window_y = event.y
+        return False
+
+    def _on_window_key_press(self, _window: Gtk.Window, event: Gdk.EventKey) -> bool:
+        if event.keyval == Gdk.KEY_F1:
+            self.open_agent_status_manual()
+            return True
         return False
 
     def _apply_css(self) -> None:
@@ -2047,6 +2093,7 @@ class WorkspaceGtkGui:
         return not self._confirm_close_with_running_agents()
 
     def close(self, *_args: object) -> None:
+        self._closing = True
         if self.task_actions_monitor is not None:
             self.task_actions_monitor.cancel()
         self._clear_artifact_monitors()
@@ -2153,15 +2200,6 @@ def _task_row_style(
             int(Pango.Weight.BOLD),
             True,
         )
-    if has_session:
-        return (
-            colors["agent_session_background"],
-            True,
-            colors["agent_session_foreground"],
-            True,
-            int(Pango.Weight.BOLD),
-            True,
-        )
     return (
         "",
         False,
@@ -2249,13 +2287,6 @@ def _scrolled(widget: Gtk.Widget) -> Gtk.ScrolledWindow:
     scrolled = Gtk.ScrolledWindow()
     scrolled.add(widget)
     return scrolled
-
-
-def _repo_label(task: TaskSummary, repo: Path) -> str:
-    try:
-        return str(repo.relative_to(task.path))
-    except ValueError:
-        return str(repo)
 
 
 def _task_artifact_entries(task: TaskSummary) -> list[ArtifactEntry]:
