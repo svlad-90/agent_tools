@@ -31,6 +31,7 @@ AGENT_WORKSPACE_DEFAULT_CODEX_MODEL = "gpt-5.5"
 AGENT_WORKSPACE_DEFAULT_CODEX_REASONING = "medium"
 AGENT_WORKSPACE_DEFAULT_CLAUDE_MODEL = "sonnet"
 AGENT_WORKSPACE_DEFAULT_CLAUDE_EFFORT = "medium"
+AGENT_WORKSPACE_DEFAULT_CLAUDE_PERMISSION_MODE = "auto"
 AGENT_WORKSPACE_CODEX_MODEL_FALLBACKS = (
     "",
     "gpt-5.6-sol",
@@ -113,6 +114,60 @@ class AgentSessionState:
     agent: str
     resume: bool = False
     session_id: str | None = None
+
+
+@dataclass(frozen=True)
+class AgentWorkspaceRuntimeSettings:
+    text_font_size: int
+    button_font_size: int
+    theme: str
+    language: str
+    default_agent: str
+    default_codex_model: str
+    default_codex_reasoning: str
+    default_claude_model: str
+    default_claude_effort: str
+    window_geometry: str
+
+
+@dataclass(frozen=True)
+class AgentModelSettings:
+    model: str
+    reasoning_effort: str
+
+
+@dataclass(frozen=True)
+class AgentLaunchCommand:
+    command: list[str]
+    session_state: AgentSessionState
+    model_settings: AgentModelSettings
+
+
+@dataclass(frozen=True)
+class AgentLaunchState:
+    label_key: str
+    reset_enabled: bool
+
+
+@dataclass(frozen=True)
+class AgentSwitchDecision:
+    action: str
+    agent: str
+    current_agent: str | None = None
+
+
+@dataclass(frozen=True)
+class AgentOutputAnalysis:
+    missing_session: bool
+    requests_permission: bool
+
+
+@dataclass(frozen=True)
+class AgentOutputStateUpdate:
+    missing_session: bool
+    permission_requested: bool
+    exited: bool
+    permission_pending: bool
 
 
 def rough_token_count(text: str) -> int:
@@ -327,6 +382,125 @@ def codex_model_choices(cache_path: Path | None = None) -> tuple[str, ...]:
     return tuple(choices)
 
 
+def model_choices_with_current(choices: tuple[str, ...], current: str) -> tuple[str, ...]:
+    current = current.strip()
+    if current and current not in choices:
+        return (*choices, current)
+    return choices
+
+
+def append_ai_agent_model_options(
+    command: list[str],
+    agent: str,
+    *,
+    model: str = "",
+    reasoning_effort: str = "",
+) -> None:
+    model = model.strip()
+    reasoning_effort = reasoning_effort.strip()
+    if model:
+        command.extend(["--model", model])
+    if not reasoning_effort:
+        return
+    if normalize_agent(agent) == "claude":
+        command.extend(["--effort", reasoning_effort])
+    else:
+        command.extend(["-c", f'model_reasoning_effort="{reasoning_effort}"'])
+
+
+def append_ai_agent_permission_options(command: list[str], agent: str) -> None:
+    if normalize_agent(agent) == "claude":
+        command.extend(["--permission-mode", AGENT_WORKSPACE_DEFAULT_CLAUDE_PERMISSION_MODE])
+
+
+def build_ai_agent_console_command(
+    workspace: Path,
+    prompt: str,
+    agent: str,
+    *,
+    codex_executable: str,
+    claude_executable: str,
+    resume: bool = False,
+    resume_session_id: str | None = None,
+    model: str = "",
+    reasoning_effort: str = "",
+) -> list[str]:
+    agent = normalize_agent(agent)
+    if agent == "claude":
+        command = [claude_executable]
+        append_ai_agent_permission_options(command, agent)
+        append_ai_agent_model_options(command, agent, model=model, reasoning_effort=reasoning_effort)
+        if resume and resume_session_id:
+            command.extend(["--resume", resume_session_id])
+        else:
+            if resume_session_id:
+                command.extend(["--session-id", resume_session_id])
+            command.append(prompt)
+        return command
+
+    command = [codex_executable]
+    append_ai_agent_model_options(command, agent, model=model, reasoning_effort=reasoning_effort)
+    if resume:
+        command.extend(["resume", "--cd", str(workspace), "--no-alt-screen"])
+        command.append(resume_session_id or "--last")
+        return command
+    command.extend(["--cd", str(workspace), "--no-alt-screen", prompt])
+    return command
+
+
+def ai_agent_task_context_prompt(task: TaskSummary, workspace: Path, suffix: str = "") -> str:
+    message = (
+        f"We are working in workspace task `{task.name}`. "
+        f"Workspace: {workspace}. "
+        f"Task directory: {task.path}. "
+        "Before changing files, read that task's TASK_DESCRIPTION.md and "
+        "TASK_CONTEXT.md and treat them as the active task context."
+    )
+    if suffix:
+        return f"{message} {suffix}"
+    return message
+
+
+def prepare_ai_agent_launch_command(
+    task: TaskSummary,
+    workspace: Path,
+    agent: str,
+    *,
+    codex_model: str,
+    codex_reasoning: str,
+    claude_model: str,
+    claude_effort: str,
+    codex_executable: str,
+    claude_executable: str,
+    prompt_suffix: str = "",
+) -> AgentLaunchCommand:
+    agent = normalize_agent(agent)
+    session_state = prepare_task_agent_session(task, workspace, agent)
+    model_settings = ai_agent_model_settings(
+        agent,
+        codex_model=codex_model,
+        codex_reasoning=codex_reasoning,
+        claude_model=claude_model,
+        claude_effort=claude_effort,
+    )
+    prompt = ai_agent_task_context_prompt(task, workspace, prompt_suffix)
+    return AgentLaunchCommand(
+        command=build_ai_agent_console_command(
+            workspace,
+            prompt,
+            agent,
+            codex_executable=codex_executable,
+            claude_executable=claude_executable,
+            resume=session_state.resume,
+            resume_session_id=session_state.session_id,
+            model=model_settings.model,
+            reasoning_effort=model_settings.reasoning_effort,
+        ),
+        session_state=session_state,
+        model_settings=model_settings,
+    )
+
+
 def agent_workspace_setting_or_default(settings: dict[str, int | str], key: str, default: str) -> str:
     value = settings.get(key)
     if not isinstance(value, str):
@@ -335,18 +509,233 @@ def agent_workspace_setting_or_default(settings: dict[str, int | str], key: str,
     return value or default
 
 
-def agent_output_requests_permission(text: str) -> bool:
+def agent_workspace_runtime_settings(
+    settings: dict[str, int | str],
+    *,
+    default_font_size: int,
+    default_language: str = "ru",
+    default_geometry: str = "1180x760",
+) -> AgentWorkspaceRuntimeSettings:
+    return AgentWorkspaceRuntimeSettings(
+        text_font_size=_int_setting(settings, "text_font_size", default_font_size),
+        button_font_size=_int_setting(settings, "button_font_size", default_font_size),
+        theme=_choice_setting(settings, "theme", AGENT_WORKSPACE_THEMES, "light"),
+        language=_choice_setting(settings, "language", AGENT_WORKSPACE_LANGUAGES, default_language),
+        default_agent=normalize_agent(settings.get("default_agent", AGENT_WORKSPACE_DEFAULT_AGENT)),
+        default_codex_model=agent_workspace_setting_or_default(
+            settings, "default_codex_model", AGENT_WORKSPACE_DEFAULT_CODEX_MODEL
+        ),
+        default_codex_reasoning=agent_workspace_setting_or_default(
+            settings, "default_codex_reasoning", AGENT_WORKSPACE_DEFAULT_CODEX_REASONING
+        ),
+        default_claude_model=agent_workspace_setting_or_default(
+            settings, "default_claude_model", AGENT_WORKSPACE_DEFAULT_CLAUDE_MODEL
+        ),
+        default_claude_effort=agent_workspace_setting_or_default(
+            settings, "default_claude_effort", AGENT_WORKSPACE_DEFAULT_CLAUDE_EFFORT
+        ),
+        window_geometry=_str_setting(settings, "geometry", default_geometry),
+    )
+
+
+def ai_agent_model_settings(
+    agent: str,
+    *,
+    codex_model: str,
+    codex_reasoning: str,
+    claude_model: str,
+    claude_effort: str,
+) -> AgentModelSettings:
+    if normalize_agent(agent) == "claude":
+        return AgentModelSettings(
+            model=claude_model,
+            reasoning_effort=claude_effort,
+        )
+    return AgentModelSettings(
+        model=codex_model,
+        reasoning_effort=codex_reasoning,
+    )
+
+
+def ai_agent_launch_state(*, running: bool, resumable: bool) -> AgentLaunchState:
+    if running:
+        return AgentLaunchState(label_key="ai_agent_running", reset_enabled=resumable)
+    if resumable:
+        return AgentLaunchState(label_key="restore_ai_agent_session", reset_enabled=True)
+    return AgentLaunchState(label_key="run_ai_agent", reset_enabled=False)
+
+
+def ai_agent_launch_state_for_selection(
+    task: TaskSummary | None,
+    workspace: Path,
+    agent: str,
+    *,
+    running_agent: str | None,
+) -> AgentLaunchState:
+    if task is None:
+        return ai_agent_launch_state(running=False, resumable=False)
+    agent = normalize_agent(agent)
+    running = running_agent == agent
+    resumable = task_agent_has_resumable_state(task, workspace, agent)
+    return ai_agent_launch_state(running=running, resumable=resumable)
+
+
+def ai_agent_switch_decision(
+    agent: str,
+    *,
+    current_agent: str | None,
+    start_if_changed: bool,
+) -> AgentSwitchDecision:
+    agent = normalize_agent(agent)
+    if current_agent is None:
+        return AgentSwitchDecision(action="start_selected", agent=agent)
+    current_agent = normalize_agent(current_agent)
+    if current_agent == agent:
+        return AgentSwitchDecision(
+            action="activate_current",
+            agent=agent,
+            current_agent=current_agent,
+        )
+    if not start_if_changed:
+        return AgentSwitchDecision(
+            action="keep_current",
+            agent=current_agent,
+            current_agent=current_agent,
+        )
+    return AgentSwitchDecision(
+        action="confirm_switch",
+        agent=agent,
+        current_agent=current_agent,
+    )
+
+
+def session_is_agent(*, session_kind: str) -> bool:
+    return session_kind in AGENT_WORKSPACE_AGENTS
+
+
+def session_is_running_agent(*, session_kind: str, exited: bool) -> bool:
+    return session_is_agent(session_kind=session_kind) and not exited
+
+
+def session_should_clear_pending_permission(
+    *,
+    session_kind: str,
+    permission_pending: bool,
+) -> bool:
+    return session_is_agent(session_kind=session_kind) and permission_pending
+
+
+def session_marks_task_running_agent(
+    *,
+    session_kind: str,
+    session_task_path: Path,
+    exited: bool,
+    task_path: Path,
+) -> bool:
+    return (
+        session_is_running_agent(session_kind=session_kind, exited=exited)
+        and session_task_path == task_path
+    )
+
+
+def session_marks_task_pending_permission(
+    *,
+    session_kind: str,
+    session_task_path: Path,
+    permission_pending: bool,
+    exited: bool,
+    task_path: Path,
+) -> bool:
+    return (
+        session_marks_task_running_agent(
+            session_kind=session_kind,
+            session_task_path=session_task_path,
+            exited=exited,
+            task_path=task_path,
+        )
+        and permission_pending
+    )
+
+
+def _int_setting(settings: dict[str, int | str], key: str, default: int) -> int:
+    value = settings.get(key)
+    if isinstance(value, int):
+        return value
+    return default
+
+
+def _choice_setting(
+    settings: dict[str, int | str],
+    key: str,
+    choices: tuple[str, ...],
+    default: str,
+) -> str:
+    value = settings.get(key)
+    if isinstance(value, str) and value in choices:
+        return value
+    return default
+
+
+def _str_setting(settings: dict[str, int | str], key: str, default: str) -> str:
+    value = settings.get(key)
+    if isinstance(value, str):
+        return value
+    return default
+
+
+def analyze_agent_output(text: str) -> AgentOutputAnalysis:
     normalized = ANSI_OSC_RE.sub("", text)
     normalized = ANSI_ESCAPE_RE.sub("", normalized)
     normalized = normalized.replace("\r", "\n")
-    return AGENT_PERMISSION_PROMPT_RE.search(normalized[-4000:]) is not None
+    tail = normalized[-4000:]
+    return AgentOutputAnalysis(
+        missing_session=AGENT_MISSING_SESSION_RE.search(tail) is not None,
+        requests_permission=AGENT_PERMISSION_PROMPT_RE.search(tail) is not None,
+    )
+
+
+def agent_output_requests_permission(text: str) -> bool:
+    return analyze_agent_output(text).requests_permission
 
 
 def agent_output_reports_missing_session(text: str) -> bool:
-    normalized = ANSI_OSC_RE.sub("", text)
-    normalized = ANSI_ESCAPE_RE.sub("", normalized)
-    normalized = normalized.replace("\r", "\n")
-    return AGENT_MISSING_SESSION_RE.search(normalized[-4000:]) is not None
+    return analyze_agent_output(text).missing_session
+
+
+def agent_output_state_update(
+    text: str,
+    *,
+    exited: bool,
+    permission_pending: bool,
+) -> AgentOutputStateUpdate:
+    analysis = analyze_agent_output(text)
+    if analysis.missing_session:
+        return AgentOutputStateUpdate(
+            missing_session=True,
+            permission_requested=False,
+            exited=True,
+            permission_pending=False,
+        )
+    if exited or permission_pending:
+        return AgentOutputStateUpdate(
+            missing_session=False,
+            permission_requested=False,
+            exited=exited,
+            permission_pending=permission_pending,
+        )
+    if analysis.requests_permission:
+        return AgentOutputStateUpdate(
+            missing_session=False,
+            permission_requested=True,
+            exited=exited,
+            permission_pending=True,
+        )
+    return AgentOutputStateUpdate(
+        missing_session=False,
+        permission_requested=False,
+        exited=exited,
+        permission_pending=permission_pending,
+    )
 
 
 def task_state_path(task: TaskSummary) -> Path:
@@ -388,6 +777,21 @@ def save_task_agent(task: TaskSummary, agent: str) -> None:
     save_task_state(task, data)
 
 
+def task_for_path(tasks: list[TaskSummary], path: Path) -> TaskSummary:
+    for task in tasks:
+        if task.path == path:
+            return task
+    return TaskSummary(
+        name=path.name,
+        path=path,
+        has_description=False,
+        has_context=False,
+        description_tokens=0,
+        context_tokens=0,
+        context_over_budget=False,
+    )
+
+
 def load_task_agent_session(task: TaskSummary, agent: str) -> AgentSessionState:
     agent = normalize_agent(agent)
     data = load_task_state(task)
@@ -426,6 +830,23 @@ def save_task_agent_session(task: TaskSummary, agent: str, session_id: str | Non
     save_task_state(task, data)
 
 
+def prepare_task_agent_session(
+    task: TaskSummary,
+    workspace: Path,
+    agent: str,
+    home: Path | None = None,
+) -> AgentSessionState:
+    agent = normalize_agent(agent)
+    session_state = load_task_agent_session(task, agent)
+    session_id = find_task_agent_session_id(task, workspace, agent, home=home)
+    save_task_agent_session(task, agent, session_id=session_id)
+    return AgentSessionState(
+        agent=agent,
+        resume=session_state.resume,
+        session_id=session_id,
+    )
+
+
 def clear_task_agent_session(task: TaskSummary, agent: str) -> bool:
     agent = normalize_agent(agent)
     data = load_task_state(task)
@@ -439,6 +860,13 @@ def clear_task_agent_session(task: TaskSummary, agent: str) -> bool:
         data.pop("agent_sessions", None)
     save_task_state(task, data)
     return True
+
+
+def reset_task_agent_session(task: TaskSummary, agent: str) -> bool:
+    agent = normalize_agent(agent)
+    cleared = clear_task_agent_session(task, agent)
+    save_task_agent(task, agent)
+    return cleared
 
 
 def new_agent_session_id() -> str:
@@ -467,6 +895,25 @@ def task_agent_session_id_is_valid(
     return find_task_agent_session_id(task, workspace, agent, home=home) is not None
 
 
+def task_agent_has_resumable_state(
+    task: TaskSummary,
+    workspace: Path,
+    agent: str,
+    home: Path | None = None,
+) -> bool:
+    return find_task_agent_session_id(task, workspace, agent, home=home) is not None
+
+
+def task_selected_agent_has_resumable_state(
+    task: TaskSummary,
+    workspace: Path,
+    default_agent: str = AGENT_WORKSPACE_DEFAULT_AGENT,
+    home: Path | None = None,
+) -> bool:
+    agent = load_task_agent(task, default_agent)
+    return task_agent_has_resumable_state(task, workspace, agent, home=home)
+
+
 def find_task_agent_session_id(
     task: TaskSummary,
     workspace: Path,
@@ -479,8 +926,12 @@ def find_task_agent_session_id(
         if agent == "codex":
             if codex_session_id_exists(session.session_id, home=home):
                 return session.session_id
+        elif agent == "claude":
+            return session.session_id
     if agent == "codex" and session.resume:
         return find_latest_codex_session_id(task, workspace, home=home)
+    if agent == "claude" and session.resume:
+        return find_latest_claude_session_id(task, workspace, home=home)
     return None
 
 
@@ -520,6 +971,40 @@ def find_latest_codex_session_id(task: TaskSummary, workspace: Path, home: Path 
             continue
         if needle in head:
             return match.group(1)
+    return None
+
+
+def find_latest_claude_session_id(task: TaskSummary, workspace: Path, home: Path | None = None) -> str | None:
+    projects_dir = (home or Path.home()) / ".claude" / "projects"
+    if not projects_dir.is_dir():
+        return None
+    task_marker = f"workspace task `{task.name}`"
+    task_path_marker = f"Task directory: {task.path}"
+    try:
+        session_files = sorted(
+            projects_dir.rglob("*.jsonl"),
+            key=lambda path: path.stat().st_mtime,
+            reverse=True,
+        )
+    except OSError:
+        return None
+    for session_file in session_files:
+        session_id = _claude_session_id_from_file(session_file)
+        if session_id is None:
+            continue
+        try:
+            with session_file.open("r", encoding="utf-8", errors="replace") as stream:
+                for line in stream:
+                    if task_marker in line and task_path_marker in line:
+                        return session_id
+        except OSError:
+            continue
+    return None
+
+
+def _claude_session_id_from_file(path: Path) -> str | None:
+    if CODEX_SESSION_ID_RE.fullmatch(path.stem):
+        return path.stem
     return None
 
 

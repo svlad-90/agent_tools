@@ -26,40 +26,47 @@ from .core import TASK_CONTEXT_BUDGET
 from .core import ConsoleChunk
 from .core import PAF_HIDE_TASK_ENV_VAR
 from .core import TASK_ACTION_LOGS_DIR
+from .core import AgentModelSettings
 from .core import TaskAction
 from .core import TaskSummary
 from .core import AGENT_WORKSPACE_AGENTS
 from .core import AGENT_WORKSPACE_CLAUDE_MODELS
-from .core import AGENT_WORKSPACE_DEFAULT_CLAUDE_EFFORT
-from .core import AGENT_WORKSPACE_DEFAULT_CLAUDE_MODEL
-from .core import AGENT_WORKSPACE_DEFAULT_AGENT
-from .core import AGENT_WORKSPACE_DEFAULT_CODEX_MODEL
-from .core import AGENT_WORKSPACE_DEFAULT_CODEX_REASONING
 from .core import AGENT_WORKSPACE_REASONING_EFFORTS
 from .core import AGENT_WORKSPACE_THEMES
 from .core import AGENT_PERMISSION_MARKER
 from .core import agent_executable
 from .core import agent_install_command
 from .core import agent_label
-from .core import agent_output_reports_missing_session
-from .core import agent_output_requests_permission
-from .core import agent_workspace_setting_or_default
+from .core import ai_agent_launch_state_for_selection
+from .core import ai_agent_model_settings
+from .core import ai_agent_switch_decision
+from .core import ai_agent_task_context_prompt
+from .core import agent_workspace_runtime_settings
+from .core import agent_output_state_update
+from .core import build_ai_agent_console_command
 from .core import clear_task_agent_session
 from .core import codex_model_choices
 from .core import discover_tasks
-from .core import find_task_agent_session_id
-from .core import load_task_agent_session
 from .core import load_task_agent
 from .core import load_task_actions
 from .core import load_agent_workspace_settings
+from .core import model_choices_with_current
 from .core import normalize_agent
 from .core import parse_console_output
+from .core import prepare_ai_agent_launch_command
 from .core import read_task_file
 from .core import render_markdown_chunks
+from .core import reset_task_agent_session
 from .core import save_agent_workspace_settings
 from .core import save_task_agent
 from .core import save_task_agent_session
+from .core import session_marks_task_pending_permission
+from .core import session_is_agent
+from .core import session_is_running_agent
+from .core import session_should_clear_pending_permission
 from .core import task_action_log_basename
+from .core import task_for_path
+from .core import task_selected_agent_has_resumable_state
 
 
 @dataclass
@@ -76,6 +83,13 @@ class ConsoleSession:
     input_floor_mark: str | None = None
     permission_pending: bool = False
     exited: bool = False
+
+
+_AI_AGENT_BUTTON_LABELS = {
+    "run_ai_agent": "Запустить ИИ агента",
+    "restore_ai_agent_session": "Восстановить сессию ИИ агента",
+    "ai_agent_running": "ИИ агент запущен",
+}
 
 
 class AgentWorkspace:
@@ -95,24 +109,19 @@ class AgentWorkspace:
         self.next_console_id = 1
         self._updating_agent_selection = False
         default_font_size = int(tkfont.nametofont("TkDefaultFont").cget("size"))
-        settings = load_agent_workspace_settings()
-        self.text_font_size = int(settings.get("text_font_size", default_font_size))
-        self.button_font_size = int(settings.get("button_font_size", default_font_size))
-        self.theme = str(settings.get("theme", "light"))
-        self.default_agent = normalize_agent(settings.get("default_agent", AGENT_WORKSPACE_DEFAULT_AGENT))
-        self.default_codex_model = agent_workspace_setting_or_default(
-            settings, "default_codex_model", AGENT_WORKSPACE_DEFAULT_CODEX_MODEL
+        settings = agent_workspace_runtime_settings(
+            load_agent_workspace_settings(),
+            default_font_size=default_font_size,
         )
-        self.default_codex_reasoning = agent_workspace_setting_or_default(
-            settings, "default_codex_reasoning", AGENT_WORKSPACE_DEFAULT_CODEX_REASONING
-        )
-        self.default_claude_model = agent_workspace_setting_or_default(
-            settings, "default_claude_model", AGENT_WORKSPACE_DEFAULT_CLAUDE_MODEL
-        )
-        self.default_claude_effort = agent_workspace_setting_or_default(
-            settings, "default_claude_effort", AGENT_WORKSPACE_DEFAULT_CLAUDE_EFFORT
-        )
-        self.window_geometry = str(settings.get("geometry", "1180x760"))
+        self.text_font_size = settings.text_font_size
+        self.button_font_size = settings.button_font_size
+        self.theme = settings.theme
+        self.default_agent = settings.default_agent
+        self.default_codex_model = settings.default_codex_model
+        self.default_codex_reasoning = settings.default_codex_reasoning
+        self.default_claude_model = settings.default_claude_model
+        self.default_claude_effort = settings.default_claude_effort
+        self.window_geometry = settings.window_geometry
         self.style = ttk.Style(self.root)
         self.text_font = tkfont.Font(
             family=tkfont.nametofont("TkTextFont").cget("family"),
@@ -445,8 +454,8 @@ class AgentWorkspace:
         codex_reasoning_var = tk.StringVar(value=self.default_codex_reasoning)
         claude_model_var = tk.StringVar(value=self.default_claude_model)
         claude_effort_var = tk.StringVar(value=self.default_claude_effort)
-        codex_model_values = _model_choices_with_current(codex_model_choices(), self.default_codex_model)
-        claude_model_values = _model_choices_with_current(AGENT_WORKSPACE_CLAUDE_MODELS, self.default_claude_model)
+        codex_model_values = model_choices_with_current(codex_model_choices(), self.default_codex_model)
+        claude_model_values = model_choices_with_current(AGENT_WORKSPACE_CLAUDE_MODELS, self.default_claude_model)
 
         ttk.Label(frame, text="Text font size").grid(row=0, column=0, sticky=tk.W, pady=4)
         tk.Spinbox(
@@ -847,33 +856,48 @@ class AgentWorkspace:
         if task is None:
             return
         agent = normalize_agent(self.agent_var.get())
-        clear_task_agent_session(task, agent)
-        save_task_agent(task, agent)
+        reset_task_agent_session(task, agent)
         self._update_ai_agent_button_label()
         self._refresh_task_session_indicators()
         self._refresh_tree_selection_style()
 
     def _agent_model(self, agent: str) -> str:
-        return self.default_codex_model if agent == "codex" else self.default_claude_model
+        return self._agent_model_settings(agent).model
 
     def _agent_reasoning_effort(self, agent: str) -> str:
-        return self.default_codex_reasoning if agent == "codex" else self.default_claude_effort
+        return self._agent_model_settings(agent).reasoning_effort
+
+    def _agent_model_settings(self, agent: str) -> AgentModelSettings:
+        return ai_agent_model_settings(
+            agent,
+            codex_model=self.default_codex_model,
+            codex_reasoning=self.default_codex_reasoning,
+            claude_model=self.default_claude_model,
+            claude_effort=self.default_claude_effort,
+        )
 
     def _switch_task_agent(self, task: TaskSummary, agent: str, *, start_if_changed: bool) -> None:
         agent = normalize_agent(agent)
         current = self._running_agent_session(task)
-        if current is not None and current.kind == agent:
+        decision = ai_agent_switch_decision(
+            agent,
+            current_agent=current.kind if current is not None else None,
+            start_if_changed=start_if_changed,
+        )
+        agent = decision.agent
+        if decision.action == "activate_current":
             save_task_agent_session(task, agent)
             self._activate_console(current.session_id)
             return
-        if current is not None:
-            if not start_if_changed:
-                self._set_agent_selection(current.kind)
-                save_task_agent(task, current.kind)
-                return
-            if not self._confirm_agent_switch(current.kind, agent):
-                self._set_agent_selection(current.kind)
-                save_task_agent(task, current.kind)
+        if decision.action == "keep_current":
+            self._set_agent_selection(agent)
+            save_task_agent(task, agent)
+            return
+        if decision.action == "confirm_switch":
+            current_agent = decision.current_agent or agent
+            if not self._confirm_agent_switch(current_agent, agent):
+                self._set_agent_selection(current_agent)
+                save_task_agent(task, current_agent)
                 return
         if not self._ensure_agent_installed(agent):
             if current is not None:
@@ -882,9 +906,17 @@ class AgentWorkspace:
         if current is not None:
             save_task_agent_session(task, current.kind)
             self.stop_console(current.session_id)
-        session_state = load_task_agent_session(task, agent)
-        session_id = find_task_agent_session_id(task, self.workspace, agent)
-        save_task_agent_session(task, agent, session_id=session_id)
+        launch = prepare_ai_agent_launch_command(
+            task,
+            self.workspace,
+            agent,
+            codex_model=self.default_codex_model,
+            codex_reasoning=self.default_codex_reasoning,
+            claude_model=self.default_claude_model,
+            claude_effort=self.default_claude_effort,
+            codex_executable=_codex_executable(),
+            claude_executable=_claude_executable(),
+        )
         self._update_ai_agent_button_label()
         self._refresh_task_session_indicators()
         for session in self._current_task_console_sessions(task):
@@ -897,53 +929,32 @@ class AgentWorkspace:
             break
         self._start_embedded_terminal_process(
             task=task,
-            command=ai_agent_console_command(
-                self.workspace,
-                task,
-                agent,
-                resume=session_state.resume,
-                resume_session_id=session_id,
-                model=self._agent_model(agent),
-                reasoning_effort=self._agent_reasoning_effort(agent),
-            ),
+            command=launch.command,
             cwd=self.workspace,
             title_prefix=agent,
         )
 
     def _update_ai_agent_button_label(self) -> None:
         task = self.selected_task
-        has_session = False
-        if task is None:
-            self.run_ai_agent_button.configure(text="Запустить ИИ агента")
-        else:
-            agent = normalize_agent(self.agent_var.get())
+        running_agent = None
+        agent = normalize_agent(self.agent_var.get())
+        if task is not None:
             current = self._running_agent_session(task)
-            has_session = find_task_agent_session_id(task, self.workspace, agent) is not None
-            if current is not None and current.kind == agent:
-                self.run_ai_agent_button.configure(text="ИИ агент запущен")
-            elif has_session:
-                self.run_ai_agent_button.configure(text="Восстановить сессию ИИ агента")
-            else:
-                self.run_ai_agent_button.configure(text="Запустить ИИ агента")
-        self.reset_ai_agent_button.configure(state=tk.NORMAL if has_session else tk.DISABLED)
+            running_agent = current.kind if current is not None else None
+        state = ai_agent_launch_state_for_selection(
+            task,
+            self.workspace,
+            agent,
+            running_agent=running_agent,
+        )
+        self.run_ai_agent_button.configure(text=_AI_AGENT_BUTTON_LABELS[state.label_key])
+        self.reset_ai_agent_button.configure(state=tk.NORMAL if state.reset_enabled else tk.DISABLED)
 
     def _task_has_resumable_agent_session(self, task: TaskSummary) -> bool:
-        agent = load_task_agent(task, self.default_agent)
-        return find_task_agent_session_id(task, self.workspace, agent) is not None
+        return task_selected_agent_has_resumable_state(task, self.workspace, self.default_agent)
 
     def _task_for_path(self, path: Path) -> TaskSummary:
-        for task in self.tasks:
-            if task.path == path:
-                return task
-        return TaskSummary(
-            name=path.name,
-            path=path,
-            has_description=False,
-            has_context=False,
-            description_tokens=0,
-            context_tokens=0,
-            context_over_budget=False,
-        )
+        return task_for_path(self.tasks, path)
 
     def _task_tags(self, task: TaskSummary) -> tuple[str, ...]:
         if self._task_has_resumable_agent_session(task):
@@ -952,7 +963,10 @@ class AgentWorkspace:
 
     def _running_agent_session(self, task: TaskSummary) -> ConsoleSession | None:
         for session in self._current_task_console_sessions(task):
-            if session.kind in AGENT_WORKSPACE_AGENTS and not session.exited and session.process.poll() is None:
+            if session_is_running_agent(
+                session_kind=session.kind,
+                exited=session.exited,
+            ) and session.process.poll() is None:
                 return session
         return None
 
@@ -960,15 +974,22 @@ class AgentWorkspace:
         return [
             session
             for session in self.console_sessions.values()
-            if session.kind in AGENT_WORKSPACE_AGENTS and not session.exited and session.process.poll() is None
+            if session_is_running_agent(
+                session_kind=session.kind,
+                exited=session.exited,
+            )
+            and session.process.poll() is None
         ]
 
     def _task_has_pending_agent_permission(self, task: TaskSummary) -> bool:
         return any(
-            session.kind in AGENT_WORKSPACE_AGENTS
-            and session.task_path == task.path
-            and session.permission_pending
-            and not session.exited
+            session_marks_task_pending_permission(
+                session_kind=session.kind,
+                session_task_path=session.task_path,
+                permission_pending=session.permission_pending,
+                exited=session.exited,
+                task_path=task.path,
+            )
             and session.process.poll() is None
             for session in self.console_sessions.values()
         )
@@ -1305,7 +1326,10 @@ class AgentWorkspace:
                 return
         session.exited = True
         chunks = [ConsoleChunk(f"\n[process exited with code {return_code}]\n", ())]
-        if session.kind in AGENT_WORKSPACE_AGENTS and session.permission_pending:
+        if session_should_clear_pending_permission(
+            session_kind=session.kind,
+            permission_pending=session.permission_pending,
+        ):
             session.permission_pending = False
             self._refresh_task_permission_indicators()
         self.messages.put(("console", (session_id, chunks)))
@@ -1451,17 +1475,22 @@ class AgentWorkspace:
         if session is None or session.text is None:
             return
         session.chunks.extend(chunks)
-        if session.kind in AGENT_WORKSPACE_AGENTS:
+        if session_is_agent(session_kind=session.kind):
             text = "".join(chunk.text for chunk in chunks)
-            if agent_output_reports_missing_session(text):
-                session.exited = True
-                session.permission_pending = False
+            update = agent_output_state_update(
+                text,
+                exited=session.exited,
+                permission_pending=session.permission_pending,
+            )
+            if update.missing_session:
+                session.exited = update.exited
+                session.permission_pending = update.permission_pending
                 clear_task_agent_session(self._task_for_path(session.task_path), session.kind)
                 self._update_ai_agent_button_label()
                 self._refresh_task_session_indicators()
                 self._refresh_tree_selection_style()
-            if agent_output_requests_permission(text):
-                session.permission_pending = True
+            elif update.permission_requested:
+                session.permission_pending = update.permission_pending
                 self._refresh_task_permission_indicators()
         for chunk in chunks:
             self._insert_console_chunk(session, chunk)
@@ -1498,7 +1527,10 @@ class AgentWorkspace:
         session = self.console_sessions.get(session_id)
         if session is None or session.fd is None:
             return
-        if session.kind in AGENT_WORKSPACE_AGENTS and session.permission_pending:
+        if session_should_clear_pending_permission(
+            session_kind=session.kind,
+            permission_pending=session.permission_pending,
+        ):
             session.permission_pending = False
             self._refresh_task_permission_indicators()
         if protect_current_line:
@@ -1724,13 +1756,7 @@ class AgentWorkspace:
 
 
 def ai_agent_task_context_message(task: TaskSummary, workspace: Path) -> str:
-    return (
-        f"We are working in workspace task `{task.name}`. "
-        f"Workspace: {workspace}. "
-        f"Task directory: {task.path}. "
-        "Before changing files, read that task's TASK_DESCRIPTION.md and "
-        "TASK_CONTEXT.md and treat them as the active task context."
-    )
+    return ai_agent_task_context_prompt(task, workspace)
 
 
 def codex_task_context_message(task: TaskSummary, workspace: Path) -> str:
@@ -1747,20 +1773,12 @@ def ai_agent_console_command(
     model: str = "",
     reasoning_effort: str = "",
 ) -> list[str]:
-    agent = normalize_agent(agent)
-    if agent == "claude":
-        command = [_claude_executable()]
-        _append_ai_agent_model_options(command, agent, model=model, reasoning_effort=reasoning_effort)
-        if resume and resume_session_id:
-            command.extend(["--resume", resume_session_id])
-        else:
-            if resume_session_id:
-                command.extend(["--session-id", resume_session_id])
-            command.append(ai_agent_task_context_message(task, workspace))
-        return command
-    return codex_console_command(
+    return build_ai_agent_console_command(
         workspace,
-        task,
+        ai_agent_task_context_message(task, workspace),
+        agent,
+        codex_executable=_codex_executable(),
+        claude_executable=_claude_executable(),
         resume=resume,
         resume_session_id=resume_session_id,
         model=model,
@@ -1777,43 +1795,17 @@ def codex_console_command(
     model: str = "",
     reasoning_effort: str = "",
 ) -> list[str]:
-    command = [_codex_executable()]
-    _append_ai_agent_model_options(command, "codex", model=model, reasoning_effort=reasoning_effort)
-    if resume:
-        command.extend(["resume", "--cd", str(workspace), "--no-alt-screen"])
-        if resume_session_id:
-            command.append(resume_session_id)
-        else:
-            command.append("--last")
-        return command
-    command.extend(["--cd", str(workspace), "--no-alt-screen", ai_agent_task_context_message(task, workspace)])
-    return command
-
-
-def _append_ai_agent_model_options(
-    command: list[str],
-    agent: str,
-    *,
-    model: str = "",
-    reasoning_effort: str = "",
-) -> None:
-    model = model.strip()
-    reasoning_effort = reasoning_effort.strip()
-    if model:
-        command.extend(["--model", model])
-    if not reasoning_effort:
-        return
-    if agent == "claude":
-        command.extend(["--effort", reasoning_effort])
-    else:
-        command.extend(["-c", f'model_reasoning_effort="{reasoning_effort}"'])
-
-
-def _model_choices_with_current(choices: tuple[str, ...], current: str) -> tuple[str, ...]:
-    current = current.strip()
-    if current and current not in choices:
-        return (*choices, current)
-    return choices
+    return build_ai_agent_console_command(
+        workspace,
+        ai_agent_task_context_message(task, workspace),
+        "codex",
+        codex_executable=_codex_executable(),
+        claude_executable=_claude_executable(),
+        resume=resume,
+        resume_session_id=resume_session_id,
+        model=model,
+        reasoning_effort=reasoning_effort,
+    )
 
 
 def embedded_terminal_command(
@@ -1949,7 +1941,7 @@ def _make_controlling_terminal(fd: int) -> None:
 
 
 def console_tab_title(index: int, kind: str) -> str:
-    if kind in AGENT_WORKSPACE_AGENTS:
+    if session_is_agent(session_kind=kind):
         return agent_label(kind)
     return f"{kind} {index}"
 

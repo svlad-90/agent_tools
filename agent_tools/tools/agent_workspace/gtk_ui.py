@@ -26,15 +26,11 @@ from gi.repository import Vte
 
 from .core import TASK_ACTIONS_FILE
 from .core import TASK_ACTION_LOGS_DIR
+from .core import AgentModelSettings
 from .core import TaskAction
 from .core import TaskSummary
 from .core import AGENT_WORKSPACE_AGENTS
 from .core import AGENT_WORKSPACE_CLAUDE_MODELS
-from .core import AGENT_WORKSPACE_DEFAULT_CLAUDE_EFFORT
-from .core import AGENT_WORKSPACE_DEFAULT_CLAUDE_MODEL
-from .core import AGENT_WORKSPACE_DEFAULT_AGENT
-from .core import AGENT_WORKSPACE_DEFAULT_CODEX_MODEL
-from .core import AGENT_WORKSPACE_DEFAULT_CODEX_REASONING
 from .core import AGENT_WORKSPACE_LANGUAGES
 from .core import AGENT_WORKSPACE_REASONING_EFFORTS
 from .core import AGENT_WORKSPACE_THEMES
@@ -43,24 +39,36 @@ from .core import PAF_HIDE_TASK_ENV_VAR
 from .core import agent_executable
 from .core import agent_install_command
 from .core import agent_label
-from .core import agent_output_reports_missing_session
-from .core import agent_output_requests_permission
-from .core import agent_workspace_setting_or_default
+from .core import ai_agent_launch_state_for_selection
+from .core import ai_agent_model_settings
+from .core import ai_agent_switch_decision
+from .core import ai_agent_task_context_prompt
+from .core import agent_workspace_runtime_settings
+from .core import agent_output_state_update
+from .core import build_ai_agent_console_command
 from .core import clear_task_agent_session
 from .core import codex_model_choices
 from .core import discover_tasks
-from .core import find_task_agent_session_id
-from .core import load_task_agent_session
 from .core import load_task_agent
 from .core import load_task_actions
 from .core import load_agent_workspace_settings
+from .core import model_choices_with_current
 from .core import normalize_agent
+from .core import prepare_ai_agent_launch_command
 from .core import read_task_file
 from .core import render_markdown_chunks
+from .core import reset_task_agent_session
 from .core import save_agent_workspace_settings
 from .core import save_task_agent
 from .core import save_task_agent_session
+from .core import session_marks_task_pending_permission
+from .core import session_marks_task_running_agent
+from .core import session_is_agent
+from .core import session_is_running_agent
+from .core import session_should_clear_pending_permission
 from .core import task_action_log_basename
+from .core import task_for_path
+from .core import task_selected_agent_has_resumable_state
 
 
 TRANSLATIONS = {
@@ -335,25 +343,17 @@ class WorkspaceGtkGui:
         self.next_terminal_id = 1
         self._updating_agent_selection = False
 
-        settings = load_agent_workspace_settings()
-        self.text_font_size = int(settings.get("text_font_size", 13))
-        self.button_font_size = int(settings.get("button_font_size", 13))
-        self.theme = str(settings.get("theme", "light"))
-        self.language = str(settings.get("language", "ru"))
-        self.default_agent = normalize_agent(settings.get("default_agent", AGENT_WORKSPACE_DEFAULT_AGENT))
-        self.default_codex_model = agent_workspace_setting_or_default(
-            settings, "default_codex_model", AGENT_WORKSPACE_DEFAULT_CODEX_MODEL
-        )
-        self.default_codex_reasoning = agent_workspace_setting_or_default(
-            settings, "default_codex_reasoning", AGENT_WORKSPACE_DEFAULT_CODEX_REASONING
-        )
-        self.default_claude_model = agent_workspace_setting_or_default(
-            settings, "default_claude_model", AGENT_WORKSPACE_DEFAULT_CLAUDE_MODEL
-        )
-        self.default_claude_effort = agent_workspace_setting_or_default(
-            settings, "default_claude_effort", AGENT_WORKSPACE_DEFAULT_CLAUDE_EFFORT
-        )
-        self.window_geometry = str(settings.get("geometry", "1180x760"))
+        settings = agent_workspace_runtime_settings(load_agent_workspace_settings(), default_font_size=13)
+        self.text_font_size = settings.text_font_size
+        self.button_font_size = settings.button_font_size
+        self.theme = settings.theme
+        self.language = settings.language
+        self.default_agent = settings.default_agent
+        self.default_codex_model = settings.default_codex_model
+        self.default_codex_reasoning = settings.default_codex_reasoning
+        self.default_claude_model = settings.default_claude_model
+        self.default_claude_effort = settings.default_claude_effort
+        self.window_geometry = settings.window_geometry
         self.last_window_width = 1180
         self.last_window_height = 760
         self.last_window_x = 0
@@ -951,12 +951,12 @@ class WorkspaceGtkGui:
             claude_effort_combo.append_text(effort)
         _set_combo_text_choices(
             codex_model_combo,
-            _model_choices_with_current(codex_model_choices(), self.default_codex_model),
+            model_choices_with_current(codex_model_choices(), self.default_codex_model),
             self.default_codex_model,
         )
         _set_combo_text_choices(
             claude_model_combo,
-            _model_choices_with_current(AGENT_WORKSPACE_CLAUDE_MODELS, self.default_claude_model),
+            model_choices_with_current(AGENT_WORKSPACE_CLAUDE_MODELS, self.default_claude_model),
             self.default_claude_model,
         )
         codex_reasoning_combo.set_active(
@@ -1291,32 +1291,47 @@ class WorkspaceGtkGui:
         if task is None:
             return
         agent = self._selected_agent()
-        clear_task_agent_session(task, agent)
-        save_task_agent(task, agent)
+        reset_task_agent_session(task, agent)
         self._update_codex_button_state()
 
     def _agent_model(self, agent: str) -> str:
-        return self.default_codex_model if agent == "codex" else self.default_claude_model
+        return self._agent_model_settings(agent).model
 
     def _agent_reasoning_effort(self, agent: str) -> str:
-        return self.default_codex_reasoning if agent == "codex" else self.default_claude_effort
+        return self._agent_model_settings(agent).reasoning_effort
+
+    def _agent_model_settings(self, agent: str) -> AgentModelSettings:
+        return ai_agent_model_settings(
+            agent,
+            codex_model=self.default_codex_model,
+            codex_reasoning=self.default_codex_reasoning,
+            claude_model=self.default_claude_model,
+            claude_effort=self.default_claude_effort,
+        )
 
     def _switch_task_agent(self, task: TaskSummary, agent: str, *, start_if_changed: bool) -> None:
         agent = normalize_agent(agent)
         current = self._running_agent_session(task)
-        if current is not None and current.kind == agent:
+        decision = ai_agent_switch_decision(
+            agent,
+            current_agent=current.kind if current is not None else None,
+            start_if_changed=start_if_changed,
+        )
+        agent = decision.agent
+        if decision.action == "activate_current":
             save_task_agent_session(task, agent)
             self._activate_terminal(current.session_id)
             self._update_codex_button_state()
             return
-        if current is not None:
-            if not start_if_changed:
-                self._set_selected_agent(current.kind)
-                save_task_agent(task, current.kind)
-                return
-            if not self._confirm_agent_switch(current.kind, agent):
-                self._set_selected_agent(current.kind)
-                save_task_agent(task, current.kind)
+        if decision.action == "keep_current":
+            self._set_selected_agent(agent)
+            save_task_agent(task, agent)
+            return
+        if decision.action == "confirm_switch":
+            current_agent = decision.current_agent or agent
+            if not self._confirm_agent_switch(current_agent, agent):
+                self._set_selected_agent(current_agent)
+                save_task_agent(task, current_agent)
                 return
         if not self._ensure_agent_installed(agent):
             if current is not None:
@@ -1325,9 +1340,18 @@ class WorkspaceGtkGui:
         if current is not None:
             save_task_agent_session(task, current.kind)
             self._close_console_session(current, confirm=False, ensure_default=False)
-        session_state = load_task_agent_session(task, agent)
-        session_id = find_task_agent_session_id(task, self.workspace, agent)
-        save_task_agent_session(task, agent, session_id=session_id)
+        launch = prepare_ai_agent_launch_command(
+            task,
+            self.workspace,
+            agent,
+            codex_model=self.default_codex_model,
+            codex_reasoning=self.default_codex_reasoning,
+            claude_model=self.default_claude_model,
+            claude_effort=self.default_claude_effort,
+            codex_executable=_codex_executable(),
+            claude_executable=_claude_executable(),
+            prompt_suffix=f"Отвечай пользователю на {self.language} языке.",
+        )
         for session in self._current_task_terminal_sessions(task):
             if session.kind == agent:
                 self._activate_terminal(session.session_id)
@@ -1335,16 +1359,7 @@ class WorkspaceGtkGui:
                 return
         self._start_terminal(
             task=task,
-            command=ai_agent_console_command(
-                self.workspace,
-                task,
-                agent,
-                self.language,
-                resume=session_state.resume,
-                resume_session_id=session_id,
-                model=self._agent_model(agent),
-                reasoning_effort=self._agent_reasoning_effort(agent),
-            ),
+            command=launch.command,
             cwd=self.workspace,
             env=os.environ.copy(),
             kind=agent,
@@ -1353,7 +1368,7 @@ class WorkspaceGtkGui:
 
     def _running_agent_session(self, task: TaskSummary) -> TerminalSession | None:
         for session in self._current_task_terminal_sessions(task):
-            if session.kind in AGENT_WORKSPACE_AGENTS and not session.exited:
+            if session_is_running_agent(session_kind=session.kind, exited=session.exited):
                 return session
         return None
 
@@ -1361,7 +1376,7 @@ class WorkspaceGtkGui:
         return [
             session
             for session in self.terminal_sessions.values()
-            if session.kind in AGENT_WORKSPACE_AGENTS and not session.exited
+            if session_is_running_agent(session_kind=session.kind, exited=session.exited)
         ]
 
     def _confirm_agent_switch(self, current_agent: str, next_agent: str) -> bool:
@@ -1544,7 +1559,7 @@ class WorkspaceGtkGui:
 
     def _show_terminal_tab(self, session: TerminalSession) -> None:
         if self.console_notebook.page_num(session.page) < 0:
-            if session.kind in AGENT_WORKSPACE_AGENTS:
+            if session_is_agent(session_kind=session.kind):
                 self.console_notebook.insert_page(session.page, Gtk.Label(label=session.kind), 0)
             else:
                 self.console_notebook.append_page(session.page, Gtk.Label(label=session.kind))
@@ -1592,10 +1607,7 @@ class WorkspaceGtkGui:
 
     def _update_codex_button_state(self) -> None:
         task = self.selected_task
-        running = task is not None and any(
-            session.kind in AGENT_WORKSPACE_AGENTS
-            for session in self._current_task_terminal_sessions(task)
-        )
+        running = task is not None and self._running_agent_session(task) is not None
         context = self.run_ai_agent_button.get_style_context()
         if running:
             context.add_class("codex-running")
@@ -1606,29 +1618,34 @@ class WorkspaceGtkGui:
 
     def _update_ai_agent_button_label(self) -> None:
         task = self.selected_task
-        label_key = "run_ai_agent"
-        has_session = False
+        running_agent = None
+        agent = self._selected_agent()
         if task is not None:
-            agent = self._selected_agent()
             current = self._running_agent_session(task)
-            has_session = find_task_agent_session_id(task, self.workspace, agent) is not None
-            if current is not None and current.kind == agent:
-                label_key = "ai_agent_running"
-            elif has_session:
-                label_key = "restore_ai_agent_session"
-        self.run_ai_agent_button.set_label(self._tr(label_key))
-        self.reset_ai_agent_button.set_sensitive(has_session)
+            running_agent = current.kind if current is not None else None
+        state = ai_agent_launch_state_for_selection(
+            task,
+            self.workspace,
+            agent,
+            running_agent=running_agent,
+        )
+        self.run_ai_agent_button.set_label(self._tr(state.label_key))
+        self.reset_ai_agent_button.set_sensitive(state.reset_enabled)
 
     def _task_has_resumable_agent_session(self, task: TaskSummary) -> bool:
-        agent = load_task_agent(task, self.default_agent)
-        return find_task_agent_session_id(task, self.workspace, agent) is not None
+        return task_selected_agent_has_resumable_state(task, self.workspace, self.default_agent)
 
     def _refresh_task_row_styles(self) -> None:
         row_iter = self.task_store.get_iter_first()
         while row_iter is not None:
             task = self.task_store[row_iter][1]
             has_agent = any(
-                session.kind in AGENT_WORKSPACE_AGENTS and session.task_path == task.path
+                session_marks_task_running_agent(
+                    session_kind=session.kind,
+                    session_task_path=session.task_path,
+                    exited=session.exited,
+                    task_path=task.path,
+                )
                 for session in self.terminal_sessions.values()
             )
             has_session = self._task_has_resumable_agent_session(task)
@@ -1675,10 +1692,7 @@ class WorkspaceGtkGui:
         return None
 
     def _task_for_path(self, task_path: Path) -> TaskSummary:
-        for task in self.tasks:
-            if task.path == task_path:
-                return task
-        return TaskSummary(task_path.name, task_path, False, False, 0, 0, False)
+        return task_for_path(self.tasks, task_path)
 
     def _on_terminal_button_press(self, terminal: Vte.Terminal, event: Gdk.EventButton) -> bool:
         if event.button != 3:
@@ -1697,7 +1711,10 @@ class WorkspaceGtkGui:
 
     def _on_terminal_key_press(self, terminal: Vte.Terminal, event: Gdk.EventKey) -> bool:
         session = self._session_for_terminal(terminal)
-        if session is not None and session.kind in AGENT_WORKSPACE_AGENTS and session.permission_pending:
+        if session is not None and session_should_clear_pending_permission(
+            session_kind=session.kind,
+            permission_pending=session.permission_pending,
+        ):
             session.permission_pending = False
             self._refresh_task_row_styles()
         shortcut = _terminal_clipboard_shortcut(
@@ -1706,7 +1723,7 @@ class WorkspaceGtkGui:
             getattr(event, "hardware_keycode", None),
         )
         if shortcut == "copy":
-            terminal.copy_clipboard()
+            _copy_terminal_selection(terminal)
             return True
         if shortcut == "paste":
             terminal.paste_clipboard()
@@ -1715,21 +1732,22 @@ class WorkspaceGtkGui:
 
     def _on_terminal_contents_changed(self, terminal: Vte.Terminal) -> None:
         session = self._session_for_terminal(terminal)
-        if session is None or session.kind not in AGENT_WORKSPACE_AGENTS:
-            return
-        if session.permission_pending:
+        if session is None or not session_is_agent(session_kind=session.kind):
             return
         tail = _terminal_text_tail(terminal)
-        if agent_output_reports_missing_session(tail):
-            session.exited = True
-            session.permission_pending = False
+        update = agent_output_state_update(
+            tail,
+            exited=session.exited,
+            permission_pending=session.permission_pending,
+        )
+        if update.missing_session:
+            session.exited = update.exited
+            session.permission_pending = update.permission_pending
             clear_task_agent_session(self._task_for_path(session.task_path), session.kind)
             self._update_codex_button_state()
             return
-        if session.exited:
-            return
-        if agent_output_requests_permission(tail):
-            session.permission_pending = True
+        if update.permission_requested:
+            session.permission_pending = update.permission_pending
             self._refresh_task_row_styles()
 
     def _terminal_context_menu(self, terminal: Vte.Terminal) -> Gtk.Menu:
@@ -1738,8 +1756,8 @@ class WorkspaceGtkGui:
         paste_item = Gtk.MenuItem(label="Paste")
         select_all_item = Gtk.MenuItem(label="Select all")
         close_item = Gtk.MenuItem(label=self._tr("close"))
-        copy_item.set_sensitive(bool(terminal.get_has_selection()))
-        copy_item.connect("activate", lambda *_: terminal.copy_clipboard())
+        copy_item.set_sensitive(True)
+        copy_item.connect("activate", lambda *_: _copy_terminal_selection(terminal))
         paste_item.connect("activate", lambda *_: terminal.paste_clipboard())
         select_all_item.connect("activate", lambda *_: terminal.select_all())
         session = self._session_for_terminal(terminal)
@@ -1762,9 +1780,13 @@ class WorkspaceGtkGui:
 
     def _task_has_pending_agent_permission(self, task: TaskSummary) -> bool:
         return any(
-            session.kind in AGENT_WORKSPACE_AGENTS
-            and session.task_path == task.path
-            and session.permission_pending
+            session_marks_task_pending_permission(
+                session_kind=session.kind,
+                session_task_path=session.task_path,
+                permission_pending=session.permission_pending,
+                exited=session.exited,
+                task_path=task.path,
+            )
             for session in self.terminal_sessions.values()
         )
 
@@ -2081,11 +2103,11 @@ def _is_empty_notebook_tab_area(notebook: Gtk.Notebook, event: Gdk.EventButton) 
 
 
 def _terminal_session_sort_key(kind: str, session_id: int) -> tuple[int, int]:
-    return (0 if kind in AGENT_WORKSPACE_AGENTS else 1, session_id)
+    return (0 if session_is_agent(session_kind=kind) else 1, session_id)
 
 
 def _terminal_tab_label(kind: str, shell_index: int) -> str:
-    if kind in AGENT_WORKSPACE_AGENTS:
+    if session_is_agent(session_kind=kind):
         return agent_label(kind)
     return f"{kind} {shell_index}"
 
@@ -2106,6 +2128,14 @@ def _terminal_clipboard_shortcut(keyval: int, state: int, hardware_keycode: int 
     if char in {"v", "м"} or key_name in {"v", "cyrillic_em"}:
         return "paste"
     return None
+
+
+def _copy_terminal_selection(terminal: Vte.Terminal) -> None:
+    terminal.grab_focus()
+    try:
+        terminal.copy_clipboard_format(Vte.Format.TEXT)
+    except (AttributeError, TypeError):
+        terminal.copy_clipboard()
 
 
 def _task_row_style(
@@ -2340,14 +2370,8 @@ def _files_under(root: Path) -> list[Path]:
 
 
 def ai_agent_task_context_message(task: TaskSummary, workspace: Path, language: str = "en") -> str:
-    return (
-        f"We are working in workspace task `{task.name}`. "
-        f"Workspace: {workspace}. "
-        f"Task directory: {task.path}. "
-        "Before changing files, read that task's TASK_DESCRIPTION.md and "
-        "TASK_CONTEXT.md and treat them as the active task context. "
-        f"{CODEX_LANGUAGE_INSTRUCTIONS.get(language, CODEX_LANGUAGE_INSTRUCTIONS['en'])}"
-    )
+    language_instruction = CODEX_LANGUAGE_INSTRUCTIONS.get(language, CODEX_LANGUAGE_INSTRUCTIONS["en"])
+    return ai_agent_task_context_prompt(task, workspace, language_instruction)
 
 
 def codex_task_context_message(task: TaskSummary, workspace: Path, language: str = "en") -> str:
@@ -2365,21 +2389,12 @@ def ai_agent_console_command(
     model: str = "",
     reasoning_effort: str = "",
 ) -> list[str]:
-    agent = normalize_agent(agent)
-    if agent == "claude":
-        command = [_claude_executable()]
-        _append_ai_agent_model_options(command, agent, model=model, reasoning_effort=reasoning_effort)
-        if resume and resume_session_id:
-            command.extend(["--resume", resume_session_id])
-        else:
-            if resume_session_id:
-                command.extend(["--session-id", resume_session_id])
-            command.append(ai_agent_task_context_message(task, workspace, language))
-        return command
-    return codex_console_command(
+    return build_ai_agent_console_command(
         workspace,
-        task,
-        language,
+        ai_agent_task_context_message(task, workspace, language),
+        agent,
+        codex_executable=_codex_executable(),
+        claude_executable=_claude_executable(),
         resume=resume,
         resume_session_id=resume_session_id,
         model=model,
@@ -2397,43 +2412,17 @@ def codex_console_command(
     model: str = "",
     reasoning_effort: str = "",
 ) -> list[str]:
-    command = [_codex_executable()]
-    _append_ai_agent_model_options(command, "codex", model=model, reasoning_effort=reasoning_effort)
-    if resume:
-        command.extend(["resume", "--cd", str(workspace), "--no-alt-screen"])
-        if resume_session_id:
-            command.append(resume_session_id)
-        else:
-            command.append("--last")
-        return command
-    command.extend(["--cd", str(workspace), "--no-alt-screen", ai_agent_task_context_message(task, workspace, language)])
-    return command
-
-
-def _append_ai_agent_model_options(
-    command: list[str],
-    agent: str,
-    *,
-    model: str = "",
-    reasoning_effort: str = "",
-) -> None:
-    model = model.strip()
-    reasoning_effort = reasoning_effort.strip()
-    if model:
-        command.extend(["--model", model])
-    if not reasoning_effort:
-        return
-    if agent == "claude":
-        command.extend(["--effort", reasoning_effort])
-    else:
-        command.extend(["-c", f'model_reasoning_effort="{reasoning_effort}"'])
-
-
-def _model_choices_with_current(choices: tuple[str, ...], current: str) -> tuple[str, ...]:
-    current = current.strip()
-    if current and current not in choices:
-        return (*choices, current)
-    return choices
+    return build_ai_agent_console_command(
+        workspace,
+        ai_agent_task_context_message(task, workspace, language),
+        "codex",
+        codex_executable=_codex_executable(),
+        claude_executable=_claude_executable(),
+        resume=resume,
+        resume_session_id=resume_session_id,
+        model=model,
+        reasoning_effort=reasoning_effort,
+    )
 
 
 def _set_combo_text_choices(combo: Gtk.ComboBoxText, choices: tuple[str, ...], current: str) -> None:

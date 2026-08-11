@@ -41,11 +41,12 @@ The settings dialog can also set default models and reasoning effort for each
 agent. Model fields are combo boxes: Codex choices are loaded from the local
 Codex model cache with a built-in fallback list, and Claude Code choices use
 the CLI aliases `sonnet`, `opus`, and `fable`. Codex launches use `--model` and
-`-c model_reasoning_effort="..."`; Claude Code launches use `--model` and
-`--effort`. Empty values leave the agent CLI defaults in control. Initial
-defaults are Codex `gpt-5.5` with `medium` reasoning and Claude Code `sonnet`
-with `medium` effort, so new Agent Workspace installs do not silently launch
-Claude's highest-cost default model.
+`-c model_reasoning_effort="..."`; Claude Code launches use
+`--permission-mode auto`, `--model`, and `--effort`. Empty model and effort
+values leave the agent CLI defaults in control. Initial defaults are Codex
+`gpt-5.5` with `medium` reasoning and Claude Code `sonnet` with `medium`
+effort, so new Agent Workspace installs do not silently launch Claude's
+highest-cost default model.
 The reset-session button forgets only the selected task's selected AI-agent
 session in `.agent-workspace-state.json`; it does not delete the underlying
 Codex or Claude Code conversation data, and it does not affect another agent
