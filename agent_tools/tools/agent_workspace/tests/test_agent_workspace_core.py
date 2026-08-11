@@ -43,6 +43,7 @@ from agent_tools.tools.agent_workspace.core import load_task_active_agent_run
 from agent_tools.tools.agent_workspace.core import load_task_agent_session
 from agent_tools.tools.agent_workspace.core import load_task_actions
 from agent_tools.tools.agent_workspace.core import load_agent_workspace_settings
+from agent_tools.tools.agent_workspace.core import log_agent_workspace_exception
 from agent_tools.tools.agent_workspace.core import parse_console_output
 from agent_tools.tools.agent_workspace.core import prepare_task_agent_session
 from agent_tools.tools.agent_workspace.core import prepare_ai_agent_launch_command
@@ -1634,10 +1635,10 @@ def test_task_agent_status_text_combines_permission_running_and_saved_sessions(
             workspace,
             permission_pending=True,
             running_agents=("codex",),
-            spinner_frame="▷⠋",
+            spinner_frame="▷",
             home=home,
         )
-        == "?"
+        == "▷"
     )
     assert (
         task_agent_status_text(
@@ -1645,10 +1646,10 @@ def test_task_agent_status_text_combines_permission_running_and_saved_sessions(
             workspace,
             permission_pending=False,
             running_agents=("codex",),
-            spinner_frame="▷⠋",
+            spinner_frame="▷",
             home=home,
         )
-        == "▷⠋"
+        == "▷"
     )
     assert (
         task_agent_status_text(
@@ -1686,7 +1687,7 @@ def test_task_agent_status_text_shows_saved_sessions_only_when_no_agent_is_runni
             workspace,
             permission_pending=False,
             running_agents=(),
-            spinner_frame="▷⠋",
+            spinner_frame="▷",
             home=home,
         )
         == "Ⅱ"
@@ -1715,9 +1716,7 @@ def test_task_agent_selection_with_resumable_fallback_prefers_saved_session_agen
 def test_agent_status_tooltip_explains_visible_markers_compactly() -> None:
     assert agent_status_tooltip_text("Ⅱ") == "Сессию можно продолжить"
     assert agent_status_tooltip_text("□") == "Нет сохраненной сессии"
-    assert agent_status_tooltip_text("?") == "Ждет подтверждения"
-    assert agent_status_tooltip_text("▷⠋") == "Агент запущен"
-    assert agent_status_tooltip_text("? Ⅱ") == "Ждет подтверждения; Сессию можно продолжить"
+    assert agent_status_tooltip_text("▷") == "Агент запущен"
 
 
 def test_agent_status_manual_entries_are_structured_for_popup() -> None:
@@ -1731,7 +1730,7 @@ def test_agent_status_manual_entries_are_structured_for_popup() -> None:
         "Действия",
         "Сброс",
     ]
-    assert [entry[0] for entry in AGENT_STATUS_MANUAL_ENTRIES] == ["Ⅱ", "□", "▷", "?"]
+    assert [entry[0] for entry in AGENT_STATUS_MANUAL_ENTRIES] == ["Ⅱ", "□", "▷"]
     assert all(len(entry) == 3 for entry in AGENT_STATUS_MANUAL_ENTRIES)
 
 
@@ -1743,7 +1742,7 @@ def test_task_status_label_prefixes_permission_and_agent_session_markers() -> No
             permission_pending=True,
             session_markers=("Ⅱ",),
         )
-        == "? Ⅱ sample-task"
+        == "Ⅱ sample-task"
     )
 
 
@@ -1848,11 +1847,11 @@ def test_codex_model_choices_loads_model_cache_slugs(tmp_path: Path) -> None:
     assert codex_model_choices(cache) == ("", "gpt-5.6-sol", "gpt-5.5")
 
 
-def test_agent_output_requests_permission_detects_approval_prompts() -> None:
-    assert agent_output_requests_permission("Command requires approval before running.")
-    assert agent_output_requests_permission("Do you want to allow this command? yes/no")
-    assert agent_output_requests_permission("\x1b[31mPermission required\x1b[0m")
-    assert agent_output_requests_permission(
+def test_agent_output_requests_permission_ignores_approval_prompts() -> None:
+    assert not agent_output_requests_permission("Command requires approval before running.")
+    assert not agent_output_requests_permission("Do you want to allow this command? yes/no")
+    assert not agent_output_requests_permission("\x1b[31mPermission required\x1b[0m")
+    assert not agent_output_requests_permission(
         "Would you like to run the following command?\n\n"
         "  Environment: local\n\n"
         "  $ true\n\n"
@@ -1871,16 +1870,25 @@ def test_analyze_agent_output_reports_missing_session_and_permission() -> None:
     )
 
     assert analysis.missing_session
-    assert analysis.requests_permission
-    assert analysis.permission_signature == "Would you like to run the following command?"
+    assert not analysis.requests_permission
+    assert analysis.permission_signature is None
     assert not analysis.turn_complete
 
 
-def test_agent_output_requests_permission_detects_choice_prompt() -> None:
+def test_agent_output_requests_permission_ignores_choice_prompt() -> None:
     analysis = analyze_agent_output("Allow this command to run? [y/N]")
 
-    assert analysis.requests_permission
-    assert analysis.permission_signature == "Allow this command to run? [y/N]"
+    assert not analysis.requests_permission
+    assert analysis.permission_signature is None
+
+
+def test_agent_output_permission_scanner_ignores_large_terminal_tail() -> None:
+    tail = ("normal output \x1b[31mwith color\x1b[0m\n" * 400) + "Allow this command to run? [y/N]\n"
+
+    analysis = analyze_agent_output(tail)
+
+    assert not analysis.requests_permission
+    assert analysis.permission_signature is None
 
 
 def test_agent_output_reports_turn_complete_for_completion_summaries() -> None:
@@ -1904,7 +1912,7 @@ def test_agent_output_state_update_prioritizes_missing_session() -> None:
     assert not update.permission_pending
 
 
-def test_agent_output_state_update_marks_permission_only_for_live_unblocked_session() -> None:
+def test_agent_output_state_update_does_not_mark_permission_prompts() -> None:
     update = agent_output_state_update(
         "Would you like to run the following command?",
         exited=False,
@@ -1921,8 +1929,8 @@ def test_agent_output_state_update_marks_permission_only_for_live_unblocked_sess
         permission_pending=False,
     )
 
-    assert update.permission_requested
-    assert update.permission_pending
+    assert not update.permission_requested
+    assert not update.permission_pending
     assert not pending_update.permission_requested
     assert pending_update.permission_pending
     assert not exited_update.permission_requested
@@ -2255,7 +2263,6 @@ def test_gtk_translates_agent_and_manual_labels() -> None:
     assert "workspace розбитий на задачі" in GTK_TRANSLATIONS["uk"]["manual_usage_concept"]
     assert "контексті поточної задачі" in GTK_TRANSLATIONS["uk"]["manual_usage_agent"]
     assert "TASK_ACTIONS.json" in GTK_TRANSLATIONS["uk"]["manual_usage_actions"]
-    assert "підтвердження" in GTK_TRANSLATIONS["uk"]["manual_status_pending"]
 
 
 def test_gtk_svg_open_command_prefers_browser(monkeypatch: object, tmp_path: Path) -> None:
@@ -2370,6 +2377,18 @@ def test_parse_console_output_drops_terminal_title_sequence() -> None:
     assert [(chunk.text, chunk.tags) for chunk in chunks] == [("task$ ", ())]
 
 
+def test_log_agent_workspace_exception_writes_traceback_to_workspace_root(tmp_path: Path) -> None:
+    try:
+        raise RuntimeError("boom")
+    except RuntimeError as error:
+        log_agent_workspace_exception(tmp_path, "test", type(error), error, error.__traceback__)
+
+    log_path = tmp_path / "agent-workspace-crash.log"
+    content = log_path.read_text(encoding="utf-8")
+    assert "Agent Workspace test exception" in content
+    assert "RuntimeError: boom" in content
+
+
 def test_tk_agent_output_missing_session_wins_over_permission_prompt(tmp_path: Path) -> None:
     task = tmp_path / "tasks" / "sample-task"
     task.mkdir(parents=True)
@@ -2388,11 +2407,8 @@ def test_tk_agent_output_missing_session_wins_over_permission_prompt(tmp_path: P
     )
     gui = object.__new__(AgentWorkspace)
     gui.console_sessions = {1: session}
-    gui._task_for_path = lambda task_path: summary  # type: ignore[method-assign]
-    gui._update_ai_agent_button_label = lambda: None  # type: ignore[method-assign]
-    gui._refresh_task_session_indicators = lambda: None  # type: ignore[method-assign]
-    gui._refresh_tree_selection_style = lambda: None  # type: ignore[method-assign]
-    gui._refresh_task_permission_indicators = lambda: None  # type: ignore[method-assign]
+    handled: list[int] = []
+    gui._handle_agent_restore_failed = lambda failed_session: handled.append(failed_session.session_id)  # type: ignore[method-assign]
 
     gui._append_console_output(
         1,
@@ -2405,12 +2421,35 @@ def test_tk_agent_output_missing_session_wins_over_permission_prompt(tmp_path: P
         ],
     )
 
-    assert session.exited
-    assert not session.permission_pending
+    assert handled == [1]
+
+
+def test_gtk_agent_restore_failure_clears_session_closes_console_and_sets_status(tmp_path: Path) -> None:
+    task = tmp_path / "tasks" / "sample-task"
+    task.mkdir(parents=True)
+    summary = discover_tasks_with_context(task, tmp_path)
+    save_task_agent_session(summary, "claude", session_id="71ca3372-3c10-4501-ad2a-145c5b9305de")
+    page = FakeFrame()
+    session = TerminalSession(1, summary.path, "claude", object(), page, busy=True, permission_pending=True)
+    gui = WorkspaceGtkGui.__new__(WorkspaceGtkGui)
+    gui.terminal_sessions = {1: session}
+    gui.selected_task = summary
+    gui.console_notebook = type("Notebook", (), {"page_num": lambda self, page: -1})()
+    gui._task_for_path = lambda task_path: summary  # type: ignore[method-assign]
+    gui._tr = lambda key: GTK_TRANSLATIONS["ru"][key]  # type: ignore[method-assign]
+    gui._set_status_message = lambda message: setattr(gui, "status_message", message)  # type: ignore[method-assign]
+    gui._update_codex_button_state = lambda: None  # type: ignore[method-assign]
+    gui._refresh_task_row_styles = lambda: None  # type: ignore[method-assign]
+
+    gui._handle_agent_restore_failed(session)
+
+    assert session.session_id not in gui.terminal_sessions
+    assert page.destroyed
     assert not load_task_agent_session(summary, "claude").resume
+    assert "Не удалось восстановить сохраненную сессию Claude Code" in gui.status_message
 
 
-def test_tk_answered_permission_prompt_is_not_reopened_from_terminal_tail(tmp_path: Path) -> None:
+def test_tk_answered_permission_prompt_does_not_keep_ignored_signature(tmp_path: Path) -> None:
     task = tmp_path / "tasks" / "sample-task"
     task.mkdir(parents=True)
     summary = discover_tasks_with_context(task, tmp_path)
@@ -2443,7 +2482,7 @@ def test_tk_answered_permission_prompt_is_not_reopened_from_terminal_tail(tmp_pa
         os.close(write_fd)
 
     assert not session.permission_pending
-    assert session.ignored_permission_signature == prompt
+    assert session.ignored_permission_signature is None
 
 
 def test_tk_agent_busy_clears_after_quiet_output_without_completion_text(tmp_path: Path) -> None:

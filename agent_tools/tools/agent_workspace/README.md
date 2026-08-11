@@ -50,10 +50,6 @@ The reset-session button forgets only the selected task's selected AI-agent
 session in `.agent-workspace-state.json`; it does not delete the underlying
 Codex or Claude Code conversation data, and it does not affect another agent
 type saved for the same task.
-When an agent terminal appears to be waiting for permission or approval, the
-task list marks that task with `⚠` to the left of the task name until input is
-sent to that agent session or the session closes.
-
 Task actions are declared by writing `TASK_ACTIONS.json` at the task root. The
 GUI watches that file and refreshes its action buttons when it changes.
 Task actions launched from the GUI set `PAF_HIDE_TASK_ENV=1`, so PAF does not

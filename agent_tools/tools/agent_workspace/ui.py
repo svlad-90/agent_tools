@@ -49,6 +49,8 @@ from .core import ai_agent_switch_decision
 from .core import ai_agent_task_context_prompt
 from .core import analyze_agent_output
 from .core import agent_workspace_runtime_settings
+from .core import install_agent_workspace_exception_logger
+from .core import log_agent_workspace_exception
 from .core import agent_output_state_update
 from .core import build_ai_agent_console_command
 from .core import clear_task_agent_session
@@ -147,6 +149,10 @@ _AI_AGENT_SESSION_DELETE_TITLE = "Удалить сохраненную сесс
 _AI_AGENT_SESSION_DELETE_BODY = (
     "Для этой задачи сохранена сессия {old_agent}. "
     "При переключении на {new_agent} ссылка на продолжение этой сессии будет удалена. Продолжить?"
+)
+_AI_AGENT_RESTORE_FAILED_MESSAGE = (
+    "Не удалось восстановить сохраненную сессию {agent} для задачи {task}. "
+    "Ссылка на продолжение удалена, консоль ИИ агента закрыта. Запустите ИИ агента еще раз, чтобы начать новую сессию."
 )
 AGENT_BUSY_IDLE_DELAY_MS = 1800
 
@@ -1142,6 +1148,20 @@ class AgentWorkspace:
         text = "".join(chunk.text for chunk in session.chunks[-300:])
         return text[-8000:]
 
+    def _handle_agent_restore_failed(self, session: ConsoleSession) -> None:
+        task = self._task_for_path(session.task_path)
+        clear_task_agent_session(task, session.kind)
+        self.actions_message_var.set(
+            _AI_AGENT_RESTORE_FAILED_MESSAGE.format(
+                agent=agent_label(session.kind),
+                task=task.name,
+            )
+        )
+        self.stop_console(session.session_id)
+        self._update_ai_agent_button_label()
+        self._refresh_task_session_indicators()
+        self._refresh_tree_selection_style()
+
     def _running_agent_session(self, task: TaskSummary) -> ConsoleSession | None:
         for session in self._current_task_console_sessions(task):
             if session_is_running_agent(
@@ -1761,21 +1781,8 @@ class AgentWorkspace:
                 permission_pending=session.permission_pending,
             )
             if update.missing_session:
-                session.exited = update.exited
-                session.permission_pending = update.permission_pending
-                session.permission_signature = None
-                session.ignored_permission_signature = None
-                session.busy = False
-                if session.run_id is not None:
-                    clear_task_active_agent_run(
-                        self._task_for_path(session.task_path),
-                        run_id=session.run_id,
-                        agent=session.kind,
-                    )
-                clear_task_agent_session(self._task_for_path(session.task_path), session.kind)
-                self._update_ai_agent_button_label()
-                self._refresh_task_session_indicators()
-                self._refresh_tree_selection_style()
+                self._handle_agent_restore_failed(session)
+                return
             elif update.permission_requested:
                 if analysis.permission_signature != session.ignored_permission_signature:
                     session.permission_signature = analysis.permission_signature
@@ -2311,8 +2318,19 @@ def main(argv: list[str] | None = None) -> int:
         help="Workspace root. Default: current directory.",
     )
     args = parser.parse_args(argv)
+    workspace = Path(args.workspace)
+    install_agent_workspace_exception_logger(workspace, "tk")
 
     root = tk.Tk()
-    AgentWorkspace(root, Path(args.workspace))
+
+    def report_callback_exception(
+        exc_type: type[BaseException],
+        exc_value: BaseException,
+        exc_traceback: object,
+    ) -> None:
+        log_agent_workspace_exception(workspace, "tk-callback", exc_type, exc_value, exc_traceback)
+
+    root.report_callback_exception = report_callback_exception  # type: ignore[method-assign]
+    AgentWorkspace(root, workspace)
     root.mainloop()
     return 0

@@ -46,6 +46,7 @@ from .core import ai_agent_switch_decision
 from .core import ai_agent_task_context_prompt
 from .core import analyze_agent_output
 from .core import agent_workspace_runtime_settings
+from .core import install_agent_workspace_exception_logger
 from .core import agent_output_state_update
 from .core import build_ai_agent_console_command
 from .core import clear_task_agent_session
@@ -121,6 +122,7 @@ TRANSLATIONS = {
         "install_agent_title": "AI agent is not installed",
         "language": "Language",
         "logs": "Logs",
+        "restore_failed_status": "Could not restore the saved {agent} session for {task}. The saved resume link was removed and the AI-agent console was closed. Run the AI agent again to start a new session.",
         "manual_label_agent": "Agent",
         "manual_label_concept": "Concept",
         "manual_label_structure": "Structure",
@@ -130,8 +132,6 @@ TRANSLATIONS = {
         "manual_status_label_idle": "Stopped",
         "manual_status_label_running": "Agent running",
         "manual_status_label_session": "Paused",
-        "manual_status_label_pending": "Waiting for confirmation",
-        "manual_status_pending": "the agent stopped on a permission or approval request",
         "manual_status_section": "AI column statuses",
         "manual_status_session": "the last active AI agent has a saved session that can continue",
         "manual_usage_actions": "put repeatable commands into TASK_ACTIONS.json; you can ask an agent to add the needed button",
@@ -208,6 +208,7 @@ TRANSLATIONS = {
         "install_agent_title": "ИИ агент не установлен",
         "language": "Язык",
         "logs": "Логи",
+        "restore_failed_status": "Не удалось восстановить сохраненную сессию {agent} для задачи {task}. Ссылка на продолжение удалена, консоль ИИ агента закрыта. Запустите ИИ агента еще раз, чтобы начать новую сессию.",
         "manual_label_agent": "Агент",
         "manual_label_concept": "Концепция",
         "manual_label_structure": "Структура",
@@ -217,8 +218,6 @@ TRANSLATIONS = {
         "manual_status_label_idle": "Стоп",
         "manual_status_label_running": "Агент запущен",
         "manual_status_label_session": "Пауза",
-        "manual_status_label_pending": "Ждет подтверждения",
-        "manual_status_pending": "агент остановился на запросе разрешения или подтверждения",
         "manual_status_section": "Статусы в колонке ИИ",
         "manual_status_session": "есть сохраненная сессия последнего активного ИИ агента",
         "manual_usage_actions": "повторяемые команды оформляйте в TASK_ACTIONS.json; можно попросить агента добавить нужную кнопку",
@@ -295,6 +294,7 @@ TRANSLATIONS = {
         "install_agent_title": "ШІ агент не встановлено",
         "language": "Мова",
         "logs": "Логи",
+        "restore_failed_status": "Не вдалося відновити збережену сесію {agent} для задачі {task}. Посилання для продовження видалено, консоль ШІ агента закрито. Запустіть ШІ агента ще раз, щоб почати нову сесію.",
         "manual_label_agent": "Агент",
         "manual_label_concept": "Концепція",
         "manual_label_structure": "Структура",
@@ -304,8 +304,6 @@ TRANSLATIONS = {
         "manual_status_label_idle": "Стоп",
         "manual_status_label_running": "Агент запущений",
         "manual_status_label_session": "Пауза",
-        "manual_status_label_pending": "Чекає підтвердження",
-        "manual_status_pending": "агент зупинився на запиті дозволу або підтвердження",
         "manual_status_section": "Статуси в колонці ШІ",
         "manual_status_session": "є збережена сесія останнього активного ШІ агента",
         "manual_usage_actions": "повторювані команди оформлюй у TASK_ACTIONS.json; можна попросити агента додати потрібну кнопку",
@@ -403,6 +401,7 @@ class WorkspaceGtkGui:
         self.selected_task: TaskSummary | None = None
         self.task_actions: list[TaskAction] = []
         self.task_action_errors: list[str] = []
+        self.status_message = ""
         self.task_actions_signature: tuple[Path | None, int | None] = (None, None)
         self.task_actions_monitor: Gio.FileMonitor | None = None
         self.task_actions_monitor_path: Path | None = None
@@ -924,7 +923,6 @@ class WorkspaceGtkGui:
             ("Ⅱ", self._tr("manual_status_label_session"), self._tr("manual_status_session")),
             ("□", self._tr("manual_status_label_idle"), self._tr("manual_status_idle")),
             ("▷", self._tr("manual_status_label_running"), self._tr("manual_status_agent_running")),
-            ("?", self._tr("manual_status_label_pending"), self._tr("manual_status_pending")),
         )
 
     def open_task(self, *_args: object) -> None:
@@ -1288,8 +1286,14 @@ class WorkspaceGtkGui:
 
     def _update_actions_message(self) -> None:
         messages: list[str] = []
+        if self.status_message:
+            messages.append(self.status_message)
         messages.extend(getattr(self, "task_action_errors", []))
         self.actions_message.set_text("\n".join(messages))
+
+    def _set_status_message(self, message: str) -> None:
+        self.status_message = message
+        self._update_actions_message()
 
     def new_console(self, *_args: object, task: TaskSummary | None = None) -> int | None:
         task = task or self._require_task()
@@ -1800,6 +1804,19 @@ class WorkspaceGtkGui:
         self._set_agent_session_busy(session, False)
         return False
 
+    def _handle_agent_restore_failed(self, session: TerminalSession) -> None:
+        task = self._task_for_path(session.task_path)
+        clear_task_agent_session(task, session.kind)
+        self._set_status_message(
+            self._tr("restore_failed_status").format(
+                agent=agent_label(session.kind),
+                task=task.name,
+            )
+        )
+        self._close_console_session(session, confirm=False, ensure_default=False)
+        self._update_codex_button_state()
+        self._refresh_task_row_styles()
+
     def _refresh_task_row_styles(self) -> None:
         row_iter = self.task_store.get_iter_first()
         while row_iter is not None:
@@ -1952,19 +1969,7 @@ class WorkspaceGtkGui:
             permission_pending=session.permission_pending,
         )
         if update.missing_session:
-            session.exited = update.exited
-            session.permission_pending = update.permission_pending
-            session.permission_signature = None
-            session.ignored_permission_signature = None
-            session.busy = False
-            if session.run_id is not None:
-                clear_task_active_agent_run(
-                    self._task_for_path(session.task_path),
-                    run_id=session.run_id,
-                    agent=session.kind,
-                )
-            clear_task_agent_session(self._task_for_path(session.task_path), session.kind)
-            self._update_codex_button_state()
+            self._handle_agent_restore_failed(session)
             return
         if update.permission_requested:
             if analysis.permission_signature != session.ignored_permission_signature:
@@ -2897,8 +2902,10 @@ def main(argv: list[str] | None = None) -> int:
         help="Workspace root. Default: current directory.",
     )
     args = parser.parse_args(argv)
+    workspace = Path(args.workspace)
+    install_agent_workspace_exception_logger(workspace, "gtk")
 
-    gui = WorkspaceGtkGui(Path(args.workspace))
+    gui = WorkspaceGtkGui(workspace)
     gui.window.show_all()
     Gtk.main()
     return 0

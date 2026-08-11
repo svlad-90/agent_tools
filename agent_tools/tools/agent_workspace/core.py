@@ -1,13 +1,18 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime
+import faulthandler
 import json
 import os
 from pathlib import Path
 import re
 import shutil
 import subprocess
+import sys
 import textwrap
+import threading
+import traceback
 from typing import Any
 import uuid
 
@@ -23,6 +28,7 @@ PAF_HIDE_TASK_ENV_VAR = "PAF_HIDE_TASK_ENV"
 TASK_ACTION_LOGS_DIR = Path("report") / "logs"
 AGENT_WORKSPACE_SETTINGS_FILE = "settings.json"
 AGENT_WORKSPACE_TASK_STATE_FILE = ".agent-workspace-state.json"
+AGENT_WORKSPACE_CRASH_LOG_FILE = "agent-workspace-crash.log"
 AGENT_WORKSPACE_THEMES = ("light", "dark")
 AGENT_WORKSPACE_LANGUAGES = ("ru", "uk", "en")
 AGENT_WORKSPACE_AGENTS = ("codex", "claude")
@@ -59,24 +65,11 @@ AGENT_WORKSPACE_AGENT_INSTALL_COMMANDS = {
 }
 AGENT_SESSION_MARKER = "Ⅱ"
 AGENT_IDLE_MARKER = "□"
-AGENT_RUNNING_SPINNER_FRAMES = (
-    "▷⠋",
-    "▷⠙",
-    "▷⠹",
-    "▷⠸",
-    "▷⠼",
-    "▷⠴",
-    "▷⠦",
-    "▷⠧",
-    "▷⠇",
-    "▷⠏",
-)
+AGENT_RUNNING_SPINNER_FRAMES = ("▷",)
 CODEX_SESSION_ID_RE = re.compile(r"([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})")
-AGENT_PERMISSION_MARKER = "?"
 AGENT_STATUS_TOOLTIPS = {
     AGENT_SESSION_MARKER: "Сессию можно продолжить",
     AGENT_IDLE_MARKER: "Нет сохраненной сессии",
-    "?": "Ждет подтверждения",
 }
 AGENT_STATUS_MANUAL_MENU_LABEL = "Manual"
 AGENT_STATUS_MANUAL_TITLE = "Manual"
@@ -94,25 +87,10 @@ AGENT_STATUS_MANUAL_ENTRIES = (
     (AGENT_SESSION_MARKER, "Пауза", "есть сохраненная сессия последнего активного ИИ агента"),
     (AGENT_IDLE_MARKER, "Стоп", "нет сохраненной сессии, которую можно продолжить"),
     ("▷", "Агент запущен", "для этой задачи сейчас работает Codex или Claude Code"),
-    ("?", "Ждет подтверждения", "агент остановился на запросе разрешения или подтверждения"),
 )
 AGENT_WORKSPACE_GEOMETRY_RE = re.compile(r"^\d+x\d+(?:[+-]\d+[+-]\d+)?$")
 ANSI_ESCAPE_RE = re.compile(r"\x1b(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])")
 ANSI_OSC_RE = re.compile(r"\x1b\][^\x07]*(?:\x07|\x1b\\)")
-AGENT_PERMISSION_PROMPT_RE = re.compile(
-    r"(?:requires?\s+(?:approval|permission)|"
-    r"(?:approval|permission)\s+(?:required|needed|requested)|"
-    r"(?:approve|allow|grant)\s+(?:this\s+)?(?:command|action|operation|request)|"
-    r"(?:run|execute)\s+(?:this\s+)?command\?|"
-    r"(?:press|hit)\s+enter\s+to\s+(?:continue|proceed)|"
-    r"(?:\[[yn]/[yn]\]|\([yn]/[yn]\)|yes/no|y/n)|"
-    r"(?:разрешить|одобрить|продолжить)\?|"
-    r"(?:allow|approve|grant|proceed|continue)\?|" 
-    r"(?:allow|approve|grant)\s+.*(?:\by\b|\byes\b|\bn\b|\bno\b)|"
-    r"would you like to run the following command\?|"
-    r"do you want to (?:allow|approve|continue|proceed))",
-    re.IGNORECASE,
-)
 AGENT_MISSING_SESSION_RE = re.compile(
     r"no\s+conversation\s+found\s+with\s+session\s+id",
     re.IGNORECASE,
@@ -226,6 +204,71 @@ class ActiveTaskAgentRun:
     agent: str
     owner_pid: int
     run_id: str
+
+
+_CRASH_LOG_HANDLE: Any | None = None
+_PREVIOUS_EXCEPTHOOK: Any | None = None
+_PREVIOUS_THREADING_EXCEPTHOOK: Any | None = None
+
+
+def agent_workspace_crash_log_path(workspace: Path) -> Path:
+    return workspace.resolve() / AGENT_WORKSPACE_CRASH_LOG_FILE
+
+
+def log_agent_workspace_exception(
+    workspace: Path,
+    frontend: str,
+    exc_type: type[BaseException],
+    exc_value: BaseException,
+    exc_traceback: Any,
+) -> None:
+    log_path = agent_workspace_crash_log_path(workspace)
+    try:
+        with log_path.open("a", encoding="utf-8") as stream:
+            timestamp = datetime.now().isoformat(timespec="seconds")
+            stream.write(f"\n[{timestamp}] Agent Workspace {frontend} exception pid={os.getpid()}\n")
+            traceback.print_exception(exc_type, exc_value, exc_traceback, file=stream)
+            stream.flush()
+    except OSError:
+        return
+
+
+def install_agent_workspace_exception_logger(workspace: Path, frontend: str) -> Path:
+    global _CRASH_LOG_HANDLE
+    global _PREVIOUS_EXCEPTHOOK
+    global _PREVIOUS_THREADING_EXCEPTHOOK
+
+    workspace = workspace.resolve()
+    log_path = agent_workspace_crash_log_path(workspace)
+    try:
+        _CRASH_LOG_HANDLE = log_path.open("a", encoding="utf-8")
+        timestamp = datetime.now().isoformat(timespec="seconds")
+        _CRASH_LOG_HANDLE.write(f"\n[{timestamp}] Agent Workspace {frontend} started pid={os.getpid()}\n")
+        _CRASH_LOG_HANDLE.flush()
+        faulthandler.enable(file=_CRASH_LOG_HANDLE, all_threads=True)
+    except OSError:
+        _CRASH_LOG_HANDLE = None
+
+    if _PREVIOUS_EXCEPTHOOK is None:
+        _PREVIOUS_EXCEPTHOOK = sys.excepthook
+    if _PREVIOUS_THREADING_EXCEPTHOOK is None and hasattr(threading, "excepthook"):
+        _PREVIOUS_THREADING_EXCEPTHOOK = threading.excepthook
+
+    def excepthook(exc_type: type[BaseException], exc_value: BaseException, exc_traceback: Any) -> None:
+        log_agent_workspace_exception(workspace, frontend, exc_type, exc_value, exc_traceback)
+        if _PREVIOUS_EXCEPTHOOK is not None:
+            _PREVIOUS_EXCEPTHOOK(exc_type, exc_value, exc_traceback)
+
+    def threading_excepthook(args: threading.ExceptHookArgs) -> None:
+        if args.exc_type is not None and args.exc_value is not None:
+            log_agent_workspace_exception(workspace, frontend, args.exc_type, args.exc_value, args.exc_traceback)
+        if _PREVIOUS_THREADING_EXCEPTHOOK is not None:
+            _PREVIOUS_THREADING_EXCEPTHOOK(args)
+
+    sys.excepthook = excepthook
+    if hasattr(threading, "excepthook"):
+        threading.excepthook = threading_excepthook
+    return log_path
 
 
 def rough_token_count(text: str) -> int:
@@ -749,27 +792,22 @@ def _normalized_agent_output_tail(text: str) -> str:
 
 
 def agent_permission_prompt_signature(text: str) -> str | None:
-    tail = _normalized_agent_output_tail(text)
-    matches = list(AGENT_PERMISSION_PROMPT_RE.finditer(tail))
-    if not matches:
-        return None
-    match = matches[-1]
-    line_start = tail.rfind("\n", 0, match.start()) + 1
-    line_end = tail.find("\n", match.end())
-    if line_end < 0:
-        line_end = len(tail)
-    line = re.sub(r"\s+", " ", tail[line_start:line_end]).strip()
-    return (line or match.group(0).strip())[-500:]
+    _ = text
+    return None
+
+
+def _line_looks_like_agent_permission_prompt(line: str) -> bool:
+    _ = line
+    return False
 
 
 def analyze_agent_output(text: str) -> AgentOutputAnalysis:
     tail = _normalized_agent_output_tail(text)
-    permission_signature = agent_permission_prompt_signature(tail)
     return AgentOutputAnalysis(
         missing_session=AGENT_MISSING_SESSION_RE.search(tail) is not None,
-        requests_permission=permission_signature is not None,
+        requests_permission=False,
         turn_complete=AGENT_TURN_COMPLETE_RE.search(tail) is not None,
-        permission_signature=permission_signature,
+        permission_signature=None,
     )
 
 
@@ -805,13 +843,6 @@ def agent_output_state_update(
             permission_requested=False,
             exited=exited,
             permission_pending=permission_pending,
-        )
-    if analysis.requests_permission:
-        return AgentOutputStateUpdate(
-            missing_session=False,
-            permission_requested=True,
-            exited=exited,
-            permission_pending=True,
         )
     return AgentOutputStateUpdate(
         missing_session=False,
@@ -1102,9 +1133,8 @@ def task_status_label(
     permission_pending: bool,
     session_markers: tuple[str, ...] = (),
 ) -> str:
+    _ = permission_pending
     markers: list[str] = []
-    if permission_pending:
-        markers.append(AGENT_PERMISSION_MARKER)
     markers.extend(session_markers)
     if not markers:
         return task_name
@@ -1120,15 +1150,11 @@ def task_agent_status_text(
     spinner_frame: str = "",
     home: Path | None = None,
 ) -> str:
+    _ = permission_pending
+    _ = spinner_frame
     parts: list[str] = []
-    if permission_pending:
-        parts.append(AGENT_PERMISSION_MARKER)
-    elif running_agents and spinner_frame:
-        parts.append(spinner_frame)
-    if running_agents or permission_pending:
-        if not parts and running_agents:
-            parts.append("▷")
-        return " ".join(parts)
+    if running_agents:
+        return "▷"
     markers = list(task_agent_session_markers(task, workspace, home=home))
     parts.extend(markers)
     return " ".join(parts) if parts else AGENT_IDLE_MARKER
