@@ -47,16 +47,20 @@ from .core import ai_agent_launch_state_for_selection
 from .core import ai_agent_model_settings
 from .core import ai_agent_switch_decision
 from .core import ai_agent_task_context_prompt
+from .core import analyze_agent_output
 from .core import agent_workspace_runtime_settings
 from .core import agent_output_state_update
 from .core import build_ai_agent_console_command
 from .core import clear_task_agent_session
+from .core import clear_task_active_agent_run
 from .core import codex_model_choices
 from .core import discover_tasks
 from .core import load_task_agent
+from .core import load_task_active_agent_run
 from .core import load_task_actions
 from .core import load_agent_workspace_settings
 from .core import model_choices_with_current
+from .core import new_agent_session_id
 from .core import normalize_agent
 from .core import parse_console_output
 from .core import prepare_ai_agent_launch_command
@@ -64,6 +68,7 @@ from .core import read_task_file
 from .core import render_markdown_chunks
 from .core import reset_task_agent_session
 from .core import save_agent_workspace_settings
+from .core import save_task_active_agent_run
 from .core import save_task_agent
 from .core import save_task_agent_session
 from .core import session_marks_task_pending_permission
@@ -71,8 +76,11 @@ from .core import session_is_agent
 from .core import session_is_running_agent
 from .core import session_should_clear_pending_permission
 from .core import task_action_log_basename
+from .core import task_agent_has_resumable_state
 from .core import task_agent_status_text
 from .core import task_agent_session_markers
+from .core import task_agent_selection_with_resumable_fallback
+from .core import task_has_external_active_agent_run
 from .core import task_for_path
 
 
@@ -90,6 +98,11 @@ class ConsoleSession:
     input_floor_mark: str | None = None
     permission_pending: bool = False
     exited: bool = False
+    busy: bool = False
+    run_id: str | None = None
+    output_generation: int = 0
+    permission_signature: str | None = None
+    ignored_permission_signature: str | None = None
 
 
 class HoverTooltip:
@@ -129,6 +142,13 @@ _AI_AGENT_BUTTON_LABELS = {
     "restore_ai_agent_session": "Восстановить сессию ИИ агента",
     "ai_agent_running": "ИИ агент запущен",
 }
+
+_AI_AGENT_SESSION_DELETE_TITLE = "Удалить сохраненную сессию?"
+_AI_AGENT_SESSION_DELETE_BODY = (
+    "Для этой задачи сохранена сессия {old_agent}. "
+    "При переключении на {new_agent} ссылка на продолжение этой сессии будет удалена. Продолжить?"
+)
+AGENT_BUSY_IDLE_DELAY_MS = 1800
 
 
 class AgentWorkspace:
@@ -258,8 +278,8 @@ class AgentWorkspace:
         main.add(right, weight=3)
         self.notebook = ttk.Notebook(right)
         self.notebook.pack(fill=tk.BOTH, expand=True)
-        self.description_text, self.context_text = self._add_details_tab()
         self._add_actions_tab()
+        self.description_text, self.context_text = self._add_details_tab()
         self.notebook.bind("<<NotebookTabChanged>>", self._on_notebook_tab_changed)
         self.root.after_idle(self._set_main_default_split)
 
@@ -320,12 +340,12 @@ class AgentWorkspace:
         console_frame.pack(side=tk.TOP, fill=tk.BOTH, expand=True)
         console_toolbar = ttk.Frame(console_frame)
         console_toolbar.pack(side=tk.TOP, fill=tk.X)
-        ttk.Button(console_toolbar, text="New", command=self.new_console).pack(
+        ttk.Button(console_toolbar, text="Новая", command=self.new_console).pack(
             side=tk.LEFT,
             padx=2,
             pady=2,
         )
-        ttk.Button(console_toolbar, text="Close", command=self.close_active_console).pack(
+        ttk.Button(console_toolbar, text="Закрыть", command=self.close_active_console).pack(
             side=tk.LEFT,
             padx=2,
             pady=2,
@@ -363,6 +383,7 @@ class AgentWorkspace:
         self.console_notebook = ttk.Notebook(console_frame)
         self.console_notebook.pack(side=tk.TOP, fill=tk.BOTH, expand=True)
         self.console_notebook.bind("<<NotebookTabChanged>>", self._on_console_session_tab_changed)
+        self.console_notebook.bind("<Double-1>", self._on_console_notebook_double_clicked)
         self.notebook.add(frame, text="Actions")
 
     def _create_console_text(self, parent: ttk.Frame) -> tk.Text:
@@ -430,7 +451,11 @@ class AgentWorkspace:
         if action_errors:
             messages.append(action_errors.strip())
         self.actions_message_var.set("\n".join(messages))
-        selected_agent = load_task_agent(task, self.default_agent)
+        selected_agent = task_agent_selection_with_resumable_fallback(
+            task,
+            self.workspace,
+            self.default_agent,
+        )
         self.agent_var.set(selected_agent)
         self._update_ai_agent_button_label()
         self._refresh_tree_selection_style()
@@ -539,7 +564,7 @@ class AgentWorkspace:
         row += 1
 
         for marker, label, description in AGENT_STATUS_MANUAL_ENTRIES:
-            display_marker = AGENT_RUNNING_SPINNER_FRAMES[self._agent_spinner_index] if marker == "⚙" else marker
+            display_marker = AGENT_RUNNING_SPINNER_FRAMES[self._agent_spinner_index] if marker.startswith("▷") else marker
             tk.Label(
                 frame,
                 text=display_marker,
@@ -567,7 +592,7 @@ class AgentWorkspace:
             ).grid(row=row, column=2, sticky=tk.W, pady=4)
             row += 1
 
-        close_button = ttk.Button(frame, text="OK", command=window.destroy)
+        close_button = ttk.Button(frame, text="ОК", command=window.destroy)
         close_button.grid(row=row, column=0, columnspan=3, sticky=tk.E, pady=(16, 0))
         window.update_idletasks()
         width = window.winfo_width()
@@ -597,7 +622,7 @@ class AgentWorkspace:
         if dev.exists():
             open_path(dev)
         else:
-            messagebox.showinfo("Missing dev/", f"{dev} does not exist")
+            messagebox.showinfo("Нет dev/", f"{dev} не существует")
 
     def open_settings(self) -> None:
         window = tk.Toplevel(self.root)
@@ -707,7 +732,7 @@ class AgentWorkspace:
         buttons.grid(row=8, column=0, columnspan=2, sticky=tk.E, pady=(10, 0))
         ttk.Button(
             buttons,
-            text="Apply",
+            text="Применить",
             command=lambda: self._apply_settings_values(
                 text_size_var,
                 button_size_var,
@@ -721,7 +746,7 @@ class AgentWorkspace:
         ).pack(side=tk.LEFT, padx=2)
         ttk.Button(
             buttons,
-            text="OK",
+            text="ОК",
             command=lambda: self._close_settings(
                 window,
                 text_size_var,
@@ -734,7 +759,7 @@ class AgentWorkspace:
                 claude_effort_var,
             ),
         ).pack(side=tk.LEFT, padx=2)
-        ttk.Button(buttons, text="Cancel", command=window.destroy).pack(side=tk.LEFT, padx=2)
+        ttk.Button(buttons, text="Отмена", command=window.destroy).pack(side=tk.LEFT, padx=2)
 
     def _close_settings(
         self,
@@ -805,6 +830,12 @@ class AgentWorkspace:
         self._set_agent_selection(agent)
         current = self._running_agent_session(task)
         if current is None or current.kind == agent:
+            old_agent = load_task_agent(task, self.default_agent)
+            if old_agent != agent and task_agent_has_resumable_state(task, self.workspace, old_agent):
+                if not self._confirm_saved_agent_session_delete(old_agent, agent):
+                    self._set_agent_selection(old_agent)
+                    return
+                clear_task_agent_session(task, old_agent)
             save_task_agent(task, agent)
             self._update_ai_agent_button_label()
             self._refresh_task_session_indicators()
@@ -822,6 +853,7 @@ class AgentWorkspace:
         task = self._require_task()
         if task is None:
             return
+        self.notebook.select(0)
         self._send_command_to_task_console(task, task_action_shell_command(action))
 
     def reload_selected_task_actions(self) -> None:
@@ -896,7 +928,7 @@ class AgentWorkspace:
     def _send_command_to_task_console(self, task: TaskSummary, command: str) -> None:
         session, created = self._writable_console_for_task(task)
         if session is None or session.fd is None:
-            messagebox.showerror("Console", "Could not open a writable console for this task.")
+            messagebox.showerror("Консоль", "Не удалось открыть консоль задачи для записи.")
             return
         self._activate_console(session.session_id)
 
@@ -906,7 +938,7 @@ class AgentWorkspace:
             try:
                 os.write(session.fd, command.encode() + b"\r")
             except OSError as error:
-                messagebox.showerror("Console", f"Could not write to console: {error}")
+                messagebox.showerror("Консоль", f"Не удалось записать в консоль: {error}")
 
         if created:
             self.root.after(250, write_command)
@@ -1039,10 +1071,19 @@ class AgentWorkspace:
         return task_for_path(self.tasks, path)
 
     def _task_tags(self, task: TaskSummary) -> tuple[str, ...]:
+        if task_has_external_active_agent_run(task, self._local_agent_run_ids()):
+            return ("agent-external-active",)
         return ()
 
+    def _local_agent_run_ids(self) -> set[str]:
+        return {
+            session.run_id
+            for session in self.console_sessions.values()
+            if session.run_id is not None
+        }
+
     def _task_running_agent_kinds(self, task: TaskSummary) -> tuple[str, ...]:
-        return tuple(
+        local_agents = tuple(
             session.kind
             for session in self._current_task_console_sessions(task)
             if session_is_running_agent(
@@ -1051,6 +1092,55 @@ class AgentWorkspace:
             )
             and session.process.poll() is None
         )
+        if local_agents:
+            return local_agents
+        active = load_task_active_agent_run(task)
+        if active is not None and active.run_id not in self._local_agent_run_ids():
+            return (active.agent,)
+        return ()
+
+    def _task_has_busy_agent(self, task: TaskSummary) -> bool:
+        return any(
+            session.busy
+            for session in self._current_task_console_sessions(task)
+            if session_is_running_agent(
+                session_kind=session.kind,
+                exited=session.exited,
+            )
+            and session.process.poll() is None
+        )
+
+    def _set_agent_session_busy(self, session: ConsoleSession, busy: bool) -> None:
+        if not session_is_agent(session_kind=session.kind) or session.exited:
+            return
+        if session.busy == busy:
+            return
+        session.busy = busy
+        self._refresh_task_session_indicators()
+
+    def _schedule_agent_idle_after_output(self, session: ConsoleSession) -> None:
+        if not session_is_agent(session_kind=session.kind) or session.exited or session.permission_pending:
+            return
+        session.output_generation += 1
+        generation = session.output_generation
+        self.root.after(
+            AGENT_BUSY_IDLE_DELAY_MS,
+            lambda session_id=session.session_id, expected_generation=generation: (
+                self._mark_agent_idle_if_output_quiet(session_id, expected_generation)
+            ),
+        )
+
+    def _mark_agent_idle_if_output_quiet(self, session_id: int, expected_generation: int) -> None:
+        session = self.console_sessions.get(session_id)
+        if session is None or session.output_generation != expected_generation:
+            return
+        if session.exited or session.permission_pending or session.process.poll() is not None:
+            return
+        self._set_agent_session_busy(session, False)
+
+    def _agent_session_output_tail(self, session: ConsoleSession) -> str:
+        text = "".join(chunk.text for chunk in session.chunks[-300:])
+        return text[-8000:]
 
     def _running_agent_session(self, task: TaskSummary) -> ConsoleSession | None:
         for session in self._current_task_console_sessions(task):
@@ -1094,7 +1184,11 @@ class AgentWorkspace:
             self.workspace,
             permission_pending=self._task_has_pending_agent_permission(task),
             running_agents=self._task_running_agent_kinds(task),
-            spinner_frame=AGENT_RUNNING_SPINNER_FRAMES[self._agent_spinner_index],
+            spinner_frame=(
+                AGENT_RUNNING_SPINNER_FRAMES[self._agent_spinner_index]
+                if self._task_has_busy_agent(task)
+                else ""
+            ),
         )
 
     def _refresh_task_permission_indicators(self) -> None:
@@ -1141,12 +1235,21 @@ class AgentWorkspace:
             self._updating_agent_selection = False
 
     def _confirm_agent_switch(self, current_agent: str, next_agent: str) -> bool:
-        return messagebox.askyesno(
-            "Switch AI agent?",
+        return self._confirm_dialog(
+            "Сменить ИИ агента?",
             (
-                f"{agent_label(current_agent)} is already running for this task.\n\n"
-                f"Confirming will close the current session and start {agent_label(next_agent)} "
-                "with the same task context."
+                f"{agent_label(current_agent)} уже запущен для этой задачи.\n\n"
+                f"Подтверждение закроет текущую сессию и запустит {agent_label(next_agent)} "
+                "с контекстом той же задачи."
+            ),
+        )
+
+    def _confirm_saved_agent_session_delete(self, old_agent: str, new_agent: str) -> bool:
+        return self._confirm_dialog(
+            _AI_AGENT_SESSION_DELETE_TITLE,
+            _AI_AGENT_SESSION_DELETE_BODY.format(
+                old_agent=agent_label(old_agent),
+                new_agent=agent_label(new_agent),
             ),
         )
 
@@ -1155,11 +1258,11 @@ class AgentWorkspace:
             return True
         install_command = agent_install_command(agent)
         message = (
-            f"{agent_label(agent)} is not installed or is not available in PATH.\n\n"
-            f"Install it, then restart Agent Workspace or update PATH.\n\n"
-            f"Suggested install command:\n{install_command}"
+            f"{agent_label(agent)} не установлен или недоступен в PATH.\n\n"
+            f"Установите его, затем перезапустите Agent Workspace или обновите PATH.\n\n"
+            f"Предлагаемая команда установки:\n{install_command}"
         )
-        messagebox.showerror("AI agent is not installed", message)
+        messagebox.showerror("ИИ агент не установлен", message)
         return False
 
     def _confirm_close_with_running_agents(self) -> bool:
@@ -1171,16 +1274,55 @@ class AgentWorkspace:
             for session in sessions[:5]
         )
         if len(sessions) > 5:
-            labels += f", and {len(sessions) - 5} more"
-        return messagebox.askyesno(
-            "Close Agent Workspace?",
+            labels += f", и еще {len(sessions) - 5}"
+        return self._confirm_dialog(
+            "Закрыть Agent Workspace?",
             (
-                "There are running AI agent terminals.\n\n"
+                "Есть запущенные терминалы ИИ агентов.\n\n"
                 f"{labels}\n\n"
-                "Closing Agent Workspace will stop the local agent processes. "
-                "Resumable conversations can be restored on the next launch. Continue?"
+                "Закрытие Agent Workspace остановит локальные процессы агентов. "
+                "Восстанавливаемые диалоги можно будет открыть при следующем запуске. Продолжить?"
             ),
         )
+
+    def _confirm_dialog(self, title: str, body: str, confirm_label: str = "Продолжить") -> bool:
+        window = tk.Toplevel(self.root)
+        window.title(title)
+        window.transient(self.root)
+        window.resizable(False, False)
+        result = tk.BooleanVar(value=False)
+
+        frame = ttk.Frame(window, padding=12)
+        frame.pack(fill=tk.BOTH, expand=True)
+        ttk.Label(frame, text=body, justify=tk.LEFT, wraplength=620).pack(fill=tk.X)
+
+        buttons = ttk.Frame(frame)
+        buttons.pack(fill=tk.X, pady=(14, 0))
+
+        def close(value: bool) -> None:
+            result.set(value)
+            window.destroy()
+
+        cancel_button = ttk.Button(buttons, text="Отмена", command=lambda: close(False))
+        cancel_button.pack(side=tk.RIGHT, padx=(6, 0))
+        ttk.Button(buttons, text=confirm_label, command=lambda: close(True)).pack(side=tk.RIGHT)
+        window.protocol("WM_DELETE_WINDOW", lambda: close(False))
+        window.bind("<Escape>", lambda _event: close(False))
+        window.bind("<Return>", lambda _event: close(True))
+        window.update_idletasks()
+        root_x = self.root.winfo_rootx()
+        root_y = self.root.winfo_rooty()
+        root_width = self.root.winfo_width()
+        root_height = self.root.winfo_height()
+        width = window.winfo_width()
+        height = window.winfo_height()
+        x = root_x + max((root_width - width) // 2, 0)
+        y = root_y + max((root_height - height) // 2, 0)
+        window.geometry(f"+{x}+{y}")
+        window.grab_set()
+        cancel_button.focus_set()
+        window.wait_window()
+        return bool(result.get())
 
     def run_codex_console(self) -> None:
         self._set_agent_selection("codex")
@@ -1240,7 +1382,7 @@ class AgentWorkspace:
         try:
             master_fd, slave_fd = pty.openpty()
         except OSError as error:
-            messagebox.showerror("Console", f"Could not start console: {error}")
+            messagebox.showerror("Консоль", f"Не удалось запустить консоль: {error}")
             return None
         _set_pty_size(slave_fd, rows=30, columns=120)
         try:
@@ -1256,7 +1398,7 @@ class AgentWorkspace:
             )
         except OSError as error:
             os.close(master_fd)
-            messagebox.showerror("Console", f"Could not start {command[0]}: {error}")
+            messagebox.showerror("Консоль", f"Не удалось запустить {command[0]}: {error}")
             return None
         finally:
             os.close(slave_fd)
@@ -1276,8 +1418,12 @@ class AgentWorkspace:
             process=process,
             fd=master_fd,
             chunks=[ConsoleChunk(startup_text, ())],
+            busy=session_is_agent(session_kind=title_prefix),
+            run_id=new_agent_session_id() if session_is_agent(session_kind=title_prefix) else None,
         )
         self.console_sessions[session_id] = session
+        if session.run_id is not None:
+            save_task_active_agent_run(task, title_prefix, session.run_id)
         self._renumber_console_tabs(task)
         for chunk in session.chunks:
             self._insert_console_chunk(session, chunk)
@@ -1305,7 +1451,17 @@ class AgentWorkspace:
             self.console_context_selection = ""
         if session.process.poll() is None:
             session.process.terminate()
+        if session.run_id is not None:
+            clear_task_active_agent_run(
+                self._task_for_path(session.task_path),
+                run_id=session.run_id,
+                agent=session.kind,
+            )
         session.permission_pending = False
+        session.permission_signature = None
+        session.ignored_permission_signature = None
+        session.busy = False
+        session.exited = True
         if session.fd is not None:
             try:
                 os.close(session.fd)
@@ -1323,7 +1479,8 @@ class AgentWorkspace:
                     self._activate_console(next_session.session_id)
         elif self.selected_task is not None:
             self._renumber_console_tabs(self.selected_task)
-        self._refresh_task_permission_indicators()
+        self._update_ai_agent_button_label()
+        self._refresh_task_session_indicators()
 
     def stop_all_consoles(self) -> None:
         for session_id in list(self.console_sessions):
@@ -1367,6 +1524,12 @@ class AgentWorkspace:
         session = self._session_for_selected_console_tab()
         if session is not None:
             self.active_console_id = session.session_id
+
+    def _on_console_notebook_double_clicked(self, _event: object) -> str:
+        task = self.selected_task
+        if task is not None:
+            self.new_console(task)
+        return "break"
 
     def _active_console(self) -> ConsoleSession | None:
         session = self._session_for_selected_console_tab()
@@ -1428,12 +1591,21 @@ class AgentWorkspace:
             except subprocess.TimeoutExpired:
                 return
         session.exited = True
+        session.busy = False
+        if session.run_id is not None:
+            clear_task_active_agent_run(
+                self._task_for_path(session.task_path),
+                run_id=session.run_id,
+                agent=session.kind,
+            )
         chunks = [ConsoleChunk(f"\n[process exited with code {return_code}]\n", ())]
         if session_should_clear_pending_permission(
             session_kind=session.kind,
             permission_pending=session.permission_pending,
         ):
             session.permission_pending = False
+            session.permission_signature = None
+            session.ignored_permission_signature = None
             self._refresh_task_permission_indicators()
         self.messages.put(("console", (session_id, chunks)))
 
@@ -1464,10 +1636,7 @@ class AgentWorkspace:
         except tk.TclError:
             session = self._active_console()
             if session is not None and session.fd is not None:
-                try:
-                    os.write(session.fd, b"\x03")
-                except OSError:
-                    return "break"
+                self._write_to_console(session.session_id, b"\x03")
             return "break"
         text.event_generate("<<Copy>>")
         return "break"
@@ -1563,7 +1732,7 @@ class AgentWorkspace:
 
     def _require_task(self) -> TaskSummary | None:
         if self.selected_task is None:
-            messagebox.showinfo("No task", "Select a task first")
+            messagebox.showinfo("Нет задачи", "Сначала выберите задачу")
             return None
         return self.selected_task
 
@@ -1579,7 +1748,13 @@ class AgentWorkspace:
             return
         session.chunks.extend(chunks)
         if session_is_agent(session_kind=session.kind):
-            text = "".join(chunk.text for chunk in chunks)
+            text = self._agent_session_output_tail(session)
+            analysis = analyze_agent_output(text)
+            if (
+                session.ignored_permission_signature is not None
+                and analysis.permission_signature != session.ignored_permission_signature
+            ):
+                session.ignored_permission_signature = None
             update = agent_output_state_update(
                 text,
                 exited=session.exited,
@@ -1588,13 +1763,32 @@ class AgentWorkspace:
             if update.missing_session:
                 session.exited = update.exited
                 session.permission_pending = update.permission_pending
+                session.permission_signature = None
+                session.ignored_permission_signature = None
+                session.busy = False
+                if session.run_id is not None:
+                    clear_task_active_agent_run(
+                        self._task_for_path(session.task_path),
+                        run_id=session.run_id,
+                        agent=session.kind,
+                    )
                 clear_task_agent_session(self._task_for_path(session.task_path), session.kind)
                 self._update_ai_agent_button_label()
                 self._refresh_task_session_indicators()
                 self._refresh_tree_selection_style()
             elif update.permission_requested:
-                session.permission_pending = update.permission_pending
-                self._refresh_task_permission_indicators()
+                if analysis.permission_signature != session.ignored_permission_signature:
+                    session.permission_signature = analysis.permission_signature
+                    session.permission_pending = update.permission_pending
+                    session.busy = False
+                    self._refresh_task_session_indicators()
+                else:
+                    self._schedule_agent_idle_after_output(session)
+            elif session.exited:
+                self._update_ai_agent_button_label()
+                self._refresh_task_session_indicators()
+            else:
+                self._schedule_agent_idle_after_output(session)
         for chunk in chunks:
             self._insert_console_chunk(session, chunk)
         session.text.see(tk.END)
@@ -1630,12 +1824,15 @@ class AgentWorkspace:
         session = self.console_sessions.get(session_id)
         if session is None or session.fd is None:
             return
-        if session_should_clear_pending_permission(
+        submitted_input = b"\r" in data or b"\n" in data or data in {b"\x03", b"\x04"}
+        if submitted_input and session_should_clear_pending_permission(
             session_kind=session.kind,
             permission_pending=session.permission_pending,
         ):
+            session.ignored_permission_signature = session.permission_signature
+            session.permission_signature = None
             session.permission_pending = False
-            self._refresh_task_permission_indicators()
+            self._refresh_task_session_indicators()
         if protect_current_line:
             self._set_console_input_floor(session)
         if b"\r" in data or b"\n" in data:
@@ -1644,6 +1841,8 @@ class AgentWorkspace:
             os.write(session.fd, data)
         except OSError:
             return
+        if session_is_agent(session_kind=session.kind) and submitted_input:
+            self._set_agent_session_busy(session, True)
 
     def _set_console_input_floor(self, session: ConsoleSession) -> None:
         if session.text is None or session.input_floor_mark is not None:
@@ -1803,6 +2002,11 @@ class AgentWorkspace:
             background=colors["agent_session_background"],
             foreground=colors["agent_session_foreground"],
         )
+        self.task_tree.tag_configure(
+            "agent-external-active",
+            background=colors["agent_external_background"],
+            foreground=colors["agent_external_foreground"],
+        )
         self._refresh_tree_selection_style()
         self.task_context_menu.configure(
             background=colors["text_background"],
@@ -1856,7 +2060,6 @@ class AgentWorkspace:
         self._save_settings()
         self.stop_all_consoles()
         self.root.destroy()
-
 
 def ai_agent_task_context_message(task: TaskSummary, workspace: Path) -> str:
     return ai_agent_task_context_prompt(task, workspace)
@@ -2061,6 +2264,8 @@ def _theme_colors(theme: str) -> dict[str, str]:
             "agent_session_foreground": "#ffe6a3",
             "agent_session_selected_background": "#704d12",
             "agent_session_selected_foreground": "#fff2c4",
+            "agent_external_background": "#34383d",
+            "agent_external_foreground": "#a8b0ba",
             "tab_selected_background": "#dfe1e5",
             "tab_selected_foreground": "#202124",
         }
@@ -2074,6 +2279,8 @@ def _theme_colors(theme: str) -> dict[str, str]:
         "agent_session_foreground": "#5c3b00",
         "agent_session_selected_background": "#f4c45f",
         "agent_session_selected_foreground": "#2f2100",
+        "agent_external_background": "#e0e0e0",
+        "agent_external_foreground": "#5f6368",
         "tab_selected_background": "#ffffff",
         "tab_selected_foreground": "#202124",
     }

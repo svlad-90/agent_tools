@@ -23,6 +23,7 @@ from agent_tools.tools.agent_workspace.core import ai_agent_model_settings
 from agent_tools.tools.agent_workspace.core import ai_agent_switch_decision
 from agent_tools.tools.agent_workspace.core import ai_agent_task_context_prompt
 from agent_tools.tools.agent_workspace.core import agent_output_reports_missing_session
+from agent_tools.tools.agent_workspace.core import agent_output_reports_turn_complete
 from agent_tools.tools.agent_workspace.core import agent_output_requests_permission
 from agent_tools.tools.agent_workspace.core import agent_output_state_update
 from agent_tools.tools.agent_workspace.core import agent_workspace_runtime_settings
@@ -30,6 +31,7 @@ from agent_tools.tools.agent_workspace.core import agent_workspace_setting_or_de
 from agent_tools.tools.agent_workspace.core import analyze_agent_output
 from agent_tools.tools.agent_workspace.core import build_ai_agent_console_command
 from agent_tools.tools.agent_workspace.core import clear_task_agent_session
+from agent_tools.tools.agent_workspace.core import clear_task_active_agent_run
 from agent_tools.tools.agent_workspace.core import codex_model_choices
 from agent_tools.tools.agent_workspace.core import codex_session_id_exists
 from agent_tools.tools.agent_workspace.core import discover_tasks
@@ -37,6 +39,7 @@ from agent_tools.tools.agent_workspace.core import find_latest_claude_session_id
 from agent_tools.tools.agent_workspace.core import find_latest_codex_session_id
 from agent_tools.tools.agent_workspace.core import find_task_agent_session_id
 from agent_tools.tools.agent_workspace.core import load_task_agent
+from agent_tools.tools.agent_workspace.core import load_task_active_agent_run
 from agent_tools.tools.agent_workspace.core import load_task_agent_session
 from agent_tools.tools.agent_workspace.core import load_task_actions
 from agent_tools.tools.agent_workspace.core import load_agent_workspace_settings
@@ -47,6 +50,7 @@ from agent_tools.tools.agent_workspace.core import render_markdown_chunks
 from agent_tools.tools.agent_workspace.core import reset_task_agent_session
 from agent_tools.tools.agent_workspace.core import rough_token_count
 from agent_tools.tools.agent_workspace.core import save_agent_workspace_settings
+from agent_tools.tools.agent_workspace.core import save_task_active_agent_run
 from agent_tools.tools.agent_workspace.core import save_task_agent
 from agent_tools.tools.agent_workspace.core import save_task_agent_session
 from agent_tools.tools.agent_workspace.core import run_task_action
@@ -58,9 +62,11 @@ from agent_tools.tools.agent_workspace.core import session_is_running_agent
 from agent_tools.tools.agent_workspace.core import session_should_clear_pending_permission
 from agent_tools.tools.agent_workspace.core import task_agent_status_text
 from agent_tools.tools.agent_workspace.core import task_agent_session_markers
+from agent_tools.tools.agent_workspace.core import task_agent_selection_with_resumable_fallback
 from agent_tools.tools.agent_workspace.core import task_agent_has_resumable_state
 from agent_tools.tools.agent_workspace.core import task_agent_session_id_is_valid
 from agent_tools.tools.agent_workspace.core import task_for_path
+from agent_tools.tools.agent_workspace.core import task_has_external_active_agent_run
 from agent_tools.tools.agent_workspace.core import task_has_valid_agent_session
 from agent_tools.tools.agent_workspace.core import task_status_label
 from agent_tools.tools.agent_workspace.core import task_selected_agent_has_resumable_state
@@ -281,12 +287,36 @@ class FakeButton:
             self.state = state
 
 
+class FakeProcess:
+    def __init__(self, running: bool = True) -> None:
+        self.running = running
+        self.terminated = False
+
+    def poll(self) -> int | None:
+        return None if self.running else 0
+
+    def terminate(self) -> None:
+        self.terminated = True
+        self.running = False
+
+
+class FakeFrame:
+    def __init__(self) -> None:
+        self.destroyed = False
+
+    def destroy(self) -> None:
+        self.destroyed = True
+
+
 class FakeStringVar:
     def __init__(self, value: str) -> None:
         self.value = value
 
     def get(self) -> str:
         return self.value
+
+    def set(self, value: str) -> None:
+        self.value = value
 
 
 def test_discover_tasks_reports_description_context_and_budget(tmp_path: Path) -> None:
@@ -1194,7 +1224,20 @@ def test_find_task_agent_session_id_is_scoped_to_agent_type(tmp_path: Path) -> N
     assert find_task_agent_session_id(summary, workspace, "codex") is None
 
 
-def test_clear_task_agent_session_only_clears_selected_agent_type(tmp_path: Path) -> None:
+def test_clear_task_agent_session_clears_current_saved_agent_type(tmp_path: Path) -> None:
+    task = tmp_path / "tasks" / "sample-task"
+    task.mkdir(parents=True)
+    summary = discover_tasks_with_context(task, tmp_path)
+    claude_session_id = "019feba2-e25e-76e1-9468-aa3997582690"
+
+    save_task_agent_session(summary, "claude", session_id=claude_session_id)
+
+    assert clear_task_agent_session(summary, "claude")
+
+    assert load_task_agent_session(summary, "claude").session_id is None
+
+
+def test_save_task_agent_session_keeps_only_latest_agent_session(tmp_path: Path) -> None:
     task = tmp_path / "tasks" / "sample-task"
     task.mkdir(parents=True)
     summary = discover_tasks_with_context(task, tmp_path)
@@ -1204,10 +1247,26 @@ def test_clear_task_agent_session_only_clears_selected_agent_type(tmp_path: Path
     save_task_agent_session(summary, "codex", session_id=codex_session_id)
     save_task_agent_session(summary, "claude", session_id=claude_session_id)
 
-    assert clear_task_agent_session(summary, "claude")
+    assert load_task_agent(summary, "codex") == "claude"
+    assert load_task_agent_session(summary, "codex").session_id is None
+    assert load_task_agent_session(summary, "claude").session_id == claude_session_id
 
-    assert load_task_agent_session(summary, "claude").session_id is None
-    assert load_task_agent_session(summary, "codex").session_id == codex_session_id
+
+def test_task_active_agent_run_tracks_external_owner(tmp_path: Path) -> None:
+    task = tmp_path / "tasks" / "sample-task"
+    task.mkdir(parents=True)
+    summary = discover_tasks_with_context(task, tmp_path)
+
+    save_task_active_agent_run(summary, "codex", "run-1", owner_pid=os.getpid())
+
+    active = load_task_active_agent_run(summary)
+    assert active is not None
+    assert active.agent == "codex"
+    assert task_has_external_active_agent_run(summary, set())
+    assert not task_has_external_active_agent_run(summary, {"run-1"})
+    assert not clear_task_active_agent_run(summary, run_id="other")
+    assert clear_task_active_agent_run(summary, run_id="run-1", agent="codex")
+    assert load_task_active_agent_run(summary) is None
 
 
 def test_clear_task_agent_session_removes_empty_session_map(tmp_path: Path) -> None:
@@ -1314,6 +1373,91 @@ def test_tk_ai_agent_button_label_reflects_resumable_session(tmp_path: Path, mon
 
     assert gui.run_ai_agent_button.text == "ИИ агент запущен"
     assert gui.reset_ai_agent_button.state == "normal"
+
+
+def test_tk_agent_selection_warns_before_dropping_saved_session(tmp_path: Path, monkeypatch) -> None:
+    task = tmp_path / "tasks" / "sample-task"
+    task.mkdir(parents=True)
+    summary = discover_tasks_with_context(task, tmp_path)
+    home = tmp_path / "home"
+    monkeypatch.setenv("HOME", str(home))
+    session_id = "019feba2-e25e-76e1-9468-aa399758268f"
+    session_file = home / ".codex" / "sessions" / f"{session_id}.jsonl"
+    session_file.parent.mkdir(parents=True)
+    session_file.write_text("{}", encoding="utf-8")
+    save_task_agent_session(summary, "codex", session_id=session_id)
+    gui = AgentWorkspace.__new__(AgentWorkspace)
+    gui.selected_task = summary
+    gui.workspace = tmp_path
+    gui.default_agent = "codex"
+    gui.agent_var = FakeStringVar("claude")
+    gui._updating_agent_selection = False
+    gui._running_agent_session = lambda selected_task: None  # type: ignore[method-assign]
+    gui._confirm_saved_agent_session_delete = lambda old_agent, new_agent: False  # type: ignore[method-assign]
+    gui._update_ai_agent_button_label = lambda: None  # type: ignore[method-assign]
+    gui._refresh_task_session_indicators = lambda: None  # type: ignore[method-assign]
+    gui._refresh_tree_selection_style = lambda: None  # type: ignore[method-assign]
+
+    gui._on_agent_selected()
+
+    assert gui.agent_var.get() == "codex"
+    assert load_task_agent_session(summary, "codex").session_id == session_id
+
+    gui.agent_var = FakeStringVar("claude")
+    gui._confirm_saved_agent_session_delete = lambda old_agent, new_agent: True  # type: ignore[method-assign]
+    gui._on_agent_selected()
+
+    assert gui.agent_var.get() == "claude"
+    assert load_task_agent(summary, "codex") == "claude"
+    assert load_task_agent_session(summary, "codex").session_id is None
+
+
+def test_tk_task_double_click_opens_task_folder(tmp_path: Path) -> None:
+    task = tmp_path / "tasks" / "sample-task"
+    task.mkdir(parents=True)
+    summary = discover_tasks_with_context(task, tmp_path)
+    gui = AgentWorkspace.__new__(AgentWorkspace)
+    gui.selected_task = summary
+    calls: list[Path] = []
+    gui.open_task = lambda: calls.append(summary.path)  # type: ignore[method-assign]
+
+    gui._on_task_double_clicked(None)
+
+    assert calls == [summary.path]
+
+
+def test_tk_custom_action_selects_actions_tab_before_running(tmp_path: Path) -> None:
+    task = tmp_path / "tasks" / "sample-task"
+    task.mkdir(parents=True)
+    summary = discover_tasks_with_context(task, tmp_path)
+    action = TaskAction("sample", "Sample", "printf ok", task, {})
+    selected_pages: list[int] = []
+    sent: list[tuple[TaskSummary, str]] = []
+    gui = AgentWorkspace.__new__(AgentWorkspace)
+    gui.selected_task = summary
+    gui.notebook = type("Notebook", (), {"select": lambda self, page: selected_pages.append(page)})()
+    gui._send_command_to_task_console = lambda selected_task, command: sent.append((selected_task, command))  # type: ignore[method-assign]
+
+    gui.run_custom_task_action(action)
+
+    assert selected_pages == [0]
+    assert sent and sent[0][0] == summary
+    assert "printf ok" in sent[0][1]
+
+
+def test_tk_console_notebook_double_click_adds_shell_console(tmp_path: Path) -> None:
+    task = tmp_path / "tasks" / "sample-task"
+    task.mkdir(parents=True)
+    summary = discover_tasks_with_context(task, tmp_path)
+    gui = AgentWorkspace.__new__(AgentWorkspace)
+    gui.selected_task = summary
+    calls: list[TaskSummary] = []
+    gui.new_console = lambda selected_task=None: calls.append(selected_task) or 1  # type: ignore[method-assign]
+
+    result = gui._on_console_notebook_double_clicked(None)
+
+    assert result == "break"
+    assert calls == [summary]
 
 
 def test_task_session_highlight_uses_each_tasks_saved_agent(tmp_path: Path, monkeypatch) -> None:
@@ -1451,7 +1595,7 @@ def test_task_selected_agent_has_resumable_state_uses_saved_agent(tmp_path: Path
     assert not task_selected_agent_has_resumable_state(summary, workspace, "codex")
 
 
-def test_task_agent_session_markers_show_codex_and_claude_sessions(
+def test_task_agent_session_markers_show_latest_resumable_session(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -1468,7 +1612,8 @@ def test_task_agent_session_markers_show_codex_and_claude_sessions(
     save_task_agent_session(summary, "codex", session_id=codex_session_id)
     save_task_agent_session(summary, "claude", session_id="019feba2-e25e-76e1-9468-aa3997582690")
 
-    assert task_agent_session_markers(summary, workspace, home=home) == ("Cx", "Cl")
+    assert task_agent_session_markers(summary, workspace, home=home) == ("Ⅱ",)
+    assert not task_agent_has_resumable_state(summary, workspace, "codex", home=home)
 
 
 def test_task_agent_status_text_combines_permission_running_and_saved_sessions(
@@ -1489,10 +1634,10 @@ def test_task_agent_status_text_combines_permission_running_and_saved_sessions(
             workspace,
             permission_pending=True,
             running_agents=("codex",),
-            spinner_frame="⚙⠋",
+            spinner_frame="▷⠋",
             home=home,
         )
-        == "? Cl Cx"
+        == "?"
     )
     assert (
         task_agent_status_text(
@@ -1500,20 +1645,79 @@ def test_task_agent_status_text_combines_permission_running_and_saved_sessions(
             workspace,
             permission_pending=False,
             running_agents=("codex",),
-            spinner_frame="⚙⠋",
+            spinner_frame="▷⠋",
             home=home,
         )
-        == "⚙⠋ Cl Cx"
+        == "▷⠋"
+    )
+    assert (
+        task_agent_status_text(
+            summary,
+            workspace,
+            permission_pending=False,
+            running_agents=("codex",),
+            spinner_frame="",
+            home=home,
+        )
+        == "▷"
     )
 
 
+def test_task_agent_status_text_shows_saved_sessions_only_when_no_agent_is_running(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace = tmp_path / "workspace"
+    task = workspace / "tasks" / "sample-task"
+    task.mkdir(parents=True)
+    summary = discover_tasks_with_context(task, workspace)
+    home = tmp_path / "home"
+    monkeypatch.setenv("HOME", str(home))
+    codex_session_id = "019feba2-e25e-76e1-9468-aa399758268f"
+    codex_session_file = home / ".codex" / "sessions" / f"{codex_session_id}.jsonl"
+    codex_session_file.parent.mkdir(parents=True)
+    codex_session_file.write_text("{}", encoding="utf-8")
+    save_task_agent_session(summary, "codex", session_id=codex_session_id)
+    save_task_agent_session(summary, "claude", session_id="019feba2-e25e-76e1-9468-aa3997582690")
+
+    assert (
+        task_agent_status_text(
+            summary,
+            workspace,
+            permission_pending=False,
+            running_agents=(),
+            spinner_frame="▷⠋",
+            home=home,
+        )
+        == "Ⅱ"
+    )
+
+
+def test_task_agent_selection_with_resumable_fallback_prefers_saved_session_agent(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace = tmp_path / "workspace"
+    task = workspace / "tasks" / "sample-task"
+    task.mkdir(parents=True)
+    summary = discover_tasks_with_context(task, workspace)
+    home = tmp_path / "home"
+    monkeypatch.setenv("HOME", str(home))
+    codex_session_id = "019feba2-e25e-76e1-9468-aa399758268f"
+    codex_session_file = home / ".codex" / "sessions" / f"{codex_session_id}.jsonl"
+    codex_session_file.parent.mkdir(parents=True)
+    codex_session_file.write_text("{}", encoding="utf-8")
+    save_task_agent_session(summary, "codex", session_id=codex_session_id)
+
+    assert task_agent_selection_with_resumable_fallback(summary, workspace, "claude", home=home) == "codex"
+
+
 def test_agent_status_tooltip_explains_visible_markers_compactly() -> None:
-    assert agent_status_tooltip_text("Cx") == "Codex"
-    assert agent_status_tooltip_text("Cl") == "Claude Code"
+    assert agent_status_tooltip_text("Ⅱ") == "Сессию можно продолжить"
+    assert agent_status_tooltip_text("□") == "Нет сохраненной сессии"
     assert agent_status_tooltip_text("?") == "Ждет подтверждения"
-    assert agent_status_tooltip_text("⚙⠋") == "Агент запущен"
-    assert agent_status_tooltip_text("Cx Cl") == "Codex; Claude Code"
-    assert agent_status_tooltip_text("? Cx") == "Ждет подтверждения; Codex"
+    assert agent_status_tooltip_text("▷⠋") == "Агент запущен"
+    assert agent_status_tooltip_text("? Ⅱ") == "Ждет подтверждения; Сессию можно продолжить"
 
 
 def test_agent_status_manual_entries_are_structured_for_popup() -> None:
@@ -1527,7 +1731,7 @@ def test_agent_status_manual_entries_are_structured_for_popup() -> None:
         "Действия",
         "Сброс",
     ]
-    assert [entry[0] for entry in AGENT_STATUS_MANUAL_ENTRIES] == ["Cx", "Cl", "⚙", "?"]
+    assert [entry[0] for entry in AGENT_STATUS_MANUAL_ENTRIES] == ["Ⅱ", "□", "▷", "?"]
     assert all(len(entry) == 3 for entry in AGENT_STATUS_MANUAL_ENTRIES)
 
 
@@ -1537,9 +1741,9 @@ def test_task_status_label_prefixes_permission_and_agent_session_markers() -> No
         task_status_label(
             "sample-task",
             permission_pending=True,
-            session_markers=("Cx", "Cl"),
+            session_markers=("Ⅱ",),
         )
-        == "? Cx Cl sample-task"
+        == "? Ⅱ sample-task"
     )
 
 
@@ -1668,6 +1872,22 @@ def test_analyze_agent_output_reports_missing_session_and_permission() -> None:
 
     assert analysis.missing_session
     assert analysis.requests_permission
+    assert analysis.permission_signature == "Would you like to run the following command?"
+    assert not analysis.turn_complete
+
+
+def test_agent_output_requests_permission_detects_choice_prompt() -> None:
+    analysis = analyze_agent_output("Allow this command to run? [y/N]")
+
+    assert analysis.requests_permission
+    assert analysis.permission_signature == "Allow this command to run? [y/N]"
+
+
+def test_agent_output_reports_turn_complete_for_completion_summaries() -> None:
+    assert agent_output_reports_turn_complete("Done.\n")
+    assert agent_output_reports_turn_complete("Tokens used: 12,345\n")
+    assert agent_output_reports_turn_complete("Cost: $0.10\n")
+    assert not agent_output_reports_turn_complete("Would you like to run the following command?")
 
 
 def test_agent_output_state_update_prioritizes_missing_session() -> None:
@@ -1831,6 +2051,28 @@ def test_gtk_agent_button_style_ignores_exited_agent_terminal(tmp_path: Path) ->
     assert "codex-running" not in button.style_context.classes
 
 
+def test_gtk_close_console_session_clears_agent_state(tmp_path: Path) -> None:
+    task = tmp_path / "tasks" / "sample-task"
+    task.mkdir(parents=True)
+    summary = discover_tasks_with_context(task, tmp_path)
+    page = FakeFrame()
+    session = TerminalSession(1, summary.path, "claude", object(), page, busy=True, permission_pending=True)
+    gui = WorkspaceGtkGui.__new__(WorkspaceGtkGui)
+    gui.terminal_sessions = {1: session}
+    gui.selected_task = None
+    gui.console_notebook = type("Notebook", (), {"page_num": lambda self, page: -1})()
+    gui._task_for_path = lambda task_path: summary  # type: ignore[method-assign]
+    gui._update_codex_button_state = lambda: None  # type: ignore[method-assign]
+
+    assert gui._close_console_session(session, confirm=False, ensure_default=False)
+
+    assert session.session_id not in gui.terminal_sessions
+    assert not session.permission_pending
+    assert not session.busy
+    assert session.exited
+    assert page.destroyed
+
+
 def test_gtk_terminal_text_tail_reads_recent_text() -> None:
     terminal = FakeGtkTextTerminal("a" * 5000 + "requires approval")
 
@@ -1946,7 +2188,7 @@ def test_tk_control_shortcuts_work_on_cyrillic_layout() -> None:
 def test_gtk_task_row_style_highlights_codex_tasks() -> None:
     from gi.repository import Pango
 
-    assert gtk_task_row_style(False, False, "dark") == (
+    assert gtk_task_row_style(False, False, False, "dark") == (
         "",
         False,
         "",
@@ -1954,7 +2196,7 @@ def test_gtk_task_row_style_highlights_codex_tasks() -> None:
         int(Pango.Weight.NORMAL),
         False,
     )
-    assert gtk_task_row_style(False, True, "dark") == (
+    assert gtk_task_row_style(False, True, False, "dark") == (
         "",
         False,
         "",
@@ -1962,7 +2204,15 @@ def test_gtk_task_row_style_highlights_codex_tasks() -> None:
         int(Pango.Weight.NORMAL),
         False,
     )
-    assert gtk_task_row_style(True, True, "dark") == (
+    assert gtk_task_row_style(False, False, True, "dark") == (
+        "#34383d",
+        True,
+        "#a8b0ba",
+        True,
+        int(Pango.Weight.NORMAL),
+        True,
+    )
+    assert gtk_task_row_style(True, True, True, "dark") == (
         "#26384d",
         True,
         "#ffffff",
@@ -1990,9 +2240,11 @@ def test_gtk_translates_agent_and_manual_labels() -> None:
     assert GTK_TRANSLATIONS["ru"]["default_agent"] == "ИИ агент по умолчанию"
     assert GTK_TRANSLATIONS["ru"]["default_claude_model"] == "Модель Claude"
     assert GTK_TRANSLATIONS["ru"]["default_codex_model"] == "Модель Codex"
+    assert GTK_TRANSLATIONS["ru"]["ok"] == "ОК"
+    assert GTK_TRANSLATIONS["uk"]["ok"] == "ОК"
     assert "закроет текущую сессию" in GTK_TRANSLATIONS["ru"]["confirm_switch_agent_body"]
-    assert "локальные процессы агентов" in GTK_TRANSLATIONS["ru"]["confirm_close_running_agents_body"]
-    assert "Восстанавливаемые диалоги" in GTK_TRANSLATIONS["ru"]["confirm_close_running_agents_body"]
+    assert "ссылка на продолжение" in GTK_TRANSLATIONS["ru"]["confirm_delete_saved_agent_session_body"]
+    assert "остановит локальные процессы" in GTK_TRANSLATIONS["ru"]["confirm_close_running_agents_body"]
     assert "Предлагаемая команда установки" in GTK_TRANSLATIONS["ru"]["install_agent_body"]
     assert GTK_TRANSLATIONS["ru"]["delete_artifacts"] == "Удалить артефакты"
     assert GTK_TRANSLATIONS["uk"]["manual_usage_section"] == "Основи"
@@ -2156,6 +2408,137 @@ def test_tk_agent_output_missing_session_wins_over_permission_prompt(tmp_path: P
     assert session.exited
     assert not session.permission_pending
     assert not load_task_agent_session(summary, "claude").resume
+
+
+def test_tk_answered_permission_prompt_is_not_reopened_from_terminal_tail(tmp_path: Path) -> None:
+    task = tmp_path / "tasks" / "sample-task"
+    task.mkdir(parents=True)
+    summary = discover_tasks_with_context(task, tmp_path)
+    read_fd, write_fd = os.pipe()
+    prompt = "Would you like to run the following command?"
+    session = ConsoleSession(
+        session_id=1,
+        title="Codex",
+        task_path=summary.path,
+        kind="codex",
+        frame=None,  # type: ignore[arg-type]
+        text=FakeConsoleText(""),
+        process=FakeProcess(running=True),  # type: ignore[arg-type]
+        fd=write_fd,
+        chunks=[ConsoleChunk(prompt, ())],
+        busy=False,
+        permission_pending=True,
+        permission_signature=prompt,
+    )
+    gui = object.__new__(AgentWorkspace)
+    gui.console_sessions = {1: session}
+    gui._refresh_task_session_indicators = lambda: None  # type: ignore[method-assign]
+    gui._schedule_agent_idle_after_output = lambda active_session: None  # type: ignore[method-assign]
+
+    try:
+        gui._write_to_console(1, b"y\r")
+        gui._append_console_output(1, [ConsoleChunk("\nAccepted\n", ())])
+    finally:
+        os.close(read_fd)
+        os.close(write_fd)
+
+    assert not session.permission_pending
+    assert session.ignored_permission_signature == prompt
+
+
+def test_tk_agent_busy_clears_after_quiet_output_without_completion_text(tmp_path: Path) -> None:
+    task = tmp_path / "tasks" / "sample-task"
+    task.mkdir(parents=True)
+    summary = discover_tasks_with_context(task, tmp_path)
+    session = ConsoleSession(
+        session_id=1,
+        title="Codex",
+        task_path=summary.path,
+        kind="codex",
+        frame=None,  # type: ignore[arg-type]
+        text=FakeConsoleText(""),
+        process=FakeProcess(running=True),  # type: ignore[arg-type]
+        fd=None,
+        chunks=[],
+        busy=True,
+    )
+    gui = object.__new__(AgentWorkspace)
+    gui.console_sessions = {1: session}
+    calls = {"status": 0}
+    gui._refresh_task_session_indicators = lambda: calls.__setitem__("status", calls["status"] + 1)  # type: ignore[method-assign]
+
+    session.output_generation = 7
+    gui._mark_agent_idle_if_output_quiet(1, 7)
+
+    assert not session.busy
+    assert calls == {"status": 1}
+
+
+def test_tk_agent_output_refreshes_status_when_process_exits(tmp_path: Path) -> None:
+    task = tmp_path / "tasks" / "sample-task"
+    task.mkdir(parents=True)
+    summary = discover_tasks_with_context(task, tmp_path)
+    session = ConsoleSession(
+        session_id=1,
+        title="Codex",
+        task_path=summary.path,
+        kind="codex",
+        frame=FakeFrame(),  # type: ignore[arg-type]
+        text=FakeConsoleText(""),
+        process=FakeProcess(running=False),  # type: ignore[arg-type]
+        fd=None,
+        chunks=[],
+        exited=True,
+    )
+    gui = object.__new__(AgentWorkspace)
+    gui.console_sessions = {1: session}
+    calls = {"button": 0, "status": 0}
+    gui._update_ai_agent_button_label = lambda: calls.__setitem__("button", calls["button"] + 1)  # type: ignore[method-assign]
+    gui._refresh_task_session_indicators = lambda: calls.__setitem__("status", calls["status"] + 1)  # type: ignore[method-assign]
+
+    gui._append_console_output(1, [ConsoleChunk("[process exited with code 0]\n", ())])
+
+    assert calls == {"button": 1, "status": 1}
+
+
+def test_tk_stop_console_refreshes_full_agent_status(tmp_path: Path) -> None:
+    task = tmp_path / "tasks" / "sample-task"
+    task.mkdir(parents=True)
+    summary = discover_tasks_with_context(task, tmp_path)
+    frame = FakeFrame()
+    process = FakeProcess(running=True)
+    session = ConsoleSession(
+        session_id=1,
+        title="Codex",
+        task_path=summary.path,
+        kind="codex",
+        frame=frame,  # type: ignore[arg-type]
+        text=FakeConsoleText(""),
+        process=process,  # type: ignore[arg-type]
+        fd=None,
+        chunks=[],
+        busy=True,
+        permission_pending=True,
+    )
+    gui = object.__new__(AgentWorkspace)
+    gui.console_sessions = {1: session}
+    gui.console_context_text = None
+    gui.console_context_selection = ""
+    gui.active_console_id = None
+    gui.selected_task = None
+    calls = {"button": 0, "status": 0}
+    gui._forget_console_tab = lambda closed: None  # type: ignore[method-assign]
+    gui._update_ai_agent_button_label = lambda: calls.__setitem__("button", calls["button"] + 1)  # type: ignore[method-assign]
+    gui._refresh_task_session_indicators = lambda: calls.__setitem__("status", calls["status"] + 1)  # type: ignore[method-assign]
+
+    gui.stop_console(1)
+
+    assert process.terminated
+    assert frame.destroyed
+    assert session.exited
+    assert not session.busy
+    assert not session.permission_pending
+    assert calls == {"button": 1, "status": 1}
 
 
 def test_load_task_actions_and_run_command(tmp_path: Path) -> None:

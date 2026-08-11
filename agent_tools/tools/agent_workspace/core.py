@@ -57,27 +57,25 @@ AGENT_WORKSPACE_AGENT_INSTALL_COMMANDS = {
     "codex": "npm install -g @openai/codex",
     "claude": "npm install -g @anthropic-ai/claude-code",
 }
-AGENT_SESSION_MARKERS = {
-    "codex": "Cx",
-    "claude": "Cl",
-}
+AGENT_SESSION_MARKER = "Ⅱ"
+AGENT_IDLE_MARKER = "□"
 AGENT_RUNNING_SPINNER_FRAMES = (
-    "⚙⠋",
-    "⚙⠙",
-    "⚙⠹",
-    "⚙⠸",
-    "⚙⠼",
-    "⚙⠴",
-    "⚙⠦",
-    "⚙⠧",
-    "⚙⠇",
-    "⚙⠏",
+    "▷⠋",
+    "▷⠙",
+    "▷⠹",
+    "▷⠸",
+    "▷⠼",
+    "▷⠴",
+    "▷⠦",
+    "▷⠧",
+    "▷⠇",
+    "▷⠏",
 )
 CODEX_SESSION_ID_RE = re.compile(r"([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})")
 AGENT_PERMISSION_MARKER = "?"
 AGENT_STATUS_TOOLTIPS = {
-    "Cx": "Codex",
-    "Cl": "Claude Code",
+    AGENT_SESSION_MARKER: "Сессию можно продолжить",
+    AGENT_IDLE_MARKER: "Нет сохраненной сессии",
     "?": "Ждет подтверждения",
 }
 AGENT_STATUS_MANUAL_MENU_LABEL = "Manual"
@@ -93,9 +91,9 @@ AGENT_STATUS_MANUAL_USAGE_ENTRIES = (
 )
 AGENT_STATUS_MANUAL_SUBTITLE = "Статусы в колонке ИИ"
 AGENT_STATUS_MANUAL_ENTRIES = (
-    ("Cx", "Codex", "есть сохраненная или восстановимая Codex-сессия"),
-    ("Cl", "Claude Code", "есть сохраненная или восстановимая Claude Code-сессия"),
-    ("⚙", "Агент запущен", "для этой задачи сейчас работает Codex или Claude Code"),
+    (AGENT_SESSION_MARKER, "Пауза", "есть сохраненная сессия последнего активного ИИ агента"),
+    (AGENT_IDLE_MARKER, "Стоп", "нет сохраненной сессии, которую можно продолжить"),
+    ("▷", "Агент запущен", "для этой задачи сейчас работает Codex или Claude Code"),
     ("?", "Ждет подтверждения", "агент остановился на запросе разрешения или подтверждения"),
 )
 AGENT_WORKSPACE_GEOMETRY_RE = re.compile(r"^\d+x\d+(?:[+-]\d+[+-]\d+)?$")
@@ -103,15 +101,27 @@ ANSI_ESCAPE_RE = re.compile(r"\x1b(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])")
 ANSI_OSC_RE = re.compile(r"\x1b\][^\x07]*(?:\x07|\x1b\\)")
 AGENT_PERMISSION_PROMPT_RE = re.compile(
     r"(?:requires?\s+(?:approval|permission)|"
+    r"(?:approval|permission)\s+(?:required|needed|requested)|"
+    r"(?:approve|allow|grant)\s+(?:this\s+)?(?:command|action|operation|request)|"
+    r"(?:run|execute)\s+(?:this\s+)?command\?|"
+    r"(?:press|hit)\s+enter\s+to\s+(?:continue|proceed)|"
+    r"(?:\[[yn]/[yn]\]|\([yn]/[yn]\)|yes/no|y/n)|"
+    r"(?:разрешить|одобрить|продолжить)\?|"
     r"(?:allow|approve|grant|proceed|continue)\?|" 
     r"(?:allow|approve|grant)\s+.*(?:\by\b|\byes\b|\bn\b|\bno\b)|"
-    r"(?:permission|approval)\s+(?:required|needed|requested)|"
     r"would you like to run the following command\?|"
     r"do you want to (?:allow|approve|continue|proceed))",
     re.IGNORECASE,
 )
 AGENT_MISSING_SESSION_RE = re.compile(
     r"no\s+conversation\s+found\s+with\s+session\s+id",
+    re.IGNORECASE,
+)
+AGENT_TURN_COMPLETE_RE = re.compile(
+    r"(?:^|\n)\s*(?:"
+    r"(?:tokens?\s+used|total\s+tokens?|cost|duration):\s*[\w$.,: -]+|"
+    r"(?:done|completed|task\s+complete|ready\s+for\s+(?:the\s+)?next\s+(?:task|prompt))\.?"
+    r")\s*(?:$|\n)",
     re.IGNORECASE,
 )
 
@@ -199,6 +209,8 @@ class AgentSwitchDecision:
 class AgentOutputAnalysis:
     missing_session: bool
     requests_permission: bool
+    turn_complete: bool
+    permission_signature: str | None
 
 
 @dataclass(frozen=True)
@@ -207,6 +219,13 @@ class AgentOutputStateUpdate:
     permission_requested: bool
     exited: bool
     permission_pending: bool
+
+
+@dataclass(frozen=True)
+class ActiveTaskAgentRun:
+    agent: str
+    owner_pid: int
+    run_id: str
 
 
 def rough_token_count(text: str) -> int:
@@ -722,14 +741,35 @@ def _str_setting(settings: dict[str, int | str], key: str, default: str) -> str:
     return default
 
 
-def analyze_agent_output(text: str) -> AgentOutputAnalysis:
+def _normalized_agent_output_tail(text: str) -> str:
     normalized = ANSI_OSC_RE.sub("", text)
     normalized = ANSI_ESCAPE_RE.sub("", normalized)
     normalized = normalized.replace("\r", "\n")
-    tail = normalized[-4000:]
+    return normalized[-8000:]
+
+
+def agent_permission_prompt_signature(text: str) -> str | None:
+    tail = _normalized_agent_output_tail(text)
+    matches = list(AGENT_PERMISSION_PROMPT_RE.finditer(tail))
+    if not matches:
+        return None
+    match = matches[-1]
+    line_start = tail.rfind("\n", 0, match.start()) + 1
+    line_end = tail.find("\n", match.end())
+    if line_end < 0:
+        line_end = len(tail)
+    line = re.sub(r"\s+", " ", tail[line_start:line_end]).strip()
+    return (line or match.group(0).strip())[-500:]
+
+
+def analyze_agent_output(text: str) -> AgentOutputAnalysis:
+    tail = _normalized_agent_output_tail(text)
+    permission_signature = agent_permission_prompt_signature(tail)
     return AgentOutputAnalysis(
         missing_session=AGENT_MISSING_SESSION_RE.search(tail) is not None,
-        requests_permission=AGENT_PERMISSION_PROMPT_RE.search(tail) is not None,
+        requests_permission=permission_signature is not None,
+        turn_complete=AGENT_TURN_COMPLETE_RE.search(tail) is not None,
+        permission_signature=permission_signature,
     )
 
 
@@ -739,6 +779,10 @@ def agent_output_requests_permission(text: str) -> bool:
 
 def agent_output_reports_missing_session(text: str) -> bool:
     return analyze_agent_output(text).missing_session
+
+
+def agent_output_reports_turn_complete(text: str) -> bool:
+    return analyze_agent_output(text).turn_complete
 
 
 def agent_output_state_update(
@@ -816,6 +860,80 @@ def save_task_agent(task: TaskSummary, agent: str) -> None:
     save_task_state(task, data)
 
 
+def process_is_alive(pid: int) -> bool:
+    if pid <= 0:
+        return False
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    except OSError:
+        return False
+    return True
+
+
+def load_task_active_agent_run(task: TaskSummary) -> ActiveTaskAgentRun | None:
+    data = load_task_state(task)
+    active = data.get("active_agent_run")
+    if not isinstance(active, dict):
+        return None
+    agent = active.get("agent")
+    owner_pid = active.get("owner_pid")
+    run_id = active.get("run_id")
+    if not isinstance(agent, str) or not isinstance(owner_pid, int) or not isinstance(run_id, str):
+        return None
+    agent = normalize_agent(agent)
+    if not process_is_alive(owner_pid):
+        return None
+    return ActiveTaskAgentRun(agent=agent, owner_pid=owner_pid, run_id=run_id)
+
+
+def save_task_active_agent_run(
+    task: TaskSummary,
+    agent: str,
+    run_id: str,
+    owner_pid: int | None = None,
+) -> None:
+    data = load_task_state(task)
+    data["active_agent_run"] = {
+        "agent": normalize_agent(agent),
+        "owner_pid": os.getpid() if owner_pid is None else owner_pid,
+        "run_id": run_id,
+    }
+    save_task_state(task, data)
+
+
+def clear_task_active_agent_run(
+    task: TaskSummary,
+    *,
+    run_id: str | None = None,
+    agent: str | None = None,
+) -> bool:
+    data = load_task_state(task)
+    active = data.get("active_agent_run")
+    if not isinstance(active, dict):
+        return False
+    if run_id is not None and active.get("run_id") != run_id:
+        return False
+    if agent is not None:
+        active_agent = active.get("agent")
+        if not isinstance(active_agent, str) or normalize_agent(active_agent) != normalize_agent(agent):
+            return False
+    data.pop("active_agent_run", None)
+    save_task_state(task, data)
+    return True
+
+
+def task_has_external_active_agent_run(
+    task: TaskSummary,
+    local_run_ids: set[str] | frozenset[str],
+) -> bool:
+    active = load_task_active_agent_run(task)
+    return active is not None and active.run_id not in local_run_ids
+
+
 def task_for_path(tasks: list[TaskSummary], path: Path) -> TaskSummary:
     for task in tasks:
         if task.path == path:
@@ -864,8 +982,7 @@ def save_task_agent_session(task: TaskSummary, agent: str, session_id: str | Non
         old_session_id = sessions[agent].get("session_id")
         if isinstance(old_session_id, str) and CODEX_SESSION_ID_RE.fullmatch(old_session_id):
             session["session_id"] = old_session_id
-    sessions[agent] = session
-    data["agent_sessions"] = sessions
+    data["agent_sessions"] = {agent: session}
     save_task_state(task, data)
 
 
@@ -953,16 +1070,30 @@ def task_selected_agent_has_resumable_state(
     return task_agent_has_resumable_state(task, workspace, agent, home=home)
 
 
+def task_agent_selection_with_resumable_fallback(
+    task: TaskSummary,
+    workspace: Path,
+    default_agent: str = AGENT_WORKSPACE_DEFAULT_AGENT,
+    home: Path | None = None,
+) -> str:
+    agent = load_task_agent(task, default_agent)
+    if task_agent_has_resumable_state(task, workspace, agent, home=home):
+        return agent
+    for candidate in AGENT_WORKSPACE_AGENTS:
+        if task_agent_has_resumable_state(task, workspace, candidate, home=home):
+            return candidate
+    return agent
+
+
 def task_agent_session_markers(
     task: TaskSummary,
     workspace: Path,
     home: Path | None = None,
 ) -> tuple[str, ...]:
-    return tuple(
-        AGENT_SESSION_MARKERS[agent]
-        for agent in AGENT_WORKSPACE_AGENTS
-        if task_agent_has_resumable_state(task, workspace, agent, home=home)
-    )
+    agent = load_task_agent(task)
+    if task_agent_has_resumable_state(task, workspace, agent, home=home):
+        return (AGENT_SESSION_MARKER,)
+    return ()
 
 
 def task_status_label(
@@ -989,18 +1120,18 @@ def task_agent_status_text(
     spinner_frame: str = "",
     home: Path | None = None,
 ) -> str:
-    markers = list(task_agent_session_markers(task, workspace, home=home))
-    for agent in running_agents:
-        marker = AGENT_SESSION_MARKERS.get(normalize_agent(agent))
-        if marker and marker not in markers:
-            markers.append(marker)
     parts: list[str] = []
     if permission_pending:
         parts.append(AGENT_PERMISSION_MARKER)
     elif running_agents and spinner_frame:
         parts.append(spinner_frame)
+    if running_agents or permission_pending:
+        if not parts and running_agents:
+            parts.append("▷")
+        return " ".join(parts)
+    markers = list(task_agent_session_markers(task, workspace, home=home))
     parts.extend(markers)
-    return " ".join(parts)
+    return " ".join(parts) if parts else AGENT_IDLE_MARKER
 
 
 def agent_status_tooltip_text(status_text: str) -> str:
@@ -1009,7 +1140,7 @@ def agent_status_tooltip_text(status_text: str) -> str:
         return ""
     labels: list[str] = []
     for marker in status_text.split():
-        if marker.startswith("⚙"):
+        if marker.startswith("▷"):
             label = "Агент запущен"
         else:
             label = AGENT_STATUS_TOOLTIPS.get(marker, "")
