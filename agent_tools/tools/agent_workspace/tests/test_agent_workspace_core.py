@@ -392,11 +392,17 @@ def test_agent_workspace_actions_task_check_uses_compact_output(tmp_path: Path, 
 def test_task_table_keyboard_activation_is_ignored() -> None:
     tk_gui = object.__new__(AgentWorkspace)
     gtk_gui = object.__new__(WorkspaceGtkGui)
+    ctrl = int(Gdk.ModifierType.CONTROL_MASK)
 
     assert tk_gui._ignore_task_tree_keyboard_activation(object()) == "break"
+    assert tk_gui._on_task_tree_key(FakeTkKeyEvent(keysym="Return")) == "break"
+    assert tk_gui._on_task_tree_key(FakeTkKeyEvent(keysym="a", char="a")) == "break"
+    assert tk_gui._on_task_tree_key(FakeTkKeyEvent(keysym="Down")) is None
     assert gtk_gui._on_task_view_key_press(object(), FakeGtkKeyEvent(Gdk.KEY_Return))
     assert gtk_gui._on_task_view_key_press(object(), FakeGtkKeyEvent(Gdk.KEY_KP_Enter))
     assert gtk_gui._on_task_view_key_press(object(), FakeGtkKeyEvent(Gdk.KEY_space))
+    assert gtk_gui._on_task_view_key_press(object(), FakeGtkKeyEvent(Gdk.KEY_a))
+    assert not gtk_gui._on_task_view_key_press(object(), FakeGtkKeyEvent(Gdk.KEY_a, state=ctrl))
     assert not gtk_gui._on_task_view_key_press(object(), FakeGtkKeyEvent(Gdk.KEY_Down))
 
 
@@ -2273,13 +2279,27 @@ def test_gtk_copy_terminal_selection_falls_back_to_plain_copy() -> None:
 
 def test_tk_control_shortcuts_work_on_cyrillic_layout() -> None:
     ctrl = 0x4
+    ctrl_shift = 0x4 | 0x1
 
-    assert _tk_control_shortcut(FakeTkKeyEvent(state=ctrl, keysym="Cyrillic_es")) == "c"
+    assert _tk_control_shortcut(FakeTkKeyEvent(state=ctrl, keysym="Cyrillic_es")) == "interrupt"
+    assert _tk_control_shortcut(FakeTkKeyEvent(state=ctrl_shift, keysym="Cyrillic_es")) == "copy"
     assert _tk_control_shortcut(FakeTkKeyEvent(state=ctrl, char="м")) == "v"
     assert _tk_control_shortcut(FakeTkKeyEvent(state=ctrl, keysym="Cyrillic_ve")) == "d"
-    assert _tk_control_shortcut(FakeTkKeyEvent(state=ctrl, keysym="x", keycode=54)) == "c"
+    assert _tk_control_shortcut(FakeTkKeyEvent(state=ctrl, keysym="x", keycode=54)) == "interrupt"
+    assert _tk_control_shortcut(FakeTkKeyEvent(state=ctrl_shift, keysym="x", keycode=54)) == "copy"
     assert _tk_control_shortcut(FakeTkKeyEvent(state=ctrl, keysym="x", keycode=55)) == "v"
     assert _tk_control_shortcut(FakeTkKeyEvent(state=0, keysym="Cyrillic_es")) is None
+
+
+def test_tk_ctrl_c_writes_interrupt_to_console() -> None:
+    writes: list[tuple[int, bytes]] = []
+    session = type("Session", (), {"session_id": 7, "fd": object()})()
+    gui = object.__new__(AgentWorkspace)
+    gui._active_console = lambda: session  # type: ignore[method-assign]
+    gui._write_to_console = lambda session_id, data: writes.append((session_id, data))  # type: ignore[method-assign]
+
+    assert gui._on_console_key(FakeTkKeyEvent(state=0x4, keysym="Cyrillic_es")) == "break"
+    assert writes == [(7, b"\x03")]
 
 
 def test_gtk_task_row_style_highlights_codex_tasks() -> None:

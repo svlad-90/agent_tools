@@ -262,9 +262,7 @@ class AgentWorkspace:
         self.task_tree.pack(fill=tk.BOTH, expand=True)
         self.task_tree.bind("<<TreeviewSelect>>", self._on_task_selected)
         self.task_tree.bind("<Double-1>", self._on_task_double_clicked)
-        self.task_tree.bind("<Return>", self._ignore_task_tree_keyboard_activation)
-        self.task_tree.bind("<KP_Enter>", self._ignore_task_tree_keyboard_activation)
-        self.task_tree.bind("<space>", self._ignore_task_tree_keyboard_activation)
+        self.task_tree.bind("<Key>", self._on_task_tree_key)
         self.task_tree.bind("<Button-3>", self._on_task_context_menu)
         self.task_tree.bind("<Button-2>", self._on_task_context_menu)
         self.task_status_tooltip = HoverTooltip(self.task_tree)
@@ -518,6 +516,24 @@ class AgentWorkspace:
         self.open_task()
 
     def _ignore_task_tree_keyboard_activation(self, _event: object) -> str:
+        return "break"
+
+    def _on_task_tree_key(self, event: tk.Event[ttk.Treeview]) -> str | None:
+        keysym = str(getattr(event, "keysym", ""))
+        if keysym in {
+            "Up",
+            "Down",
+            "Left",
+            "Right",
+            "Home",
+            "End",
+            "Prior",
+            "Next",
+            "Tab",
+            "ISO_Left_Tab",
+            "F1",
+        }:
+            return None
         return "break"
 
     def _on_task_tree_motion(self, event: tk.Event[ttk.Treeview]) -> None:
@@ -1683,8 +1699,10 @@ class AgentWorkspace:
 
     def _on_console_key(self, event: tk.Event[tk.Misc]) -> str:
         shortcut = _tk_control_shortcut(event)
-        if shortcut == "c":
-            return self._on_console_copy_or_interrupt(event)
+        if shortcut == "interrupt":
+            return self._on_console_interrupt(event)
+        if shortcut == "copy":
+            return self._on_console_copy(event)
         if shortcut == "v":
             return self._on_console_paste(event)
         session = self._active_console()
@@ -1697,6 +1715,12 @@ class AgentWorkspace:
                 sequence,
                 protect_current_line=sequence != b"\r",
             )
+        return "break"
+
+    def _on_console_interrupt(self, _event: tk.Event[tk.Misc]) -> str:
+        session = self._active_console()
+        if session is not None and session.fd is not None:
+            self._write_to_console(session.session_id, b"\x03")
         return "break"
 
     def _on_console_copy_or_interrupt(self, _event: tk.Event[tk.Misc]) -> str:
@@ -2268,11 +2292,13 @@ def _claude_executable() -> str:
 
 
 def _tk_control_shortcut(event: tk.Event[tk.Misc]) -> str | None:
-    if not (int(getattr(event, "state", 0)) & 0x4):
+    state = int(getattr(event, "state", 0))
+    if not (state & 0x4):
         return None
+    shift = bool(state & 0x1)
     keycode = getattr(event, "keycode", None)
     if keycode in {54}:
-        return "c"
+        return "copy" if shift else "interrupt"
     if keycode in {55}:
         return "v"
     if keycode in {40}:
@@ -2281,7 +2307,7 @@ def _tk_control_shortcut(event: tk.Event[tk.Misc]) -> str | None:
     char = str(getattr(event, "char", "")).casefold()
     for value in (keysym, char):
         if value in {"c", "с", "\x03", "cyrillic_es"}:
-            return "c"
+            return "copy" if shift else "interrupt"
         if value in {"v", "м", "\x16", "cyrillic_em"}:
             return "v"
         if value in {"d", "в", "\x04", "cyrillic_ve"}:

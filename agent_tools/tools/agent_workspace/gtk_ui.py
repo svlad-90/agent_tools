@@ -482,6 +482,7 @@ class WorkspaceGtkGui:
 
         self.task_store = Gtk.ListStore(str, str, object, str, bool, str, bool, int, bool)
         self.task_view = Gtk.TreeView(model=self.task_store)
+        self.task_view.set_enable_search(False)
         status_renderer = Gtk.CellRendererText()
         status_renderer.set_property("xalign", 0.5)
         self.task_status_header = Gtk.Label(label=self._tr("task_agent_status_column"))
@@ -866,7 +867,12 @@ class WorkspaceGtkGui:
         if event.keyval == Gdk.KEY_F1:
             self.open_agent_status_manual()
             return True
-        return event.keyval in {Gdk.KEY_Return, Gdk.KEY_KP_Enter, Gdk.KEY_ISO_Enter, Gdk.KEY_space}
+        if event.keyval in {Gdk.KEY_Return, Gdk.KEY_KP_Enter, Gdk.KEY_ISO_Enter, Gdk.KEY_space}:
+            return True
+        modifiers = int(Gdk.ModifierType.CONTROL_MASK | Gdk.ModifierType.MOD1_MASK | Gdk.ModifierType.META_MASK)
+        if int(event.state) & modifiers:
+            return False
+        return Gdk.keyval_to_unicode(event.keyval) != 0
 
     def _task_context_menu(self) -> Gtk.Menu:
         has_task = self.selected_task is not None
