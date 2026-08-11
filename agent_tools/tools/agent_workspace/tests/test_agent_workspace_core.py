@@ -83,6 +83,7 @@ from agent_tools.tools.agent_workspace.gtk_ui import _artifact_context_action as
 from agent_tools.tools.agent_workspace.gtk_ui import _artifact_delete_paths as gtk_artifact_delete_paths
 from agent_tools.tools.agent_workspace.gtk_ui import _artifact_monitor_dirs as gtk_artifact_monitor_dirs
 from agent_tools.tools.agent_workspace.gtk_ui import _is_pane_separator_event as gtk_is_pane_separator_event
+from agent_tools.tools.agent_workspace.gtk_ui import _notebook_event_in_empty_tab_area as gtk_notebook_event_in_empty_tab_area
 from agent_tools.tools.agent_workspace.gtk_ui import _svg_open_command as gtk_svg_open_command
 from agent_tools.tools.agent_workspace.gtk_ui import _task_artifact_entries as gtk_task_artifact_entries
 from agent_tools.tools.agent_workspace.gtk_ui import _task_init_command as gtk_task_init_command
@@ -111,6 +112,7 @@ from agent_tools.tools.agent_workspace.ui import _tk_control_shortcut
 from agent_tools.tools.agent_workspace.ui import AgentWorkspace
 from agent_tools.tools.agent_workspace.actions import main as actions_main
 from gi.repository import Gdk
+from gi.repository import Gtk
 
 
 class FakeConsoleText:
@@ -348,6 +350,56 @@ class FakeGtkTaskStore:
 
     def __getitem__(self, row_iter: int) -> list[object]:
         return self.rows[row_iter]
+
+
+class FakeGtkNotebookEvent:
+    def __init__(self, x: float, y: float) -> None:
+        self.x = x
+        self.y = y
+
+
+class FakeGtkAllocation:
+    def __init__(self, width: float, height: float) -> None:
+        self.width = width
+        self.height = height
+
+
+class FakeGtkTabWidget:
+    def __init__(self, x: float, y: float, width: float, height: float) -> None:
+        self.x = x
+        self.y = y
+        self.allocation = FakeGtkAllocation(width, height)
+
+    def get_visible(self) -> bool:
+        return True
+
+    def translate_coordinates(self, _notebook: object, _x: float, _y: float) -> tuple[float, float]:
+        return self.x, self.y
+
+    def get_allocation(self) -> FakeGtkAllocation:
+        return self.allocation
+
+
+class FakeGtkNotebook:
+    def __init__(self, tabs: list[FakeGtkTabWidget]) -> None:
+        self.tabs = tabs
+        self.pages = [object() for _tab in tabs]
+        self.allocation = FakeGtkAllocation(500, 300)
+
+    def get_n_pages(self) -> int:
+        return len(self.pages)
+
+    def get_nth_page(self, index: int) -> object:
+        return self.pages[index]
+
+    def get_tab_label(self, page: object) -> FakeGtkTabWidget:
+        return self.tabs[self.pages.index(page)]
+
+    def get_allocation(self) -> FakeGtkAllocation:
+        return self.allocation
+
+    def get_tab_pos(self) -> Gtk.PositionType:
+        return Gtk.PositionType.TOP
 
 
 def test_discover_tasks_reports_description_context_and_budget(tmp_path: Path) -> None:
@@ -1836,6 +1888,7 @@ def test_agent_status_manual_entries_are_structured_for_popup() -> None:
         "Концепция",
         "Задачи",
         "Агент",
+        "Копирование",
         "Структура",
         "Действия",
         "Сброс",
@@ -2254,6 +2307,14 @@ def test_gtk_terminal_tab_label_numbers_shells_only() -> None:
     assert gtk_terminal_tab_label("shell", 2) == "shell 2"
 
 
+def test_gtk_notebook_empty_tab_area_excludes_existing_tabs() -> None:
+    notebook = FakeGtkNotebook([FakeGtkTabWidget(0, 0, 80, 28), FakeGtkTabWidget(80, 0, 90, 28)])
+
+    assert gtk_notebook_event_in_empty_tab_area(notebook, FakeGtkNotebookEvent(220, 12))  # type: ignore[arg-type]
+    assert not gtk_notebook_event_in_empty_tab_area(notebook, FakeGtkNotebookEvent(40, 12))  # type: ignore[arg-type]
+    assert not gtk_notebook_event_in_empty_tab_area(notebook, FakeGtkNotebookEvent(220, 80))  # type: ignore[arg-type]
+
+
 def test_gtk_terminal_clipboard_shortcut_requires_ctrl_shift() -> None:
     from gi.repository import Gdk
 
@@ -2292,17 +2353,32 @@ def test_gtk_copy_terminal_selection_falls_back_to_plain_copy() -> None:
     assert terminal.plain_copies == 1
 
 
-def test_gtk_copy_terminal_selection_falls_back_to_visible_text(monkeypatch) -> None:
-    terminal = FakeGtkCopyTerminal(has_selection=False, text="\nClaude output\n")
+def test_gtk_copy_terminal_selection_falls_back_to_primary_selection(monkeypatch) -> None:
+    terminal = FakeGtkCopyTerminal(has_selection=False, text="visible terminal output")
     copied: list[str] = []
+    monkeypatch.setattr(gtk_ui_module, "_clipboard_text", lambda _selection: "Claude selection")
     monkeypatch.setattr(gtk_ui_module, "_set_clipboard_text", copied.append)
 
     gtk_copy_terminal_selection(terminal)  # type: ignore[arg-type]
 
     assert terminal.focused
-    assert terminal.formatted_copies == 0
+    assert terminal.formatted_copies == 1
     assert terminal.plain_copies == 0
-    assert copied == ["Claude output"]
+    assert copied == ["Claude selection"]
+
+
+def test_gtk_copy_terminal_selection_ignores_empty_primary_selection(monkeypatch) -> None:
+    terminal = FakeGtkCopyTerminal(has_selection=False, text="visible terminal output")
+    copied: list[str] = []
+    monkeypatch.setattr(gtk_ui_module, "_clipboard_text", lambda _selection: "\n")
+    monkeypatch.setattr(gtk_ui_module, "_set_clipboard_text", copied.append)
+
+    gtk_copy_terminal_selection(terminal)  # type: ignore[arg-type]
+
+    assert terminal.focused
+    assert terminal.formatted_copies == 1
+    assert terminal.plain_copies == 0
+    assert copied == []
 
 
 def test_tk_control_shortcuts_work_on_cyrillic_layout() -> None:
@@ -2399,6 +2475,7 @@ def test_gtk_translates_agent_and_manual_labels() -> None:
     assert GTK_TRANSLATIONS["uk"]["manual_label_reset"] == "Скидання"
     assert "workspace розбитий на задачі" in GTK_TRANSLATIONS["uk"]["manual_usage_concept"]
     assert "контексті поточної задачі" in GTK_TRANSLATIONS["uk"]["manual_usage_agent"]
+    assert "Shift" in GTK_TRANSLATIONS["uk"]["manual_usage_copy"]
     assert "TASK_ACTIONS.json" in GTK_TRANSLATIONS["uk"]["manual_usage_actions"]
 
 

@@ -124,6 +124,7 @@ TRANSLATIONS = {
         "restore_failed_status": "Could not restore the saved {agent} session for {task}. The saved resume link was removed and the AI-agent console was closed. Run the AI agent again to start a new session.",
         "manual_label_agent": "Agent",
         "manual_label_concept": "Concept",
+        "manual_label_copy": "Copy",
         "manual_label_structure": "Structure",
         "manual_label_reset": "Reset",
         "manual_status_agent_running": "an AI agent is currently running for this task",
@@ -138,6 +139,7 @@ TRANSLATIONS = {
         "manual_usage_actions": "put repeatable commands into TASK_ACTIONS.json; you can ask an agent to add the needed button",
         "manual_usage_agent": "choose Codex or Claude Code; the agent starts in the current task context and receives the task path",
         "manual_usage_concept": "the workspace is split into tasks; each task keeps context, artifacts, scripts, and work history",
+        "manual_usage_copy": "in Claude Code terminals, hold Shift while selecting text, then copy with Ctrl+Shift+C",
         "manual_usage_reset": "clears only the saved session reference for the selected agent, without deleting CLI history",
         "manual_usage_section": "Basics",
         "manual_usage_structure": "TASK_DESCRIPTION.md, TASK_CONTEXT.md, dev/, scripts/, and report/ keep the work reproducible",
@@ -212,6 +214,7 @@ TRANSLATIONS = {
         "restore_failed_status": "Не удалось восстановить сохраненную сессию {agent} для задачи {task}. Ссылка на продолжение удалена, консоль ИИ агента закрыта. Запустите ИИ агента еще раз, чтобы начать новую сессию.",
         "manual_label_agent": "Агент",
         "manual_label_concept": "Концепция",
+        "manual_label_copy": "Копирование",
         "manual_label_structure": "Структура",
         "manual_label_reset": "Сброс",
         "manual_status_agent_running": "для этой задачи сейчас работает Codex или Claude Code",
@@ -226,6 +229,7 @@ TRANSLATIONS = {
         "manual_usage_actions": "повторяемые команды оформляйте в TASK_ACTIONS.json; можно попросить агента добавить нужную кнопку",
         "manual_usage_agent": "выберите Codex или Claude Code; агент запускается в контексте текущей задачи и получает путь к ней",
         "manual_usage_concept": "workspace разбит на задачи; каждая задача хранит контекст, артефакты, скрипты и историю работы",
+        "manual_usage_copy": "в терминалах Claude Code выделяйте текст с зажатым Shift, затем копируйте через Ctrl+Shift+C",
         "manual_usage_reset": "сбрасывает только сохраненную ссылку на сессию выбранного агента, не удаляя историю CLI",
         "manual_usage_section": "Основы",
         "manual_usage_structure": "TASK_DESCRIPTION.md, TASK_CONTEXT.md, dev/, scripts/ и report/ держат работу воспроизводимой",
@@ -300,6 +304,7 @@ TRANSLATIONS = {
         "restore_failed_status": "Не вдалося відновити збережену сесію {agent} для задачі {task}. Посилання для продовження видалено, консоль ШІ агента закрито. Запустіть ШІ агента ще раз, щоб почати нову сесію.",
         "manual_label_agent": "Агент",
         "manual_label_concept": "Концепція",
+        "manual_label_copy": "Копіювання",
         "manual_label_structure": "Структура",
         "manual_label_reset": "Скидання",
         "manual_status_agent_running": "для цієї задачі зараз працює Codex або Claude Code",
@@ -314,6 +319,7 @@ TRANSLATIONS = {
         "manual_usage_actions": "повторювані команди оформлюй у TASK_ACTIONS.json; можна попросити агента додати потрібну кнопку",
         "manual_usage_agent": "вибери Codex або Claude Code; агент запускається в контексті поточної задачі й отримує шлях до неї",
         "manual_usage_concept": "workspace розбитий на задачі; кожна задача зберігає контекст, артефакти, скрипти й історію роботи",
+        "manual_usage_copy": "у терміналах Claude Code виділяй текст із затиснутим Shift, потім копіюй через Ctrl+Shift+C",
         "manual_usage_reset": "скидає лише збережене посилання на сесію вибраного агента, не видаляючи історію CLI",
         "manual_usage_section": "Основи",
         "manual_usage_structure": "TASK_DESCRIPTION.md, TASK_CONTEXT.md, dev/, scripts/ і report/ тримають роботу відтворюваною",
@@ -966,6 +972,7 @@ class WorkspaceGtkGui:
             (self._tr("manual_label_concept"), self._tr("manual_usage_concept")),
             (self._tr("task"), self._tr("manual_usage_task")),
             (self._tr("manual_label_agent"), self._tr("manual_usage_agent")),
+            (self._tr("manual_label_copy"), self._tr("manual_usage_copy")),
             (self._tr("manual_label_structure"), self._tr("manual_usage_structure")),
             (self._tr("actions"), self._tr("manual_usage_actions")),
             (self._tr("manual_label_reset"), self._tr("manual_usage_reset")),
@@ -1710,17 +1717,32 @@ class WorkspaceGtkGui:
             if session.kind == "shell":
                 shell_index += 1
             tab = self.console_notebook.get_tab_label(session.page)
-            if isinstance(tab, Gtk.Label):
-                tab.set_text(_terminal_tab_label(session.kind, shell_index))
+            label = _terminal_tab_text_label(tab)
+            if label is not None:
+                label.set_text(_terminal_tab_label(session.kind, shell_index))
 
     def _show_terminal_tab(self, session: TerminalSession) -> None:
         if self.console_notebook.page_num(session.page) < 0:
+            tab = self._terminal_tab_widget(session)
             if session_is_agent(session_kind=session.kind):
-                self.console_notebook.insert_page(session.page, Gtk.Label(label=session.kind), 0)
+                self.console_notebook.insert_page(session.page, tab, 0)
             else:
-                self.console_notebook.append_page(session.page, Gtk.Label(label=session.kind))
+                self.console_notebook.append_page(session.page, tab)
         session.page.show_all()
         self._renumber_terminal_tabs(self._task_for_path(session.task_path))
+
+    def _terminal_tab_widget(self, session: TerminalSession) -> Gtk.Box:
+        box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
+        label = Gtk.Label(label=session.kind)
+        close_button = Gtk.Button.new_from_icon_name("window-close-symbolic", Gtk.IconSize.MENU)
+        close_button.set_relief(Gtk.ReliefStyle.NONE)
+        close_button.set_focus_on_click(False)
+        close_button.set_tooltip_text(self._tr("close"))
+        close_button.connect("clicked", lambda *_: self._close_console_session(session))
+        box.pack_start(label, True, True, 0)
+        box.pack_start(close_button, False, False, 0)
+        box.show_all()
+        return box
 
     def _activate_terminal(self, session_id: int) -> None:
         session = self.terminal_sessions.get(session_id)
@@ -1736,6 +1758,8 @@ class WorkspaceGtkGui:
         if event.type != Gdk.EventType.DOUBLE_BUTTON_PRESS or event.button != 1:
             return False
         if self.selected_task is None:
+            return False
+        if not _notebook_event_in_empty_tab_area(notebook, event):
             return False
         self.new_console(task=self.selected_task)
         return True
@@ -2395,6 +2419,53 @@ def _terminal_tab_label(kind: str, shell_index: int) -> str:
     return f"{kind} {shell_index}"
 
 
+def _terminal_tab_text_label(tab: Gtk.Widget | None) -> Gtk.Label | None:
+    if isinstance(tab, Gtk.Label):
+        return tab
+    if isinstance(tab, Gtk.Container):
+        for child in tab.get_children():
+            if isinstance(child, Gtk.Label):
+                return child
+    return None
+
+
+def _notebook_event_in_empty_tab_area(notebook: Gtk.Notebook, event: Gdk.EventButton) -> bool:
+    rects = _notebook_tab_rects(notebook)
+    if not rects:
+        return False
+    if any(_rect_contains(rect, event.x, event.y) for rect in rects):
+        return False
+    allocation = notebook.get_allocation()
+    tab_pos = notebook.get_tab_pos()
+    if tab_pos in {Gtk.PositionType.TOP, Gtk.PositionType.BOTTOM}:
+        min_y = min(rect[1] for rect in rects)
+        max_y = max(rect[1] + rect[3] for rect in rects)
+        return 0 <= event.x < allocation.width and min_y <= event.y < max_y
+    min_x = min(rect[0] for rect in rects)
+    max_x = max(rect[0] + rect[2] for rect in rects)
+    return min_x <= event.x < max_x and 0 <= event.y < allocation.height
+
+
+def _notebook_tab_rects(notebook: Gtk.Notebook) -> list[tuple[float, float, float, float]]:
+    rects = []
+    for page_index in range(notebook.get_n_pages()):
+        page = notebook.get_nth_page(page_index)
+        tab = notebook.get_tab_label(page)
+        if tab is None or not tab.get_visible():
+            continue
+        translated = tab.translate_coordinates(notebook, 0, 0)
+        if translated is None:
+            continue
+        allocation = tab.get_allocation()
+        rects.append((translated[0], translated[1], allocation.width, allocation.height))
+    return rects
+
+
+def _rect_contains(rect: tuple[float, float, float, float], x: float, y: float) -> bool:
+    rect_x, rect_y, width, height = rect
+    return rect_x <= x < rect_x + width and rect_y <= y < rect_y + height
+
+
 def _terminal_clipboard_shortcut(keyval: int, state: int, hardware_keycode: int | None = None) -> str | None:
     modifiers = int(Gdk.ModifierType.CONTROL_MASK | Gdk.ModifierType.SHIFT_MASK)
     if (state & modifiers) != modifiers:
@@ -2416,20 +2487,28 @@ def _terminal_clipboard_shortcut(keyval: int, state: int, hardware_keycode: int 
 def _copy_terminal_selection(terminal: Vte.Terminal) -> None:
     terminal.grab_focus()
     get_has_selection = getattr(terminal, "get_has_selection", None)
-    if callable(get_has_selection) and not get_has_selection():
-        _copy_terminal_visible_text(terminal)
-        return
+    has_selection = bool(get_has_selection()) if callable(get_has_selection) else True
     try:
         terminal.copy_clipboard_format(Vte.Format.TEXT)
     except (AttributeError, TypeError):
         terminal.copy_clipboard()
+    if not has_selection:
+        _copy_primary_selection_to_clipboard()
 
 
-def _copy_terminal_visible_text(terminal: Vte.Terminal) -> None:
-    text = _terminal_text_tail(terminal).strip()
+def _copy_primary_selection_to_clipboard() -> None:
+    text = _clipboard_text(Gdk.SELECTION_PRIMARY).strip()
     if not text:
         return
     _set_clipboard_text(text)
+
+
+def _clipboard_text(selection: Gdk.Atom) -> str:
+    clipboard = Gtk.Clipboard.get(selection)
+    wait_for_text = getattr(clipboard, "wait_for_text", None)
+    if not callable(wait_for_text):
+        return ""
+    return wait_for_text() or ""
 
 
 def _set_clipboard_text(text: str) -> None:
