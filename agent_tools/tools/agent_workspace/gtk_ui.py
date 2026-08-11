@@ -2415,10 +2415,29 @@ def _terminal_clipboard_shortcut(keyval: int, state: int, hardware_keycode: int 
 
 def _copy_terminal_selection(terminal: Vte.Terminal) -> None:
     terminal.grab_focus()
+    get_has_selection = getattr(terminal, "get_has_selection", None)
+    if callable(get_has_selection) and not get_has_selection():
+        _copy_terminal_visible_text(terminal)
+        return
     try:
         terminal.copy_clipboard_format(Vte.Format.TEXT)
     except (AttributeError, TypeError):
         terminal.copy_clipboard()
+
+
+def _copy_terminal_visible_text(terminal: Vte.Terminal) -> None:
+    text = _terminal_text_tail(terminal).strip()
+    if not text:
+        return
+    _set_clipboard_text(text)
+
+
+def _set_clipboard_text(text: str) -> None:
+    clipboard = Gtk.Clipboard.get(Gdk.SELECTION_CLIPBOARD)
+    clipboard.set_text(text, -1)
+    store = getattr(clipboard, "store", None)
+    if callable(store):
+        store()
 
 
 def _task_row_style(

@@ -71,6 +71,7 @@ from agent_tools.tools.agent_workspace.core import task_has_external_active_agen
 from agent_tools.tools.agent_workspace.core import task_has_valid_agent_session
 from agent_tools.tools.agent_workspace.core import task_status_label
 from agent_tools.tools.agent_workspace.core import task_selected_agent_has_resumable_state
+from agent_tools.tools.agent_workspace import gtk_ui as gtk_ui_module
 from agent_tools.tools.agent_workspace.gtk_ui import WorkspaceGtkGui
 from agent_tools.tools.agent_workspace.gtk_ui import TerminalSession
 from agent_tools.tools.agent_workspace.gtk_ui import TRANSLATIONS as GTK_TRANSLATIONS
@@ -229,14 +230,28 @@ class FakeGtkTextTerminal:
 
 
 class FakeGtkCopyTerminal:
-    def __init__(self, *, formatted_supported: bool = True) -> None:
+    def __init__(
+        self,
+        *,
+        formatted_supported: bool = True,
+        has_selection: bool = True,
+        text: str = "",
+    ) -> None:
         self.formatted_supported = formatted_supported
+        self.has_selection = has_selection
+        self.text = text
         self.focused = False
         self.formatted_copies = 0
         self.plain_copies = 0
 
     def grab_focus(self) -> None:
         self.focused = True
+
+    def get_has_selection(self) -> bool:
+        return self.has_selection
+
+    def get_text(self, *_args: object) -> tuple[str, None]:
+        return self.text, None
 
     def copy_clipboard_format(self, _format: object) -> None:
         if not self.formatted_supported:
@@ -2275,6 +2290,19 @@ def test_gtk_copy_terminal_selection_falls_back_to_plain_copy() -> None:
     assert terminal.focused
     assert terminal.formatted_copies == 0
     assert terminal.plain_copies == 1
+
+
+def test_gtk_copy_terminal_selection_falls_back_to_visible_text(monkeypatch) -> None:
+    terminal = FakeGtkCopyTerminal(has_selection=False, text="\nClaude output\n")
+    copied: list[str] = []
+    monkeypatch.setattr(gtk_ui_module, "_set_clipboard_text", copied.append)
+
+    gtk_copy_terminal_selection(terminal)  # type: ignore[arg-type]
+
+    assert terminal.focused
+    assert terminal.formatted_copies == 0
+    assert terminal.plain_copies == 0
+    assert copied == ["Claude output"]
 
 
 def test_tk_control_shortcuts_work_on_cyrillic_layout() -> None:
