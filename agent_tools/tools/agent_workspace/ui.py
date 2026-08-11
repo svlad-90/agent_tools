@@ -58,7 +58,6 @@ from .core import clear_task_active_agent_run
 from .core import codex_model_choices
 from .core import discover_tasks
 from .core import load_task_agent
-from .core import load_task_active_agent_run
 from .core import load_task_actions
 from .core import load_agent_workspace_settings
 from .core import model_choices_with_current
@@ -171,6 +170,7 @@ class AgentWorkspace:
         self.console_context_selection = ""
         self.next_console_id = 1
         self._updating_agent_selection = False
+        self._updating_task_selection = False
         self._agent_spinner_index = 0
         default_font_size = int(tkfont.nametofont("TkDefaultFont").cget("size"))
         settings = agent_workspace_runtime_settings(
@@ -435,19 +435,19 @@ class AgentWorkspace:
             task_iids[task.name] = str(index)
         over_budget = sum(1 for task in self.tasks if task.context_over_budget)
         self.summary_var.set(f"{len(self.tasks)} tasks, {over_budget} over context budget")
-        if self.tasks:
-            iid = task_iids.get(selected_name or "", "0")
-            self.task_tree.selection_set(iid)
-            self.task_tree.focus(iid)
-            self.task_tree.see(iid)
-        else:
-            self.selected_task = None
+        iid = self._selectable_task_iid(selected_name, task_iids)
+        self._set_task_tree_selection(iid)
 
     def _on_task_selected(self, _event: object) -> None:
+        if self._updating_task_selection:
+            return
         selection = self.task_tree.selection()
         if not selection:
             return
         task = self.tasks[int(selection[0])]
+        if self._task_is_external_active(task):
+            self._set_task_tree_selection(self._selectable_task_iid(self.selected_task.name if self.selected_task else None))
+            return
         self.selected_task = task
         self._set_markdown(self.description_text, read_task_file(task, "TASK_DESCRIPTION.md"))
         self._set_markdown(self.context_text, read_task_file(task, "TASK_CONTEXT.md"))
@@ -467,6 +467,52 @@ class AgentWorkspace:
         self._refresh_tree_selection_style()
         if self._is_console_tab_selected():
             self.activate_console_for_task(task)
+
+    def _selectable_task_iid(
+        self,
+        preferred_name: str | None,
+        task_iids: dict[str, str] | None = None,
+    ) -> str | None:
+        task_iids = task_iids or {task.name: str(index) for index, task in enumerate(self.tasks)}
+        if preferred_name:
+            preferred_iid = task_iids.get(preferred_name)
+            if preferred_iid is not None and not self._task_is_external_active(self.tasks[int(preferred_iid)]):
+                return preferred_iid
+        for index, task in enumerate(self.tasks):
+            if not self._task_is_external_active(task):
+                return str(index)
+        return None
+
+    def _set_task_tree_selection(self, iid: str | None) -> None:
+        self._updating_task_selection = True
+        try:
+            self.task_tree.selection_remove(*self.task_tree.selection())
+            if iid is None:
+                self._clear_selected_task_view()
+                return
+            self.task_tree.selection_set(iid)
+            self.task_tree.focus(iid)
+            self.task_tree.see(iid)
+        finally:
+            self._updating_task_selection = False
+        self._on_task_selected(object())
+
+    def _clear_selected_task_view(self) -> None:
+        self.selected_task = None
+        if hasattr(self, "description_text"):
+            self._set_markdown(self.description_text, "")
+        if hasattr(self, "context_text"):
+            self._set_markdown(self.context_text, "")
+        self.task_actions = []
+        if hasattr(self, "task_actions_frame"):
+            for child in self.task_actions_frame.winfo_children():
+                child.destroy()
+        if hasattr(self, "actions_message_var"):
+            self.actions_message_var.set("")
+        if hasattr(self, "agent_var"):
+            self.agent_var.set(self.default_agent)
+        if hasattr(self, "run_ai_agent_button"):
+            self._update_ai_agent_button_label()
 
     def _on_task_double_clicked(self, _event: object) -> None:
         self.open_task()
@@ -1077,14 +1123,17 @@ class AgentWorkspace:
         return task_for_path(self.tasks, path)
 
     def _task_tags(self, task: TaskSummary) -> tuple[str, ...]:
-        if task_has_external_active_agent_run(task, self._local_agent_run_ids()):
+        if self._task_is_external_active(task):
             return ("agent-external-active",)
         return ()
+
+    def _task_is_external_active(self, task: TaskSummary) -> bool:
+        return task_has_external_active_agent_run(task, self._local_agent_run_ids())
 
     def _local_agent_run_ids(self) -> set[str]:
         return {
             session.run_id
-            for session in self.console_sessions.values()
+            for session in getattr(self, "console_sessions", {}).values()
             if session.run_id is not None
         }
 
@@ -1100,9 +1149,6 @@ class AgentWorkspace:
         )
         if local_agents:
             return local_agents
-        active = load_task_active_agent_run(task)
-        if active is not None and active.run_id not in self._local_agent_run_ids():
-            return (active.agent,)
         return ()
 
     def _task_has_busy_agent(self, task: TaskSummary) -> bool:
@@ -1204,6 +1250,7 @@ class AgentWorkspace:
             self.workspace,
             permission_pending=self._task_has_pending_agent_permission(task),
             running_agents=self._task_running_agent_kinds(task),
+            external_active=self._task_is_external_active(task),
             spinner_frame=(
                 AGENT_RUNNING_SPINNER_FRAMES[self._agent_spinner_index]
                 if self._task_has_busy_agent(task)
@@ -1231,7 +1278,12 @@ class AgentWorkspace:
                 if values:
                     values[0] = self._task_agent_status(task)
                     self.task_tree.item(iid, values=tuple(values))
+        self._ensure_selected_task_is_selectable()
         self._refresh_tree_selection_style()
+
+    def _ensure_selected_task_is_selectable(self) -> None:
+        if self.selected_task is not None and self._task_is_external_active(self.selected_task):
+            self._set_task_tree_selection(self._selectable_task_iid(None))
 
     def _animate_agent_status(self) -> None:
         self._agent_spinner_index = (self._agent_spinner_index + 1) % len(AGENT_RUNNING_SPINNER_FRAMES)
@@ -1751,7 +1803,7 @@ class AgentWorkspace:
         return char.encode() if char else b""
 
     def _require_task(self) -> TaskSummary | None:
-        if self.selected_task is None:
+        if self.selected_task is None or self._task_is_external_active(self.selected_task):
             messagebox.showinfo("Нет задачи", "Сначала выберите задачу")
             return None
         return self.selected_task

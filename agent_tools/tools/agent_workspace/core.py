@@ -65,11 +65,13 @@ AGENT_WORKSPACE_AGENT_INSTALL_COMMANDS = {
 }
 AGENT_SESSION_MARKER = "Ⅱ"
 AGENT_IDLE_MARKER = "□"
+AGENT_EXTERNAL_ACTIVE_MARKER = "×"
 AGENT_RUNNING_SPINNER_FRAMES = ("▷",)
 CODEX_SESSION_ID_RE = re.compile(r"([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})")
 AGENT_STATUS_TOOLTIPS = {
     AGENT_SESSION_MARKER: "Сессию можно продолжить",
     AGENT_IDLE_MARKER: "Нет сохраненной сессии",
+    AGENT_EXTERNAL_ACTIVE_MARKER: "Задача занята другим окном",
 }
 AGENT_STATUS_MANUAL_MENU_LABEL = "Manual"
 AGENT_STATUS_MANUAL_TITLE = "Manual"
@@ -87,6 +89,7 @@ AGENT_STATUS_MANUAL_ENTRIES = (
     (AGENT_SESSION_MARKER, "Пауза", "есть сохраненная сессия последнего активного ИИ агента"),
     (AGENT_IDLE_MARKER, "Стоп", "нет сохраненной сессии, которую можно продолжить"),
     ("▷", "Агент запущен", "для этой задачи сейчас работает Codex или Claude Code"),
+    (AGENT_EXTERNAL_ACTIVE_MARKER, "Занято", "ИИ агент для этой задачи запущен в другом окне"),
 )
 AGENT_WORKSPACE_GEOMETRY_RE = re.compile(r"^\d+x\d+(?:[+-]\d+[+-]\d+)?$")
 ANSI_ESCAPE_RE = re.compile(r"\x1b(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])")
@@ -1147,12 +1150,15 @@ def task_agent_status_text(
     *,
     permission_pending: bool,
     running_agents: tuple[str, ...] = (),
+    external_active: bool = False,
     spinner_frame: str = "",
     home: Path | None = None,
 ) -> str:
     _ = permission_pending
     _ = spinner_frame
     parts: list[str] = []
+    if external_active:
+        return AGENT_EXTERNAL_ACTIVE_MARKER
     if running_agents:
         return "▷"
     markers = list(task_agent_session_markers(task, workspace, home=home))

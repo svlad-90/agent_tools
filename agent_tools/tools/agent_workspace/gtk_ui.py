@@ -54,7 +54,6 @@ from .core import clear_task_active_agent_run
 from .core import codex_model_choices
 from .core import discover_tasks
 from .core import load_task_agent
-from .core import load_task_active_agent_run
 from .core import load_task_actions
 from .core import load_agent_workspace_settings
 from .core import model_choices_with_current
@@ -128,7 +127,9 @@ TRANSLATIONS = {
         "manual_label_structure": "Structure",
         "manual_label_reset": "Reset",
         "manual_status_agent_running": "an AI agent is currently running for this task",
+        "manual_status_external": "an AI agent for this task is running in another window",
         "manual_status_idle": "there is no saved session to continue",
+        "manual_status_label_external": "Busy elsewhere",
         "manual_status_label_idle": "Stopped",
         "manual_status_label_running": "Agent running",
         "manual_status_label_session": "Paused",
@@ -214,7 +215,9 @@ TRANSLATIONS = {
         "manual_label_structure": "Структура",
         "manual_label_reset": "Сброс",
         "manual_status_agent_running": "для этой задачи сейчас работает Codex или Claude Code",
+        "manual_status_external": "ИИ агент для этой задачи запущен в другом окне",
         "manual_status_idle": "нет сохраненной сессии, которую можно продолжить",
+        "manual_status_label_external": "Занято",
         "manual_status_label_idle": "Стоп",
         "manual_status_label_running": "Агент запущен",
         "manual_status_label_session": "Пауза",
@@ -300,7 +303,9 @@ TRANSLATIONS = {
         "manual_label_structure": "Структура",
         "manual_label_reset": "Скидання",
         "manual_status_agent_running": "для цієї задачі зараз працює Codex або Claude Code",
+        "manual_status_external": "ШІ агент для цієї задачі запущений в іншому вікні",
         "manual_status_idle": "немає збереженої сесії, яку можна продовжити",
+        "manual_status_label_external": "Зайнято",
         "manual_status_label_idle": "Стоп",
         "manual_status_label_running": "Агент запущений",
         "manual_status_label_session": "Пауза",
@@ -410,6 +415,7 @@ class WorkspaceGtkGui:
         self.terminal_sessions: dict[int, TerminalSession] = {}
         self.next_terminal_id = 1
         self._updating_agent_selection = False
+        self._updating_task_selection = False
         self._agent_spinner_index = 0
         self._closing = False
 
@@ -588,25 +594,25 @@ class WorkspaceGtkGui:
         selected_name = self.selected_task.name if self.selected_task is not None else None
         self.tasks = discover_tasks(self.workspace)
         self.task_store.clear()
-        selected_iter = None
         for task in self.tasks:
-            row_iter = self.task_store.append(
+            self.task_store.append(
                 [self._task_agent_status(task), self._task_label(task), task, *_task_row_style(False, False, False, self.theme)]
             )
-            if task.name == selected_name:
-                selected_iter = row_iter
         self._refresh_task_row_styles()
         self.summary_label.set_text(f"{len(self.tasks)} {self._tr('tasks')}")
-        if selected_iter is not None:
-            self.task_view.get_selection().select_iter(selected_iter)
-        elif self.tasks:
-            self.task_view.get_selection().select_path(Gtk.TreePath.new_first())
+        self._set_task_selection(self._selectable_task_iter(selected_name))
 
     def _on_task_selected(self, selection: Gtk.TreeSelection) -> None:
+        if self._updating_task_selection:
+            return
         model, row_iter = selection.get_selected()
         if row_iter is None:
             return
-        self.selected_task = model[row_iter][2]
+        task = model[row_iter][2]
+        if self._task_is_external_active(task):
+            self._set_task_selection(self._selectable_task_iter(self.selected_task.name if self.selected_task else None))
+            return
+        self.selected_task = task
         self._leave_detail_edit_mode(self.description_view)
         self._leave_detail_edit_mode(self.context_view)
         self._set_markdown(self.description_view, read_task_file(self.selected_task, "TASK_DESCRIPTION.md"))
@@ -627,6 +633,47 @@ class WorkspaceGtkGui:
         if self._actions_tab_active():
             self._ensure_default_console_for_selected_task()
         self._update_codex_button_state()
+
+    def _selectable_task_iter(self, preferred_name: str | None) -> object | None:
+        first_selectable = None
+        row_iter = self.task_store.get_iter_first()
+        while row_iter is not None:
+            task = self.task_store[row_iter][2]
+            if not self._task_is_external_active(task):
+                if first_selectable is None:
+                    first_selectable = row_iter
+                if preferred_name and task.name == preferred_name:
+                    return row_iter
+            row_iter = self.task_store.iter_next(row_iter)
+        return first_selectable
+
+    def _set_task_selection(self, row_iter: object | None) -> None:
+        selection = self.task_view.get_selection()
+        self._updating_task_selection = True
+        try:
+            selection.unselect_all()
+            if row_iter is None:
+                self._clear_selected_task_view()
+                return
+            selection.select_iter(row_iter)
+        finally:
+            self._updating_task_selection = False
+        self._on_task_selected(selection)
+
+    def _clear_selected_task_view(self) -> None:
+        self.selected_task = None
+        if hasattr(self, "description_view"):
+            self._set_markdown(self.description_view, "")
+        if hasattr(self, "context_view"):
+            self._set_markdown(self.context_view, "")
+        if hasattr(self, "task_actions_box"):
+            self._reset_actions()
+        if hasattr(self, "artifact_store"):
+            self.artifact_store.clear()
+        if hasattr(self, "agent_combo"):
+            self._set_selected_agent(self.default_agent)
+        if hasattr(self, "run_ai_agent_button"):
+            self._update_codex_button_state()
 
     def _on_main_notebook_switch_page(
         self,
@@ -923,6 +970,7 @@ class WorkspaceGtkGui:
             ("Ⅱ", self._tr("manual_status_label_session"), self._tr("manual_status_session")),
             ("□", self._tr("manual_status_label_idle"), self._tr("manual_status_idle")),
             ("▷", self._tr("manual_status_label_running"), self._tr("manual_status_agent_running")),
+            ("×", self._tr("manual_status_label_external"), self._tr("manual_status_external")),
         )
 
     def open_task(self, *_args: object) -> None:
@@ -1755,9 +1803,6 @@ class WorkspaceGtkGui:
         )
         if local_agents:
             return local_agents
-        active = load_task_active_agent_run(task)
-        if active is not None and active.run_id not in self._local_agent_run_ids():
-            return (active.agent,)
         return ()
 
     def _task_agent_status(self, task: TaskSummary) -> str:
@@ -1772,6 +1817,7 @@ class WorkspaceGtkGui:
             self.workspace,
             permission_pending=self._task_has_pending_agent_permission(task),
             running_agents=running_agents,
+            external_active=self._task_is_external_active(task),
             spinner_frame=AGENT_RUNNING_SPINNER_FRAMES[self._agent_spinner_index] if has_busy_agent else "",
         )
 
@@ -1831,7 +1877,7 @@ class WorkspaceGtkGui:
                 for session in self.terminal_sessions.values()
             )
             has_session = self._task_has_resumable_agent_session(task)
-            has_external_agent = task_has_external_active_agent_run(task, self._local_agent_run_ids())
+            has_external_agent = self._task_is_external_active(task)
             background, background_set, foreground, foreground_set, weight, weight_set = _task_row_style(
                 has_agent,
                 has_session,
@@ -1847,11 +1893,19 @@ class WorkspaceGtkGui:
             self.task_store[row_iter][7] = weight
             self.task_store[row_iter][8] = weight_set
             row_iter = self.task_store.iter_next(row_iter)
+        self._ensure_selected_task_is_selectable()
+
+    def _task_is_external_active(self, task: TaskSummary) -> bool:
+        return task_has_external_active_agent_run(task, self._local_agent_run_ids())
+
+    def _ensure_selected_task_is_selectable(self) -> None:
+        if self.selected_task is not None and self._task_is_external_active(self.selected_task):
+            self._set_task_selection(self._selectable_task_iter(None))
 
     def _local_agent_run_ids(self) -> set[str]:
         return {
             session.run_id
-            for session in self.terminal_sessions.values()
+            for session in getattr(self, "terminal_sessions", {}).values()
             if session.run_id is not None
         }
 
@@ -2026,7 +2080,7 @@ class WorkspaceGtkGui:
         return task.name
 
     def _require_task(self, show_dialog: bool = True) -> TaskSummary | None:
-        if self.selected_task is not None:
+        if self.selected_task is not None and not self._task_is_external_active(self.selected_task):
             return self.selected_task
         if show_dialog:
             dialog = Gtk.MessageDialog(

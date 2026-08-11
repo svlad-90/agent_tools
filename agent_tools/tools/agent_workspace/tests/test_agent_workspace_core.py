@@ -320,6 +320,21 @@ class FakeStringVar:
         self.value = value
 
 
+class FakeGtkTaskStore:
+    def __init__(self, rows: list[list[object]]) -> None:
+        self.rows = rows
+
+    def get_iter_first(self) -> int | None:
+        return 0 if self.rows else None
+
+    def iter_next(self, row_iter: int) -> int | None:
+        next_iter = row_iter + 1
+        return next_iter if next_iter < len(self.rows) else None
+
+    def __getitem__(self, row_iter: int) -> list[object]:
+        return self.rows[row_iter]
+
+
 def test_discover_tasks_reports_description_context_and_budget(tmp_path: Path) -> None:
     task = tmp_path / "tasks" / "sample-task"
     task.mkdir(parents=True)
@@ -1270,6 +1285,54 @@ def test_task_active_agent_run_tracks_external_owner(tmp_path: Path) -> None:
     assert load_task_active_agent_run(summary) is None
 
 
+def test_tk_selectable_task_iid_skips_external_active_tasks(tmp_path: Path) -> None:
+    locked_path = tmp_path / "tasks" / "locked-task"
+    open_path = tmp_path / "tasks" / "open-task"
+    locked_path.mkdir(parents=True)
+    open_path.mkdir(parents=True)
+    (locked_path / "TASK_DESCRIPTION.md").write_text("# Description\n", encoding="utf-8")
+    (locked_path / "TASK_CONTEXT.md").write_text(_task_context(), encoding="utf-8")
+    (open_path / "TASK_DESCRIPTION.md").write_text("# Description\n", encoding="utf-8")
+    (open_path / "TASK_CONTEXT.md").write_text(_task_context(), encoding="utf-8")
+    tasks = {task.name: task for task in discover_tasks(tmp_path)}
+    locked = tasks["locked-task"]
+    open_task = tasks["open-task"]
+    save_task_active_agent_run(locked, "codex", "external-run", owner_pid=os.getpid())
+    gui = object.__new__(AgentWorkspace)
+    gui.tasks = [locked, open_task]
+    gui.console_sessions = {}
+
+    assert gui._selectable_task_iid("locked-task") == "1"
+    assert gui._selectable_task_iid("open-task") == "1"
+
+    save_task_active_agent_run(open_task, "claude", "second-external-run", owner_pid=os.getpid())
+    assert gui._selectable_task_iid(None) is None
+
+
+def test_gtk_selectable_task_iter_skips_external_active_tasks(tmp_path: Path) -> None:
+    locked_path = tmp_path / "tasks" / "locked-task"
+    open_path = tmp_path / "tasks" / "open-task"
+    locked_path.mkdir(parents=True)
+    open_path.mkdir(parents=True)
+    (locked_path / "TASK_DESCRIPTION.md").write_text("# Description\n", encoding="utf-8")
+    (locked_path / "TASK_CONTEXT.md").write_text(_task_context(), encoding="utf-8")
+    (open_path / "TASK_DESCRIPTION.md").write_text("# Description\n", encoding="utf-8")
+    (open_path / "TASK_CONTEXT.md").write_text(_task_context(), encoding="utf-8")
+    tasks = {task.name: task for task in discover_tasks(tmp_path)}
+    locked = tasks["locked-task"]
+    open_task = tasks["open-task"]
+    save_task_active_agent_run(locked, "codex", "external-run", owner_pid=os.getpid())
+    gui = WorkspaceGtkGui.__new__(WorkspaceGtkGui)
+    gui.task_store = FakeGtkTaskStore([["", "locked-task", locked], ["", "open-task", open_task]])
+    gui.terminal_sessions = {}
+
+    assert gui._selectable_task_iter("locked-task") == 1
+    assert gui._selectable_task_iter("open-task") == 1
+
+    save_task_active_agent_run(open_task, "claude", "second-external-run", owner_pid=os.getpid())
+    assert gui._selectable_task_iter(None) is None
+
+
 def test_clear_task_agent_session_removes_empty_session_map(tmp_path: Path) -> None:
     task = tmp_path / "tasks" / "sample-task"
     task.mkdir(parents=True)
@@ -1687,6 +1750,31 @@ def test_task_agent_status_text_shows_saved_sessions_only_when_no_agent_is_runni
             workspace,
             permission_pending=False,
             running_agents=(),
+            external_active=True,
+            spinner_frame="▷",
+            home=home,
+        )
+        == "×"
+    )
+    assert (
+        task_agent_status_text(
+            summary,
+            workspace,
+            permission_pending=False,
+            running_agents=("codex",),
+            external_active=True,
+            spinner_frame="▷",
+            home=home,
+        )
+        == "×"
+    )
+    assert (
+        task_agent_status_text(
+            summary,
+            workspace,
+            permission_pending=False,
+            running_agents=(),
+            external_active=False,
             spinner_frame="▷",
             home=home,
         )
@@ -1717,6 +1805,7 @@ def test_agent_status_tooltip_explains_visible_markers_compactly() -> None:
     assert agent_status_tooltip_text("Ⅱ") == "Сессию можно продолжить"
     assert agent_status_tooltip_text("□") == "Нет сохраненной сессии"
     assert agent_status_tooltip_text("▷") == "Агент запущен"
+    assert agent_status_tooltip_text("×") == "Задача занята другим окном"
 
 
 def test_agent_status_manual_entries_are_structured_for_popup() -> None:
@@ -1730,7 +1819,7 @@ def test_agent_status_manual_entries_are_structured_for_popup() -> None:
         "Действия",
         "Сброс",
     ]
-    assert [entry[0] for entry in AGENT_STATUS_MANUAL_ENTRIES] == ["Ⅱ", "□", "▷"]
+    assert [entry[0] for entry in AGENT_STATUS_MANUAL_ENTRIES] == ["Ⅱ", "□", "▷", "×"]
     assert all(len(entry) == 3 for entry in AGENT_STATUS_MANUAL_ENTRIES)
 
 
