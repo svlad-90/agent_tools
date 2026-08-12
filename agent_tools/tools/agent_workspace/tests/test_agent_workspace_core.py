@@ -402,6 +402,27 @@ class FakeGtkNotebook:
         return Gtk.PositionType.TOP
 
 
+class FakeGtkConsoleNotebook:
+    def __init__(self, pages: list[object], current_page: int = 0) -> None:
+        self.pages = pages
+        self.current_page = current_page
+
+    def get_current_page(self) -> int:
+        return self.current_page
+
+    def get_nth_page(self, index: int) -> object:
+        return self.pages[index]
+
+    def page_num(self, page: object) -> int:
+        try:
+            return self.pages.index(page)
+        except ValueError:
+            return -1
+
+    def set_current_page(self, index: int) -> None:
+        self.current_page = index
+
+
 def test_discover_tasks_reports_description_context_and_budget(tmp_path: Path) -> None:
     task = tmp_path / "tasks" / "sample-task"
     task.mkdir(parents=True)
@@ -2255,10 +2276,61 @@ def test_gtk_console_notebook_switch_remembers_active_task_terminal(tmp_path: Pa
     gui = WorkspaceGtkGui.__new__(WorkspaceGtkGui)
     gui.terminal_sessions = {session.session_id: session}
     gui.last_active_terminal_by_task = {}
+    gui._refreshing_console_tabs = False
 
     gui._on_console_notebook_switch_page(object(), page, 0)  # type: ignore[arg-type]
 
     assert gui.last_active_terminal_by_task == {summary.path: session.session_id}
+
+
+def test_gtk_console_notebook_refresh_switch_does_not_replace_active_task_terminal(tmp_path: Path) -> None:
+    task = tmp_path / "tasks" / "sample-task"
+    task.mkdir(parents=True)
+    summary = discover_tasks_with_context(task, tmp_path)
+    page = object()
+    session = TerminalSession(7, summary.path, "codex", object(), page)
+    gui = WorkspaceGtkGui.__new__(WorkspaceGtkGui)
+    gui.terminal_sessions = {session.session_id: session}
+    gui.last_active_terminal_by_task = {summary.path: 3}
+    gui._refreshing_console_tabs = True
+
+    gui._on_console_notebook_switch_page(object(), page, 0)  # type: ignore[arg-type]
+
+    assert gui.last_active_terminal_by_task == {summary.path: 3}
+
+
+def test_gtk_remember_current_console_tab_uses_visible_page_for_task(tmp_path: Path) -> None:
+    task = tmp_path / "tasks" / "sample-task"
+    task.mkdir(parents=True)
+    summary = discover_tasks_with_context(task, tmp_path)
+    pages = [object(), object()]
+    session = TerminalSession(8, summary.path, "shell", object(), pages[1])
+    gui = WorkspaceGtkGui.__new__(WorkspaceGtkGui)
+    gui.terminal_sessions = {session.session_id: session}
+    gui.last_active_terminal_by_task = {}
+    gui.console_notebook = FakeGtkConsoleNotebook(pages, current_page=1)
+
+    gui._remember_current_console_tab()
+
+    assert gui.last_active_terminal_by_task == {summary.path: session.session_id}
+
+
+def test_gtk_activate_visible_terminal_can_restore_without_replacing_memory(tmp_path: Path) -> None:
+    task = tmp_path / "tasks" / "sample-task"
+    task.mkdir(parents=True)
+    summary = discover_tasks_with_context(task, tmp_path)
+    page = object()
+    terminal = type("Terminal", (), {"grab_focus": lambda self: None})()
+    session = TerminalSession(8, summary.path, "shell", terminal, page)
+    gui = WorkspaceGtkGui.__new__(WorkspaceGtkGui)
+    gui.terminal_sessions = {session.session_id: session}
+    gui.last_active_terminal_by_task = {summary.path: 3}
+    gui.console_notebook = FakeGtkConsoleNotebook([page], current_page=0)
+
+    gui._activate_visible_terminal(session.session_id, remember=False)
+
+    assert gui.console_notebook.get_current_page() == 0
+    assert gui.last_active_terminal_by_task == {summary.path: 3}
 
 
 def test_gtk_terminal_text_tail_reads_recent_text() -> None:

@@ -421,6 +421,7 @@ class WorkspaceGtkGui:
         self.terminal_sessions: dict[int, TerminalSession] = {}
         self.last_active_terminal_by_task: dict[Path, int] = {}
         self.next_terminal_id = 1
+        self._refreshing_console_tabs = False
         self._updating_agent_selection = False
         self._updating_task_selection = False
         self._agent_spinner_index = 0
@@ -621,6 +622,7 @@ class WorkspaceGtkGui:
         if self._task_is_external_active(task):
             self._set_task_selection(self._selectable_task_iter(self.selected_task.name if self.selected_task else None))
             return
+        self._remember_current_console_tab()
         self.selected_task = task
         self._leave_detail_edit_mode(self.description_view)
         self._leave_detail_edit_mode(self.context_view)
@@ -1697,13 +1699,18 @@ class WorkspaceGtkGui:
 
     def _refresh_console_tabs_for_task(self, task: TaskSummary) -> None:
         last_active_session_id = self.last_active_terminal_by_task.get(task.path)
-        while self.console_notebook.get_n_pages() > 0:
-            self.console_notebook.remove_page(0)
-        self._renumber_terminal_tabs(task)
-        for session in self._current_task_terminal_sessions(task):
-            self._show_terminal_tab(session)
+        self._refreshing_console_tabs = True
+        try:
+            while self.console_notebook.get_n_pages() > 0:
+                self.console_notebook.remove_page(0)
+            self._renumber_terminal_tabs(task)
+            for session in self._current_task_terminal_sessions(task):
+                self._show_terminal_tab(session, renumber=False)
+            self._renumber_terminal_tabs(task)
+        finally:
+            self._refreshing_console_tabs = False
         if last_active_session_id is not None:
-            self._activate_terminal(last_active_session_id)
+            self._activate_visible_terminal(last_active_session_id, remember=False)
         self._update_codex_button_state()
 
     def _current_task_terminal_sessions(self, task: TaskSummary) -> list[TerminalSession]:
@@ -1726,7 +1733,7 @@ class WorkspaceGtkGui:
             if label is not None:
                 label.set_text(_terminal_tab_label(session.kind, shell_index))
 
-    def _show_terminal_tab(self, session: TerminalSession) -> None:
+    def _show_terminal_tab(self, session: TerminalSession, *, renumber: bool = True) -> None:
         if self.console_notebook.page_num(session.page) < 0:
             tab = self._terminal_tab_widget(session)
             if session_is_agent(session_kind=session.kind):
@@ -1734,7 +1741,8 @@ class WorkspaceGtkGui:
             else:
                 self.console_notebook.append_page(session.page, tab)
         session.page.show_all()
-        self._renumber_terminal_tabs(self._task_for_path(session.task_path))
+        if renumber:
+            self._renumber_terminal_tabs(self._task_for_path(session.task_path))
 
     def _terminal_tab_widget(self, session: TerminalSession) -> Gtk.Box:
         box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
@@ -1754,11 +1762,27 @@ class WorkspaceGtkGui:
         if session is None:
             return
         self._show_terminal_tab(session)
+        self._activate_visible_terminal(session_id, remember=True)
+
+    def _activate_visible_terminal(self, session_id: int, *, remember: bool) -> None:
+        session = self.terminal_sessions.get(session_id)
+        if session is None:
+            return
         page_num = self.console_notebook.page_num(session.page)
         if page_num >= 0:
             self.console_notebook.set_current_page(page_num)
-            self.last_active_terminal_by_task[session.task_path] = session.session_id
+            if remember:
+                self.last_active_terminal_by_task[session.task_path] = session.session_id
         session.terminal.grab_focus()
+
+    def _remember_current_console_tab(self) -> None:
+        page_num = self.console_notebook.get_current_page()
+        if page_num < 0:
+            return
+        page = self.console_notebook.get_nth_page(page_num)
+        session = self._session_for_page(page)
+        if session is not None:
+            self.last_active_terminal_by_task[session.task_path] = session.session_id
 
     def _on_console_notebook_switch_page(
         self,
@@ -1766,6 +1790,8 @@ class WorkspaceGtkGui:
         page: Gtk.Widget,
         _page_num: int,
     ) -> None:
+        if self._refreshing_console_tabs:
+            return
         session = self._session_for_page(page)
         if session is not None:
             self.last_active_terminal_by_task[session.task_path] = session.session_id
