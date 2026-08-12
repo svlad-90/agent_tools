@@ -86,8 +86,10 @@ from agent_tools.tools.agent_workspace.gtk_ui import task_check_shell_command as
 from agent_tools.tools.agent_workspace.gtk_ui import _artifact_context_action as gtk_artifact_context_action
 from agent_tools.tools.agent_workspace.gtk_ui import _artifact_delete_paths as gtk_artifact_delete_paths
 from agent_tools.tools.agent_workspace.gtk_ui import _artifact_monitor_dirs as gtk_artifact_monitor_dirs
+from agent_tools.tools.agent_workspace.gtk_ui import _artifact_selectable_path as gtk_artifact_selectable_path
 from agent_tools.tools.agent_workspace.gtk_ui import _is_pane_separator_event as gtk_is_pane_separator_event
 from agent_tools.tools.agent_workspace.gtk_ui import _notebook_event_in_empty_tab_area as gtk_notebook_event_in_empty_tab_area
+from agent_tools.tools.agent_workspace.gtk_ui import open_containing_folder as gtk_open_containing_folder
 from agent_tools.tools.agent_workspace.gtk_ui import _svg_open_command as gtk_svg_open_command
 from agent_tools.tools.agent_workspace.gtk_ui import _task_artifact_entries as gtk_task_artifact_entries
 from agent_tools.tools.agent_workspace.gtk_ui import _task_init_command as gtk_task_init_command
@@ -293,6 +295,22 @@ class FakeGtkButton:
 
     def set_sensitive(self, value: bool) -> None:
         self.sensitive = value
+
+
+class FakeGtkTreeColumn:
+    def __init__(self) -> None:
+        self.title = ""
+        self.sort_indicator = False
+        self.sort_order = None
+
+    def set_title(self, text: str) -> None:
+        self.title = text
+
+    def set_sort_indicator(self, value: bool) -> None:
+        self.sort_indicator = value
+
+    def set_sort_order(self, value: object) -> None:
+        self.sort_order = value
 
 
 class FakeGtkLabel:
@@ -631,6 +649,61 @@ def test_gtk_task_artifact_entries_groups_task_outputs(tmp_path: Path) -> None:
     ]
 
 
+def test_gtk_task_artifact_entries_can_sort_by_updated_time(tmp_path: Path) -> None:
+    task = tmp_path / "tasks" / "sample-task"
+    (task / "report").mkdir(parents=True)
+    older = task / "report" / "a-notes.md"
+    newer = task / "report" / "b-notes.md"
+    older.write_text("older", encoding="utf-8")
+    newer.write_text("newer", encoding="utf-8")
+    os.utime(older, (100, 100))
+    os.utime(newer, (200, 200))
+    summary = TaskSummary("sample-task", task, True, True, 1, 1, False)
+
+    assert [entry.path.name for entry in gtk_task_artifact_entries(summary, sort_column="name")] == [
+        "a-notes.md",
+        "b-notes.md",
+    ]
+    assert [
+        entry.path.name for entry in gtk_task_artifact_entries(summary, sort_column="updated", descending=True)
+    ] == [
+        "b-notes.md",
+        "a-notes.md",
+    ]
+    assert [
+        entry.path.name for entry in gtk_task_artifact_entries(summary, sort_column="updated", descending=False)
+    ] == [
+        "a-notes.md",
+        "b-notes.md",
+    ]
+
+
+def test_gtk_artifact_sort_column_click_toggles_indicator() -> None:
+    gui = WorkspaceGtkGui.__new__(WorkspaceGtkGui)
+    gui.artifact_sort_column = "name"
+    gui.artifact_sort_descending = False
+    gui.artifact_name_column = FakeGtkTreeColumn()
+    gui.artifact_updated_column = FakeGtkTreeColumn()
+    gui.selected_task = None
+    gui._artifacts_tab_active = lambda: False
+
+    gui._update_artifact_sort_indicators()
+
+    assert gui.artifact_name_column.sort_indicator is True
+    assert gui.artifact_name_column.sort_order == Gtk.SortType.ASCENDING
+    assert gui.artifact_updated_column.sort_indicator is False
+
+    gui._set_artifact_sort("updated")
+
+    assert gui.artifact_name_column.sort_indicator is False
+    assert gui.artifact_updated_column.sort_indicator is True
+    assert gui.artifact_updated_column.sort_order == Gtk.SortType.DESCENDING
+
+    gui._set_artifact_sort("updated")
+
+    assert gui.artifact_updated_column.sort_order == Gtk.SortType.ASCENDING
+
+
 def test_gtk_artifact_delete_paths_include_hidden_group_files(tmp_path: Path) -> None:
     task = tmp_path / "tasks" / "sample-task"
     (task / "report" / "diff").mkdir(parents=True)
@@ -674,6 +747,39 @@ def test_gtk_artifact_context_action_matches_clicked_area(tmp_path: Path) -> Non
     assert gtk_artifact_context_action(artifact, "logs") == "artifact"
     assert gtk_artifact_context_action(None, "logs") == "group"
     assert gtk_artifact_context_action(None, None) == "all"
+
+
+def test_gtk_artifact_selectable_path_stays_inside_task(tmp_path: Path) -> None:
+    task = tmp_path / "tasks" / "sample-task"
+    artifact_dir = task / "report" / "diff"
+    artifact_dir.mkdir(parents=True)
+    artifact_path = artifact_dir / "review.html"
+    artifact_path.write_text("<html>", encoding="utf-8")
+    outside = tmp_path / "outside.html"
+    outside.write_text("outside", encoding="utf-8")
+    summary = TaskSummary("sample-task", task, True, True, 1, 1, False)
+
+    assert gtk_artifact_selectable_path(summary, artifact_path) == artifact_path
+    assert gtk_artifact_selectable_path(summary, artifact_dir) is None
+    assert gtk_artifact_selectable_path(summary, outside) is None
+
+
+def test_gtk_open_containing_folder_falls_back_to_parent_on_linux(
+    monkeypatch: object,
+    tmp_path: Path,
+) -> None:
+    artifact_path = tmp_path / "report" / "review.html"
+    artifact_path.parent.mkdir()
+    artifact_path.write_text("<html>", encoding="utf-8")
+    calls: list[Path] = []
+
+    monkeypatch.setattr(gtk_ui_module.sys, "platform", "linux")
+    monkeypatch.setattr(gtk_ui_module, "_show_file_in_freedesktop_file_manager", lambda _path: False)
+    monkeypatch.setattr(gtk_ui_module, "open_path", lambda path: calls.append(path))
+
+    gtk_open_containing_folder(artifact_path)
+
+    assert calls == [artifact_path.parent]
 
 
 def test_rough_token_count_uses_words_and_character_fallback() -> None:
@@ -3093,7 +3199,9 @@ def test_gtk_translates_agent_and_manual_labels() -> None:
     assert "остановит локальные процессы" in GTK_TRANSLATIONS["ru"]["confirm_close_running_agents_body"]
     assert "Предлагаемая команда установки" in GTK_TRANSLATIONS["ru"]["install_agent_body"]
     assert GTK_TRANSLATIONS["ru"]["delete_artifacts"] == "Удалить артефакты"
+    assert GTK_TRANSLATIONS["ru"]["open_containing_folder"] == "Открыть содержащую папку"
     assert GTK_TRANSLATIONS["ru"]["other_artifacts"] == "Другие артефакты"
+    assert GTK_TRANSLATIONS["ru"]["updated"] == "Обновлено"
     assert GTK_TRANSLATIONS["uk"]["manual_usage_section"] == "Основи"
     assert GTK_TRANSLATIONS["uk"]["manual_status_section"] == "Статуси в колонці ШІ"
     assert GTK_TRANSLATIONS["uk"]["task_agent_status_column"] == "ШІ"

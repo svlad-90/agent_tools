@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Iterator
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 import argparse
 import os
@@ -121,7 +122,9 @@ TRANSLATIONS = {
         "install_agent_title": "AI agent is not installed",
         "language": "Language",
         "logs": "Logs",
+        "open_containing_folder": "Open containing folder",
         "other_artifacts": "Other artifacts",
+        "updated": "Updated",
         "restore_failed_status": "Could not restore the saved {agent} session for {task}. The saved resume link was removed and the AI-agent console was closed. Run the AI agent again to start a new session.",
         "manual_label_agent": "Agent",
         "manual_label_concept": "Concept",
@@ -212,7 +215,9 @@ TRANSLATIONS = {
         "install_agent_title": "ИИ агент не установлен",
         "language": "Язык",
         "logs": "Логи",
+        "open_containing_folder": "Открыть содержащую папку",
         "other_artifacts": "Другие артефакты",
+        "updated": "Обновлено",
         "restore_failed_status": "Не удалось восстановить сохраненную сессию {agent} для задачи {task}. Ссылка на продолжение удалена, консоль ИИ агента закрыта. Запустите ИИ агента еще раз, чтобы начать новую сессию.",
         "manual_label_agent": "Агент",
         "manual_label_concept": "Концепция",
@@ -303,7 +308,9 @@ TRANSLATIONS = {
         "install_agent_title": "ШІ агент не встановлено",
         "language": "Мова",
         "logs": "Логи",
+        "open_containing_folder": "Відкрити теку з файлом",
         "other_artifacts": "Інші артефакти",
+        "updated": "Оновлено",
         "restore_failed_status": "Не вдалося відновити збережену сесію {agent} для задачі {task}. Посилання для продовження видалено, консоль ШІ агента закрито. Запустіть ШІ агента ще раз, щоб почати нову сесію.",
         "manual_label_agent": "Агент",
         "manual_label_concept": "Концепція",
@@ -404,6 +411,7 @@ class TerminalSession:
 class ArtifactEntry:
     group: str
     path: Path
+    updated: float
 
 
 class WorkspaceGtkGui:
@@ -419,6 +427,8 @@ class WorkspaceGtkGui:
         self.task_actions_monitor_path: Path | None = None
         self.artifact_monitors: list[Gio.FileMonitor] = []
         self.artifact_monitor_path: Path | None = None
+        self.artifact_sort_column = "name"
+        self.artifact_sort_descending = False
         self.terminal_sessions: dict[int, TerminalSession] = {}
         self.last_active_terminal_by_task: dict[Path, int] = {}
         self.next_terminal_id = 1
@@ -550,14 +560,21 @@ class WorkspaceGtkGui:
         self.notebook.append_page(pane, self.details_tab_label)
 
     def _add_artifacts_tab(self) -> None:
-        self.artifact_store = Gtk.TreeStore(str, str, object, bool)
+        self.artifact_store = Gtk.TreeStore(str, str, object, bool, str)
         self.artifact_view = Gtk.TreeView(model=self.artifact_store)
         name_column = Gtk.TreeViewColumn(self._tr("artifacts"), Gtk.CellRendererText(), text=0)
-        name_column.set_expand(True)
-        path_column = Gtk.TreeViewColumn("", Gtk.CellRendererText(), text=1)
-        path_column.set_expand(False)
+        self.artifact_name_column = name_column
+        name_column.set_expand(False)
+        name_column.set_clickable(True)
+        name_column.connect("clicked", lambda _column: self._set_artifact_sort("name"))
+        updated_column = Gtk.TreeViewColumn(self._tr("updated"), Gtk.CellRendererText(), text=4)
+        self.artifact_updated_column = updated_column
+        updated_column.set_expand(False)
+        updated_column.set_clickable(True)
+        updated_column.connect("clicked", lambda _column: self._set_artifact_sort("updated"))
         self.artifact_view.append_column(name_column)
-        self.artifact_view.append_column(path_column)
+        self.artifact_view.append_column(updated_column)
+        self._update_artifact_sort_indicators()
         self.artifact_view.connect("row-activated", self._on_artifact_row_activated)
         self.artifact_view.add_events(Gdk.EventMask.BUTTON_PRESS_MASK)
         self.artifact_view.connect("button-press-event", self._on_artifact_view_button_press)
@@ -709,18 +726,44 @@ class WorkspaceGtkGui:
     def _load_task_artifacts(self, task: TaskSummary) -> None:
         self.artifact_store.clear()
         groups = {
-            "logs": self.artifact_store.append(None, [self._tr("logs"), "", "logs", True]),
-            "diagrams": self.artifact_store.append(None, [self._tr("diagrams"), "", "diagrams", True]),
-            "diff_reports": self.artifact_store.append(None, [self._tr("diff_reports"), "", "diff_reports", True]),
-            "artifacts": self.artifact_store.append(None, [self._tr("other_artifacts"), "", "artifacts", True]),
+            "logs": self.artifact_store.append(None, [self._tr("logs"), "", "logs", True, ""]),
+            "diagrams": self.artifact_store.append(None, [self._tr("diagrams"), "", "diagrams", True, ""]),
+            "diff_reports": self.artifact_store.append(None, [self._tr("diff_reports"), "", "diff_reports", True, ""]),
+            "artifacts": self.artifact_store.append(None, [self._tr("other_artifacts"), "", "artifacts", True, ""]),
         }
-        for entry in _task_artifact_entries(task):
+        for entry in _task_artifact_entries(
+            task,
+            sort_column=self.artifact_sort_column,
+            descending=self.artifact_sort_descending,
+        ):
             rel_path = _artifact_relative_label(task, entry.path)
             self.artifact_store.append(
                 groups[entry.group],
-                [entry.path.name, rel_path, entry.path, False],
+                [entry.path.name, rel_path, entry.path, False, _artifact_updated_label(entry.updated)],
             )
         self.artifact_view.expand_all()
+
+    def _set_artifact_sort(self, sort_column: str) -> None:
+        if self.artifact_sort_column == sort_column:
+            self.artifact_sort_descending = not self.artifact_sort_descending
+        else:
+            self.artifact_sort_column = sort_column
+            self.artifact_sort_descending = sort_column == "updated"
+        self._update_artifact_sort_indicators()
+        if self.selected_task is not None and self._artifacts_tab_active():
+            self._load_task_artifacts(self.selected_task)
+
+    def _update_artifact_sort_indicators(self) -> None:
+        columns = {
+            "name": self.artifact_name_column,
+            "updated": self.artifact_updated_column,
+        }
+        for key, column in columns.items():
+            active = key == self.artifact_sort_column
+            column.set_sort_indicator(active)
+            if active:
+                order = Gtk.SortType.DESCENDING if self.artifact_sort_descending else Gtk.SortType.ASCENDING
+                column.set_sort_order(order)
 
     def _on_artifact_row_activated(
         self,
@@ -763,6 +806,16 @@ class WorkspaceGtkGui:
                 if task is not None:
                     group = _artifact_group(task, artifact_path)
         action = _artifact_context_action(artifact_path, group)
+        selectable_artifact = (
+            _artifact_selectable_path(task, artifact_path)
+            if task is not None and artifact_path is not None
+            else None
+        )
+        if selectable_artifact is not None:
+            open_folder_item = Gtk.MenuItem(label=self._tr("open_containing_folder"))
+            open_folder_item.connect("activate", lambda *_: open_containing_folder(selectable_artifact))
+            menu.append(open_folder_item)
+            menu.append(Gtk.SeparatorMenuItem())
         if action == "artifact":
             item = Gtk.MenuItem(label=self._tr("delete_artifact"))
             item.connect("activate", lambda *_: self._delete_artifacts(artifact_path=artifact_path))
@@ -2272,6 +2325,9 @@ class WorkspaceGtkGui:
                 widget.set_label(self._tr(key))
         self.task_status_header.set_text(self._tr("task_agent_status_column"))
         self.task_column.set_title(self._tr("task"))
+        self.artifact_name_column.set_title(self._tr("artifacts"))
+        self.artifact_updated_column.set_title(self._tr("updated"))
+        self._update_artifact_sort_indicators()
         self.details_tab_label.set_text(self._tr("details"))
         self.artifacts_tab_label.set_text(self._tr("artifacts"))
         self.actions_tab_label.set_text(self._tr("actions"))
@@ -2706,16 +2762,36 @@ def _scrolled(widget: Gtk.Widget) -> Gtk.ScrolledWindow:
     return scrolled
 
 
-def _task_artifact_entries(task: TaskSummary) -> list[ArtifactEntry]:
+def _task_artifact_entries(
+    task: TaskSummary,
+    *,
+    sort_column: str = "name",
+    descending: bool = False,
+) -> list[ArtifactEntry]:
     entries: list[ArtifactEntry] = []
     for path in _task_artifact_files(task):
         group = _artifact_group(task, path)
         if group is not None:
-            entries.append(ArtifactEntry(group, path))
-    return sorted(
-        entries,
-        key=lambda entry: (_artifact_group_sort_key(entry.group), _artifact_relative_label(task, entry.path).casefold()),
-    )
+            entries.append(ArtifactEntry(group, path, _artifact_updated_timestamp(path)))
+    result: list[ArtifactEntry] = []
+    for group in sorted({entry.group for entry in entries}, key=_artifact_group_sort_key):
+        group_entries = [entry for entry in entries if entry.group == group]
+        if sort_column == "updated":
+            if descending:
+                group_entries.sort(
+                    key=lambda entry: (-entry.updated, _artifact_relative_label(task, entry.path).casefold())
+                )
+            else:
+                group_entries.sort(
+                    key=lambda entry: (entry.updated, _artifact_relative_label(task, entry.path).casefold())
+                )
+        else:
+            group_entries.sort(
+                key=lambda entry: (entry.path.name.casefold(), _artifact_relative_label(task, entry.path).casefold()),
+                reverse=descending,
+            )
+        result.extend(group_entries)
+    return result
 
 
 def _task_artifact_files(task: TaskSummary) -> Iterator[Path]:
@@ -2756,6 +2832,19 @@ def _artifact_relative_label(task: TaskSummary, path: Path) -> str:
         return str(path.relative_to(task.path))
     except ValueError:
         return str(path)
+
+
+def _artifact_updated_timestamp(path: Path) -> float:
+    try:
+        return path.stat().st_mtime
+    except OSError:
+        return 0.0
+
+
+def _artifact_updated_label(updated: float) -> str:
+    if updated <= 0:
+        return ""
+    return datetime.fromtimestamp(updated).strftime("%Y-%m-%d %H:%M")
 
 
 def _artifact_monitor_dirs(task: TaskSummary) -> list[Path]:
@@ -2810,6 +2899,14 @@ def _artifact_context_action(artifact_path: Path | None, group: str | None) -> s
     if group is not None:
         return "group"
     return "all"
+
+
+def _artifact_selectable_path(task: TaskSummary, artifact_path: Path) -> Path | None:
+    try:
+        artifact_path.relative_to(task.path)
+    except ValueError:
+        return None
+    return artifact_path if artifact_path.is_file() else None
 
 
 def _files_under(root: Path) -> list[Path]:
@@ -3100,6 +3197,41 @@ def open_path(path: Path) -> None:
         subprocess.Popen(command)
     except OSError:
         return
+
+
+def open_containing_folder(path: Path) -> None:
+    if sys.platform == "darwin":
+        _open_command_or_parent(["open", "-R", str(path)], path)
+    elif os.name == "nt":
+        _open_command_or_parent(["explorer", f"/select,{path}"], path)
+    elif not _show_file_in_freedesktop_file_manager(path):
+        open_path(path.parent)
+
+
+def _open_command_or_parent(command: list[str], path: Path) -> None:
+    try:
+        subprocess.Popen(command)
+    except OSError:
+        open_path(path.parent)
+
+
+def _show_file_in_freedesktop_file_manager(path: Path) -> bool:
+    try:
+        bus = Gio.bus_get_sync(Gio.BusType.SESSION, None)
+        bus.call_sync(
+            "org.freedesktop.FileManager1",
+            "/org/freedesktop/FileManager1",
+            "org.freedesktop.FileManager1",
+            "ShowItems",
+            GLib.Variant("(ass)", ([path.resolve().as_uri()], "")),
+            None,
+            Gio.DBusCallFlags.NONE,
+            1000,
+            None,
+        )
+    except (GLib.Error, OSError, RuntimeError, ValueError):
+        return False
+    return True
 
 
 def open_artifact_path(path: Path) -> None:
