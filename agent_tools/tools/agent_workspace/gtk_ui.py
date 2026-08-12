@@ -1711,6 +1711,12 @@ class WorkspaceGtkGui:
             self._refreshing_console_tabs = False
         if last_active_session_id is not None:
             self._activate_visible_terminal(last_active_session_id, remember=False)
+        else:
+            page_num = self.console_notebook.get_current_page()
+            if page_num >= 0:
+                session = self._session_for_page(self.console_notebook.get_nth_page(page_num))
+                if session is not None:
+                    self._activate_visible_terminal(session.session_id, remember=False)
         self._update_codex_button_state()
 
     def _current_task_terminal_sessions(self, task: TaskSummary) -> list[TerminalSession]:

@@ -55,6 +55,7 @@ from agent_tools.tools.agent_workspace.core import save_agent_workspace_settings
 from agent_tools.tools.agent_workspace.core import save_task_active_agent_run
 from agent_tools.tools.agent_workspace.core import save_task_agent
 from agent_tools.tools.agent_workspace.core import save_task_agent_session
+from agent_tools.tools.agent_workspace.core import save_task_state
 from agent_tools.tools.agent_workspace.core import run_task_action
 from agent_tools.tools.agent_workspace.core import run_task_check
 from agent_tools.tools.agent_workspace.core import session_marks_task_pending_permission
@@ -294,6 +295,14 @@ class FakeGtkButton:
         self.sensitive = value
 
 
+class FakeGtkLabel:
+    def __init__(self) -> None:
+        self.text = ""
+
+    def set_text(self, text: str) -> None:
+        self.text = text
+
+
 class FakeButton:
     def __init__(self) -> None:
         self.text = ""
@@ -340,9 +349,67 @@ class FakeStringVar:
         self.value = value
 
 
+class FakeTkTaskTree:
+    def __init__(self) -> None:
+        self.rows: dict[str, dict[str, object]] = {}
+        self.selection_iids: list[str] = []
+        self.focus_iid: str | None = None
+        self.seen_iids: list[str] = []
+
+    def get_children(self) -> tuple[str, ...]:
+        return tuple(self.rows)
+
+    def delete(self, *iids: str) -> None:
+        for iid in iids:
+            self.rows.pop(iid, None)
+            if iid in self.selection_iids:
+                self.selection_iids.remove(iid)
+
+    def insert(
+        self,
+        parent: str,
+        index: object,
+        *,
+        iid: str,
+        text: str,
+        tags: tuple[str, ...],
+        values: tuple[object, ...],
+    ) -> None:
+        self.rows[iid] = {
+            "parent": parent,
+            "index": index,
+            "text": text,
+            "tags": tags,
+            "values": values,
+        }
+
+    def selection(self) -> tuple[str, ...]:
+        return tuple(self.selection_iids)
+
+    def selection_remove(self, *iids: str) -> None:
+        for iid in iids:
+            if iid in self.selection_iids:
+                self.selection_iids.remove(iid)
+
+    def selection_set(self, iid: str) -> None:
+        self.selection_iids = [iid]
+
+    def focus(self, iid: str) -> None:
+        self.focus_iid = iid
+
+    def see(self, iid: str) -> None:
+        self.seen_iids.append(iid)
+
+
 class FakeGtkTaskStore:
     def __init__(self, rows: list[list[object]]) -> None:
         self.rows = rows
+
+    def clear(self) -> None:
+        self.rows.clear()
+
+    def append(self, row: list[object]) -> None:
+        self.rows.append(row)
 
     def get_iter_first(self) -> int | None:
         return 0 if self.rows else None
@@ -353,6 +420,15 @@ class FakeGtkTaskStore:
 
     def __getitem__(self, row_iter: int) -> list[object]:
         return self.rows[row_iter]
+
+
+class FakeGtkSelection:
+    def __init__(self, model: object, row_iter: object | None) -> None:
+        self.model = model
+        self.row_iter = row_iter
+
+    def get_selected(self) -> tuple[object, object | None]:
+        return self.model, self.row_iter
 
 
 class FakeGtkNotebookEvent:
@@ -410,6 +486,9 @@ class FakeGtkConsoleNotebook:
         self.pages = pages
         self.current_page = current_page
 
+    def get_n_pages(self) -> int:
+        return len(self.pages)
+
     def get_current_page(self) -> int:
         return self.current_page
 
@@ -424,6 +503,30 @@ class FakeGtkConsoleNotebook:
 
     def set_current_page(self, index: int) -> None:
         self.current_page = index
+
+    def remove_page(self, index: int) -> None:
+        del self.pages[index]
+        if not self.pages:
+            self.current_page = -1
+        elif self.current_page >= len(self.pages):
+            self.current_page = len(self.pages) - 1
+
+    def append_page(self, page: object, _tab: object | None = None) -> int:
+        self.pages.append(page)
+        if self.current_page < 0:
+            self.current_page = 0
+        return len(self.pages) - 1
+
+    def insert_page(self, page: object, _tab: object | None, index: int) -> int:
+        self.pages.insert(index, page)
+        if self.current_page < 0:
+            self.current_page = 0
+        elif index <= self.current_page:
+            self.current_page += 1
+        return index
+
+    def get_tab_label(self, _page: object) -> object | None:
+        return None
 
 
 def test_discover_tasks_reports_description_context_and_budget(tmp_path: Path) -> None:
@@ -1394,6 +1497,28 @@ def test_task_active_agent_run_clears_non_workspace_owner(tmp_path: Path, monkey
     assert "active_agent_run" not in load_task_state(summary)
 
 
+def test_task_active_agent_run_clears_legacy_owner_without_identity(tmp_path: Path, monkeypatch) -> None:
+    task = tmp_path / "tasks" / "sample-task"
+    task.mkdir(parents=True)
+    summary = discover_tasks_with_context(task, tmp_path)
+    save_task_state(
+        summary,
+        {
+            "active_agent_run": {
+                "agent": "codex",
+                "owner_pid": os.getpid(),
+                "run_id": "run-1",
+            }
+        },
+    )
+    monkeypatch.setattr(core_module, "_process_is_agent_workspace_owner", lambda _pid: True)
+    monkeypatch.setattr(core_module, "_current_boot_id", lambda: "current-boot")
+    monkeypatch.setattr(core_module, "_process_start_time_ticks", lambda _pid: 100)
+
+    assert load_task_active_agent_run(summary) is None
+    assert "active_agent_run" not in load_task_state(summary)
+
+
 def test_task_active_agent_run_clears_reused_pid_after_reboot(tmp_path: Path, monkeypatch) -> None:
     task = tmp_path / "tasks" / "sample-task"
     task.mkdir(parents=True)
@@ -1431,6 +1556,75 @@ def test_tk_selectable_task_iid_skips_external_active_tasks(tmp_path: Path, monk
     assert gui._selectable_task_iid(None) is None
 
 
+def test_tk_refresh_tasks_selects_open_task_when_previous_is_locked(tmp_path: Path, monkeypatch) -> None:
+    locked_path = tmp_path / "tasks" / "locked-task"
+    open_path = tmp_path / "tasks" / "open-task"
+    locked_path.mkdir(parents=True)
+    open_path.mkdir(parents=True)
+    (locked_path / "TASK_DESCRIPTION.md").write_text("# Description\n", encoding="utf-8")
+    (locked_path / "TASK_CONTEXT.md").write_text(_task_context(), encoding="utf-8")
+    (open_path / "TASK_DESCRIPTION.md").write_text("# Description\n", encoding="utf-8")
+    (open_path / "TASK_CONTEXT.md").write_text(_task_context(), encoding="utf-8")
+    tasks = {task.name: task for task in discover_tasks(tmp_path)}
+    locked = tasks["locked-task"]
+    open_task = tasks["open-task"]
+    tree = FakeTkTaskTree()
+    gui = object.__new__(AgentWorkspace)
+    gui.workspace = tmp_path
+    gui.selected_task = locked
+    gui.task_tree = tree
+    gui.summary_var = FakeStringVar("")
+    gui.tasks = []
+    gui._task_label = lambda task: task.name
+    gui._task_tags = lambda _task: ()
+    gui._task_agent_status = lambda _task: "□"
+    gui._task_is_external_active = lambda task: task.path == locked.path
+    gui._on_task_selected = lambda _event: None
+    monkeypatch.setattr(core_module, "discover_tasks", lambda _workspace: [locked, open_task])
+
+    gui.refresh_tasks()
+
+    assert gui.tasks == [locked, open_task]
+    assert tree.rows["0"]["text"] == "locked-task"
+    assert tree.rows["1"]["text"] == "open-task"
+    assert tree.selection() == ("1",)
+    assert tree.focus_iid == "1"
+    assert tree.seen_iids == ["1"]
+    assert gui.summary_var.get() == "2 tasks, 0 over context budget"
+
+
+def test_tk_refresh_tasks_clears_selection_when_all_tasks_locked(tmp_path: Path, monkeypatch) -> None:
+    first_path = tmp_path / "tasks" / "first-task"
+    second_path = tmp_path / "tasks" / "second-task"
+    first_path.mkdir(parents=True)
+    second_path.mkdir(parents=True)
+    (first_path / "TASK_DESCRIPTION.md").write_text("# Description\n", encoding="utf-8")
+    (first_path / "TASK_CONTEXT.md").write_text(_task_context(), encoding="utf-8")
+    (second_path / "TASK_DESCRIPTION.md").write_text("# Description\n", encoding="utf-8")
+    (second_path / "TASK_CONTEXT.md").write_text(_task_context(), encoding="utf-8")
+    tasks = discover_tasks(tmp_path)
+    tree = FakeTkTaskTree()
+    tree.selection_set("stale")
+    gui = object.__new__(AgentWorkspace)
+    gui.workspace = tmp_path
+    gui.selected_task = tasks[0]
+    gui.task_tree = tree
+    gui.summary_var = FakeStringVar("")
+    gui.tasks = []
+    gui._task_label = lambda task: task.name
+    gui._task_tags = lambda _task: ()
+    gui._task_agent_status = lambda _task: "×"
+    gui._task_is_external_active = lambda _task: True
+    gui._clear_selected_task_view = lambda: setattr(gui, "selected_task", None)
+    gui._on_task_selected = lambda _event: None
+    monkeypatch.setattr(core_module, "discover_tasks", lambda _workspace: tasks)
+
+    gui.refresh_tasks()
+
+    assert tree.selection() == ()
+    assert gui.selected_task is None
+
+
 def test_gtk_selectable_task_iter_skips_external_active_tasks(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.setattr(core_module, "_process_is_agent_workspace_owner", lambda _pid: True)
     locked_path = tmp_path / "tasks" / "locked-task"
@@ -1454,6 +1648,117 @@ def test_gtk_selectable_task_iter_skips_external_active_tasks(tmp_path: Path, mo
 
     save_task_active_agent_run(open_task, "claude", "second-external-run", owner_pid=os.getpid())
     assert gui._selectable_task_iter(None) is None
+
+
+def test_gtk_refresh_tasks_selects_open_task_when_previous_is_locked(tmp_path: Path, monkeypatch) -> None:
+    locked_path = tmp_path / "tasks" / "locked-task"
+    open_path = tmp_path / "tasks" / "open-task"
+    locked_path.mkdir(parents=True)
+    open_path.mkdir(parents=True)
+    (locked_path / "TASK_DESCRIPTION.md").write_text("# Description\n", encoding="utf-8")
+    (locked_path / "TASK_CONTEXT.md").write_text(_task_context(), encoding="utf-8")
+    (open_path / "TASK_DESCRIPTION.md").write_text("# Description\n", encoding="utf-8")
+    (open_path / "TASK_CONTEXT.md").write_text(_task_context(), encoding="utf-8")
+    tasks = {task.name: task for task in discover_tasks(tmp_path)}
+    locked = tasks["locked-task"]
+    open_task = tasks["open-task"]
+    selected_iters: list[object | None] = []
+    gui = WorkspaceGtkGui.__new__(WorkspaceGtkGui)
+    gui.workspace = tmp_path
+    gui.selected_task = locked
+    gui.task_store = FakeGtkTaskStore([])
+    gui.summary_label = FakeGtkLabel()
+    gui.theme = "dark"
+    gui.tasks = []
+    gui._task_agent_status = lambda _task: "□"
+    gui._task_label = lambda task: task.name
+    gui._refresh_task_row_styles = lambda: None
+    gui._set_task_selection = lambda row_iter: selected_iters.append(row_iter)
+    gui._tr = lambda key: {"tasks": "tasks"}[key]
+    gui._task_is_external_active = lambda task: task.path == locked.path
+    monkeypatch.setattr(gtk_ui_module, "discover_tasks", lambda _workspace: [locked, open_task])
+
+    gui.refresh_tasks()
+
+    assert gui.tasks == [locked, open_task]
+    assert gui.summary_label.text == "2 tasks"
+    assert gui.task_store.rows[0][2] == locked
+    assert gui.task_store.rows[1][2] == open_task
+    assert selected_iters == [1]
+
+
+def test_gtk_refresh_tasks_clears_selection_when_all_tasks_locked(tmp_path: Path, monkeypatch) -> None:
+    first_path = tmp_path / "tasks" / "first-task"
+    second_path = tmp_path / "tasks" / "second-task"
+    first_path.mkdir(parents=True)
+    second_path.mkdir(parents=True)
+    (first_path / "TASK_DESCRIPTION.md").write_text("# Description\n", encoding="utf-8")
+    (first_path / "TASK_CONTEXT.md").write_text(_task_context(), encoding="utf-8")
+    (second_path / "TASK_DESCRIPTION.md").write_text("# Description\n", encoding="utf-8")
+    (second_path / "TASK_CONTEXT.md").write_text(_task_context(), encoding="utf-8")
+    tasks = discover_tasks(tmp_path)
+    selected_iters: list[object | None] = []
+    gui = WorkspaceGtkGui.__new__(WorkspaceGtkGui)
+    gui.workspace = tmp_path
+    gui.selected_task = tasks[0]
+    gui.task_store = FakeGtkTaskStore([])
+    gui.summary_label = FakeGtkLabel()
+    gui.theme = "dark"
+    gui.tasks = []
+    gui._task_agent_status = lambda _task: "×"
+    gui._task_label = lambda task: task.name
+    gui._refresh_task_row_styles = lambda: None
+    gui._set_task_selection = lambda row_iter: selected_iters.append(row_iter)
+    gui._tr = lambda key: {"tasks": "tasks"}[key]
+    gui._task_is_external_active = lambda _task: True
+    monkeypatch.setattr(gtk_ui_module, "discover_tasks", lambda _workspace: tasks)
+
+    gui.refresh_tasks()
+
+    assert selected_iters == [None]
+
+
+def test_gtk_task_selection_rejects_external_active_task(tmp_path: Path) -> None:
+    open_path = tmp_path / "tasks" / "open-task"
+    locked_path = tmp_path / "tasks" / "locked-task"
+    open_path.mkdir(parents=True)
+    locked_path.mkdir(parents=True)
+    (open_path / "TASK_DESCRIPTION.md").write_text("# Description\n", encoding="utf-8")
+    (open_path / "TASK_CONTEXT.md").write_text(_task_context(), encoding="utf-8")
+    (locked_path / "TASK_DESCRIPTION.md").write_text("# Description\n", encoding="utf-8")
+    (locked_path / "TASK_CONTEXT.md").write_text(_task_context(), encoding="utf-8")
+    tasks = {task.name: task for task in discover_tasks(tmp_path)}
+    open_task = tasks["open-task"]
+    locked_task = tasks["locked-task"]
+    model = FakeGtkTaskStore([[None, "locked-task", locked_task]])
+    selection = FakeGtkSelection(model, 0)
+    fallbacks: list[object | None] = []
+    gui = WorkspaceGtkGui.__new__(WorkspaceGtkGui)
+    gui._updating_task_selection = False
+    gui.selected_task = open_task
+    gui._task_is_external_active = lambda task: task.path == locked_task.path
+    gui._selectable_task_iter = lambda preferred_name: ("fallback", preferred_name)
+    gui._set_task_selection = lambda row_iter: fallbacks.append(row_iter)
+    gui._remember_current_console_tab = lambda: (_ for _ in ()).throw(AssertionError("locked task should not switch"))
+
+    gui._on_task_selected(selection)  # type: ignore[arg-type]
+
+    assert gui.selected_task == open_task
+    assert fallbacks == [("fallback", "open-task")]
+
+
+def test_gtk_require_task_rejects_external_active_task_without_dialog(tmp_path: Path) -> None:
+    task = tmp_path / "tasks" / "locked-task"
+    task.mkdir(parents=True)
+    summary = discover_tasks_with_context(task, tmp_path)
+    gui = WorkspaceGtkGui.__new__(WorkspaceGtkGui)
+    gui.selected_task = summary
+    gui._task_is_external_active = lambda _task: True
+
+    assert gui._require_task(show_dialog=False) is None
+
+    gui._task_is_external_active = lambda _task: False
+    assert gui._require_task(show_dialog=False) == summary
 
 
 def test_clear_task_agent_session_removes_empty_session_map(tmp_path: Path) -> None:
@@ -2360,6 +2665,143 @@ def test_gtk_activate_visible_terminal_can_restore_without_replacing_memory(tmp_
 
     assert gui.console_notebook.get_current_page() == 0
     assert gui.last_active_terminal_by_task == {summary.path: 3}
+
+
+def test_gtk_refresh_console_tabs_restores_last_focused_tab_per_task(tmp_path: Path) -> None:
+    task_one = tmp_path / "tasks" / "one"
+    task_two = tmp_path / "tasks" / "two"
+    task_one.mkdir(parents=True)
+    task_two.mkdir(parents=True)
+    (task_one / "TASK_DESCRIPTION.md").write_text("# Description\n", encoding="utf-8")
+    (task_one / "TASK_CONTEXT.md").write_text(_task_context(), encoding="utf-8")
+    (task_two / "TASK_DESCRIPTION.md").write_text("# Description\n", encoding="utf-8")
+    (task_two / "TASK_CONTEXT.md").write_text(_task_context(), encoding="utf-8")
+    tasks = {task.name: task for task in discover_tasks(tmp_path)}
+    summary_one = tasks["one"]
+    summary_two = tasks["two"]
+
+    class Terminal:
+        def __init__(self) -> None:
+            self.focused = False
+
+        def grab_focus(self) -> None:
+            self.focused = True
+
+    task_one_agent_page = object()
+    task_one_shell_page = object()
+    task_two_shell_page = object()
+    task_one_agent = TerminalSession(1, summary_one.path, "codex", Terminal(), task_one_agent_page)
+    task_one_shell = TerminalSession(2, summary_one.path, "shell", Terminal(), task_one_shell_page)
+    task_two_shell = TerminalSession(3, summary_two.path, "shell", Terminal(), task_two_shell_page)
+
+    gui = WorkspaceGtkGui.__new__(WorkspaceGtkGui)
+    gui.terminal_sessions = {
+        task_one_agent.session_id: task_one_agent,
+        task_one_shell.session_id: task_one_shell,
+        task_two_shell.session_id: task_two_shell,
+    }
+    gui.last_active_terminal_by_task = {}
+    gui._refreshing_console_tabs = False
+    gui.console_notebook = FakeGtkConsoleNotebook([task_one_agent_page, task_one_shell_page], current_page=1)
+    gui._renumber_terminal_tabs = lambda _task: None
+    gui._update_codex_button_state = lambda: None
+
+    def show_terminal_tab(session: TerminalSession, *, renumber: bool = True) -> None:
+        if gui.console_notebook.page_num(session.page) >= 0:
+            return
+        if session.kind in {"codex", "claude"}:
+            gui.console_notebook.insert_page(session.page, None, 0)
+        else:
+            gui.console_notebook.append_page(session.page, None)
+
+    gui._show_terminal_tab = show_terminal_tab
+
+    gui._remember_current_console_tab()
+    gui._refresh_console_tabs_for_task(summary_two)
+    gui._remember_current_console_tab()
+    gui._refresh_console_tabs_for_task(summary_one)
+
+    assert gui.console_notebook.pages == [task_one_agent_page, task_one_shell_page]
+    assert gui.console_notebook.get_current_page() == 1
+    assert task_one_shell.terminal.focused
+    assert gui.last_active_terminal_by_task == {
+        summary_one.path: task_one_shell.session_id,
+        summary_two.path: task_two_shell.session_id,
+    }
+
+
+def test_gtk_task_selection_remembers_current_tab_before_switching(tmp_path: Path) -> None:
+    task_one = tmp_path / "tasks" / "one"
+    task_two = tmp_path / "tasks" / "two"
+    task_one.mkdir(parents=True)
+    task_two.mkdir(parents=True)
+    (task_one / "TASK_DESCRIPTION.md").write_text("# Description\n", encoding="utf-8")
+    (task_one / "TASK_CONTEXT.md").write_text(_task_context(), encoding="utf-8")
+    (task_two / "TASK_DESCRIPTION.md").write_text("# Description\n", encoding="utf-8")
+    (task_two / "TASK_CONTEXT.md").write_text(_task_context(), encoding="utf-8")
+    tasks = {task.name: task for task in discover_tasks(tmp_path)}
+    summary_one = tasks["one"]
+    summary_two = tasks["two"]
+
+    class Terminal:
+        def __init__(self) -> None:
+            self.focused = False
+
+        def grab_focus(self) -> None:
+            self.focused = True
+
+    task_one_agent_page = object()
+    task_one_shell_page = object()
+    task_two_shell_page = object()
+    task_one_agent = TerminalSession(1, summary_one.path, "codex", Terminal(), task_one_agent_page)
+    task_one_shell = TerminalSession(2, summary_one.path, "shell", Terminal(), task_one_shell_page)
+    task_two_shell = TerminalSession(3, summary_two.path, "shell", Terminal(), task_two_shell_page)
+    gui = WorkspaceGtkGui.__new__(WorkspaceGtkGui)
+    gui.workspace = tmp_path
+    gui.default_agent = "codex"
+    gui._updating_task_selection = False
+    gui.selected_task = summary_one
+    gui.description_view = object()
+    gui.context_view = object()
+    gui.terminal_sessions = {
+        task_one_agent.session_id: task_one_agent,
+        task_one_shell.session_id: task_one_shell,
+        task_two_shell.session_id: task_two_shell,
+    }
+    gui.last_active_terminal_by_task = {}
+    gui._refreshing_console_tabs = False
+    gui.console_notebook = FakeGtkConsoleNotebook([task_one_agent_page, task_one_shell_page], current_page=1)
+    gui._task_is_external_active = lambda _task: False
+    gui._leave_detail_edit_mode = lambda _view: None
+    gui._set_markdown = lambda _view, _text: None
+    gui._reset_actions = lambda: None
+    gui._watch_task_actions = lambda _task: None
+    gui._watch_task_artifacts = lambda _task: None
+    gui._load_task_artifacts = lambda _task: None
+    gui._load_task_action_buttons = lambda: None
+    gui._set_selected_agent = lambda _agent: None
+    gui._renumber_terminal_tabs = lambda _task: None
+    gui._actions_tab_active = lambda: False
+    gui._update_codex_button_state = lambda: None
+
+    def show_terminal_tab(session: TerminalSession, *, renumber: bool = True) -> None:
+        if gui.console_notebook.page_num(session.page) >= 0:
+            return
+        if session.kind in {"codex", "claude"}:
+            gui.console_notebook.insert_page(session.page, None, 0)
+        else:
+            gui.console_notebook.append_page(session.page, None)
+
+    gui._show_terminal_tab = show_terminal_tab
+    selection = FakeGtkSelection(FakeGtkTaskStore([[None, "two", summary_two]]), 0)
+
+    gui._on_task_selected(selection)  # type: ignore[arg-type]
+
+    assert gui.selected_task == summary_two
+    assert gui.console_notebook.pages == [task_two_shell_page]
+    assert gui.console_notebook.get_current_page() == 0
+    assert task_two_shell.terminal.focused
+    assert gui.last_active_terminal_by_task == {summary_one.path: task_one_shell.session_id}
 
 
 def test_gtk_terminal_text_tail_reads_recent_text() -> None:

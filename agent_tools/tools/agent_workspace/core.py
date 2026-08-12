@@ -971,10 +971,14 @@ def _active_agent_owner_is_current(task: TaskSummary, active: dict[str, Any], ow
         return False
     owner_boot_id = active.get("owner_boot_id")
     current_boot_id = _current_boot_id()
+    if current_boot_id is not None and not isinstance(owner_boot_id, str):
+        return False
     if isinstance(owner_boot_id, str) and current_boot_id is not None and owner_boot_id != current_boot_id:
         return False
     owner_start_time = active.get("owner_start_time")
     current_start_time = _process_start_time_ticks(owner_pid)
+    if current_start_time is not None and not isinstance(owner_start_time, int):
+        return False
     if (
         isinstance(owner_start_time, int)
         and current_start_time is not None
@@ -1001,6 +1005,8 @@ def load_task_active_agent_run(task: TaskSummary) -> ActiveTaskAgentRun | None:
     owner_pid = active.get("owner_pid")
     run_id = active.get("run_id")
     if not isinstance(agent, str) or not isinstance(owner_pid, int) or not isinstance(run_id, str):
+        data.pop("active_agent_run", None)
+        save_task_state(task, data)
         return None
     agent = normalize_agent(agent)
     if not _active_agent_owner_is_current(task, active, owner_pid):
