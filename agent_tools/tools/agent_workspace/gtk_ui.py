@@ -419,6 +419,7 @@ class WorkspaceGtkGui:
         self.artifact_monitors: list[Gio.FileMonitor] = []
         self.artifact_monitor_path: Path | None = None
         self.terminal_sessions: dict[int, TerminalSession] = {}
+        self.last_active_terminal_by_task: dict[Path, int] = {}
         self.next_terminal_id = 1
         self._updating_agent_selection = False
         self._updating_task_selection = False
@@ -595,6 +596,7 @@ class WorkspaceGtkGui:
         self.console_notebook = Gtk.Notebook()
         self.console_notebook.add_events(Gdk.EventMask.BUTTON_PRESS_MASK)
         self.console_notebook.connect("button-press-event", self._on_console_notebook_button_press)
+        self.console_notebook.connect("switch-page", self._on_console_notebook_switch_page)
         box.pack_start(self.console_notebook, True, True, 0)
 
     def refresh_tasks(self, *_args: object) -> None:
@@ -1694,11 +1696,14 @@ class WorkspaceGtkGui:
         self._refresh_task_row_styles()
 
     def _refresh_console_tabs_for_task(self, task: TaskSummary) -> None:
+        last_active_session_id = self.last_active_terminal_by_task.get(task.path)
         while self.console_notebook.get_n_pages() > 0:
             self.console_notebook.remove_page(0)
         self._renumber_terminal_tabs(task)
         for session in self._current_task_terminal_sessions(task):
             self._show_terminal_tab(session)
+        if last_active_session_id is not None:
+            self._activate_terminal(last_active_session_id)
         self._update_codex_button_state()
 
     def _current_task_terminal_sessions(self, task: TaskSummary) -> list[TerminalSession]:
@@ -1752,7 +1757,18 @@ class WorkspaceGtkGui:
         page_num = self.console_notebook.page_num(session.page)
         if page_num >= 0:
             self.console_notebook.set_current_page(page_num)
+            self.last_active_terminal_by_task[session.task_path] = session.session_id
         session.terminal.grab_focus()
+
+    def _on_console_notebook_switch_page(
+        self,
+        _notebook: Gtk.Notebook,
+        page: Gtk.Widget,
+        _page_num: int,
+    ) -> None:
+        session = self._session_for_page(page)
+        if session is not None:
+            self.last_active_terminal_by_task[session.task_path] = session.session_id
 
     def _on_console_notebook_button_press(self, notebook: Gtk.Notebook, event: Gdk.EventButton) -> bool:
         if event.type != Gdk.EventType.DOUBLE_BUTTON_PRESS or event.button != 1:
@@ -1778,6 +1794,8 @@ class WorkspaceGtkGui:
         if page_num >= 0:
             self.console_notebook.remove_page(page_num)
         self.terminal_sessions.pop(session.session_id, None)
+        if self.last_active_terminal_by_task.get(session.task_path) == session.session_id:
+            self.last_active_terminal_by_task.pop(session.task_path, None)
         session.permission_pending = False
         session.permission_signature = None
         session.ignored_permission_signature = None
@@ -2091,6 +2109,12 @@ class WorkspaceGtkGui:
     def _session_for_terminal(self, terminal: Vte.Terminal) -> TerminalSession | None:
         for session in self.terminal_sessions.values():
             if session.terminal is terminal:
+                return session
+        return None
+
+    def _session_for_page(self, page: Gtk.Widget) -> TerminalSession | None:
+        for session in self.terminal_sessions.values():
+            if session.page is page:
                 return session
         return None
 

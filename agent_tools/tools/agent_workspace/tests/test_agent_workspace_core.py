@@ -2230,6 +2230,7 @@ def test_gtk_close_console_session_clears_agent_state(tmp_path: Path) -> None:
     session = TerminalSession(1, summary.path, "claude", object(), page, busy=True, permission_pending=True)
     gui = WorkspaceGtkGui.__new__(WorkspaceGtkGui)
     gui.terminal_sessions = {1: session}
+    gui.last_active_terminal_by_task = {summary.path: session.session_id}
     gui.selected_task = None
     gui.console_notebook = type("Notebook", (), {"page_num": lambda self, page: -1})()
     gui._task_for_path = lambda task_path: summary  # type: ignore[method-assign]
@@ -2242,6 +2243,22 @@ def test_gtk_close_console_session_clears_agent_state(tmp_path: Path) -> None:
     assert not session.busy
     assert session.exited
     assert page.destroyed
+    assert summary.path not in gui.last_active_terminal_by_task
+
+
+def test_gtk_console_notebook_switch_remembers_active_task_terminal(tmp_path: Path) -> None:
+    task = tmp_path / "tasks" / "sample-task"
+    task.mkdir(parents=True)
+    summary = discover_tasks_with_context(task, tmp_path)
+    page = object()
+    session = TerminalSession(7, summary.path, "shell", object(), page)
+    gui = WorkspaceGtkGui.__new__(WorkspaceGtkGui)
+    gui.terminal_sessions = {session.session_id: session}
+    gui.last_active_terminal_by_task = {}
+
+    gui._on_console_notebook_switch_page(object(), page, 0)  # type: ignore[arg-type]
+
+    assert gui.last_active_terminal_by_task == {summary.path: session.session_id}
 
 
 def test_gtk_terminal_text_tail_reads_recent_text() -> None:
@@ -2647,6 +2664,7 @@ def test_gtk_agent_restore_failure_clears_session_closes_console_and_sets_status
     session = TerminalSession(1, summary.path, "claude", object(), page, busy=True, permission_pending=True)
     gui = WorkspaceGtkGui.__new__(WorkspaceGtkGui)
     gui.terminal_sessions = {1: session}
+    gui.last_active_terminal_by_task = {summary.path: session.session_id}
     gui.selected_task = summary
     gui.console_notebook = type("Notebook", (), {"page_num": lambda self, page: -1})()
     gui._task_for_path = lambda task_path: summary  # type: ignore[method-assign]
