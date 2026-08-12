@@ -617,8 +617,12 @@ def test_gtk_task_artifact_entries_groups_task_outputs(tmp_path: Path) -> None:
 
     assert [(entry.group, entry.path.name) for entry in entries] == [
         ("logs", "runtime.log"),
+        ("diagrams", "flow.puml"),
         ("diagrams", "flow.svg"),
+        ("diff_reports", "comments.json"),
+        ("diff_reports", "review.diff"),
         ("diff_reports", "review.html"),
+        ("artifacts", "notes.md"),
     ]
     assert gtk_artifact_monitor_dirs(summary) == [
         task / "report",
@@ -660,6 +664,7 @@ def test_gtk_artifact_delete_paths_include_hidden_group_files(tmp_path: Path) ->
         "report/diff/review.diff",
         "report/diff/review.html",
     ]
+    assert rels(gtk_artifact_delete_paths(summary, group="artifacts")) == ["report/notes.md"]
     assert rels(gtk_artifact_delete_paths(summary, delete_all=True)) == sorted(files)
 
 
@@ -1497,7 +1502,7 @@ def test_task_active_agent_run_clears_non_workspace_owner(tmp_path: Path, monkey
     assert "active_agent_run" not in load_task_state(summary)
 
 
-def test_task_active_agent_run_clears_legacy_owner_without_identity(tmp_path: Path, monkeypatch) -> None:
+def test_task_active_agent_run_accepts_legacy_live_workspace_owner(tmp_path: Path, monkeypatch) -> None:
     task = tmp_path / "tasks" / "sample-task"
     task.mkdir(parents=True)
     summary = discover_tasks_with_context(task, tmp_path)
@@ -1514,9 +1519,13 @@ def test_task_active_agent_run_clears_legacy_owner_without_identity(tmp_path: Pa
     monkeypatch.setattr(core_module, "_process_is_agent_workspace_owner", lambda _pid: True)
     monkeypatch.setattr(core_module, "_current_boot_id", lambda: "current-boot")
     monkeypatch.setattr(core_module, "_process_start_time_ticks", lambda _pid: 100)
+    monkeypatch.setattr(core_module, "_process_start_time_epoch", lambda _pid: os.path.getmtime(task_state_path(summary)) - 10)
 
-    assert load_task_active_agent_run(summary) is None
-    assert "active_agent_run" not in load_task_state(summary)
+    active = load_task_active_agent_run(summary)
+
+    assert active is not None
+    assert active.run_id == "run-1"
+    assert task_has_external_active_agent_run(summary, set())
 
 
 def test_task_active_agent_run_clears_reused_pid_after_reboot(tmp_path: Path, monkeypatch) -> None:
@@ -1648,6 +1657,36 @@ def test_gtk_selectable_task_iter_skips_external_active_tasks(tmp_path: Path, mo
 
     save_task_active_agent_run(open_task, "claude", "second-external-run", owner_pid=os.getpid())
     assert gui._selectable_task_iter(None) is None
+
+
+def test_gtk_task_agent_status_shows_external_legacy_workspace_lock(tmp_path: Path, monkeypatch) -> None:
+    task = tmp_path / "tasks" / "locked-task"
+    task.mkdir(parents=True)
+    summary = discover_tasks_with_context(task, tmp_path)
+    save_task_state(
+        summary,
+        {
+            "active_agent_run": {
+                "agent": "codex",
+                "owner_pid": os.getpid(),
+                "run_id": "external-run",
+            }
+        },
+    )
+    monkeypatch.setattr(core_module, "_process_is_agent_workspace_owner", lambda _pid: True)
+    monkeypatch.setattr(core_module, "_current_boot_id", lambda: "current-boot")
+    monkeypatch.setattr(core_module, "_process_start_time_ticks", lambda _pid: 100)
+    monkeypatch.setattr(core_module, "_process_start_time_epoch", lambda _pid: os.path.getmtime(task_state_path(summary)) - 10)
+    gui = WorkspaceGtkGui.__new__(WorkspaceGtkGui)
+    gui.workspace = tmp_path
+    gui.terminal_sessions = {}
+    gui._agent_spinner_index = 0
+    gui._local_agent_run_ids = lambda: set()
+
+    assert gui._task_agent_status(summary) == "×"
+
+    gui._local_agent_run_ids = lambda: {"external-run"}
+    assert gui._task_agent_status(summary) != "×"
 
 
 def test_gtk_refresh_tasks_selects_open_task_when_previous_is_locked(tmp_path: Path, monkeypatch) -> None:
@@ -2776,8 +2815,13 @@ def test_gtk_task_selection_remembers_current_tab_before_switching(tmp_path: Pat
     gui._set_markdown = lambda _view, _text: None
     gui._reset_actions = lambda: None
     gui._watch_task_actions = lambda _task: None
-    gui._watch_task_artifacts = lambda _task: None
-    gui._load_task_artifacts = lambda _task: None
+    gui._watch_task_artifacts = lambda _task: (_ for _ in ()).throw(AssertionError("inactive artifacts tab should not scan"))
+    gui._load_task_artifacts = lambda _task: (_ for _ in ()).throw(AssertionError("inactive artifacts tab should not load"))
+    gui._artifacts_tab_active = lambda: False
+    artifact_events: list[str] = []
+    gui._clear_artifact_monitors = lambda: artifact_events.append("monitors")
+    gui.artifact_store = type("ArtifactStore", (), {"clear": lambda self: artifact_events.append("store")})()
+    gui.artifact_monitor_path = summary_one.path
     gui._load_task_action_buttons = lambda: None
     gui._set_selected_agent = lambda _agent: None
     gui._renumber_terminal_tabs = lambda _task: None
@@ -2802,6 +2846,27 @@ def test_gtk_task_selection_remembers_current_tab_before_switching(tmp_path: Pat
     assert gui.console_notebook.get_current_page() == 0
     assert task_two_shell.terminal.focused
     assert gui.last_active_terminal_by_task == {summary_one.path: task_one_shell.session_id}
+    assert artifact_events == ["store", "monitors"]
+    assert gui.artifact_monitor_path is None
+
+
+def test_gtk_main_notebook_switch_loads_artifacts_lazily(tmp_path: Path) -> None:
+    task = tmp_path / "tasks" / "sample-task"
+    task.mkdir(parents=True)
+    summary = discover_tasks_with_context(task, tmp_path)
+    gui = WorkspaceGtkGui.__new__(WorkspaceGtkGui)
+    gui.selected_task = summary
+    gui.actions_page = object()
+    gui.artifacts_page = object()
+    calls: list[tuple[str, TaskSummary]] = []
+    gui._watch_task_artifacts = lambda task: calls.append(("watch", task))
+    gui._load_task_artifacts = lambda task: calls.append(("load", task))
+    gui._load_task_action_buttons = lambda: calls.append(("actions", summary))
+    gui._ensure_default_console_for_selected_task = lambda: calls.append(("console", summary))
+
+    gui._on_main_notebook_switch_page(object(), gui.artifacts_page, 1)  # type: ignore[arg-type]
+
+    assert calls == [("watch", summary), ("load", summary)]
 
 
 def test_gtk_terminal_text_tail_reads_recent_text() -> None:
@@ -3028,6 +3093,7 @@ def test_gtk_translates_agent_and_manual_labels() -> None:
     assert "остановит локальные процессы" in GTK_TRANSLATIONS["ru"]["confirm_close_running_agents_body"]
     assert "Предлагаемая команда установки" in GTK_TRANSLATIONS["ru"]["install_agent_body"]
     assert GTK_TRANSLATIONS["ru"]["delete_artifacts"] == "Удалить артефакты"
+    assert GTK_TRANSLATIONS["ru"]["other_artifacts"] == "Другие артефакты"
     assert GTK_TRANSLATIONS["uk"]["manual_usage_section"] == "Основи"
     assert GTK_TRANSLATIONS["uk"]["manual_status_section"] == "Статуси в колонці ШІ"
     assert GTK_TRANSLATIONS["uk"]["task_agent_status_column"] == "ШІ"

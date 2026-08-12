@@ -971,14 +971,10 @@ def _active_agent_owner_is_current(task: TaskSummary, active: dict[str, Any], ow
         return False
     owner_boot_id = active.get("owner_boot_id")
     current_boot_id = _current_boot_id()
-    if current_boot_id is not None and not isinstance(owner_boot_id, str):
-        return False
     if isinstance(owner_boot_id, str) and current_boot_id is not None and owner_boot_id != current_boot_id:
         return False
     owner_start_time = active.get("owner_start_time")
     current_start_time = _process_start_time_ticks(owner_pid)
-    if current_start_time is not None and not isinstance(owner_start_time, int):
-        return False
     if (
         isinstance(owner_start_time, int)
         and current_start_time is not None

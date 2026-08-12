@@ -121,6 +121,7 @@ TRANSLATIONS = {
         "install_agent_title": "AI agent is not installed",
         "language": "Language",
         "logs": "Logs",
+        "other_artifacts": "Other artifacts",
         "restore_failed_status": "Could not restore the saved {agent} session for {task}. The saved resume link was removed and the AI-agent console was closed. Run the AI agent again to start a new session.",
         "manual_label_agent": "Agent",
         "manual_label_concept": "Concept",
@@ -211,6 +212,7 @@ TRANSLATIONS = {
         "install_agent_title": "ИИ агент не установлен",
         "language": "Язык",
         "logs": "Логи",
+        "other_artifacts": "Другие артефакты",
         "restore_failed_status": "Не удалось восстановить сохраненную сессию {agent} для задачи {task}. Ссылка на продолжение удалена, консоль ИИ агента закрыта. Запустите ИИ агента еще раз, чтобы начать новую сессию.",
         "manual_label_agent": "Агент",
         "manual_label_concept": "Концепция",
@@ -301,6 +303,7 @@ TRANSLATIONS = {
         "install_agent_title": "ШІ агент не встановлено",
         "language": "Мова",
         "logs": "Логи",
+        "other_artifacts": "Інші артефакти",
         "restore_failed_status": "Не вдалося відновити збережену сесію {agent} для задачі {task}. Посилання для продовження видалено, консоль ШІ агента закрито. Запустіть ШІ агента ще раз, щоб почати нову сесію.",
         "manual_label_agent": "Агент",
         "manual_label_concept": "Концепція",
@@ -377,8 +380,6 @@ _TASK_ACTIONS_MONITOR_EVENTS = {
 _ARTIFACT_MONITOR_EVENTS = _TASK_ACTIONS_MONITOR_EVENTS
 
 _LOG_SUFFIXES = {".log"}
-_DIAGRAM_SUFFIXES = {".svg", ".png"}
-_DIFF_REPORT_SUFFIXES = {".html"}
 AGENT_BUSY_IDLE_DELAY_MS = 1800
 
 
@@ -562,6 +563,7 @@ class WorkspaceGtkGui:
         self.artifact_view.connect("button-press-event", self._on_artifact_view_button_press)
         scrolled = Gtk.ScrolledWindow()
         scrolled.add(self.artifact_view)
+        self.artifacts_page = scrolled
         self.artifacts_tab_label = Gtk.Label(label=self._tr("artifacts"))
         self.notebook.append_page(scrolled, self.artifacts_tab_label)
 
@@ -630,8 +632,13 @@ class WorkspaceGtkGui:
         self._set_markdown(self.context_view, read_task_file(self.selected_task, "TASK_CONTEXT.md"))
         self._reset_actions()
         self._watch_task_actions(self.selected_task)
-        self._watch_task_artifacts(self.selected_task)
-        self._load_task_artifacts(self.selected_task)
+        if self._artifacts_tab_active():
+            self._watch_task_artifacts(self.selected_task)
+            self._load_task_artifacts(self.selected_task)
+        else:
+            self.artifact_store.clear()
+            self._clear_artifact_monitors()
+            self.artifact_monitor_path = None
         self._load_task_action_buttons()
         self._set_selected_agent(
             task_agent_selection_with_resumable_fallback(
@@ -695,6 +702,9 @@ class WorkspaceGtkGui:
         if page is self.actions_page:
             self._load_task_action_buttons()
             self._ensure_default_console_for_selected_task()
+        elif page is self.artifacts_page and self.selected_task is not None:
+            self._watch_task_artifacts(self.selected_task)
+            self._load_task_artifacts(self.selected_task)
 
     def _load_task_artifacts(self, task: TaskSummary) -> None:
         self.artifact_store.clear()
@@ -702,6 +712,7 @@ class WorkspaceGtkGui:
             "logs": self.artifact_store.append(None, [self._tr("logs"), "", "logs", True]),
             "diagrams": self.artifact_store.append(None, [self._tr("diagrams"), "", "diagrams", True]),
             "diff_reports": self.artifact_store.append(None, [self._tr("diff_reports"), "", "diff_reports", True]),
+            "artifacts": self.artifact_store.append(None, [self._tr("other_artifacts"), "", "artifacts", True]),
         }
         for entry in _task_artifact_entries(task):
             rel_path = _artifact_relative_label(task, entry.path)
@@ -2003,6 +2014,12 @@ class WorkspaceGtkGui:
             return False
         return self.notebook.get_nth_page(page_num) is self.actions_page
 
+    def _artifacts_tab_active(self) -> bool:
+        page_num = self.notebook.get_current_page()
+        if page_num < 0:
+            return False
+        return self.notebook.get_nth_page(page_num) is self.artifacts_page
+
     def _ensure_default_console_for_selected_task(self) -> None:
         task = self.selected_task
         if task is None or self._current_task_terminal_sessions(task):
@@ -2258,7 +2275,7 @@ class WorkspaceGtkGui:
         self.details_tab_label.set_text(self._tr("details"))
         self.artifacts_tab_label.set_text(self._tr("artifacts"))
         self.actions_tab_label.set_text(self._tr("actions"))
-        if self.selected_task is not None:
+        if self.selected_task is not None and self._artifacts_tab_active():
             self._load_task_artifacts(self.selected_task)
         self._update_ai_agent_button_label()
 
@@ -2718,17 +2735,19 @@ def _artifact_group(task: TaskSummary, path: Path) -> str | None:
     except ValueError:
         return None
     parts = rel.parts
-    if len(parts) >= 2 and parts[0] == "report" and parts[1] == "diff" and suffix in _DIFF_REPORT_SUFFIXES:
+    if len(parts) < 1 or parts[0] != "report":
+        return None
+    if len(parts) >= 2 and parts[1] == "diff":
         return "diff_reports"
-    if len(parts) >= 2 and parts[0] == "report" and parts[1] == "puml" and suffix in _DIAGRAM_SUFFIXES:
+    if len(parts) >= 2 and parts[1] == "puml":
         return "diagrams"
     if suffix in _LOG_SUFFIXES:
         return "logs"
-    return None
+    return "artifacts"
 
 
 def _artifact_group_sort_key(group: str) -> int:
-    order = {"logs": 0, "diagrams": 1, "diff_reports": 2}
+    order = {"logs": 0, "diagrams": 1, "diff_reports": 2, "artifacts": 3}
     return order.get(group, 99)
 
 
@@ -2776,6 +2795,12 @@ def _artifact_delete_paths(
         return _files_under(task.path / "report" / "puml")
     if group == "diff_reports":
         return _files_under(task.path / "report" / "diff")
+    if group == "artifacts":
+        return [
+            path
+            for path in _files_under(task.path / "report")
+            if _artifact_group(task, path) == "artifacts"
+        ]
     return []
 
 
