@@ -12,6 +12,7 @@ import subprocess
 import sys
 import textwrap
 import threading
+import time
 import traceback
 from typing import Any
 import uuid
@@ -909,6 +910,88 @@ def process_is_alive(pid: int) -> bool:
     return True
 
 
+def _process_cmdline(pid: int) -> list[str]:
+    try:
+        raw = Path(f"/proc/{pid}/cmdline").read_bytes()
+    except OSError:
+        return []
+    return [part.decode(errors="ignore") for part in raw.split(b"\0") if part]
+
+
+def _process_is_agent_workspace_owner(pid: int) -> bool:
+    cmdline = _process_cmdline(pid)
+    if not cmdline:
+        return False
+    joined = " ".join(cmdline)
+    return any(
+        Path(part).name == "agent-workspace"
+        or "agent-workspace" in part
+        or "agent_tools.tools.agent_workspace" in part
+        or "/agent_workspace/" in part
+        for part in cmdline
+    ) or "agent_tools.tools.agent_workspace" in joined
+
+
+def _process_start_time_ticks(pid: int) -> int | None:
+    try:
+        stat = Path(f"/proc/{pid}/stat").read_text(encoding="utf-8")
+    except OSError:
+        return None
+    try:
+        after_name = stat.rsplit(") ", 1)[1]
+        return int(after_name.split()[19])
+    except (IndexError, ValueError):
+        return None
+
+
+def _process_start_time_epoch(pid: int) -> float | None:
+    start_ticks = _process_start_time_ticks(pid)
+    if start_ticks is None:
+        return None
+    try:
+        uptime = float(Path("/proc/uptime").read_text(encoding="utf-8").split()[0])
+        ticks_per_second = os.sysconf(os.sysconf_names["SC_CLK_TCK"])
+    except (OSError, IndexError, KeyError, ValueError):
+        return None
+    boot_epoch = time.time() - uptime
+    return boot_epoch + (start_ticks / ticks_per_second)
+
+
+def _current_boot_id() -> str | None:
+    try:
+        return Path("/proc/sys/kernel/random/boot_id").read_text(encoding="utf-8").strip()
+    except OSError:
+        return None
+
+
+def _active_agent_owner_is_current(task: TaskSummary, active: dict[str, Any], owner_pid: int) -> bool:
+    if not process_is_alive(owner_pid):
+        return False
+    if not _process_is_agent_workspace_owner(owner_pid):
+        return False
+    owner_boot_id = active.get("owner_boot_id")
+    current_boot_id = _current_boot_id()
+    if isinstance(owner_boot_id, str) and current_boot_id is not None and owner_boot_id != current_boot_id:
+        return False
+    owner_start_time = active.get("owner_start_time")
+    current_start_time = _process_start_time_ticks(owner_pid)
+    if (
+        isinstance(owner_start_time, int)
+        and current_start_time is not None
+        and owner_start_time != current_start_time
+    ):
+        return False
+    process_start_epoch = _process_start_time_epoch(owner_pid)
+    if process_start_epoch is not None:
+        try:
+            marker_mtime = task_state_path(task).stat().st_mtime
+        except OSError:
+            marker_mtime = None
+        if marker_mtime is not None and marker_mtime + 1 < process_start_epoch:
+            return False
+    return True
+
+
 def load_task_active_agent_run(task: TaskSummary) -> ActiveTaskAgentRun | None:
     data = load_task_state(task)
     active = data.get("active_agent_run")
@@ -920,7 +1003,9 @@ def load_task_active_agent_run(task: TaskSummary) -> ActiveTaskAgentRun | None:
     if not isinstance(agent, str) or not isinstance(owner_pid, int) or not isinstance(run_id, str):
         return None
     agent = normalize_agent(agent)
-    if not process_is_alive(owner_pid):
+    if not _active_agent_owner_is_current(task, active, owner_pid):
+        data.pop("active_agent_run", None)
+        save_task_state(task, data)
         return None
     return ActiveTaskAgentRun(agent=agent, owner_pid=owner_pid, run_id=run_id)
 
@@ -932,11 +1017,19 @@ def save_task_active_agent_run(
     owner_pid: int | None = None,
 ) -> None:
     data = load_task_state(task)
-    data["active_agent_run"] = {
+    owner_pid = os.getpid() if owner_pid is None else owner_pid
+    active: dict[str, object] = {
         "agent": normalize_agent(agent),
-        "owner_pid": os.getpid() if owner_pid is None else owner_pid,
+        "owner_pid": owner_pid,
         "run_id": run_id,
     }
+    owner_boot_id = _current_boot_id()
+    if owner_boot_id is not None:
+        active["owner_boot_id"] = owner_boot_id
+    owner_start_time = _process_start_time_ticks(owner_pid)
+    if owner_start_time is not None:
+        active["owner_start_time"] = owner_start_time
+    data["active_agent_run"] = active
     save_task_state(task, data)
 
 

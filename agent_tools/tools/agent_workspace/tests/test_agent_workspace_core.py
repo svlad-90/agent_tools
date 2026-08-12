@@ -43,6 +43,7 @@ from agent_tools.tools.agent_workspace.core import load_task_active_agent_run
 from agent_tools.tools.agent_workspace.core import load_task_agent_session
 from agent_tools.tools.agent_workspace.core import load_task_actions
 from agent_tools.tools.agent_workspace.core import load_agent_workspace_settings
+from agent_tools.tools.agent_workspace.core import load_task_state
 from agent_tools.tools.agent_workspace.core import log_agent_workspace_exception
 from agent_tools.tools.agent_workspace.core import parse_console_output
 from agent_tools.tools.agent_workspace.core import prepare_task_agent_session
@@ -71,6 +72,8 @@ from agent_tools.tools.agent_workspace.core import task_has_external_active_agen
 from agent_tools.tools.agent_workspace.core import task_has_valid_agent_session
 from agent_tools.tools.agent_workspace.core import task_status_label
 from agent_tools.tools.agent_workspace.core import task_selected_agent_has_resumable_state
+from agent_tools.tools.agent_workspace.core import task_state_path
+from agent_tools.tools.agent_workspace import core as core_module
 from agent_tools.tools.agent_workspace import gtk_ui as gtk_ui_module
 from agent_tools.tools.agent_workspace.gtk_ui import WorkspaceGtkGui
 from agent_tools.tools.agent_workspace.gtk_ui import TerminalSession
@@ -1362,10 +1365,11 @@ def test_save_task_agent_session_keeps_only_latest_agent_session(tmp_path: Path)
     assert load_task_agent_session(summary, "claude").session_id == claude_session_id
 
 
-def test_task_active_agent_run_tracks_external_owner(tmp_path: Path) -> None:
+def test_task_active_agent_run_tracks_external_owner(tmp_path: Path, monkeypatch) -> None:
     task = tmp_path / "tasks" / "sample-task"
     task.mkdir(parents=True)
     summary = discover_tasks_with_context(task, tmp_path)
+    monkeypatch.setattr(core_module, "_process_is_agent_workspace_owner", lambda _pid: True)
 
     save_task_active_agent_run(summary, "codex", "run-1", owner_pid=os.getpid())
 
@@ -1379,7 +1383,31 @@ def test_task_active_agent_run_tracks_external_owner(tmp_path: Path) -> None:
     assert load_task_active_agent_run(summary) is None
 
 
-def test_tk_selectable_task_iid_skips_external_active_tasks(tmp_path: Path) -> None:
+def test_task_active_agent_run_clears_non_workspace_owner(tmp_path: Path, monkeypatch) -> None:
+    task = tmp_path / "tasks" / "sample-task"
+    task.mkdir(parents=True)
+    summary = discover_tasks_with_context(task, tmp_path)
+    save_task_active_agent_run(summary, "codex", "run-1", owner_pid=os.getpid())
+    monkeypatch.setattr(core_module, "_process_is_agent_workspace_owner", lambda _pid: False)
+
+    assert load_task_active_agent_run(summary) is None
+    assert "active_agent_run" not in load_task_state(summary)
+
+
+def test_task_active_agent_run_clears_reused_pid_after_reboot(tmp_path: Path, monkeypatch) -> None:
+    task = tmp_path / "tasks" / "sample-task"
+    task.mkdir(parents=True)
+    summary = discover_tasks_with_context(task, tmp_path)
+    save_task_active_agent_run(summary, "codex", "run-1", owner_pid=os.getpid())
+    monkeypatch.setattr(core_module, "_process_is_agent_workspace_owner", lambda _pid: True)
+    monkeypatch.setattr(core_module, "_process_start_time_epoch", lambda _pid: os.path.getmtime(task_state_path(summary)) + 10)
+
+    assert load_task_active_agent_run(summary) is None
+    assert "active_agent_run" not in load_task_state(summary)
+
+
+def test_tk_selectable_task_iid_skips_external_active_tasks(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setattr(core_module, "_process_is_agent_workspace_owner", lambda _pid: True)
     locked_path = tmp_path / "tasks" / "locked-task"
     open_path = tmp_path / "tasks" / "open-task"
     locked_path.mkdir(parents=True)
@@ -1403,7 +1431,8 @@ def test_tk_selectable_task_iid_skips_external_active_tasks(tmp_path: Path) -> N
     assert gui._selectable_task_iid(None) is None
 
 
-def test_gtk_selectable_task_iter_skips_external_active_tasks(tmp_path: Path) -> None:
+def test_gtk_selectable_task_iter_skips_external_active_tasks(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setattr(core_module, "_process_is_agent_workspace_owner", lambda _pid: True)
     locked_path = tmp_path / "tasks" / "locked-task"
     open_path = tmp_path / "tasks" / "open-task"
     locked_path.mkdir(parents=True)
