@@ -12,16 +12,26 @@ RUN apt-get update \
 		bash \
 		ca-certificates \
 		curl \
+		desktop-file-utils \
 		docker.io \
+		gir1.2-gtk-3.0 \
+		gir1.2-vte-2.91 \
 		git \
 		python3 \
+		python3-gi \
 		python3-pip \
+		python3-tk \
 		python3-venv \
 		tar \
 	&& rm -rf /var/lib/apt/lists/*
 
-RUN python3 -m venv "${VIRTUAL_ENV}" \
+RUN python3 -m venv --system-site-packages "${VIRTUAL_ENV}" \
 	&& pip3 install --upgrade \
+		coloredlogs \
+		jsonschema \
+		paramiko \
+		pytest \
+		PyYAML \
 		tree-sitter \
 		tree-sitter-cpp
 

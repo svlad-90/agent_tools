@@ -37,6 +37,7 @@ from .core import AGENT_WORKSPACE_LANGUAGES
 from .core import AGENT_WORKSPACE_REASONING_EFFORTS
 from .core import AGENT_WORKSPACE_THEMES
 from .core import PAF_HIDE_TASK_ENV_VAR
+from .core import acquire_agent_workspace_lock
 from .core import agent_executable
 from .core import agent_install_command
 from .core import agent_label
@@ -1918,6 +1919,27 @@ class WorkspaceGtkGui:
         self._update_codex_button_state()
         return True
 
+    def _close_all_terminal_sessions(self) -> None:
+        for session in list(self.terminal_sessions.values()):
+            self._disconnect_terminal_callbacks(session.terminal)
+            self._close_console_session(session, confirm=False, ensure_default=False)
+
+    def _disconnect_terminal_callbacks(self, terminal: Vte.Terminal) -> None:
+        disconnect = getattr(terminal, "disconnect_by_func", None)
+        if disconnect is None:
+            return
+        for callback in (
+            self._on_terminal_button_press,
+            self._on_terminal_popup_menu,
+            self._on_terminal_key_press,
+            self._on_terminal_contents_changed,
+            self._on_terminal_child_exited,
+        ):
+            try:
+                disconnect(callback)
+            except (TypeError, ValueError, RuntimeError):
+                pass
+
     def _update_codex_button_state(self) -> None:
         task = self.selected_task
         running = task is not None and self._running_agent_session(task) is not None
@@ -2533,10 +2555,13 @@ class WorkspaceGtkGui:
         return not self._confirm_close_with_running_agents()
 
     def close(self, *_args: object) -> None:
+        if self._closing:
+            return
         self._closing = True
         if self.task_actions_monitor is not None:
             self.task_actions_monitor.cancel()
         self._clear_artifact_monitors()
+        self._close_all_terminal_sessions()
         self._save_settings()
         Gtk.main_quit()
 
@@ -3310,6 +3335,10 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     workspace = Path(args.workspace)
     install_agent_workspace_exception_logger(workspace, "gtk")
+    workspace_lock = acquire_agent_workspace_lock(workspace)
+    if workspace_lock is None:
+        print(f"Agent Workspace is already running for {workspace.resolve()}", file=sys.stderr)
+        return 0
 
     gui = WorkspaceGtkGui(workspace)
     gui.window.show_all()

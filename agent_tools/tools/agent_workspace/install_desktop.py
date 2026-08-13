@@ -8,7 +8,6 @@ import subprocess
 def main() -> int:
     workspace = Path(__file__).resolve().parents[3]
     icon_source = Path(__file__).with_name("assets") / "agent-workspace.svg"
-    desktop_source = workspace / "agent-workspace.desktop"
     icon_target = Path.home() / ".local/share/icons/hicolor/scalable/apps/agent-workspace.svg"
     desktop_target = Path.home() / ".local/share/applications/agent-workspace.desktop"
 
@@ -16,12 +15,31 @@ def main() -> int:
     icon_target.parent.mkdir(parents=True, exist_ok=True)
     desktop_target.parent.mkdir(parents=True, exist_ok=True)
     shutil.copy2(icon_source, icon_target)
-    shutil.copy2(desktop_source, desktop_target)
+    desktop_target.write_text(_desktop_entry(workspace), encoding="utf-8")
     _install_png_icons(icon_source)
 
     _run_optional(["gtk-update-icon-cache", "-f", str(icon_target.parents[2])])
     _run_optional(["update-desktop-database", str(desktop_target.parent)])
     return 0
+
+
+def _desktop_entry(workspace: Path) -> str:
+    launcher = workspace / "agent-workspace"
+    return "\n".join(
+        [
+            "[Desktop Entry]",
+            "Type=Application",
+            "Name=Agent Workspace",
+            "Comment=Open the local agent workspace task dashboard",
+            f"Exec={launcher}",
+            f"Path={workspace}",
+            "Icon=agent-workspace",
+            "Terminal=false",
+            "StartupWMClass=agent-workspace",
+            "Categories=Development;",
+            "",
+        ]
+    )
 
 
 def _install_png_icons(icon_source: Path) -> None:

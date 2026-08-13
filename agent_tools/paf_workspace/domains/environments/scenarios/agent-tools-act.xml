@@ -24,6 +24,10 @@
         <phase name="check"/>
     </scenario>
 
+    <scenario name="ensure-only">
+        <phase name="ensure"/>
+    </scenario>
+
     <scenario name="validate">
         <phase name="ensure"/>
         <phase name="validate"/>

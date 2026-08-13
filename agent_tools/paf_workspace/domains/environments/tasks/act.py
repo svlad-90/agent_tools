@@ -23,7 +23,10 @@ class ensure_agent_tools_act_image(EnvironmentTask):
         if self.bool_param("SKIP_AGENT_TOOLS_ACT_IMAGE_ENSURE"):
             logger.info("Skip Agent tools act image ensure: SKIP_AGENT_TOOLS_ACT_IMAGE_ENSURE is enabled")
             return
-        self.ensure_image_alias(self.environment_string("agent_tools_act", "image", "agent-tools-act"))
+        self.ensure_image_alias(
+            self.environment_string("agent_tools_act", "image", "agent-tools-act"),
+            force_rebuild=self.bool_param("ENVIRONMENT_FORCE_IMAGE_REBUILD"),
+        )
 
 
 class check_agent_tools_act_image(EnvironmentTask):
@@ -94,7 +97,10 @@ class ensure_moulin_act_image(EnvironmentTask):
         if self.bool_param("SKIP_MOULIN_ACT_IMAGE_ENSURE"):
             logger.info("Skip Moulin act image ensure: SKIP_MOULIN_ACT_IMAGE_ENSURE is enabled")
             return
-        self.ensure_image_alias(self.environment_string("moulin_act", "image", "moulin-act"))
+        self.ensure_image_alias(
+            self.environment_string("moulin_act", "image", "moulin-act"),
+            force_rebuild=self.bool_param("ENVIRONMENT_FORCE_IMAGE_REBUILD"),
+        )
 
 
 class check_moulin_act_image(EnvironmentTask):
@@ -168,7 +174,10 @@ class ensure_zephyr_xenlib_act_image(EnvironmentTask):
         if self.bool_param("SKIP_ZEPHYR_XENLIB_ACT_IMAGE_ENSURE"):
             logger.info("Skip zephyr-xenlib act image ensure: SKIP_ZEPHYR_XENLIB_ACT_IMAGE_ENSURE is enabled")
             return
-        self.ensure_image_alias(self.environment_string("zephyr_xenlib_act", "image", "zephyr-xenlib-act"))
+        self.ensure_image_alias(
+            self.environment_string("zephyr_xenlib_act", "image", "zephyr-xenlib-act"),
+            force_rebuild=self.bool_param("ENVIRONMENT_FORCE_IMAGE_REBUILD"),
+        )
 
 
 class check_zephyr_xenlib_act_image(EnvironmentTask):

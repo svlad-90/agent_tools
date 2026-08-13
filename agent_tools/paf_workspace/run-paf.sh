@@ -16,6 +16,7 @@ fi
 paf_url="${PAF_URL:-https://github.com/svlad-90/paf.git}"
 paf_ref="${PAF_REF:-35d66a21b587c8621d822e66b428a7dc080ea962}"
 paf_root="${PAF_ROOT:-${workspace_root}/agent_tools/.cache/paf}"
+paf_venv="${PAF_VENV:-${workspace_root}/agent_tools/.cache/paf-venv}"
 log_dir="${PAF_LOG_DIR:-${workspace_root}/report/paf}"
 
 if [ ! -f "${paf_root}/paf_main.py" ]; then
@@ -34,6 +35,45 @@ mkdir -p "${log_dir}"
 
 export PYTHONPATH="${paf_root}:${workspace_root}/agent_tools:${PYTHONPATH:-}"
 
+if command -v python3 >/dev/null 2>&1; then
+  python_bin=python3
+elif command -v python >/dev/null 2>&1; then
+  python_bin=python
+else
+  echo "error: python3/python was not found in PATH" >&2
+  exit 127
+fi
+
+if [ ! -x "${paf_venv}/bin/python" ]; then
+  "${python_bin}" -m venv "${paf_venv}"
+fi
+
+if ! "${paf_venv}/bin/python" - <<'PY'
+import importlib.util
+import sys
+
+missing = [
+    package
+    for package, module in (
+        ("coloredlogs>=15.0.1", "coloredlogs"),
+        ("jsonschema>=4.0.0", "jsonschema"),
+        ("paramiko>=3.0.0", "paramiko"),
+        ("pytest>=8.0.0", "pytest"),
+        ("PyYAML>=5.4.1", "yaml"),
+    )
+    if importlib.util.find_spec(module) is None
+]
+sys.exit(1 if missing else 0)
+PY
+then
+  "${paf_venv}/bin/python" -m pip install --upgrade \
+    "coloredlogs>=15.0.1" \
+    "jsonschema>=4.0.0" \
+    "paramiko>=3.0.0" \
+    "pytest>=8.0.0" \
+    "PyYAML>=5.4.1"
+fi
+
 config_path="$1"
 scenario_name="${2:-default}"
 shift
@@ -41,7 +81,7 @@ if [ "$#" -gt 0 ]; then
   shift
 fi
 
-python "${paf_root}/paf_main.py" \
+"${paf_venv}/bin/python" "${paf_root}/paf_main.py" \
   --import-module-dir "${workspace_root}/agent_tools/paf_workspace" \
   --config "${config_path}" \
   --scenario "${scenario_name}" \

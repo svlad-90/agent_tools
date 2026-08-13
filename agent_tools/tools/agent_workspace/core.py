@@ -3,6 +3,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime
 import faulthandler
+import fcntl
+import io
 import json
 import os
 from pathlib import Path
@@ -30,6 +32,7 @@ TASK_ACTION_LOGS_DIR = Path("report") / "logs"
 AGENT_WORKSPACE_SETTINGS_FILE = "settings.json"
 AGENT_WORKSPACE_TASK_STATE_FILE = ".agent-workspace-state.json"
 AGENT_WORKSPACE_CRASH_LOG_FILE = "agent-workspace-crash.log"
+AGENT_WORKSPACE_LOCK_FILE = ".agent-workspace.lock"
 AGENT_WORKSPACE_THEMES = ("light", "dark")
 AGENT_WORKSPACE_LANGUAGES = ("ru", "uk", "en")
 AGENT_WORKSPACE_AGENTS = ("codex", "claude")
@@ -218,6 +221,24 @@ _PREVIOUS_THREADING_EXCEPTHOOK: Any | None = None
 
 def agent_workspace_crash_log_path(workspace: Path) -> Path:
     return workspace.resolve() / AGENT_WORKSPACE_CRASH_LOG_FILE
+
+
+def agent_workspace_lock_path(workspace: Path) -> Path:
+    return workspace.resolve() / AGENT_WORKSPACE_LOCK_FILE
+
+
+def acquire_agent_workspace_lock(workspace: Path) -> io.TextIOWrapper | None:
+    lock_path = agent_workspace_lock_path(workspace)
+    try:
+        handle = lock_path.open("w", encoding="utf-8")
+        fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        handle.write(f"{os.getpid()}\n")
+        handle.flush()
+        return handle
+    except BlockingIOError:
+        return None
+    except OSError:
+        return None
 
 
 def log_agent_workspace_exception(

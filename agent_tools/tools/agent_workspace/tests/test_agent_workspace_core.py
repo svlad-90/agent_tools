@@ -29,6 +29,7 @@ from agent_tools.tools.agent_workspace.core import agent_output_state_update
 from agent_tools.tools.agent_workspace.core import agent_workspace_runtime_settings
 from agent_tools.tools.agent_workspace.core import agent_workspace_setting_or_default
 from agent_tools.tools.agent_workspace.core import analyze_agent_output
+from agent_tools.tools.agent_workspace.core import acquire_agent_workspace_lock
 from agent_tools.tools.agent_workspace.core import build_ai_agent_console_command
 from agent_tools.tools.agent_workspace.core import clear_task_agent_session
 from agent_tools.tools.agent_workspace.core import clear_task_active_agent_run
@@ -76,6 +77,7 @@ from agent_tools.tools.agent_workspace.core import task_selected_agent_has_resum
 from agent_tools.tools.agent_workspace.core import task_state_path
 from agent_tools.tools.agent_workspace import core as core_module
 from agent_tools.tools.agent_workspace import gtk_ui as gtk_ui_module
+from agent_tools.tools.agent_workspace import install_desktop as install_desktop_module
 from agent_tools.tools.agent_workspace.gtk_ui import WorkspaceGtkGui
 from agent_tools.tools.agent_workspace.gtk_ui import TerminalSession
 from agent_tools.tools.agent_workspace.gtk_ui import TRANSLATIONS as GTK_TRANSLATIONS
@@ -355,6 +357,14 @@ class FakeFrame:
 
     def destroy(self) -> None:
         self.destroyed = True
+
+
+class FakeSignalTerminal:
+    def __init__(self) -> None:
+        self.disconnected: list[object] = []
+
+    def disconnect_by_func(self, callback: object) -> None:
+        self.disconnected.append(callback)
 
 
 class FakeStringVar:
@@ -2812,6 +2822,35 @@ def test_gtk_close_console_session_clears_agent_state(tmp_path: Path) -> None:
     assert summary.path not in gui.last_active_terminal_by_task
 
 
+def test_gtk_close_disposes_terminal_sessions_before_quit(monkeypatch: object, tmp_path: Path) -> None:
+    task = tmp_path / "tasks" / "sample-task"
+    task.mkdir(parents=True)
+    summary = discover_tasks_with_context(task, tmp_path)
+    terminal = FakeSignalTerminal()
+    page = FakeFrame()
+    session = TerminalSession(1, summary.path, "shell", terminal, page)
+    gui = WorkspaceGtkGui.__new__(WorkspaceGtkGui)
+    gui._closing = False
+    gui.task_actions_monitor = None
+    gui.terminal_sessions = {session.session_id: session}
+    gui.last_active_terminal_by_task = {summary.path: session.session_id}
+    gui.selected_task = None
+    gui.console_notebook = type("Notebook", (), {"page_num": lambda self, page: -1})()
+    gui._clear_artifact_monitors = lambda: None  # type: ignore[method-assign]
+    gui._save_settings = lambda: None  # type: ignore[method-assign]
+    gui._task_for_path = lambda task_path: summary  # type: ignore[method-assign]
+    gui._update_codex_button_state = lambda: None  # type: ignore[method-assign]
+    main_quit_called = []
+    monkeypatch.setattr(gtk_ui_module.Gtk, "main_quit", lambda: main_quit_called.append(True))
+
+    gui.close()
+
+    assert session.session_id not in gui.terminal_sessions
+    assert page.destroyed
+    assert terminal.disconnected
+    assert main_quit_called == [True]
+
+
 def test_gtk_console_notebook_switch_remembers_active_task_terminal(tmp_path: Path) -> None:
     task = tmp_path / "tasks" / "sample-task"
     task.mkdir(parents=True)
@@ -3315,6 +3354,14 @@ def test_agent_workspace_desktop_uses_icon_name() -> None:
     assert "StartupWMClass=agent-workspace\n" in content
 
 
+def test_agent_workspace_desktop_entry_uses_current_workspace_path(tmp_path: Path) -> None:
+    content = install_desktop_module._desktop_entry(tmp_path)
+
+    assert f"Exec={tmp_path / 'agent-workspace'}\n" in content
+    assert f"Path={tmp_path}\n" in content
+    assert "/Projects/new_dev" not in content
+
+
 def test_gtk_agent_workspace_runtime_icon_falls_back_to_packaged_icon(monkeypatch: object, tmp_path: Path) -> None:
     monkeypatch.setattr(Path, "home", lambda: tmp_path)  # type: ignore[attr-defined]
 
@@ -3401,6 +3448,19 @@ def test_log_agent_workspace_exception_writes_traceback_to_workspace_root(tmp_pa
     content = log_path.read_text(encoding="utf-8")
     assert "Agent Workspace test exception" in content
     assert "RuntimeError: boom" in content
+
+
+def test_agent_workspace_lock_allows_single_running_instance(tmp_path: Path) -> None:
+    first = acquire_agent_workspace_lock(tmp_path)
+    assert first is not None
+    try:
+        assert acquire_agent_workspace_lock(tmp_path) is None
+    finally:
+        first.close()
+
+    second = acquire_agent_workspace_lock(tmp_path)
+    assert second is not None
+    second.close()
 
 
 def test_tk_agent_output_missing_session_wins_over_permission_prompt(tmp_path: Path) -> None:
