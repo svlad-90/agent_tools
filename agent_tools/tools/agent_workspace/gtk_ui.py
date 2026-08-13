@@ -2028,14 +2028,20 @@ class WorkspaceGtkGui:
                 has_external_agent,
                 self.theme,
             )
-            self.task_store[row_iter][0] = self._task_agent_status(task)
-            self.task_store[row_iter][1] = self._task_label(task)
-            self.task_store[row_iter][3] = background
-            self.task_store[row_iter][4] = background_set
-            self.task_store[row_iter][5] = foreground
-            self.task_store[row_iter][6] = foreground_set
-            self.task_store[row_iter][7] = weight
-            self.task_store[row_iter][8] = weight_set
+            self.task_store.set(
+                row_iter,
+                [0, 1, 3, 4, 5, 6, 7, 8],
+                [
+                    str(self._task_agent_status(task)),
+                    str(self._task_label(task)),
+                    str(background),
+                    bool(background_set),
+                    str(foreground),
+                    bool(foreground_set),
+                    int(weight),
+                    bool(weight_set),
+                ],
+            )
             row_iter = self.task_store.iter_next(row_iter)
         self._ensure_selected_task_is_selectable()
 

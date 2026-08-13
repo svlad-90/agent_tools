@@ -119,6 +119,7 @@ from agent_tools.tools.agent_workspace.ui import AgentWorkspace
 from agent_tools.tools.agent_workspace.actions import main as actions_main
 from gi.repository import Gdk
 from gi.repository import Gtk
+from gi.repository import Pango
 
 
 class FakeConsoleText:
@@ -422,6 +423,7 @@ class FakeTkTaskTree:
 class FakeGtkTaskStore:
     def __init__(self, rows: list[list[object]]) -> None:
         self.rows = rows
+        self.set_calls: list[tuple[int, list[int], list[object]]] = []
 
     def clear(self) -> None:
         self.rows.clear()
@@ -435,6 +437,11 @@ class FakeGtkTaskStore:
     def iter_next(self, row_iter: int) -> int | None:
         next_iter = row_iter + 1
         return next_iter if next_iter < len(self.rows) else None
+
+    def set(self, row_iter: int, columns: list[int], values: list[object]) -> None:
+        self.set_calls.append((row_iter, columns, values))
+        for column, value in zip(columns, values):
+            self.rows[row_iter][column] = value
 
     def __getitem__(self, row_iter: int) -> list[object]:
         return self.rows[row_iter]
@@ -1793,6 +1800,30 @@ def test_gtk_task_agent_status_shows_external_legacy_workspace_lock(tmp_path: Pa
 
     gui._local_agent_run_ids = lambda: {"external-run"}
     assert gui._task_agent_status(summary) != "×"
+
+
+def test_gtk_refresh_task_row_styles_uses_batch_store_set(tmp_path: Path) -> None:
+    task = tmp_path / "tasks" / "sample-task"
+    task.mkdir(parents=True)
+    summary = discover_tasks_with_context(task, tmp_path)
+    gui = WorkspaceGtkGui.__new__(WorkspaceGtkGui)
+    gui.task_store = FakeGtkTaskStore([["", "", summary, "", False, "", False, 0, False]])
+    gui.terminal_sessions = {}
+    gui.theme = "dark"
+    gui.selected_task = None
+    gui._task_has_resumable_agent_session = lambda _task: False
+    gui._task_is_external_active = lambda _task: False
+    gui._task_agent_status = lambda _task: "□"
+    gui._task_label = lambda task: task.name
+    gui._ensure_selected_task_is_selectable = lambda: None
+
+    gui._refresh_task_row_styles()
+
+    assert len(gui.task_store.set_calls) == 1
+    row_iter, columns, values = gui.task_store.set_calls[0]
+    assert row_iter == 0
+    assert columns == [0, 1, 3, 4, 5, 6, 7, 8]
+    assert values == ["□", "sample-task", "", False, "", False, int(Pango.Weight.NORMAL), False]
 
 
 def test_gtk_refresh_tasks_selects_open_task_when_previous_is_locked(tmp_path: Path, monkeypatch) -> None:
