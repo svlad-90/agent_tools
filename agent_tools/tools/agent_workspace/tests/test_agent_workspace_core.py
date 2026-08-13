@@ -1826,6 +1826,41 @@ def test_gtk_refresh_task_row_styles_uses_batch_store_set(tmp_path: Path) -> Non
     assert values == ["□", "sample-task", "", False, "", False, int(Pango.Weight.NORMAL), False]
 
 
+def test_gtk_animate_agent_status_reuses_session_marker_cache(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    task = tmp_path / "tasks" / "sample-task"
+    task.mkdir(parents=True)
+    summary = discover_tasks_with_context(task, tmp_path)
+    calls: list[Path] = []
+
+    def session_markers(task: TaskSummary, _workspace: Path) -> tuple[str, ...]:
+        calls.append(task.path)
+        return ("Ⅱ",)
+
+    gui = WorkspaceGtkGui.__new__(WorkspaceGtkGui)
+    gui.workspace = tmp_path
+    gui.task_store = FakeGtkTaskStore([["", "", summary, "", False, "", False, 0, False]])
+    gui.terminal_sessions = {}
+    gui.theme = "dark"
+    gui.selected_task = None
+    gui._closing = False
+    gui._agent_spinner_index = 0
+    gui._task_is_external_active = lambda _task: False
+    gui._task_has_pending_agent_permission = lambda _task: False
+    gui._running_agent_sessions = lambda: [object()]
+    gui._current_task_terminal_sessions = lambda _task: ()
+    gui._task_label = lambda task: task.name
+    gui._ensure_selected_task_is_selectable = lambda: None
+    monkeypatch.setattr(gtk_ui_module, "task_agent_session_markers", session_markers)
+
+    assert gui._animate_agent_status()
+    assert gui._animate_agent_status()
+
+    assert calls == [summary.path]
+
+
 def test_gtk_refresh_tasks_selects_open_task_when_previous_is_locked(tmp_path: Path, monkeypatch) -> None:
     locked_path = tmp_path / "tasks" / "locked-task"
     open_path = tmp_path / "tasks" / "open-task"

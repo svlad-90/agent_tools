@@ -429,6 +429,7 @@ class WorkspaceGtkGui:
         self.artifact_monitor_path: Path | None = None
         self.artifact_sort_column = "name"
         self.artifact_sort_descending = False
+        self.task_agent_session_marker_cache: dict[Path, tuple[str, ...]] = {}
         self.terminal_sessions: dict[int, TerminalSession] = {}
         self.last_active_terminal_by_task: dict[Path, int] = {}
         self.next_terminal_id = 1
@@ -622,6 +623,7 @@ class WorkspaceGtkGui:
     def refresh_tasks(self, *_args: object) -> None:
         selected_name = self.selected_task.name if self.selected_task is not None else None
         self.tasks = discover_tasks(self.workspace)
+        self._invalidate_task_session_marker_cache()
         self.task_store.clear()
         for task in self.tasks:
             self.task_store.append(
@@ -1467,7 +1469,9 @@ class WorkspaceGtkGui:
                         self._set_selected_agent(old_agent)
                         return
                     clear_task_agent_session(task, old_agent)
+                    self._invalidate_task_session_marker_cache(task)
                 save_task_agent(task, agent)
+                self._invalidate_task_session_marker_cache(task)
                 self._update_codex_button_state()
                 return
             self._switch_task_agent(task, agent, start_if_changed=True)
@@ -1485,6 +1489,7 @@ class WorkspaceGtkGui:
             return
         agent = self._selected_agent()
         reset_task_agent_session(task, agent)
+        self._invalidate_task_session_marker_cache(task)
         self._update_codex_button_state()
 
     def _agent_model(self, agent: str) -> str:
@@ -1513,18 +1518,21 @@ class WorkspaceGtkGui:
         agent = decision.agent
         if decision.action == "activate_current":
             save_task_agent_session(task, agent)
+            self._invalidate_task_session_marker_cache(task)
             self._activate_terminal(current.session_id)
             self._update_codex_button_state()
             return
         if decision.action == "keep_current":
             self._set_selected_agent(agent)
             save_task_agent(task, agent)
+            self._invalidate_task_session_marker_cache(task)
             return
         if decision.action == "confirm_switch":
             current_agent = decision.current_agent or agent
             if not self._confirm_agent_switch(current_agent, agent):
                 self._set_selected_agent(current_agent)
                 save_task_agent(task, current_agent)
+                self._invalidate_task_session_marker_cache(task)
                 return
         if not self._ensure_agent_installed(agent):
             if current is not None:
@@ -1532,6 +1540,7 @@ class WorkspaceGtkGui:
             return
         if current is not None:
             save_task_agent_session(task, current.kind)
+            self._invalidate_task_session_marker_cache(task)
             self._close_console_session(current, confirm=False, ensure_default=False)
         launch = prepare_ai_agent_launch_command(
             task,
@@ -1937,7 +1946,25 @@ class WorkspaceGtkGui:
         self.reset_ai_agent_button.set_sensitive(state.reset_enabled)
 
     def _task_has_resumable_agent_session(self, task: TaskSummary) -> bool:
-        return bool(task_agent_session_markers(task, self.workspace))
+        return bool(self._task_agent_session_markers(task))
+
+    def _task_agent_session_markers(self, task: TaskSummary) -> tuple[str, ...]:
+        cache = getattr(self, "task_agent_session_marker_cache", None)
+        if cache is None:
+            cache = {}
+            self.task_agent_session_marker_cache = cache
+        if task.path not in cache:
+            cache[task.path] = task_agent_session_markers(task, self.workspace)
+        return cache[task.path]
+
+    def _invalidate_task_session_marker_cache(self, task: TaskSummary | None = None) -> None:
+        cache = getattr(self, "task_agent_session_marker_cache", None)
+        if cache is None:
+            return
+        if task is None:
+            cache.clear()
+            return
+        cache.pop(task.path, None)
 
     def _task_running_agent_kinds(self, task: TaskSummary) -> tuple[str, ...]:
         local_agents = tuple(
@@ -1963,6 +1990,7 @@ class WorkspaceGtkGui:
             running_agents=running_agents,
             external_active=self._task_is_external_active(task),
             spinner_frame=AGENT_RUNNING_SPINNER_FRAMES[self._agent_spinner_index] if has_busy_agent else "",
+            session_markers=self._task_agent_session_markers(task),
         )
 
     def _set_agent_session_busy(self, session: TerminalSession, busy: bool) -> None:
@@ -1997,6 +2025,7 @@ class WorkspaceGtkGui:
     def _handle_agent_restore_failed(self, session: TerminalSession) -> None:
         task = self._task_for_path(session.task_path)
         clear_task_agent_session(task, session.kind)
+        self._invalidate_task_session_marker_cache(task)
         self._set_status_message(
             self._tr("restore_failed_status").format(
                 agent=agent_label(session.kind),

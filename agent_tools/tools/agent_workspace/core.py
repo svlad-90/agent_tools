@@ -1248,6 +1248,7 @@ def task_agent_status_text(
     running_agents: tuple[str, ...] = (),
     external_active: bool = False,
     spinner_frame: str = "",
+    session_markers: tuple[str, ...] | None = None,
     home: Path | None = None,
 ) -> str:
     _ = permission_pending
@@ -1257,7 +1258,11 @@ def task_agent_status_text(
         return AGENT_EXTERNAL_ACTIVE_MARKER
     if running_agents:
         return "▷"
-    markers = list(task_agent_session_markers(task, workspace, home=home))
+    markers = list(
+        session_markers
+        if session_markers is not None
+        else task_agent_session_markers(task, workspace, home=home)
+    )
     parts.extend(markers)
     return " ".join(parts) if parts else AGENT_IDLE_MARKER
 
