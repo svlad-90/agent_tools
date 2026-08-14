@@ -140,7 +140,7 @@ def status(args: argparse.Namespace) -> int:
     return 0
 
 
-def _pushed_commits(stdin_text: str, repo: Path) -> list[str]:
+def _pushed_ref_tips(stdin_text: str, repo: Path) -> list[str]:
     commits: list[str] = []
     for line in stdin_text.splitlines():
         fields = line.split()
@@ -152,6 +152,35 @@ def _pushed_commits(stdin_text: str, repo: Path) -> list[str]:
         commits.append(local_sha)
     if commits:
         return commits
+    return [_head_commit(repo, "HEAD")]
+
+
+def _pushed_commits(stdin_text: str, repo: Path) -> list[str]:
+    seen: set[str] = set()
+    result: list[str] = []
+
+    for line in stdin_text.splitlines():
+        fields = line.split()
+        if len(fields) < 4:
+            continue
+        local_sha = fields[1]
+        remote_sha = fields[3]
+        if local_sha == ZERO_SHA:
+            continue
+
+        if remote_sha == ZERO_SHA:
+            rev_args = [local_sha, "--not", "--remotes"]
+        else:
+            rev_args = [local_sha, "--not", remote_sha, "--remotes"]
+
+        hashes = _run_git(["rev-list", "--reverse", *rev_args], cwd=repo).splitlines()
+        for commit in hashes:
+            if commit not in seen:
+                seen.add(commit)
+                result.append(commit)
+
+    if result:
+        return result
     return [_head_commit(repo, "HEAD")]
 
 
@@ -306,6 +335,7 @@ def check(args: argparse.Namespace) -> int:
     repo = _repo_root(Path.cwd())
     stdin_text = sys.stdin.read()
     commits = _pushed_commits(stdin_text, repo)
+    ref_tips = _pushed_ref_tips(stdin_text, repo)
     findings = _guarded_pushed_file_findings(repo, commits)
     if findings:
         _print_guarded_findings(findings, action="push")
@@ -313,7 +343,7 @@ def check(args: argparse.Namespace) -> int:
 
     missing = [
         commit
-        for commit in commits
+        for commit in ref_tips
         if not _stamp_path(repo, commit).is_file()
     ]
     if not missing:

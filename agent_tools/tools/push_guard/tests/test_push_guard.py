@@ -9,6 +9,7 @@ from agent_tools.tools.push_guard import _guarded_pushed_file_findings
 from agent_tools.tools.push_guard import _guarded_staged_file_findings
 from agent_tools.tools.push_guard import _head_commit
 from agent_tools.tools.push_guard import _print_guarded_findings
+from agent_tools.tools.push_guard import _pushed_commits
 from agent_tools.tools.push_guard import _validated_receipt_source
 from agent_tools.tools.push_guard import PushedFileFinding
 
@@ -82,6 +83,36 @@ def test_guarded_pushed_file_findings_detects_artifacts_and_secrets(tmp_path: Pa
         (finding.path, finding.reason) for finding in findings
     ]
     assert any(finding.path == "token.txt" and "secret pattern" in finding.reason for finding in findings)
+
+
+def test_pushed_commits_expands_new_branch_range_for_file_guards(tmp_path: Path) -> None:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _init_repo(repo)
+    (repo / "README.md").write_text("base\n", encoding="utf-8")
+    _git(repo, "add", "README.md")
+    _git(repo, "commit", "-m", "Initial")
+
+    artifact = repo / "early.zip"
+    artifact.write_text("artifact\n", encoding="utf-8")
+    _git(repo, "add", "early.zip")
+    _git(repo, "commit", "-m", "Add artifact")
+
+    artifact.unlink()
+    _git(repo, "rm", "early.zip")
+    (repo / "README.md").write_text("base\nclean tip\n", encoding="utf-8")
+    _git(repo, "add", "README.md")
+    _git(repo, "commit", "-m", "Clean tip")
+    head = _head_commit(repo, "HEAD")
+    stdin_text = f"refs/heads/topic {head} refs/heads/topic {'0' * 40}\n"
+
+    commits = _pushed_commits(stdin_text, repo)
+    findings = _guarded_pushed_file_findings(repo, commits)
+
+    assert len(commits) == 3
+    assert ("early.zip", "artifact-like file suffix '.zip' is blocked") in [
+        (finding.path, finding.reason) for finding in findings
+    ]
 
 
 def test_guarded_staged_file_findings_detects_artifacts_before_commit(tmp_path: Path) -> None:
