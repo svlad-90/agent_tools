@@ -98,3 +98,38 @@ These rules apply to every repository under the workspace root.
    If the build cannot be run or fails, do not push unless the user explicitly
    overrides this rule after being told the exact command and failure or
    blocker.
+7. Do not store personal Git identities, email addresses, usernames, tokens, or
+   organization-specific account mappings in tracked workspace files. Use local
+   Git config, environment variables, or ignored/private configuration files.
+
+   Repositories with GitHub remotes under `xen-troops` require an explicit
+   private identity rule before push. Configure it outside tracked source, for
+   example via:
+
+   ```sh
+   git config agentTools.identityRulesFile ~/.config/agent_tools/identity-rules.json
+   ```
+
+   The JSON file uses this shape:
+
+   ```json
+   {
+     "rules": [
+       {
+         "github_owner": "xen-troops",
+         "user_name": "Name From Local Git Config",
+         "user_email": "email-from-local-git-config@example.com"
+       }
+     ]
+   }
+   ```
+
+   The pre-push commit-message hook checks the target repository's local
+   `user.name` and `user.email` against that private rule. Keep the concrete
+   personal values out of commits, public knowledge, and task artifacts unless
+   the task explicitly requires sharing them.
+
+   When reporting commit or hook results back to the user, do not echo the
+   concrete local Git identity from `git log`, `git config`, or hook output.
+   Say that the sign-off matched the repository's local identity, or that the
+   local identity must be checked, without repeating the name or email.

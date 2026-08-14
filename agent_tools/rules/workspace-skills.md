@@ -25,13 +25,12 @@ environments, and recurring workflows.
    skill, add or update a workspace-local `agent_tools/skills/` wrapper before
    treating the workflow as reusable.
 7. Keep reusable PAF automation under `agent_tools/paf_workspace/domains/`.
-   Model those directories as automation spheres, similar to the historical
-   `/home/vladyslav_goncharuk/Projects/tools/aasig_dev_platform/build/`
-   layout: a domain may contain PAF task modules, runnable scenarios, target
-   profiles, templates for task-local customization, and an `assets/`
-   directory for non-PAF support code owned by that domain. Do not leave a
-   repeatable build, orchestration, or test workflow only inside one task
-   directory once it is useful for multiple tasks.
+   Model those directories as automation spheres: a domain may contain PAF task
+   modules, runnable scenarios, target profiles, templates for task-local
+   customization, and an `assets/` directory for non-PAF support code owned by
+   that domain. Do not leave a repeatable build, orchestration, or test
+   workflow only inside one task directory once it is useful for multiple
+   tasks.
 8. Use PAF as the default entry point for repeatable multi-stage validation.
    A task that must fetch or select sources, build Docker environments, build
    Moulin products, resolve artifacts, run a harness, and collect evidence

@@ -4,17 +4,29 @@
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import re
 import subprocess
 import sys
 import tempfile
+from dataclasses import dataclass
 from pathlib import Path
 
 from agent_tools.tools.commit_msg import compose_commit_message
 
 
 WORKSPACE_ROOT = Path(__file__).resolve().parents[3]
+IDENTITY_RULES_ENV = "AGENT_TOOLS_IDENTITY_RULES"
+IDENTITY_RULES_GIT_CONFIG = "agentTools.identityRulesFile"
+REQUIRED_IDENTITY_GITHUB_OWNERS = ("xen-troops",)
+
+
+@dataclass(frozen=True)
+class IdentityRule:
+    github_owner: str
+    user_name: str
+    user_email: str
 
 
 def run(
@@ -108,6 +120,130 @@ def expected_signoff(repo: Path) -> str:
     if not name or not email:
         raise SystemExit("git user.name and user.email must be configured")
     return f"Signed-off-by: {name} <{email}>"
+
+
+def optional_git(repo: Path, *args: str) -> str | None:
+    result = subprocess.run(
+        ["git", "-C", str(repo), *args],
+        check=False,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+    if result.returncode != 0:
+        return None
+    value = result.stdout.strip()
+    return value or None
+
+
+def configured_identity_rules_path(repo: Path) -> Path:
+    env_path = os.environ.get(IDENTITY_RULES_ENV)
+    if env_path:
+        return Path(env_path).expanduser()
+
+    git_path = optional_git(repo, "config", "--get", IDENTITY_RULES_GIT_CONFIG)
+    if git_path:
+        return Path(git_path).expanduser()
+
+    config_home = os.environ.get("XDG_CONFIG_HOME")
+    if config_home:
+        return Path(config_home).expanduser() / "agent_tools" / "identity-rules.json"
+    return Path.home() / ".config" / "agent_tools" / "identity-rules.json"
+
+
+def load_identity_rules(repo: Path) -> list[IdentityRule]:
+    path = configured_identity_rules_path(repo)
+    if not path.is_file():
+        return []
+
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    raw_rules = payload.get("rules", [])
+    if not isinstance(raw_rules, list):
+        raise SystemExit(f"{path}: 'rules' must be a list")
+
+    rules: list[IdentityRule] = []
+    for index, raw_rule in enumerate(raw_rules, start=1):
+        if not isinstance(raw_rule, dict):
+            raise SystemExit(f"{path}: rule {index} must be an object")
+        github_owner = str(raw_rule.get("github_owner", "")).strip().lower()
+        user_name = str(raw_rule.get("user_name", "")).strip()
+        user_email = str(raw_rule.get("user_email", "")).strip()
+        if not github_owner or not user_name or not user_email:
+            raise SystemExit(
+                f"{path}: rule {index} needs github_owner, user_name, and user_email"
+            )
+        rules.append(
+            IdentityRule(
+                github_owner=github_owner,
+                user_name=user_name,
+                user_email=user_email,
+            )
+        )
+    return rules
+
+
+def github_owner_from_remote_url(remote_url: str) -> str | None:
+    remote_url = remote_url.strip()
+    patterns = (
+        r"^git@github\.com:([^/]+)/[^/]+(?:\.git)?$",
+        r"^ssh://git@github\.com/([^/]+)/[^/]+(?:\.git)?$",
+        r"^https://github\.com/([^/]+)/[^/]+(?:\.git)?$",
+    )
+    for pattern in patterns:
+        match = re.match(pattern, remote_url)
+        if match:
+            return match.group(1).lower()
+    return None
+
+
+def github_remote_owners(repo: Path) -> set[str]:
+    output = optional_git(repo, "config", "--get-regexp", r"^remote\..*\.url$")
+    if not output:
+        return set()
+
+    owners: set[str] = set()
+    for line in output.splitlines():
+        fields = line.split(maxsplit=1)
+        if len(fields) != 2:
+            continue
+        owner = github_owner_from_remote_url(fields[1])
+        if owner is not None:
+            owners.add(owner)
+    return owners
+
+
+def check_repo_identity(repo: Path) -> int:
+    required_owners = set(REQUIRED_IDENTITY_GITHUB_OWNERS)
+    matching_owners = sorted(github_remote_owners(repo) & required_owners)
+    if not matching_owners:
+        return 0
+
+    rules_by_owner = {rule.github_owner: rule for rule in load_identity_rules(repo)}
+    failures: list[str] = []
+    configured_path = configured_identity_rules_path(repo)
+
+    actual_name = optional_git(repo, "config", "--get", "user.name") or ""
+    actual_email = optional_git(repo, "config", "--get", "user.email") or ""
+
+    for owner in matching_owners:
+        rule = rules_by_owner.get(owner)
+        if rule is None:
+            failures.append(
+                f"GitHub owner '{owner}' requires a private identity rule. "
+                f"Create {configured_path} or set {IDENTITY_RULES_ENV}."
+            )
+            continue
+        if actual_name != rule.user_name or actual_email != rule.user_email:
+            failures.append(
+                f"GitHub owner '{owner}' requires git user.name/user.email "
+                "from the private identity rule. Check this repository's "
+                "local git config before pushing."
+            )
+
+    if failures:
+        print("\n".join(failures), file=sys.stderr)
+        return 1
+    return 0
 
 
 def iter_commits(repo: Path, rev_range: str) -> list[tuple[str, str]]:
@@ -247,6 +383,10 @@ def check_commits(
 
 
 def check_pre_push(repo: Path, width: int) -> int:
+    identity_status = check_repo_identity(repo)
+    if identity_status != 0:
+        return identity_status
+
     stdin_text = sys.stdin.read()
     return check_commits(
         repo,
