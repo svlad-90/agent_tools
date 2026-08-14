@@ -1242,6 +1242,9 @@ def test_gtk_task_init_command_uses_task_check_layout(tmp_path: Path) -> None:
         "--init-layout",
     ]
 
+    private_command = gtk_task_init_command(tmp_path, task_path, privacy="private")
+    assert private_command == command + ["--privacy", "private"]
+
 
 def test_gtk_task_actions_signature_tracks_file_mtime(tmp_path: Path) -> None:
     task = tmp_path / "tasks" / "sample-task"

@@ -12,6 +12,7 @@ import yaml
 
 
 REQUIRED_DIRS = ("dev", "Dockerfile", "scripts", "report", "report/diff", "report/puml")
+TASK_METADATA_FILE = "TASK_METADATA.json"
 TASK_CONTEXT_SECTIONS = (
     "## Goal",
     "## Repositories",
@@ -91,6 +92,12 @@ def main(argv: list[str] | None = None) -> int:
         ),
     )
     parser.add_argument(
+        "--privacy",
+        choices=("public", "private"),
+        default="public",
+        help="Task visibility metadata to write when initializing layout. Default: public.",
+    )
+    parser.add_argument(
         "--init-runtime-product",
         action="store_true",
         help="Create runtime product manifest, Xen scenario directory, starter scenario, and runtime report directory.",
@@ -111,7 +118,7 @@ def main(argv: list[str] | None = None) -> int:
     task_dir = _resolve_task_dir(workspace, args.task_dir)
     init_checks: list[Check] = []
     if args.init_layout or args.init_runtime_product:
-        init_checks = initialize_task_layout(task_dir, workspace=workspace)
+        init_checks = initialize_task_layout(task_dir, workspace=workspace, privacy=args.privacy)
     if args.init_runtime_product:
         init_checks.extend(initialize_runtime_product(task_dir, workspace=workspace))
     checks = check_task(
@@ -155,7 +162,7 @@ def check_task(
     if context_text is not None:
         checks.extend(_check_task_context(task_dir, context_text))
 
-    manifests = sorted((task_dir / "dev").rglob("product-artifacts.yaml")) if (task_dir / "dev").exists() else []
+    manifests = _find_artifact_manifests(task_dir)
     harness_profiles = _find_xen_zephyr_harness_profiles(task_dir)
 
     has_runtime_hints = _has_runtime_hints(context_text or "")
@@ -189,7 +196,7 @@ def check_task(
     return checks
 
 
-def initialize_task_layout(task_dir: Path, *, workspace: Path) -> list[Check]:
+def initialize_task_layout(task_dir: Path, *, workspace: Path, privacy: str = "public") -> list[Check]:
     checks: list[Check] = []
     try:
         task_dir.relative_to(workspace)
@@ -240,6 +247,16 @@ def initialize_task_layout(task_dir: Path, *, workspace: Path) -> list[Check]:
         template = TASK_CONTEXT_TEMPLATE.read_text(encoding="utf-8")
         context_path.write_text(template, encoding="utf-8")
         checks.append(Check("PASS", "init-task-context", "created TASK_CONTEXT.md from template", str(context_path)))
+
+    metadata_path = task_dir / TASK_METADATA_FILE
+    if metadata_path.exists():
+        checks.append(Check("PASS", "init-task-metadata-existing", f"{TASK_METADATA_FILE} already exists", str(metadata_path)))
+    else:
+        metadata = {
+            "privacy": privacy,
+        }
+        metadata_path.write_text(json.dumps(metadata, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+        checks.append(Check("PASS", "init-task-metadata", f"created {TASK_METADATA_FILE}", str(metadata_path)))
 
     return checks
 
@@ -454,6 +471,27 @@ def _check_artifact_manifests(task_dir: Path, manifests: list[Path]) -> list[Che
         else:
             checks.append(Check("PASS", "artifact-manifest", "artifact manifest has core sections", str(manifest)))
     return checks
+
+
+def _find_artifact_manifests(task_dir: Path) -> list[Path]:
+    dev_dir = task_dir / "dev"
+    if not dev_dir.exists():
+        return []
+    manifests: list[Path] = []
+    for path in dev_dir.rglob("product-artifacts.yaml"):
+        if _is_inside_nested_repo(path, dev_dir):
+            continue
+        manifests.append(path)
+    return sorted(manifests)
+
+
+def _is_inside_nested_repo(path: Path, root: Path) -> bool:
+    for parent in path.parents:
+        if parent == root:
+            return False
+        if (parent / ".git").exists():
+            return True
+    return False
 
 
 def _find_xen_zephyr_harness_profiles(task_dir: Path) -> list[Path]:
