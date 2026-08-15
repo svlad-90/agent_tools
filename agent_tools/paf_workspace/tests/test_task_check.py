@@ -20,6 +20,29 @@ def test_initialize_task_layout_creates_description_and_context(tmp_path: Path) 
     assert _has_check(checks, "PASS", "task-description")
 
 
+def test_initialize_task_layout_records_task_privacy(tmp_path: Path) -> None:
+    task_dir = tmp_path / "tasks" / "sample-task"
+
+    initialize_task_layout(task_dir, workspace=tmp_path, privacy="private")
+
+    assert '"privacy": "private"' in (task_dir / "TASK_METADATA.json").read_text(encoding="utf-8")
+
+
+def test_nested_worktree_manifests_do_not_make_task_runtime_product(tmp_path: Path) -> None:
+    task_dir = tmp_path / "tasks" / "sample-task"
+    initialize_task_layout(task_dir, workspace=tmp_path)
+    nested = task_dir / "dev" / "agent_tools_copy"
+    nested.mkdir()
+    (nested / ".git").write_text("gitdir: /tmp/worktree\n", encoding="utf-8")
+    manifest = nested / "agent_tools" / "paf_workspace" / "templates" / "product-artifacts.yaml"
+    manifest.parent.mkdir(parents=True)
+    manifest.write_text("product:\nartifacts:\ndomains:\nvalidation:\n", encoding="utf-8")
+
+    checks = check_task(task_dir, workspace=tmp_path)
+
+    assert _has_check(checks, "PASS", "artifact-manifest-not-required")
+
+
 def test_missing_task_description_is_warning_for_existing_task(tmp_path: Path) -> None:
     task_dir = tmp_path / "tasks" / "sample-task"
     initialize_task_layout(task_dir, workspace=tmp_path)

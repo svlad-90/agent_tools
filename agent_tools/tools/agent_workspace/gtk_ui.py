@@ -172,6 +172,9 @@ TRANSLATIONS = {
         "task_agent_status_column": "AI",
         "task_details": "Task Details",
         "task_name": "Task name",
+        "task_privacy": "Task privacy",
+        "task_privacy_private": "Private",
+        "task_privacy_public": "Public",
         "tasks": "tasks",
         "text_font_size": "Text font size",
         "theme": "Theme",
@@ -265,6 +268,9 @@ TRANSLATIONS = {
         "task_agent_status_column": "ИИ",
         "task_details": "Детали задачи",
         "task_name": "Имя задачи",
+        "task_privacy": "Приватность задачи",
+        "task_privacy_private": "Приватная",
+        "task_privacy_public": "Публичная",
         "tasks": "задач",
         "text_font_size": "Размер шрифта текста",
         "theme": "Тема",
@@ -358,6 +364,9 @@ TRANSLATIONS = {
         "task_agent_status_column": "ШІ",
         "task_details": "Деталі задачі",
         "task_name": "Назва задачі",
+        "task_privacy": "Приватність задачі",
+        "task_privacy_private": "Приватна",
+        "task_privacy_public": "Публічна",
         "tasks": "задач",
         "text_font_size": "Розмір шрифту тексту",
         "theme": "Тема",
@@ -413,6 +422,12 @@ class ArtifactEntry:
     group: str
     path: Path
     updated: float
+
+
+@dataclass(frozen=True)
+class NewTaskRequest:
+    name: str
+    privacy: str
 
 
 class WorkspaceGtkGui:
@@ -1066,18 +1081,18 @@ class WorkspaceGtkGui:
             open_path(self.selected_task.path / "dev")
 
     def add_task(self, *_args: object) -> None:
-        task_name = self._prompt_task_name()
-        if task_name is None:
+        request = self._prompt_task_name()
+        if request is None:
             return
-        task_path = _task_path_for_name(self.workspace, task_name)
+        task_path = _task_path_for_name(self.workspace, request.name)
         if task_path is None:
-            self._show_error(f"Invalid task name: {task_name}")
+            self._show_error(f"Invalid task name: {request.name}")
             return
         if task_path.exists():
             self._show_error(f"{self._tr('task_already_exists')}: {task_path}")
             return
         result = subprocess.run(
-            _task_init_command(self.workspace, task_path),
+            _task_init_command(self.workspace, task_path, privacy=request.privacy),
             cwd=self.workspace,
             text=True,
             capture_output=True,
@@ -1098,7 +1113,7 @@ class WorkspaceGtkGui:
         self.selected_task = None
         self.refresh_tasks()
 
-    def _prompt_task_name(self) -> str | None:
+    def _prompt_task_name(self) -> NewTaskRequest | None:
         dialog = Gtk.Dialog(
             title=self._tr("add_task"),
             transient_for=self.window,
@@ -1115,13 +1130,30 @@ class WorkspaceGtkGui:
         entry = Gtk.Entry()
         box.pack_start(label, False, False, 0)
         box.pack_start(entry, False, False, 0)
+
+        privacy_label = Gtk.Label(label=self._tr("task_privacy"))
+        privacy_label.set_xalign(0)
+        public_radio = Gtk.RadioButton.new_with_label_from_widget(
+            None,
+            self._tr("task_privacy_public"),
+        )
+        private_radio = Gtk.RadioButton.new_with_label_from_widget(
+            public_radio,
+            self._tr("task_privacy_private"),
+        )
+        public_radio.set_active(True)
+        box.pack_start(privacy_label, False, False, 0)
+        box.pack_start(public_radio, False, False, 0)
+        box.pack_start(private_radio, False, False, 0)
+
         dialog.show_all()
         response = dialog.run()
         task_name = entry.get_text().strip()
+        privacy = "private" if private_radio.get_active() else "public"
         dialog.destroy()
         if response != Gtk.ResponseType.OK or not task_name:
             return None
-        return task_name
+        return NewTaskRequest(name=task_name, privacy=privacy)
 
     def _confirm_delete_task(self, task: TaskSummary) -> bool:
         dialog = Gtk.MessageDialog(
@@ -2765,8 +2797,13 @@ def _task_path_for_name(workspace: Path, task_name: str) -> Path | None:
     return task_path
 
 
-def _task_init_command(workspace: Path, task_path: Path) -> list[str]:
-    return [
+def _task_init_command(
+    workspace: Path,
+    task_path: Path,
+    *,
+    privacy: str = "public",
+) -> list[str]:
+    command = [
         sys_executable(),
         "-m",
         "agent_tools.paf_workspace.task_check",
@@ -2775,6 +2812,9 @@ def _task_init_command(workspace: Path, task_path: Path) -> list[str]:
         str(workspace),
         "--init-layout",
     ]
+    if privacy != "public":
+        command.extend(["--privacy", privacy])
+    return command
 
 
 def _update_text_tag(tag: Gtk.TextTag | None, **properties: object) -> None:

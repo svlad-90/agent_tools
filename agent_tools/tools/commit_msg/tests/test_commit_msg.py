@@ -5,12 +5,14 @@ import subprocess
 import tempfile
 import textwrap
 import unittest
+from contextlib import redirect_stderr
 from contextlib import redirect_stdout
 from pathlib import Path
 
 from agent_tools.tools.commit_msg import format_commit_message, main as commit_msg_main
 from agent_tools.tools.commit_msg.workflow import (
     check_commits,
+    check_repo_identity,
     main as workflow_main,
     pushed_commit_hashes,
 )
@@ -21,8 +23,8 @@ class CommitMessageComposeTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp_dir:
             repo = Path(temp_dir)
             _git(repo, "init")
-            _git(repo, "config", "user.name", "Vladyslav Goncharuk")
-            _git(repo, "config", "user.email", "vladyslav_goncharuk@epam.com")
+            _git(repo, "config", "user.name", "Example Author")
+            _git(repo, "config", "user.email", "author@example.com")
             stdout = io.StringIO()
 
             status = _run_stdout(
@@ -38,13 +40,13 @@ class CommitMessageComposeTests(unittest.TestCase):
                         "NULL when issuing sched_op hypercalls."
                     ),
                     "--signoff",
-                    "Vladyslav Goncharuk <vladyslav_goncharuk@epam.com>",
+                    "Example Author <author@example.com>",
                     "--reviewed-by",
-                    "Oleksii Moisieiev <oleksii_moisieiev@epam.com>",
+                    "Example Reviewer <reviewer@example.com>",
                     "--tested-by",
-                    "Oleksii Moisieiev <oleksii_moisieiev@epam.com>",
+                    "Example Tester <tester@example.com>",
                     "--acked-by",
-                    "Dmytro Firsov <dmytro_firsov@epam.com>",
+                    "Example Acker <acker@example.com>",
                     "--assisted-by",
                     "Codex:gpt-5 cpp-code-map",
                     "--check",
@@ -54,10 +56,10 @@ class CommitMessageComposeTests(unittest.TestCase):
         message = stdout.getvalue()
         self.assertEqual(0, status)
         self.assertIn(
-            "Signed-off-by: Vladyslav Goncharuk <vladyslav_goncharuk@epam.com>",
+            "Signed-off-by: Example Author <author@example.com>",
             message,
         )
-        self.assertIn("Acked-by: Dmytro Firsov <dmytro_firsov@epam.com>", message)
+        self.assertIn("Acked-by: Example Acker <acker@example.com>", message)
         self.assertTrue(message.rstrip().endswith("Assisted-by: Codex:gpt-5 cpp-code-map"))
         self.assertLessEqual(max(len(line) for line in message.splitlines()), 72)
 
@@ -65,8 +67,8 @@ class CommitMessageComposeTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp_dir:
             repo = Path(temp_dir)
             _git(repo, "init")
-            _git(repo, "config", "user.name", "Vladyslav Goncharuk")
-            _git(repo, "config", "user.email", "vladyslav_goncharuk@epam.com")
+            _git(repo, "config", "user.name", "Example Author")
+            _git(repo, "config", "user.email", "author@example.com")
             (repo / "file.txt").write_text("content\n", encoding="utf-8")
             _git(repo, "add", "file.txt")
             stdout = io.StringIO()
@@ -92,7 +94,7 @@ class CommitMessageComposeTests(unittest.TestCase):
         self.assertEqual(0, status)
         self.assertIn("tools: compose commit messages", message)
         self.assertIn(
-            "Signed-off-by: Vladyslav Goncharuk <vladyslav_goncharuk@epam.com>",
+            "Signed-off-by: Example Author <author@example.com>",
             message,
         )
         self.assertIn("Assisted-by: Codex:gpt-5", message)
@@ -111,7 +113,7 @@ class CommitMessageComposeTests(unittest.TestCase):
                 "--trailer",
                 "Assisted-by: Codex:gpt-5 cpp-code-map",
                 "--trailer",
-                "Signed-off-by: Vladyslav Goncharuk <vladyslav_goncharuk@epam.com>",
+                "Signed-off-by: Example Author <author@example.com>",
                 "--no-signoff",
             ],
         )
@@ -129,7 +131,7 @@ class CommitMessageComposeTests(unittest.TestCase):
                 tools: order existing trailers
 
                 Assisted-by: Codex:gpt-5 cpp-code-map
-                Signed-off-by: Vladyslav Goncharuk <vladyslav_goncharuk@epam.com>
+                Signed-off-by: Example Author <author@example.com>
                 """
             ),
             identity=None,
@@ -143,8 +145,8 @@ class CommitMessageComposeTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp_dir:
             repo = Path(temp_dir)
             _git(repo, "init")
-            _git(repo, "config", "user.name", "Vladyslav Goncharuk")
-            _git(repo, "config", "user.email", "vladyslav_goncharuk@epam.com")
+            _git(repo, "config", "user.name", "Example Author")
+            _git(repo, "config", "user.email", "author@example.com")
             _commit_file(
                 repo,
                 "bad",
@@ -152,7 +154,7 @@ class CommitMessageComposeTests(unittest.TestCase):
                     """\
                     bad: missing assisted
 
-                    Signed-off-by: Vladyslav Goncharuk <vladyslav_goncharuk@epam.com>
+                    Signed-off-by: Example Author <author@example.com>
                     """
                 ),
             )
@@ -164,7 +166,7 @@ class CommitMessageComposeTests(unittest.TestCase):
                     """\
                     good: has assisted
 
-                    Signed-off-by: Vladyslav Goncharuk <vladyslav_goncharuk@epam.com>
+                    Signed-off-by: Example Author <author@example.com>
                     Assisted-by: Codex:gpt-5 cpp-code-map
                     """
                 ),
@@ -178,7 +180,7 @@ class CommitMessageComposeTests(unittest.TestCase):
                     bad: assisted is not last
 
                     Assisted-by: Codex:gpt-5 cpp-code-map
-                    Signed-off-by: Vladyslav Goncharuk <vladyslav_goncharuk@epam.com>
+                    Signed-off-by: Example Author <author@example.com>
                     """
                 ),
             )
@@ -201,8 +203,8 @@ class CommitMessageComposeTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp_dir:
             repo = Path(temp_dir)
             _git(repo, "init")
-            _git(repo, "config", "user.name", "Vladyslav Goncharuk")
-            _git(repo, "config", "user.email", "vladyslav_goncharuk@epam.com")
+            _git(repo, "config", "user.name", "Example Author")
+            _git(repo, "config", "user.email", "author@example.com")
             _commit_file(repo, "old-base", "old: base\n")
             old_target = _git(repo, "rev-parse", "HEAD").stdout.strip()
             _git(repo, "update-ref", "refs/remotes/origin/topic", old_target)
@@ -218,7 +220,7 @@ class CommitMessageComposeTests(unittest.TestCase):
                     """\
                     topic: local change
 
-                    Signed-off-by: Vladyslav Goncharuk <vladyslav_goncharuk@epam.com>
+                    Signed-off-by: Example Author <author@example.com>
                     Assisted-by: Codex:gpt-5 cpp-code-map
                     """
                 ),
@@ -233,6 +235,93 @@ class CommitMessageComposeTests(unittest.TestCase):
                 [local_topic],
                 pushed_commit_hashes(repo, stdin_text),
             )
+
+    def test_identity_check_requires_private_rule_for_xen_troops_remote(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            repo = Path(temp_dir)
+            _git(repo, "init")
+            _git(repo, "config", "user.name", "Personal User")
+            _git(repo, "config", "user.email", "personal@example.com")
+            _git(repo, "remote", "add", "origin", "git@github.com:xen-troops/demo.git")
+
+            self.assertEqual(1, check_repo_identity(repo))
+
+    def test_identity_check_passes_with_matching_private_rule(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            repo = root / "repo"
+            repo.mkdir()
+            _git(repo, "init")
+            _git(repo, "config", "user.name", "Work User")
+            _git(repo, "config", "user.email", "work@example.com")
+            _git(repo, "remote", "add", "origin", "https://github.com/xen-troops/demo.git")
+            rules = root / "identity-rules.json"
+            rules.write_text(
+                textwrap.dedent(
+                    """\
+                    {
+                      "rules": [
+                        {
+                          "github_owner": "xen-troops",
+                          "user_name": "Work User",
+                          "user_email": "work@example.com"
+                        }
+                      ]
+                    }
+                    """
+                ),
+                encoding="utf-8",
+            )
+            _git(repo, "config", "agentTools.identityRulesFile", str(rules))
+
+            self.assertEqual(0, check_repo_identity(repo))
+
+    def test_identity_check_mismatch_does_not_print_current_identity(self) -> None:
+        stderr = io.StringIO()
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            repo = root / "repo"
+            repo.mkdir()
+            _git(repo, "init")
+            _git(repo, "config", "user.name", "Personal User")
+            _git(repo, "config", "user.email", "personal@example.com")
+            _git(repo, "remote", "add", "origin", "git@github.com:xen-troops/demo.git")
+            rules = root / "identity-rules.json"
+            rules.write_text(
+                textwrap.dedent(
+                    """\
+                    {
+                      "rules": [
+                        {
+                          "github_owner": "xen-troops",
+                          "user_name": "Work User",
+                          "user_email": "work@example.com"
+                        }
+                      ]
+                    }
+                    """
+                ),
+                encoding="utf-8",
+            )
+            _git(repo, "config", "agentTools.identityRulesFile", str(rules))
+
+            with redirect_stderr(stderr):
+                self.assertEqual(1, check_repo_identity(repo))
+
+        err = stderr.getvalue()
+        self.assertIn("local git config", err)
+        self.assertNotIn("Personal User", err)
+        self.assertNotIn("personal@example.com", err)
+
+    def test_identity_check_ignores_unrelated_github_owner(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            repo = Path(temp_dir)
+            _git(repo, "init")
+            _git(repo, "config", "user.name", "Personal User")
+            _git(repo, "config", "user.email", "personal@example.com")
+            _git(repo, "remote", "add", "origin", "git@github.com:example/demo.git")
+
+            self.assertEqual(0, check_repo_identity(repo))
 
 
 def _run_stdout(stdout: io.StringIO, argv: list[str]) -> int:

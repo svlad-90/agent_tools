@@ -4,6 +4,23 @@ These findings apply to workspace-local tools such as `task_check`,
 `diff_report`, `code_map`, `cpp_code_map`, `yaml_map`, reusable environments,
 and workspace skills.
 
+## GitHub organization identity routing belongs in private config
+
+Some repositories need a specific local Git identity for pushes based on the
+GitHub organization that owns the remote. Do not encode personal names, email
+addresses, or account mappings in tracked rules, tests, public knowledge, or
+task artifacts.
+
+Practical checklist:
+
+- Keep the public rule generic: identify the GitHub remote owner that needs
+  guarded identity handling, but not the human account values.
+- Put the concrete `user.name` and `user.email` mapping in a private JSON file
+  such as `~/.config/agent_tools/identity-rules.json`, or point the repository
+  at another private path with `git config agentTools.identityRulesFile`.
+- Let the pre-push hook enforce the mapping by comparing the target repo's
+  local Git config against that private rule.
+
 ## Xen harness scheduled serial switching writes text, not bytes
 
 The Xen/QEMU harness can schedule Xen serial input switches with

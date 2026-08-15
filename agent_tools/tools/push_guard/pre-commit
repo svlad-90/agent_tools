@@ -32,17 +32,9 @@ python_cmd="python3"
 if ! command -v "${python_cmd}" >/dev/null 2>&1; then
   python_cmd="python"
 fi
-stdin_text="$(cat)"
 
 if [ "${CODEX_PUSH_GUARD_OVERRIDE:-0}" = "1" ]; then
-  printf '%s\n' "${stdin_text}" |
-    "${python_cmd}" -m agent_tools.tools.push_guard check --allow-override
+  "${python_cmd}" -m agent_tools.tools.push_guard check-staged --allow-override
 else
-  printf '%s\n' "${stdin_text}" |
-    "${python_cmd}" -m agent_tools.tools.push_guard check
+  "${python_cmd}" -m agent_tools.tools.push_guard check-staged
 fi
-
-printf '%s\n' "${stdin_text}" |
-  "${python_cmd}" -m agent_tools.tools.commit_msg.workflow \
-    --repo "${repo_root}" \
-    --pre-push-check
