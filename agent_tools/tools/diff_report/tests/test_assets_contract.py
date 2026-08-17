@@ -73,6 +73,8 @@ class AssetContractTests(unittest.TestCase):
             ".report-table thead { position: sticky; top: 0; z-index: 5; }",
             ".report-table th { position: sticky; top: 0; z-index: 5;",
             "background-clip: padding-box;",
+            ".report-toc a.is-current",
+            "border-left-color: var(--comment-border);",
             ".to-top-button",
             ".story-step-strip",
             ".story-page-button",

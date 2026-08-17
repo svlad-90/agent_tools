@@ -577,6 +577,74 @@ def _report_filter_script() -> str:
       });
     });
   });
+  const tocLinks = Array.from(document.querySelectorAll(".report-toc a[href^='#']"));
+  const tocEntries = tocLinks.map((link) => {
+    const id = decodeURIComponent(String(link.getAttribute("href") || "").replace(/^#/, ""));
+    const section = id ? document.getElementById(id) : null;
+    return {id, link, section};
+  }).filter((entry) => entry.id && entry.section);
+  let activeTocId = "";
+  let tocScrollRaf = 0;
+
+  function setActiveToc(id, reveal) {
+    if (!id || id === activeTocId) {
+      return;
+    }
+    activeTocId = id;
+    for (const entry of tocEntries) {
+      const active = entry.id === id;
+      entry.link.classList.toggle("is-current", active);
+      if (active) {
+        entry.link.setAttribute("aria-current", "location");
+        if (reveal) {
+          entry.link.scrollIntoView({block: "nearest", inline: "nearest"});
+        }
+      } else {
+        entry.link.removeAttribute("aria-current");
+      }
+    }
+  }
+
+  function currentReadableTocId() {
+    if (!tocEntries.length) {
+      return "";
+    }
+    const probeY = 112;
+    let current = tocEntries[0];
+    for (const entry of tocEntries) {
+      const rect = entry.section.getBoundingClientRect();
+      if (rect.top <= probeY) {
+        current = entry;
+        continue;
+      }
+      if (rect.top > probeY) {
+        break;
+      }
+    }
+    return current.id;
+  }
+
+  function updateActiveTocFromScroll() {
+    tocScrollRaf = 0;
+    setActiveToc(currentReadableTocId(), true);
+  }
+
+  function scheduleActiveTocUpdate() {
+    if (tocScrollRaf) {
+      return;
+    }
+    tocScrollRaf = window.requestAnimationFrame(updateActiveTocFromScroll);
+  }
+
+  if (tocEntries.length) {
+    setActiveToc(
+      decodeURIComponent(String(location.hash || "").replace(/^#/, "")) || currentReadableTocId(),
+      true
+    );
+    window.addEventListener("scroll", scheduleActiveTocUpdate, {passive: true});
+    window.addEventListener("resize", scheduleActiveTocUpdate);
+    window.addEventListener("hashchange", scheduleActiveTocUpdate);
+  }
   document.addEventListener("click", (event) => {
     const link = event.target.closest && event.target.closest(".report-toc a[href^='#']");
     if (!link) return;
@@ -585,6 +653,7 @@ def _report_filter_script() -> str:
     if (!target) return;
     event.preventDefault();
     event.stopPropagation();
+    setActiveToc(href.slice(1), true);
     target.scrollIntoView({block: "start", inline: "nearest"});
     if (history.pushState) {
       history.pushState(null, "", href);

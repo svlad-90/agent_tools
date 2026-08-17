@@ -125,6 +125,13 @@ class ReportJsonTests(unittest.TestCase):
             'id="report-diagrams"',
             'id="report-logs"',
             'document.addEventListener("click", (event) => {',
+            "function setActiveToc(id, reveal)",
+            "function currentReadableTocId()",
+            "const probeY = 112;",
+            "if (rect.top > probeY)",
+            'entry.link.setAttribute("aria-current", "location");',
+            'window.addEventListener("scroll", scheduleActiveTocUpdate, {passive: true});',
+            'setActiveToc(href.slice(1), true);',
             'target.scrollIntoView({block: "start", inline: "nearest"});',
         ]
         for fragment in expected:
