@@ -121,6 +121,10 @@ from .commands import codex_executable as _codex_executable
 from .commands import sys_executable
 from .commands import task_action_shell_command
 from .commands import task_check_shell_command
+from .gtk_terminal import feed_terminal as _feed_terminal
+from .gtk_terminal import terminal_env as _terminal_env
+from .gtk_terminal import terminal_palette as _terminal_palette
+from .gtk_theme import theme_colors as _theme_colors
 
 
 TRANSLATIONS = {
@@ -4400,136 +4404,10 @@ def _set_combo_text_choices(combo: Gtk.ComboBoxText, choices: tuple[str, ...], c
     combo.set_active(active_index)
 
 
-def _feed_terminal(terminal: Vte.Terminal, text: str) -> None:
-    data = text.encode()
-    attempts = (
-        lambda: terminal.feed_child(text),
-        lambda: terminal.feed_child(text, len(text)),
-        lambda: terminal.feed_child(data),
-        lambda: terminal.feed_child(data, len(data)),
-    )
-    for attempt in attempts:
-        try:
-            attempt()
-            return
-        except TypeError:
-            continue
-    feed_binary = getattr(terminal, "feed_child_binary", None)
-    if feed_binary is not None:
-        try:
-            feed_binary(data)
-            return
-        except TypeError:
-            feed_binary(data, len(data))
-            return
-    raise TypeError("VTE Terminal.feed_child signature is unsupported")
-
-
-def _terminal_env(env: dict[str, str]) -> list[str]:
-    env.setdefault("TERM", "xterm-256color")
-    return [f"{key}={value}" for key, value in env.items()]
-
-
 def _rgba(color: str) -> Gdk.RGBA:
     rgba = Gdk.RGBA()
     rgba.parse(color)
     return rgba
-
-
-def _terminal_palette(theme: str) -> tuple[str, ...]:
-    if theme == "dark":
-        return (
-            "#111315",
-            "#e06c75",
-            "#7ec699",
-            "#d19a66",
-            "#7aa2f7",
-            "#c678dd",
-            "#56b6c2",
-            "#e8eaed",
-            "#5c6370",
-            "#ef8088",
-            "#98d6ac",
-            "#e5c07b",
-            "#9ab6ff",
-            "#d39aea",
-            "#7fd4df",
-            "#ffffff",
-        )
-    return (
-        "#202124",
-        "#b3261e",
-        "#137333",
-        "#b06000",
-        "#1a5fb4",
-        "#8e24aa",
-        "#007b83",
-        "#f2f2f2",
-        "#5f6368",
-        "#d93025",
-        "#188038",
-        "#ea8600",
-        "#2f6fbb",
-        "#a142f4",
-        "#129eaf",
-        "#ffffff",
-    )
-
-
-def _theme_colors(theme: str) -> dict[str, str]:
-    if theme == "dark":
-        return {
-            "background": "#202124",
-            "codex_running_background": "#26384d",
-            "codex_running_border": "#7aa2f7",
-            "codex_running_foreground": "#ffffff",
-            "codex_running_glow": "rgba(122, 162, 247, 0.75)",
-            "agent_session_background": "#4b3713",
-            "agent_session_foreground": "#ffe6a3",
-            "agent_external_background": "#34383d",
-            "agent_external_foreground": "#a8b0ba",
-            "text_background": "#111315",
-            "terminal_background": "#111315",
-            "control_background": "#2b2f33",
-            "control_hover_background": "#343a40",
-            "titlebar_background": "#16191d",
-            "tab_background": "#202124",
-            "tab_selected_background": "#111315",
-            "tab_selected_foreground": "#f5f7fa",
-            "muted_foreground": "#a8b0ba",
-            "selection_background": "#3f6f9f",
-            "selection_foreground": "#ffffff",
-            "menu_background": "#252a2f",
-            "border": "#4a5058",
-            "separator": "#6a727c",
-            "foreground": "#e8eaed",
-        }
-    return {
-        "background": "#f2f2f2",
-        "codex_running_background": "#d9e7ff",
-        "codex_running_border": "#2f6fbb",
-        "codex_running_foreground": "#14345f",
-        "codex_running_glow": "rgba(47, 111, 187, 0.45)",
-        "agent_session_background": "#fff1c2",
-        "agent_session_foreground": "#5c3b00",
-        "agent_external_background": "#e0e0e0",
-        "agent_external_foreground": "#5f6368",
-        "text_background": "#ffffff",
-        "terminal_background": "#ffffff",
-        "control_background": "#f8f8f8",
-        "control_hover_background": "#ffffff",
-        "titlebar_background": "#ededed",
-        "tab_background": "#e8e8e8",
-        "tab_selected_background": "#ffffff",
-        "tab_selected_foreground": "#202124",
-        "muted_foreground": "#5f6368",
-        "selection_background": "#2f6fbb",
-        "selection_foreground": "#ffffff",
-        "menu_background": "#ffffff",
-        "border": "#b8b8b8",
-        "separator": "#8c8c8c",
-        "foreground": "#202124",
-    }
 
 
 def open_path(path: Path) -> None:
