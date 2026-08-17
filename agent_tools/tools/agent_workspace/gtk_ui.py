@@ -1,13 +1,10 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from collections.abc import Iterator
 from dataclasses import dataclass
-from datetime import datetime
 from pathlib import Path
 import argparse
 import os
-import shlex
 import shutil
 import subprocess
 import sys
@@ -24,8 +21,52 @@ from gi.repository import Gtk
 from gi.repository import Pango
 from gi.repository import Vte
 
+from .artifacts import ArtifactEntry
+from .artifacts import artifact_context_action as _artifact_context_action
+from .artifacts import artifact_delete_paths as _artifact_delete_paths
+from .artifacts import artifact_group as _artifact_group
+from .artifacts import artifact_group_sort_key as _artifact_group_sort_key
+from .artifacts import artifact_relative_label as _artifact_relative_label
+from .artifacts import artifact_selectable_path as _artifact_selectable_path
+from .artifacts import artifact_updated_label as _artifact_updated_label
+from .artifacts import artifact_updated_timestamp as _artifact_updated_timestamp
+from .artifacts import files_under as _files_under
+from .artifacts import task_artifact_entries as _task_artifact_entries
+from .artifacts import task_artifact_files as _task_artifact_files
+from .task_action_model import field_type_enum_values as _field_type_enum_values
+from .task_action_model import add_task_shortcut as _add_task_shortcut
+from .task_action_model import delete_parameter_set_value as _delete_parameter_set_value
+from .task_action_model import delete_task_shortcut as _delete_task_shortcut
+from .task_action_model import json_list_entry_index as _json_list_entry_index
+from .task_action_model import move_action_parameter_entry as _move_action_parameter_entry
+from .task_action_model import move_id_before as _move_id_before
+from .task_action_model import move_id_relative as _move_id_relative
+from .task_action_model import move_json_list_entry as _move_json_list_entry
+from .task_action_model import move_json_list_entry_before as _move_json_list_entry_before
+from .task_action_model import move_json_mapping_entry as _move_json_mapping_entry
+from .task_action_model import parameter_dialog_field_names as _parameter_dialog_field_names
+from .task_action_model import parameter_field_type as _parameter_field_type
+from .task_action_model import parameter_value_id_from_name as _parameter_value_id_from_name
+from .task_action_model import reorder_action_parameter_entries as _reorder_action_parameter_entries
+from .task_action_model import reorder_task_action_data as _reorder_task_action_data
+from .task_action_model import reorder_json_list_by_ids as _reorder_json_list_by_ids
+from .task_action_model import reorder_json_list_subset_by_ids as _reorder_json_list_subset_by_ids
+from .task_action_model import reorder_json_mapping_by_ids as _reorder_json_mapping_by_ids
+from .task_action_model import set_task_action_drag_selection as _set_task_action_drag_selection
+from .task_action_model import shortcut_id_from_label as _shortcut_id_from_label
+from .task_action_model import task_action_drag_selection_id as _task_action_drag_selection_id
+from .task_action_model import task_reorder_order_for_drag_edges as _task_reorder_order_for_drag_edges
+from .task_action_model import upsert_parameter_set_value as _upsert_parameter_set_value
+from .task_action_files import task_action_code_path
+from .task_action_menu import task_action_menu_state
+from .task_action_menu import task_parameter_menu_state
+from .task_action_menu import task_shortcut_menu_state
+from .task_action_state import bindings_for_action_run
+from .task_action_state import parameter_button_label
+from .task_action_state import parameter_values
+from .task_action_state import selected_parameter_value
+from .task_action_state import shortcuts_for_action
 from .core import TASK_ACTIONS_FILE
-from .core import TASK_ACTION_LOGS_DIR
 from .core import AGENT_RUNNING_SPINNER_FRAMES
 from .core import AGENT_STATUS_MANUAL_MENU_LABEL
 from .core import AGENT_STATUS_MANUAL_TITLE
@@ -39,7 +80,6 @@ from .core import AGENT_WORKSPACE_CLAUDE_MODELS
 from .core import AGENT_WORKSPACE_LANGUAGES
 from .core import AGENT_WORKSPACE_REASONING_EFFORTS
 from .core import AGENT_WORKSPACE_THEMES
-from .core import PAF_HIDE_TASK_ENV_VAR
 from .core import acquire_agent_workspace_lock
 from .core import agent_executable
 from .core import agent_install_command
@@ -81,373 +121,55 @@ from .core import session_marks_task_running_agent
 from .core import session_is_agent
 from .core import session_is_running_agent
 from .core import session_should_clear_pending_permission
-from .core import task_action_log_basename
 from .core import task_agent_has_resumable_state
 from .core import task_agent_status_text
 from .core import task_agent_session_markers
 from .core import task_agent_selection_with_resumable_fallback
 from .core import task_has_external_active_agent_run
 from .core import task_for_path
+from .commands import claude_executable as _claude_executable
+from .commands import codex_executable as _codex_executable
+from .commands import task_action_shell_command
+from .commands import task_check_shell_command
+from .gtk_terminal import feed_terminal as _feed_terminal
+from .gtk_terminal import terminal_env as _terminal_env
+from .gtk_terminal import terminal_palette as _terminal_palette
+from .gtk_terminal_ui import clipboard_text as _clipboard_text
+from .gtk_terminal_ui import copy_primary_selection_to_clipboard as _copy_primary_selection_to_clipboard
+from .gtk_terminal_ui import copy_terminal_selection as _copy_terminal_selection
+from .gtk_terminal_ui import set_clipboard_text as _set_clipboard_text
+from .gtk_terminal_ui import terminal_clipboard_shortcut as _terminal_clipboard_shortcut
+from .gtk_terminal_ui import terminal_session_sort_key as _terminal_session_sort_key
+from .gtk_terminal_ui import terminal_tab_label as _terminal_tab_label
+from .gtk_terminal_ui import terminal_tab_text_label as _terminal_tab_text_label
+from .gtk_terminal_ui import terminal_text_tail as _terminal_text_tail
+from .gtk_task_helpers import task_actions_signature as _task_actions_signature
+from .gtk_task_helpers import task_init_command as _task_init_command
+from .gtk_task_helpers import task_path_for_name as _task_path_for_name
+from .gtk_task_style import task_row_style as _task_row_style
+from .gtk_theme import theme_colors as _theme_colors
+from .gtk_widgets import button as _button
+from .gtk_widgets import compact_button as _compact_button
+from .gtk_widgets import flow_box as _flow_box
+from .gtk_widgets import flow_box_add as _flow_box_add
+from .gtk_widgets import remove_style_class_recursive as _remove_style_class_recursive
+from .gtk_widgets import set_widget_opacity_recursive as _set_widget_opacity_recursive
+from .gtk_widgets import task_action_drag_icon as _task_action_drag_icon
+from .gtk_i18n import CODEX_LANGUAGE_INSTRUCTIONS
+from .gtk_i18n import TRANSLATIONS
+from .gtk_i18n import ui_string as _ui_string
+from .gtk_open import _open_command_or_parent
+from .gtk_open import _show_file_in_freedesktop_file_manager
+from .gtk_open import _svg_open_command
+from .gtk_open import open_artifact_path
+from .gtk_open import open_containing_folder
+from .gtk_open import open_path
+from .gtk_open import open_text_file
 
-
-TRANSLATIONS = {
-    "en": {
-        "actions": "Actions",
-        "add_task": "Add task",
-        "artifacts": "Artifacts",
-        "button_font_size": "Button font size",
-        "cancel": "Cancel",
-        "close": "Close",
-        "confirm_close_console_body": "The console session will be closed.",
-        "confirm_close_console_title": "Close console?",
-        "confirm_close_running_agents_body": "There are running AI agent terminals.\n\n{sessions}\n\nClosing Agent Workspace will stop the local agent processes. Resumable conversations can be restored on the next launch. Continue?",
-        "confirm_close_running_agents_title": "Close Agent Workspace?",
-        "confirm_delete_saved_agent_session_body": "This task has a saved {old_agent} session. Switching to {new_agent} will remove the saved resume link for that session. Continue?",
-        "confirm_delete_saved_agent_session_title": "Remove saved session?",
-        "confirm_reset_agent_session_body": "This will close the current {agent} console for this task and remove its saved resume link. CLI history files are not deleted. Continue?",
-        "confirm_reset_agent_session_button": "Reset session",
-        "confirm_reset_agent_session_title": "Reset AI agent session?",
-        "confirm_switch_agent_body": "{current} is already running for this task.\n\nConfirming will close the current session and start {next} with the same task context.",
-        "confirm_switch_agent_title": "Switch AI agent?",
-        "confirm_delete_task_body": "This will permanently delete the task directory.",
-        "confirm_delete_task_title": "Delete selected task?",
-        "confirm_delete_artifacts_body": "Files will be permanently deleted.",
-        "confirm_delete_artifacts_title": "Delete artifacts?",
-        "context": "context",
-        "delete_all_artifacts": "Delete all task artifacts",
-        "delete_artifact": "Delete artifact",
-        "delete_artifact_group": "Delete artifact group",
-        "delete_artifacts": "Delete artifacts",
-        "delete_task": "Delete task",
-        "desc": "desc",
-        "details": "Details",
-        "diagrams": "Diagrams",
-        "default_agent": "Default AI agent",
-        "default_claude_effort": "Claude effort",
-        "default_claude_model": "Claude model",
-        "default_codex_model": "Codex model",
-        "default_codex_reasoning": "Codex reasoning",
-        "diff_reports": "Diff reports",
-        "edit": "Edit",
-        "install_agent_body": "{agent} is not installed or is not available in PATH.\n\nInstall it, then restart Agent Workspace or update PATH.\n\nSuggested install command:\n{command}",
-        "install_agent_title": "AI agent is not installed",
-        "language": "Language",
-        "logs": "Logs",
-        "open_containing_folder": "Open containing folder",
-        "other_artifacts": "Other artifacts",
-        "updated": "Updated",
-        "restore_failed_status": "Could not restore the saved {agent} session for {task}. The saved resume link was removed and the AI-agent console was closed. Run the AI agent again to start a new session.",
-        "manual_label_agent": "Agent",
-        "manual_label_concept": "Concept",
-        "manual_label_copy": "Copy",
-        "manual_label_structure": "Structure",
-        "manual_label_reset": "Reset",
-        "manual_status_agent_running": "an AI agent is currently running for this task",
-        "manual_status_external": "an AI agent for this task is running in another window",
-        "manual_status_idle": "there is no saved session to continue",
-        "manual_status_label_external": "Busy elsewhere",
-        "manual_status_label_idle": "Stopped",
-        "manual_status_label_running": "Agent running",
-        "manual_status_label_session": "Paused",
-        "manual_status_section": "AI column statuses",
-        "manual_status_session": "the last active AI agent has a saved session that can continue",
-        "manual_usage_actions": "put repeatable commands into TASK_ACTIONS.json; you can ask an agent to add the needed button",
-        "manual_usage_agent": "choose Codex or Claude Code; the agent starts in the current task context and receives the task path",
-        "manual_usage_concept": "the workspace is split into tasks; each task keeps context, artifacts, scripts, and work history",
-        "manual_usage_copy": "in Claude Code terminals, hold Shift while selecting text, then copy with Ctrl+Shift+C",
-        "manual_usage_reset": "clears only the saved session reference for the selected agent, without deleting CLI history",
-        "manual_usage_section": "Basics",
-        "manual_usage_structure": "TASK_DESCRIPTION.md, TASK_CONTEXT.md, dev/, scripts/, and report/ keep the work reproducible",
-        "manual_usage_task": "create a task for each goal and select it on the left to open its description, context, and terminals",
-        "missing_context": "missing context",
-        "missing_desc": "missing desc",
-        "new": "New",
-        "ok": "OK",
-        "open_dev": "Open dev folder",
-        "open_task": "Open task folder",
-        "open_workspace": "Open Workspace",
-        "refresh": "Refresh",
-        "reload_actions": "Reload actions",
-        "reset_ai_agent_session": "Reset session",
-        "run_ai_agent": "Run AI agent",
-        "ai_agent_running": "AI agent running",
-        "restore_ai_agent_session": "Restore AI agent session",
-        "run_task_check": "Run task_check",
-        "save": "Save",
-        "select_task_first": "Select a task first",
-        "settings": "Settings",
-        "settings_title": "Agent Workspace settings",
-        "task_already_exists": "Task already exists",
-        "task": "Task",
-        "task_agent_status_column": "AI",
-        "task_details": "Task Details",
-        "task_name": "Task name",
-        "task_privacy": "Task privacy",
-        "task_privacy_private": "Private",
-        "task_privacy_public": "Public",
-        "tasks": "tasks",
-        "text_font_size": "Text font size",
-        "theme": "Theme",
-        "window_title": "Agent Workspace",
-    },
-    "ru": {
-        "actions": "Действия",
-        "add_task": "Добавить задачу",
-        "artifacts": "Артефакты",
-        "button_font_size": "Размер шрифта кнопок",
-        "cancel": "Отмена",
-        "close": "Закрыть",
-        "confirm_close_console_body": "Консольная сессия будет закрыта.",
-        "confirm_close_console_title": "Закрыть консоль?",
-        "confirm_close_running_agents_body": "Есть запущенные терминалы ИИ агентов.\n\n{sessions}\n\nЗакрытие Agent Workspace остановит локальные процессы агентов. Восстанавливаемые диалоги можно будет открыть при следующем запуске. Продолжить?",
-        "confirm_close_running_agents_title": "Закрыть Agent Workspace?",
-        "confirm_delete_saved_agent_session_body": "Для этой задачи сохранена сессия {old_agent}. При переключении на {new_agent} ссылка на продолжение этой сессии будет удалена. Продолжить?",
-        "confirm_delete_saved_agent_session_title": "Удалить сохраненную сессию?",
-        "confirm_reset_agent_session_body": "Текущая консоль {agent} для этой задачи будет закрыта, а сохраненная ссылка на продолжение сессии будет удалена. Файлы истории CLI не удаляются. Продолжить?",
-        "confirm_reset_agent_session_button": "Сбросить сессию",
-        "confirm_reset_agent_session_title": "Сбросить сессию ИИ агента?",
-        "confirm_switch_agent_body": "{current} уже запущен для этой задачи.\n\nПодтверждение закроет текущую сессию и запустит {next} с контекстом той же задачи.",
-        "confirm_switch_agent_title": "Сменить ИИ агента?",
-        "confirm_delete_task_body": "Папка задачи будет удалена безвозвратно.",
-        "confirm_delete_task_title": "Удалить выбранную задачу?",
-        "confirm_delete_artifacts_body": "Файлы будут удалены безвозвратно.",
-        "confirm_delete_artifacts_title": "Удалить артефакты?",
-        "context": "контекст",
-        "delete_all_artifacts": "Удалить все артефакты задачи",
-        "delete_artifact": "Удалить артефакт",
-        "delete_artifact_group": "Удалить группу артефактов",
-        "delete_artifacts": "Удалить артефакты",
-        "delete_task": "Удалить задачу",
-        "desc": "описание",
-        "details": "Детали",
-        "diagrams": "Диаграммы",
-        "default_agent": "ИИ агент по умолчанию",
-        "default_claude_effort": "Claude effort",
-        "default_claude_model": "Модель Claude",
-        "default_codex_model": "Модель Codex",
-        "default_codex_reasoning": "Codex reasoning",
-        "diff_reports": "Diff-отчеты",
-        "edit": "Редактировать",
-        "install_agent_body": "{agent} не установлен или недоступен в PATH.\n\nУстанови его, затем перезапусти Agent Workspace или обнови PATH.\n\nПредлагаемая команда установки:\n{command}",
-        "install_agent_title": "ИИ агент не установлен",
-        "language": "Язык",
-        "logs": "Логи",
-        "open_containing_folder": "Открыть содержащую папку",
-        "other_artifacts": "Другие артефакты",
-        "updated": "Обновлено",
-        "restore_failed_status": "Не удалось восстановить сохраненную сессию {agent} для задачи {task}. Ссылка на продолжение удалена, консоль ИИ агента закрыта. Запустите ИИ агента еще раз, чтобы начать новую сессию.",
-        "manual_label_agent": "Агент",
-        "manual_label_concept": "Концепция",
-        "manual_label_copy": "Копирование",
-        "manual_label_structure": "Структура",
-        "manual_label_reset": "Сброс",
-        "manual_status_agent_running": "для этой задачи сейчас работает Codex или Claude Code",
-        "manual_status_external": "ИИ агент для этой задачи запущен в другом окне",
-        "manual_status_idle": "нет сохраненной сессии, которую можно продолжить",
-        "manual_status_label_external": "Занято",
-        "manual_status_label_idle": "Стоп",
-        "manual_status_label_running": "Агент запущен",
-        "manual_status_label_session": "Пауза",
-        "manual_status_section": "Статусы в колонке ИИ",
-        "manual_status_session": "есть сохраненная сессия последнего активного ИИ агента",
-        "manual_usage_actions": "повторяемые команды оформляйте в TASK_ACTIONS.json; можно попросить агента добавить нужную кнопку",
-        "manual_usage_agent": "выберите Codex или Claude Code; агент запускается в контексте текущей задачи и получает путь к ней",
-        "manual_usage_concept": "workspace разбит на задачи; каждая задача хранит контекст, артефакты, скрипты и историю работы",
-        "manual_usage_copy": "в терминалах Claude Code выделяйте текст с зажатым Shift, затем копируйте через Ctrl+Shift+C",
-        "manual_usage_reset": "сбрасывает только сохраненную ссылку на сессию выбранного агента, не удаляя историю CLI",
-        "manual_usage_section": "Основы",
-        "manual_usage_structure": "TASK_DESCRIPTION.md, TASK_CONTEXT.md, dev/, scripts/ и report/ держат работу воспроизводимой",
-        "manual_usage_task": "создавайте задачу под отдельную цель и выбирайте ее слева, чтобы открыть описание, контекст и терминалы",
-        "missing_context": "нет контекста",
-        "missing_desc": "нет описания",
-        "new": "Новая",
-        "ok": "ОК",
-        "open_dev": "Открыть dev",
-        "open_task": "Открыть папку задачи",
-        "open_workspace": "Открыть workspace",
-        "refresh": "Обновить",
-        "reload_actions": "Обновить actions",
-        "reset_ai_agent_session": "Сбросить сессию",
-        "run_ai_agent": "Запустить ИИ агента",
-        "ai_agent_running": "ИИ агент запущен",
-        "restore_ai_agent_session": "Восстановить сессию ИИ агента",
-        "run_task_check": "Run task_check",
-        "save": "Сохранить",
-        "select_task_first": "Сначала выбери задачу",
-        "settings": "Настройки",
-        "settings_title": "Настройки Agent Workspace",
-        "task_already_exists": "Задача уже существует",
-        "task": "Задача",
-        "task_agent_status_column": "ИИ",
-        "task_details": "Детали задачи",
-        "task_name": "Имя задачи",
-        "task_privacy": "Приватность задачи",
-        "task_privacy_private": "Приватная",
-        "task_privacy_public": "Публичная",
-        "tasks": "задач",
-        "text_font_size": "Размер шрифта текста",
-        "theme": "Тема",
-        "window_title": "Agent Workspace",
-    },
-    "uk": {
-        "actions": "Дії",
-        "add_task": "Додати задачу",
-        "artifacts": "Артефакти",
-        "button_font_size": "Розмір шрифту кнопок",
-        "cancel": "Скасувати",
-        "close": "Закрити",
-        "confirm_close_console_body": "Консольну сесію буде закрито.",
-        "confirm_close_console_title": "Закрити консоль?",
-        "confirm_close_running_agents_body": "Є запущені термінали ШІ агентів.\n\n{sessions}\n\nЗакриття Agent Workspace зупинить локальні процеси агентів. Відновлювані діалоги можна буде відкрити під час наступного запуску. Продовжити?",
-        "confirm_close_running_agents_title": "Закрити Agent Workspace?",
-        "confirm_delete_saved_agent_session_body": "Для цієї задачі збережена сесія {old_agent}. Перемикання на {new_agent} видалить посилання для продовження цієї сесії. Продовжити?",
-        "confirm_delete_saved_agent_session_title": "Видалити збережену сесію?",
-        "confirm_reset_agent_session_body": "Поточну консоль {agent} для цієї задачі буде закрито, а збережене посилання для продовження сесії буде видалено. Файли історії CLI не видаляються. Продовжити?",
-        "confirm_reset_agent_session_button": "Скинути сесію",
-        "confirm_reset_agent_session_title": "Скинути сесію ШІ агента?",
-        "confirm_switch_agent_body": "{current} вже запущено для цієї задачі.\n\nПідтвердження закриє поточну сесію і запустить {next} з контекстом тієї самої задачі.",
-        "confirm_switch_agent_title": "Змінити ШІ агента?",
-        "confirm_delete_task_body": "Папку задачі буде видалено безповоротно.",
-        "confirm_delete_task_title": "Видалити вибрану задачу?",
-        "confirm_delete_artifacts_body": "Файли буде видалено безповоротно.",
-        "confirm_delete_artifacts_title": "Видалити артефакти?",
-        "context": "контекст",
-        "delete_all_artifacts": "Видалити всі артефакти задачі",
-        "delete_artifact": "Видалити артефакт",
-        "delete_artifact_group": "Видалити групу артефактів",
-        "delete_artifacts": "Видалити артефакти",
-        "delete_task": "Видалити задачу",
-        "desc": "опис",
-        "details": "Деталі",
-        "diagrams": "Діаграми",
-        "default_agent": "Типовий ШІ агент",
-        "default_claude_effort": "Claude effort",
-        "default_claude_model": "Модель Claude",
-        "default_codex_model": "Модель Codex",
-        "default_codex_reasoning": "Codex reasoning",
-        "diff_reports": "Diff-звіти",
-        "edit": "Редагувати",
-        "install_agent_body": "{agent} не встановлено або він недоступний у PATH.\n\nВстанови його, потім перезапусти Agent Workspace або онови PATH.\n\nЗапропонована команда встановлення:\n{command}",
-        "install_agent_title": "ШІ агент не встановлено",
-        "language": "Мова",
-        "logs": "Логи",
-        "open_containing_folder": "Відкрити теку з файлом",
-        "other_artifacts": "Інші артефакти",
-        "updated": "Оновлено",
-        "restore_failed_status": "Не вдалося відновити збережену сесію {agent} для задачі {task}. Посилання для продовження видалено, консоль ШІ агента закрито. Запустіть ШІ агента ще раз, щоб почати нову сесію.",
-        "manual_label_agent": "Агент",
-        "manual_label_concept": "Концепція",
-        "manual_label_copy": "Копіювання",
-        "manual_label_structure": "Структура",
-        "manual_label_reset": "Скидання",
-        "manual_status_agent_running": "для цієї задачі зараз працює Codex або Claude Code",
-        "manual_status_external": "ШІ агент для цієї задачі запущений в іншому вікні",
-        "manual_status_idle": "немає збереженої сесії, яку можна продовжити",
-        "manual_status_label_external": "Зайнято",
-        "manual_status_label_idle": "Стоп",
-        "manual_status_label_running": "Агент запущений",
-        "manual_status_label_session": "Пауза",
-        "manual_status_section": "Статуси в колонці ШІ",
-        "manual_status_session": "є збережена сесія останнього активного ШІ агента",
-        "manual_usage_actions": "повторювані команди оформлюй у TASK_ACTIONS.json; можна попросити агента додати потрібну кнопку",
-        "manual_usage_agent": "вибери Codex або Claude Code; агент запускається в контексті поточної задачі й отримує шлях до неї",
-        "manual_usage_concept": "workspace розбитий на задачі; кожна задача зберігає контекст, артефакти, скрипти й історію роботи",
-        "manual_usage_copy": "у терміналах Claude Code виділяй текст із затиснутим Shift, потім копіюй через Ctrl+Shift+C",
-        "manual_usage_reset": "скидає лише збережене посилання на сесію вибраного агента, не видаляючи історію CLI",
-        "manual_usage_section": "Основи",
-        "manual_usage_structure": "TASK_DESCRIPTION.md, TASK_CONTEXT.md, dev/, scripts/ і report/ тримають роботу відтворюваною",
-        "manual_usage_task": "створюй задачу під окрему ціль і вибирай її зліва, щоб відкрити опис, контекст і термінали",
-        "missing_context": "немає контексту",
-        "missing_desc": "немає опису",
-        "new": "Нова",
-        "ok": "ОК",
-        "open_dev": "Відкрити dev",
-        "open_task": "Відкрити папку задачі",
-        "open_workspace": "Відкрити workspace",
-        "refresh": "Оновити",
-        "reload_actions": "Оновити actions",
-        "reset_ai_agent_session": "Скинути сесію",
-        "run_ai_agent": "Запустити ШІ агента",
-        "ai_agent_running": "ШІ агент запущений",
-        "restore_ai_agent_session": "Відновити сесію ШІ агента",
-        "run_task_check": "Run task_check",
-        "save": "Зберегти",
-        "select_task_first": "Спочатку вибери задачу",
-        "settings": "Налаштування",
-        "settings_title": "Налаштування Agent Workspace",
-        "task_already_exists": "Задача вже існує",
-        "task": "Задача",
-        "task_agent_status_column": "ШІ",
-        "task_details": "Деталі задачі",
-        "task_name": "Назва задачі",
-        "task_privacy": "Приватність задачі",
-        "task_privacy_private": "Приватна",
-        "task_privacy_public": "Публічна",
-        "tasks": "задач",
-        "text_font_size": "Розмір шрифту тексту",
-        "theme": "Тема",
-        "window_title": "Agent Workspace",
-    },
-}
-
-UI_STRINGS = {
-    "actions.group": {"en": "Actions", "ru": "Actions", "uk": "Actions"},
-    "action.global_parameters": {"en": "Global parameters", "ru": "Глобальные параметры", "uk": "Глобальні параметри"},
-    "action.parameters": {"en": "Parameters", "ru": "Параметры", "uk": "Параметри"},
-    "action.shortcuts": {"en": "Shortcuts", "ru": "Шорткаты", "uk": "Шорткати"},
-    "action.no_parameters": {"en": "No parameters", "ru": "Нет параметров", "uk": "Немає параметрів"},
-    "action.no_values": {"en": "No values", "ru": "Нет значений", "uk": "Немає значень"},
-    "action.shortcut_tooltip": {"en": "Shortcut", "ru": "Шорткат", "uk": "Шорткат"},
-    "action.play_tooltip": {
-        "en": "Click once to arm, click again to run",
-        "ru": "Один клик взводит запуск, второй запускает",
-        "uk": "Один клік готує запуск, другий запускає",
-    },
-    "action.save_shortcut": {
-        "en": "Save selected as shortcut",
-        "ru": "Сохранить выбранное как шорткат",
-        "uk": "Зберегти вибране як шорткат",
-    },
-    "action.configure": {"en": "Configure", "ru": "Настроить", "uk": "Налаштувати"},
-    "action.run": {"en": "Run", "ru": "Запустить", "uk": "Запустити"},
-    "action.open_actions_file": {"en": f"Open {TASK_ACTIONS_FILE}", "ru": f"Открыть {TASK_ACTIONS_FILE}", "uk": f"Відкрити {TASK_ACTIONS_FILE}"},
-    "action.edit": {"en": "Edit", "ru": "Редактировать", "uk": "Редагувати"},
-    "action.delete_shortcut": {"en": "Delete shortcut", "ru": "Удалить шорткат", "uk": "Видалити шорткат"},
-    "action.reorder_actions": {"en": "Reorder by drag", "ru": "Переставлять мышкой", "uk": "Переставляти мишкою"},
-    "action.stop_reorder_actions": {"en": "Stop reorder", "ru": "Закончить перестановку", "uk": "Завершити перестановку"},
-    "action.move_left": {"en": "Move left", "ru": "Сдвинуть влево", "uk": "Посунути вліво"},
-    "action.move_right": {"en": "Move right", "ru": "Сдвинуть вправо", "uk": "Посунути вправо"},
-    "action.add_value": {"en": "Add {set_name}", "ru": "Добавить {set_name}", "uk": "Додати {set_name}"},
-    "action.duplicate_value": {"en": "Duplicate {value}", "ru": "Отпочковать {value}", "uk": "Відгалузити {value}"},
-    "action.edit_value": {"en": "Edit {value}", "ru": "Редактировать {value}", "uk": "Редагувати {value}"},
-    "action.delete_value": {"en": "Delete {value}", "ru": "Удалить {value}", "uk": "Видалити {value}"},
-    "action.save_shortcut_title": {"en": "Save shortcut", "ru": "Сохранить шорткат", "uk": "Зберегти шорткат"},
-    "action.browse": {"en": "Browse", "ru": "Выбрать", "uk": "Вибрати"},
-    "action.choose_folder": {"en": "Choose folder", "ru": "Выбрать папку", "uk": "Вибрати теку"},
-    "action.choose_file": {"en": "Choose file", "ru": "Выбрать файл", "uk": "Вибрати файл"},
-    "action.cannot_open_code": {"en": "Cannot open action code", "ru": "Не удалось открыть код action", "uk": "Не вдалося відкрити код action"},
-    "action.cannot_save_code": {"en": "Cannot save action code", "ru": "Не удалось сохранить код action", "uk": "Не вдалося зберегти код action"},
-    "console.ai_agent": {"en": "AI agent", "ru": "ИИ агент", "uk": "ШІ агент"},
-    "console.shell": {"en": "shell", "ru": "терминал", "uk": "термінал"},
-}
 
 _TASK_ACTION_DRAG_TARGET = "application/x-agent-workspace-task-action"
 _TASK_REORDER_FRAME_DELAY_MS = 16
 
-
-def _ui_string(language: str, key: str, **kwargs: object) -> str:
-    translations = UI_STRINGS.get(key)
-    if translations is None:
-        return key.format(**kwargs) if kwargs else key
-    text = translations.get(language) or translations.get("en") or key
-    return text.format(**kwargs) if kwargs else text
-
-
-CODEX_LANGUAGE_INSTRUCTIONS = {
-    "en": "Reply to the user in English.",
-    "ru": "Отвечай пользователю на русском языке.",
-    "uk": "Відповідай користувачу українською мовою.",
-}
 
 _TASK_ACTIONS_MONITOR_EVENTS = {
     event
@@ -463,7 +185,6 @@ _TASK_ACTIONS_MONITOR_EVENTS = {
     if event is not None
 }
 
-_LOG_SUFFIXES = {".log"}
 AGENT_BUSY_IDLE_DELAY_MS = 1800
 
 
@@ -482,13 +203,6 @@ class TerminalSession:
     output_generation: int = 0
     permission_signature: str | None = None
     ignored_permission_signature: str | None = None
-
-
-@dataclass(frozen=True)
-class ArtifactEntry:
-    group: str
-    path: Path
-    updated: float
 
 
 @dataclass(frozen=True)
@@ -2095,26 +1809,15 @@ class WorkspaceGtkGui:
         self.save_task_shortcut_box.show_all()
 
     def _shortcuts_for_action(self, action: TaskAction) -> list[TaskAction]:
-        return [
-            shortcut
-            for shortcut in self.task_shortcuts
-            if shortcut.base_action_id == (action.base_action_id or action.action_id)
-        ]
+        return shortcuts_for_action(action, self.task_shortcuts)
 
     def _parameter_button_label(self, parameter: TaskActionParameter) -> str:
-        selected = self._selected_parameter_value(parameter)
-        config = self.task_action_config
-        values = config.parameter_sets.get(parameter.set_name, {}) if config is not None else {}
-        label = values.get(selected, {}).get("name") or values.get(selected, {}).get("label", selected)
-        return f"{parameter.label}: {label}"
+        return parameter_button_label(parameter, self.task_action_config, self.selected_task_action_bindings)
 
     def _selected_parameter_value(self, parameter: TaskActionParameter) -> str:
         config = self.task_action_config
-        if parameter.global_name and config is not None:
-            selected = config.global_parameter_bindings.get(parameter.global_name)
-            if selected:
-                return selected
-        return self.selected_task_action_bindings.get(parameter.name) or parameter.default
+        global_bindings = config.global_parameter_bindings if config is not None else {}
+        return selected_parameter_value(parameter, self.selected_task_action_bindings, global_bindings)
 
     def _on_task_parameter_clicked(self, button: Gtk.Button, parameter: TaskActionParameter) -> None:
         menu = Gtk.Menu()
@@ -2156,16 +1859,13 @@ class WorkspaceGtkGui:
         self._update_task_action_button_selection()
 
     def _select_global_task_parameter(self, parameter: TaskActionParameter, selected: str) -> None:
-        task = self._require_task(show_dialog=False)
-        if task is None or not parameter.global_name:
+        if not parameter.global_name:
             return
-        data, errors = load_task_actions_data(task)
-        if errors:
-            self.task_action_errors = errors
-            self._update_actions_message()
-            return
-        globals_data = data.setdefault("global_parameters", {})
-        if isinstance(globals_data, dict):
+
+        def mutator(data: dict[str, object]) -> bool:
+            globals_data = data.setdefault("global_parameters", {})
+            if not isinstance(globals_data, dict):
+                return False
             definition = globals_data.get(parameter.global_name)
             if isinstance(definition, dict):
                 definition["value"] = selected
@@ -2175,8 +1875,9 @@ class WorkspaceGtkGui:
                     "type": parameter.parameter_type,
                     "value": selected,
                 }
-            save_task_actions_data(task, data)
-        self._load_task_action_buttons()
+            return True
+
+        self._mutate_task_actions_data(mutator, reload_on_no_change=True)
 
     def _run_selected_task_action(self) -> None:
         action = self.selected_task_action
@@ -2188,43 +1889,40 @@ class WorkspaceGtkGui:
         if config is None:
             return
         selected_id = self.selected_task_action.action_id if self.selected_task_action is not None else None
-        bindings = self.selected_task_action_bindings if selected_id == action.action_id else dict(action.bindings or {})
+        bindings = bindings_for_action_run(action, selected_id, self.selected_task_action_bindings)
         bound = bind_task_action_parameters(action, config.parameter_sets, bindings, config.global_parameter_bindings)
         self.run_custom_task_action(bound)
 
     def _parameter_values(self, parameter: TaskActionParameter) -> dict[str, dict[str, str]]:
-        config = self.task_action_config
-        if config is None:
-            return {}
-        return config.parameter_sets.get(parameter.set_name, {})
+        return parameter_values(parameter, self.task_action_config)
 
     def _task_parameter_context_menu(self, parameter: TaskActionParameter) -> Gtk.Menu:
         menu = Gtk.Menu()
         selected = self._selected_parameter_value(parameter)
+        state = task_parameter_menu_state(selected, self.task_action_reorder_mode)
         add_item = Gtk.MenuItem(label=self._s("action.add_value", set_name=parameter.set_name))
         add_item.connect("activate", lambda _item: self._edit_parameter_set_value(parameter, None, None))
-        duplicate_item = Gtk.MenuItem(label=self._s("action.duplicate_value", value=selected))
+        duplicate_item = Gtk.MenuItem(label=self._s("action.duplicate_value", value=state.selected_value))
         duplicate_item.connect(
             "activate",
             lambda _item: self._edit_parameter_set_value(
                 parameter,
                 None,
-                self._parameter_values(parameter).get(selected, {}),
+                self._parameter_values(parameter).get(state.selected_value, {}),
             ),
         )
-        edit_item = Gtk.MenuItem(label=self._s("action.edit_value", value=selected))
+        edit_item = Gtk.MenuItem(label=self._s("action.edit_value", value=state.selected_value))
         edit_item.connect(
             "activate",
             lambda _item: self._edit_parameter_set_value(
                 parameter,
-                selected,
-                self._parameter_values(parameter).get(selected, {}),
+                state.selected_value,
+                self._parameter_values(parameter).get(state.selected_value, {}),
             ),
         )
-        delete_item = Gtk.MenuItem(label=self._s("action.delete_value", value=selected))
-        delete_item.connect("activate", lambda _item: self._delete_parameter_set_value(parameter, selected))
-        reorder_key = "action.stop_reorder_actions" if self.task_action_reorder_mode else "action.reorder_actions"
-        reorder_item = Gtk.MenuItem(label=self._s(reorder_key))
+        delete_item = Gtk.MenuItem(label=self._s("action.delete_value", value=state.selected_value))
+        delete_item.connect("activate", lambda _item: self._delete_parameter_set_value(parameter, state.selected_value))
+        reorder_item = Gtk.MenuItem(label=self._s(state.reorder_label_key))
         reorder_item.connect("activate", lambda _item: self._set_task_action_reorder_mode(not self.task_action_reorder_mode))
         menu.append(add_item)
         menu.append(duplicate_item)
@@ -2237,23 +1935,25 @@ class WorkspaceGtkGui:
 
     def _task_action_context_menu(self, action: TaskAction) -> Gtk.Menu:
         task = self._require_task(show_dialog=False)
-        actions_file = task.path / TASK_ACTIONS_FILE if task is not None else None
-        code_path = self._task_action_code_path(action)
+        state = task_action_menu_state(
+            task.path if task is not None else None,
+            self._task_action_code_path(action),
+            self.task_action_reorder_mode,
+        )
         menu = Gtk.Menu()
         run_item = Gtk.MenuItem(label=self._s("action.run"))
         run_item.connect("activate", lambda _item: self._run_task_action_with_current_bindings(action))
         open_item = Gtk.MenuItem(label=self._s("action.open_actions_file"))
-        if actions_file is not None:
-            open_item.connect("activate", lambda _item, path=actions_file: open_text_file(path))
+        if state.actions_file is not None:
+            open_item.connect("activate", lambda _item, path=state.actions_file: open_text_file(path))
         else:
             open_item.set_sensitive(False)
         edit_item = Gtk.MenuItem(label=self._s("action.edit"))
-        if code_path is not None:
-            edit_item.connect("activate", lambda _item, path=code_path: self._edit_action_code_file(path))
+        if state.code_path is not None:
+            edit_item.connect("activate", lambda _item, path=state.code_path: self._edit_action_code_file(path))
         else:
             edit_item.set_sensitive(False)
-        reorder_key = "action.stop_reorder_actions" if self.task_action_reorder_mode else "action.reorder_actions"
-        reorder_item = Gtk.MenuItem(label=self._s(reorder_key))
+        reorder_item = Gtk.MenuItem(label=self._s(state.reorder_label_key))
         reorder_item.connect("activate", lambda _item: self._set_task_action_reorder_mode(not self.task_action_reorder_mode))
         menu.append(run_item)
         menu.append(open_item)
@@ -2264,26 +1964,7 @@ class WorkspaceGtkGui:
         return menu
 
     def _task_action_code_path(self, action: TaskAction) -> Path | None:
-        command = action.command
-        if isinstance(command, str):
-            try:
-                tokens = shlex.split(command)
-            except ValueError:
-                return None
-        else:
-            tokens = list(command)
-        if not tokens:
-            return None
-        script_index = 1 if tokens[0] in {"bash", "sh", "python", "python3"} and len(tokens) > 1 else 0
-        candidate = Path(tokens[script_index])
-        if not candidate.is_absolute():
-            candidate = action.cwd / candidate
-        candidate = candidate.resolve()
-        try:
-            candidate.relative_to(action.cwd.resolve())
-        except ValueError:
-            return None
-        return candidate if candidate.is_file() else None
+        return task_action_code_path(action)
 
     def _edit_action_code_file(self, path: Path) -> None:
         try:
@@ -2292,13 +1973,13 @@ class WorkspaceGtkGui:
             self._show_error(self._s("action.cannot_open_code"), str(error))
 
     def _task_shortcut_context_menu(self, action: TaskAction) -> Gtk.Menu:
+        state = task_shortcut_menu_state(self.task_action_reorder_mode)
         menu = Gtk.Menu()
         run_item = Gtk.MenuItem(label=self._s("action.run"))
         run_item.connect("activate", lambda _item: self.run_custom_task_action(action))
         delete_item = Gtk.MenuItem(label=self._s("action.delete_shortcut"))
         delete_item.connect("activate", lambda _item: self._delete_task_shortcut(action))
-        reorder_key = "action.stop_reorder_actions" if self.task_action_reorder_mode else "action.reorder_actions"
-        reorder_item = Gtk.MenuItem(label=self._s(reorder_key))
+        reorder_item = Gtk.MenuItem(label=self._s(state.reorder_label_key))
         reorder_item.connect("activate", lambda _item: self._set_task_action_reorder_mode(not self.task_action_reorder_mode))
         menu.append(run_item)
         menu.append(delete_item)
@@ -2308,46 +1989,19 @@ class WorkspaceGtkGui:
         return menu
 
     def _move_task_action(self, action: TaskAction, offset: int) -> None:
-        task = self._require_task(show_dialog=False)
-        if task is None:
-            return
-        data, errors = load_task_actions_data(task)
-        if errors:
-            self.task_action_errors = errors
-            self._update_actions_message()
-            return
-        actions = data.get("actions")
-        if isinstance(actions, list) and _move_json_list_entry(actions, "id", action.action_id, offset):
-            save_task_actions_data(task, data)
-            self._load_task_action_buttons()
+        self._mutate_task_actions_data(
+            lambda data: isinstance(data.get("actions"), list)
+            and _move_json_list_entry(data["actions"], "id", action.action_id, offset)
+        )
 
     def _move_task_action_before(self, source_id: str, target_id: str) -> None:
-        task = self._require_task(show_dialog=False)
-        if task is None:
-            return
-        data, errors = load_task_actions_data(task)
-        if errors:
-            self.task_action_errors = errors
-            self._update_actions_message()
-            return
-        actions = data.get("actions")
-        if isinstance(actions, list) and _move_json_list_entry_before(actions, "id", source_id, target_id):
-            save_task_actions_data(task, data)
-            self._load_task_action_buttons()
+        self._mutate_task_actions_data(
+            lambda data: isinstance(data.get("actions"), list)
+            and _move_json_list_entry_before(data["actions"], "id", source_id, target_id)
+        )
 
     def _save_task_action_order(self, order: list[str]) -> None:
-        task = self._require_task(show_dialog=False)
-        if task is None:
-            return
-        data, errors = load_task_actions_data(task)
-        if errors:
-            self.task_action_errors = errors
-            self._update_actions_message()
-            return
-        actions = data.get("actions")
-        if isinstance(actions, list) and _reorder_json_list_by_ids(actions, "id", order):
-            save_task_actions_data(task, data)
-            self._load_task_action_buttons()
+        self._save_task_order_group("action", order)
 
     def _task_reorder_order(self, group: str) -> list[str]:
         if group == "action":
@@ -2400,95 +2054,71 @@ class WorkspaceGtkGui:
             self._save_task_shortcut_order(order)
 
     def _save_task_shortcut_order(self, order: list[str]) -> None:
-        task = self._require_task(show_dialog=False)
-        if task is None:
-            return
-        data, errors = load_task_actions_data(task)
-        if errors:
-            self.task_action_errors = errors
-            self._update_actions_message()
-            return
-        shortcuts = data.get("shortcuts")
-        if isinstance(shortcuts, list) and _reorder_json_list_subset_by_ids(shortcuts, "id", order):
-            save_task_actions_data(task, data)
-            self._load_task_action_buttons()
+        self._save_task_order_group("shortcut", order)
 
     def _save_task_parameter_order(self, order: list[str]) -> None:
-        action = self.selected_task_action
-        task = self._require_task(show_dialog=False)
-        if action is None or task is None:
-            return
-        data, errors = load_task_actions_data(task)
-        if errors:
-            self.task_action_errors = errors
-            self._update_actions_message()
-            return
-        if _reorder_action_parameter_entries(data, action.action_id, order):
-            save_task_actions_data(task, data)
-            self._load_task_action_buttons()
+        self._save_task_order_group("parameter", order)
 
     def _save_global_task_parameter_order(self, order: list[str]) -> None:
+        self._save_task_order_group("global_parameter", order)
+
+    def _save_task_order_group(self, group: str, order: list[str]) -> None:
+        action = self.selected_task_action
+        selected_action_id = action.action_id if action is not None else None
+        self._mutate_task_actions_data(
+            lambda data: _reorder_task_action_data(data, group, order, selected_action_id=selected_action_id)
+        )
+
+    def _mutate_task_actions_data(
+        self,
+        mutator: Callable[[dict[str, object]], bool],
+        *,
+        reload_actions: bool = True,
+        reload_on_no_change: bool = False,
+    ) -> bool:
         task = self._require_task(show_dialog=False)
         if task is None:
-            return
+            return False
         data, errors = load_task_actions_data(task)
         if errors:
             self.task_action_errors = errors
             self._update_actions_message()
-            return
-        global_parameters = data.get("global_parameters")
-        if isinstance(global_parameters, dict) and _reorder_json_mapping_by_ids(global_parameters, order):
-            save_task_actions_data(task, data)
+            return False
+        if not mutator(data):
+            if reload_actions and reload_on_no_change:
+                self._load_task_action_buttons()
+            return False
+        save_task_actions_data(task, data)
+        if reload_actions:
             self._load_task_action_buttons()
+        return True
 
     def _set_task_action_reorder_mode(self, enabled: bool) -> None:
         self.task_action_reorder_mode = enabled
         self._load_task_action_buttons()
 
     def _move_task_shortcut(self, action: TaskAction, offset: int) -> None:
-        task = self._require_task(show_dialog=False)
-        if task is None:
-            return
-        data, errors = load_task_actions_data(task)
-        if errors:
-            self.task_action_errors = errors
-            self._update_actions_message()
-            return
-        shortcuts = data.get("shortcuts")
-        if isinstance(shortcuts, list) and _move_json_list_entry(shortcuts, "id", action.action_id, offset):
-            save_task_actions_data(task, data)
-            self._load_task_action_buttons()
+        self._mutate_task_actions_data(
+            lambda data: isinstance(data.get("shortcuts"), list)
+            and _move_json_list_entry(data["shortcuts"], "id", action.action_id, offset)
+        )
 
     def _move_task_parameter(self, parameter: TaskActionParameter, offset: int) -> None:
         if parameter.global_name:
             self._move_global_task_parameter(parameter.global_name, offset)
             return
         action = self.selected_task_action
-        task = self._require_task(show_dialog=False)
-        if action is None or task is None:
+        if action is None:
             return
-        data, errors = load_task_actions_data(task)
-        if errors:
-            self.task_action_errors = errors
-            self._update_actions_message()
-            return
-        if _move_action_parameter_entry(data, action.action_id, parameter.name, offset):
-            save_task_actions_data(task, data)
-            self._load_task_action_buttons()
+        self._mutate_task_actions_data(
+            lambda data: _move_action_parameter_entry(data, action.action_id, parameter.name, offset)
+        )
 
     def _move_global_task_parameter(self, global_name: str, offset: int) -> None:
-        task = self._require_task(show_dialog=False)
-        if task is None:
-            return
-        data, errors = load_task_actions_data(task)
-        if errors:
-            self.task_action_errors = errors
-            self._update_actions_message()
-            return
-        global_parameters = data.get("global_parameters")
-        if isinstance(global_parameters, dict) and _move_json_mapping_entry(global_parameters, global_name, offset):
-            save_task_actions_data(task, data)
-            self._load_task_action_buttons()
+        self._mutate_task_actions_data(
+            lambda data: isinstance(data.get("global_parameters"), dict)
+            and _move_json_mapping_entry(data["global_parameters"], global_name, offset)
+        )
 
     def _edit_parameter_set_value(
         self,
@@ -2517,10 +2147,12 @@ class WorkspaceGtkGui:
         content = dialog.get_content_area()
         content.pack_start(grid, True, True, 0)
         field_getters: dict[str, Callable[[], str]] = {}
-        known_fields = _parameter_type_fields(data, parameter.parameter_type) or {"name"}
-        for value in self._parameter_values(parameter).values():
-            known_fields.update(value)
-        field_names = _parameter_field_order(parameter.parameter_type, set(fields) | known_fields)
+        field_names = _parameter_dialog_field_names(
+            data,
+            parameter.parameter_type,
+            set(fields),
+            list(self._parameter_values(parameter).values()),
+        )
         for row, field_name in enumerate(field_names):
             editor, getter = self._parameter_field_editor(
                 data,
@@ -2542,17 +2174,9 @@ class WorkspaceGtkGui:
                     text = getter()
                     if text:
                         value[field_name] = text
-                parameter_sets = data.setdefault("parameter_sets", {})
-                if isinstance(parameter_sets, dict):
-                    set_values = parameter_sets.setdefault(parameter.set_name, {})
-                    if isinstance(set_values, dict):
-                        if value_id != new_id:
-                            new_id = _unique_parameter_value_id(new_id, set_values)
-                        if value_id and value_id != new_id:
-                            set_values.pop(value_id, None)
-                        set_values[new_id] = value
-                        save_task_actions_data(task, data)
-                        self._load_task_action_buttons()
+                if _upsert_parameter_set_value(data, parameter.set_name, value_id, new_id, value) is not None:
+                    save_task_actions_data(task, data)
+                    self._load_task_action_buttons()
         dialog.destroy()
 
     def _parameter_field_editor(
@@ -2614,21 +2238,10 @@ class WorkspaceGtkGui:
         dialog.destroy()
 
     def _delete_parameter_set_value(self, parameter: TaskActionParameter, value_id: str) -> None:
-        task = self._require_task(show_dialog=False)
-        if task is None:
-            return
-        data, errors = load_task_actions_data(task)
-        if errors:
-            self.task_action_errors = errors
-            self._update_actions_message()
-            return
-        parameter_sets = data.get("parameter_sets")
-        if isinstance(parameter_sets, dict):
-            set_values = parameter_sets.get(parameter.set_name)
-            if isinstance(set_values, dict):
-                set_values.pop(value_id, None)
-                save_task_actions_data(task, data)
-        self._load_task_action_buttons()
+        self._mutate_task_actions_data(
+            lambda data: _delete_parameter_set_value(data, parameter.set_name, value_id),
+            reload_on_no_change=True,
+        )
 
     def _save_selected_action_as_shortcut(self) -> None:
         action = self.selected_task_action
@@ -2655,38 +2268,15 @@ class WorkspaceGtkGui:
             shortcut_id = id_entry.get_text().strip()
             label = label_entry.get_text().strip()
             if shortcut_id and label:
-                data, errors = load_task_actions_data(task)
-                if not errors:
-                    shortcuts = data.setdefault("shortcuts", [])
-                    if isinstance(shortcuts, list):
-                        shortcuts.append(
-                            {
-                                "id": shortcut_id,
-                                "label": label,
-                                "action": action.base_action_id or action.action_id,
-                                "bindings": dict(self.selected_task_action_bindings),
-                            }
-                        )
-                        save_task_actions_data(task, data)
-                        self._load_task_action_buttons()
+                action_id = action.base_action_id or action.action_id
+                bindings = dict(self.selected_task_action_bindings)
+                self._mutate_task_actions_data(
+                    lambda data: _add_task_shortcut(data, shortcut_id, label, action_id, bindings)
+                )
         dialog.destroy()
 
     def _delete_task_shortcut(self, action: TaskAction) -> None:
-        task = self._require_task(show_dialog=False)
-        if task is None:
-            return
-        data, errors = load_task_actions_data(task)
-        if errors:
-            self.task_action_errors = errors
-            self._update_actions_message()
-            return
-        shortcuts = data.get("shortcuts")
-        if isinstance(shortcuts, list):
-            data["shortcuts"] = [
-                entry for entry in shortcuts if not (isinstance(entry, dict) and entry.get("id") == action.action_id)
-            ]
-            save_task_actions_data(task, data)
-        self._load_task_action_buttons()
+        self._mutate_task_actions_data(lambda data: _delete_task_shortcut(data, action.action_id))
 
     def _watch_task_actions(self, task: TaskSummary) -> None:
         if self.task_actions_monitor_path == task.path:
@@ -2870,7 +2460,7 @@ class WorkspaceGtkGui:
             claude_effort=self.default_claude_effort,
             codex_executable=_codex_executable(),
             claude_executable=_claude_executable(),
-            prompt_suffix=f"Отвечай пользователю на {self.language} языке.",
+            prompt_suffix=CODEX_LANGUAGE_INSTRUCTIONS.get(self.language, CODEX_LANGUAGE_INSTRUCTIONS["en"]),
         )
         for session in self._current_task_terminal_sessions(task):
             if session.kind == agent:
@@ -4004,98 +3594,11 @@ class WorkspaceGtkGui:
         )
 
 
-def _button(label: str, callback: object) -> Gtk.Button:
-    button = Gtk.Button(label=label)
-    button.connect("clicked", callback)
-    return button
-
-
-def _compact_button(label: str, callback: object | None, *, max_width_chars: int = 22) -> Gtk.Button:
-    button = Gtk.Button()
-    text = Gtk.Label(label=label)
-    text.set_ellipsize(Pango.EllipsizeMode.END)
-    text.set_max_width_chars(max_width_chars)
-    text.set_width_chars(min(max_width_chars, max(4, min(len(label), max_width_chars))))
-    button.add(text)
-    button.set_tooltip_text(label)
-    button.set_size_request(-1, 26)
-    if callback is not None:
-        button.connect("clicked", callback)
-    return button
-
-
-def _flow_box(
-    *,
-    border_width: int = 0,
-    orientation: Gtk.Orientation = Gtk.Orientation.HORIZONTAL,
-    max_children_per_line: int = 24,
-) -> Gtk.FlowBox:
-    box = Gtk.FlowBox()
-    box.set_selection_mode(Gtk.SelectionMode.NONE)
-    box.set_orientation(orientation)
-    box.set_column_spacing(3)
-    box.set_row_spacing(2)
-    box.set_min_children_per_line(1)
-    box.set_max_children_per_line(max_children_per_line)
-    box.set_border_width(border_width)
-    return box
-
-
-def _flow_box_add(box: Gtk.FlowBox, widget: Gtk.Widget) -> None:
-    box.add(widget)
-
-
-def _remove_style_class_recursive(widget: Gtk.Widget, class_name: str) -> None:
-    widget.get_style_context().remove_class(class_name)
-    if isinstance(widget, Gtk.Container):
-        for child in widget.get_children():
-            _remove_style_class_recursive(child, class_name)
-
-
-def _set_widget_opacity_recursive(widget: Gtk.Widget, opacity: float) -> None:
-    widget.set_opacity(opacity)
-    if isinstance(widget, Gtk.Container):
-        for child in widget.get_children():
-            _set_widget_opacity_recursive(child, opacity)
-
-
-def _task_action_drag_icon(label: str) -> Gtk.Button:
-    button = Gtk.Button(label=label)
-    button.set_relief(Gtk.ReliefStyle.NORMAL)
-    button.set_focus_on_click(False)
-    button.get_style_context().add_class("task-action-drag-icon")
-    button.set_opacity(0.9)
-    button.show_all()
-    return button
-
-
 def _is_pane_separator_event(pane: Gtk.Paned, event: Gdk.EventButton, tolerance: int = 8) -> bool:
     position = pane.get_position()
     if pane.get_orientation() == Gtk.Orientation.HORIZONTAL:
         return abs(event.x - position) <= tolerance
     return abs(event.y - position) <= tolerance
-
-
-def _terminal_session_sort_key(kind: str, session_id: int) -> tuple[int, int]:
-    return (0 if session_is_agent(session_kind=kind) else 1, session_id)
-
-
-def _terminal_tab_label(kind: str, shell_index: int, *, language: str = "en") -> str:
-    if session_is_agent(session_kind=kind):
-        return _ui_string(language, "console.ai_agent")
-    if kind == "shell":
-        return f"{_ui_string(language, 'console.shell')} {shell_index}"
-    return f"{kind} {shell_index}"
-
-
-def _terminal_tab_text_label(tab: Gtk.Widget | None) -> Gtk.Label | None:
-    if isinstance(tab, Gtk.Label):
-        return tab
-    if isinstance(tab, Gtk.Container):
-        for child in tab.get_children():
-            if isinstance(child, Gtk.Label):
-                return child
-    return None
 
 
 def _notebook_event_in_empty_tab_area(notebook: Gtk.Notebook, event: Gdk.EventButton) -> bool:
@@ -4135,136 +3638,6 @@ def _rect_contains(rect: tuple[float, float, float, float], x: float, y: float) 
     return rect_x <= x < rect_x + width and rect_y <= y < rect_y + height
 
 
-def _terminal_clipboard_shortcut(keyval: int, state: int, hardware_keycode: int | None = None) -> str | None:
-    modifiers = int(Gdk.ModifierType.CONTROL_MASK | Gdk.ModifierType.SHIFT_MASK)
-    if (state & modifiers) != modifiers:
-        return None
-    if hardware_keycode in {54}:
-        return "copy"
-    if hardware_keycode in {55}:
-        return "paste"
-    char = chr(Gdk.keyval_to_unicode(keyval)).casefold() if Gdk.keyval_to_unicode(keyval) else ""
-    key_name = Gdk.keyval_name(keyval) or ""
-    key_name = key_name.casefold()
-    if char in {"c", "с"} or key_name in {"c", "cyrillic_es"}:
-        return "copy"
-    if char in {"v", "м"} or key_name in {"v", "cyrillic_em"}:
-        return "paste"
-    return None
-
-
-def _copy_terminal_selection(terminal: Vte.Terminal) -> None:
-    terminal.grab_focus()
-    get_has_selection = getattr(terminal, "get_has_selection", None)
-    has_selection = bool(get_has_selection()) if callable(get_has_selection) else True
-    try:
-        terminal.copy_clipboard_format(Vte.Format.TEXT)
-    except (AttributeError, TypeError):
-        terminal.copy_clipboard()
-    if not has_selection:
-        _copy_primary_selection_to_clipboard()
-
-
-def _copy_primary_selection_to_clipboard() -> None:
-    text = _clipboard_text(Gdk.SELECTION_PRIMARY).strip()
-    if not text:
-        return
-    _set_clipboard_text(text)
-
-
-def _clipboard_text(selection: Gdk.Atom) -> str:
-    clipboard = Gtk.Clipboard.get(selection)
-    wait_for_text = getattr(clipboard, "wait_for_text", None)
-    if not callable(wait_for_text):
-        return ""
-    return wait_for_text() or ""
-
-
-def _set_clipboard_text(text: str) -> None:
-    clipboard = Gtk.Clipboard.get(Gdk.SELECTION_CLIPBOARD)
-    clipboard.set_text(text, -1)
-    store = getattr(clipboard, "store", None)
-    if callable(store):
-        store()
-
-
-def _task_row_style(
-    has_agent: bool,
-    has_session: bool,
-    has_external_agent: bool,
-    theme: str,
-) -> tuple[str, bool, str, bool, int, bool]:
-    colors = _theme_colors(theme)
-    if has_agent:
-        return (
-            colors["codex_running_background"],
-            True,
-            colors["codex_running_foreground"],
-            True,
-            int(Pango.Weight.BOLD),
-            True,
-        )
-    if has_external_agent:
-        return (
-            colors["agent_external_background"],
-            True,
-            colors["agent_external_foreground"],
-            True,
-            int(Pango.Weight.NORMAL),
-            True,
-        )
-    return (
-        "",
-        False,
-        "",
-        False,
-        int(Pango.Weight.NORMAL),
-        False,
-    )
-
-
-def _task_actions_signature(task: TaskSummary) -> tuple[Path, int | None]:
-    path = task.path / TASK_ACTIONS_FILE
-    try:
-        return (path, path.stat().st_mtime_ns)
-    except FileNotFoundError:
-        return (path, None)
-
-
-def _task_path_for_name(workspace: Path, task_name: str) -> Path | None:
-    if not task_name or task_name in {".", ".."}:
-        return None
-    if "/" in task_name or "\\" in task_name:
-        return None
-    task_path = (workspace / "tasks" / task_name).resolve()
-    tasks_root = (workspace / "tasks").resolve()
-    try:
-        task_path.relative_to(tasks_root)
-    except ValueError:
-        return None
-    return task_path
-
-
-def _task_init_command(
-    workspace: Path,
-    task_path: Path,
-    *,
-    privacy: str = "public",
-) -> list[str]:
-    command = [
-        sys_executable(),
-        "-m",
-        "agent_tools.paf_workspace.task_check",
-        str(task_path),
-        "--workspace",
-        str(workspace),
-        "--init-layout",
-    ]
-    if privacy != "public":
-        command.extend(["--privacy", privacy])
-    return command
-
-
 def _update_text_tag(tag: Gtk.TextTag | None, **properties: object) -> None:
     if tag is None:
         return
@@ -4287,175 +3660,10 @@ def _text_buffer_text(buffer: Gtk.TextBuffer) -> str:
     return buffer.get_text(start, end, True)
 
 
-def _terminal_text_tail(terminal: Vte.Terminal, limit: int = 4000) -> str:
-    def include_all(*_args: object) -> bool:
-        return True
-
-    try:
-        result = terminal.get_text(include_all, None)
-    except TypeError:
-        result = terminal.get_text(include_all)
-    if isinstance(result, tuple):
-        text = result[0]
-    else:
-        text = result
-    if not isinstance(text, str):
-        return ""
-    return text[-limit:]
-
-
 def _scrolled(widget: Gtk.Widget) -> Gtk.ScrolledWindow:
     scrolled = Gtk.ScrolledWindow()
     scrolled.add(widget)
     return scrolled
-
-
-def _task_artifact_entries(
-    task: TaskSummary,
-    *,
-    sort_column: str = "name",
-    descending: bool = False,
-) -> list[ArtifactEntry]:
-    entries: list[ArtifactEntry] = []
-    for path in _task_artifact_files(task):
-        group = _artifact_group(task, path)
-        if group is not None:
-            entries.append(ArtifactEntry(group, path, _artifact_updated_timestamp(path)))
-    result: list[ArtifactEntry] = []
-    for group in sorted({entry.group for entry in entries}, key=_artifact_group_sort_key):
-        group_entries = [entry for entry in entries if entry.group == group]
-        if sort_column == "updated":
-            if descending:
-                group_entries.sort(
-                    key=lambda entry: (-entry.updated, _artifact_relative_label(task, entry.path).casefold())
-                )
-            else:
-                group_entries.sort(
-                    key=lambda entry: (entry.updated, _artifact_relative_label(task, entry.path).casefold())
-                )
-        else:
-            group_entries.sort(
-                key=lambda entry: (entry.path.name.casefold(), _artifact_relative_label(task, entry.path).casefold()),
-                reverse=descending,
-            )
-        result.extend(group_entries)
-    return result
-
-
-def _task_artifact_files(task: TaskSummary) -> Iterator[Path]:
-    report = task.path / "report"
-    if not report.is_dir():
-        return
-    for root, dirs, files in os.walk(report):
-        dirs.sort()
-        for filename in sorted(files, key=str.casefold):
-            yield Path(root) / filename
-
-
-def _artifact_group(task: TaskSummary, path: Path) -> str | None:
-    suffix = path.suffix.casefold()
-    try:
-        rel = path.relative_to(task.path)
-    except ValueError:
-        return None
-    parts = rel.parts
-    if len(parts) < 1 or parts[0] != "report":
-        return None
-    if len(parts) >= 2 and parts[1] == "diff":
-        return "diff_reports"
-    if len(parts) >= 2 and parts[1] == "puml":
-        return "diagrams"
-    if suffix in _LOG_SUFFIXES:
-        return "logs"
-    return "artifacts"
-
-
-def _artifact_group_sort_key(group: str) -> int:
-    order = {"logs": 0, "diagrams": 1, "diff_reports": 2, "artifacts": 3}
-    return order.get(group, 99)
-
-
-def _artifact_relative_label(task: TaskSummary, path: Path) -> str:
-    try:
-        return str(path.relative_to(task.path))
-    except ValueError:
-        return str(path)
-
-
-def _artifact_updated_timestamp(path: Path) -> float:
-    try:
-        return path.stat().st_mtime
-    except OSError:
-        return 0.0
-
-
-def _artifact_updated_label(updated: float) -> str:
-    if updated <= 0:
-        return ""
-    return datetime.fromtimestamp(updated).strftime("%Y-%m-%d %H:%M")
-
-
-def _artifact_delete_paths(
-    task: TaskSummary,
-    *,
-    artifact_path: Path | None = None,
-    group: str | None = None,
-    delete_all: bool = False,
-) -> list[Path]:
-    if artifact_path is not None:
-        try:
-            artifact_path.relative_to(task.path)
-        except ValueError:
-            return []
-        return [artifact_path] if artifact_path.is_file() else []
-    if delete_all:
-        return _files_under(task.path / "report")
-    if group == "logs":
-        return [
-            path
-            for path in _files_under(task.path / "report")
-            if path.suffix.casefold() in _LOG_SUFFIXES
-        ]
-    if group == "diagrams":
-        return _files_under(task.path / "report" / "puml")
-    if group == "diff_reports":
-        return _files_under(task.path / "report" / "diff")
-    if group == "artifacts":
-        return [
-            path
-            for path in _files_under(task.path / "report")
-            if _artifact_group(task, path) == "artifacts"
-        ]
-    return []
-
-
-def _artifact_context_action(artifact_path: Path | None, group: str | None) -> str:
-    if artifact_path is not None:
-        return "artifact"
-    if group is not None:
-        return "group"
-    return "all"
-
-
-def _artifact_selectable_path(task: TaskSummary, artifact_path: Path) -> Path | None:
-    try:
-        artifact_path.relative_to(task.path)
-    except ValueError:
-        return None
-    return artifact_path if artifact_path.is_file() else None
-
-
-def _files_under(root: Path) -> list[Path]:
-    if not root.is_dir():
-        return []
-    paths: list[Path] = []
-    for current, dirs, files in os.walk(root):
-        dirs.sort()
-        for filename in sorted(files, key=str.casefold):
-            path = Path(current) / filename
-            if path.is_file():
-                paths.append(path)
-    return paths
 
 
 def ai_agent_task_context_message(task: TaskSummary, workspace: Path, language: str = "en") -> str:
@@ -4523,567 +3731,10 @@ def _set_combo_text_choices(combo: Gtk.ComboBoxText, choices: tuple[str, ...], c
     combo.set_active(active_index)
 
 
-def _shortcut_id_from_label(label: str) -> str:
-    value = label.strip().lower()
-    value = "".join(character if character.isalnum() else "-" for character in value)
-    value = "-".join(part for part in value.split("-") if part)
-    return value or "shortcut"
-
-
-def _parameter_value_id_from_name(name: str) -> str:
-    value = name.strip().lower()
-    value = "".join(character if character.isalnum() else "_" for character in value)
-    value = "_".join(part for part in value.split("_") if part)
-    return value or "value"
-
-
-def _unique_parameter_value_id(candidate: str, existing: dict[object, object]) -> str:
-    if candidate not in existing:
-        return candidate
-    index = 2
-    while f"{candidate}_{index}" in existing:
-        index += 1
-    return f"{candidate}_{index}"
-
-
-def _move_json_list_entry(entries: list[object], key_name: str, entry_id: str, offset: int) -> bool:
-    if offset == 0:
-        return False
-    for index, entry in enumerate(entries):
-        if isinstance(entry, dict) and entry.get(key_name) == entry_id:
-            new_index = index + offset
-            if new_index < 0 or new_index >= len(entries):
-                return False
-            entries[index], entries[new_index] = entries[new_index], entries[index]
-            return True
-    return False
-
-
-def _move_json_mapping_entry(mapping: dict[object, object], entry_id: str, offset: int) -> bool:
-    if offset == 0 or entry_id not in mapping:
-        return False
-    items = list(mapping.items())
-    index = next((idx for idx, (key, _value) in enumerate(items) if key == entry_id), -1)
-    new_index = index + offset
-    if index < 0 or new_index < 0 or new_index >= len(items):
-        return False
-    items[index], items[new_index] = items[new_index], items[index]
-    mapping.clear()
-    mapping.update(items)
-    return True
-
-
-def _move_json_list_entry_before(entries: list[object], key_name: str, entry_id: str, before_id: str) -> bool:
-    if entry_id == before_id:
-        return False
-    source_index = _json_list_entry_index(entries, key_name, entry_id)
-    target_index = _json_list_entry_index(entries, key_name, before_id)
-    if source_index < 0 or target_index < 0:
-        return False
-    entry = entries.pop(source_index)
-    if source_index < target_index:
-        target_index -= 1
-    entries.insert(target_index, entry)
-    return True
-
-
-def _move_id_before(entries: list[str], entry_id: str, before_id: str) -> bool:
-    return _move_id_relative(entries, entry_id, before_id, after=False)
-
-
-def _move_id_relative(entries: list[str], entry_id: str, target_id: str, *, after: bool) -> bool:
-    if entry_id == target_id:
-        return False
-    original = list(entries)
-    try:
-        source_index = entries.index(entry_id)
-        target_index = entries.index(target_id)
-    except ValueError:
-        return False
-    value = entries.pop(source_index)
-    if source_index < target_index:
-        target_index -= 1
-    if after:
-        target_index += 1
-    entries.insert(target_index, value)
-    return entries != original
-
-
-def _task_reorder_order_for_drag_edges(
-    order: list[str],
-    source_id: str,
-    target_centers: dict[str, float],
-    *,
-    dragged_left: float,
-    dragged_right: float,
-    moving_right: bool,
-) -> list[str] | None:
-    try:
-        current_slot = order.index(source_id)
-    except ValueError:
-        return None
-    remaining = [item_id for item_id in order if item_id != source_id]
-    if moving_right:
-        next_slot = sum(1 for item_id in remaining if target_centers.get(item_id, float("inf")) <= dragged_right)
-        if next_slot <= current_slot:
-            return None
-    else:
-        next_slot = sum(1 for item_id in remaining if target_centers.get(item_id, float("inf")) < dragged_left)
-        if next_slot >= current_slot:
-            return None
-    next_slot = max(0, min(next_slot, len(remaining)))
-    new_order = list(remaining)
-    new_order.insert(next_slot, source_id)
-    return new_order if new_order != order else None
-
-
-def _reorder_json_list_by_ids(entries: list[object], key_name: str, ordered_ids: list[str]) -> bool:
-    order = {entry_id: position for position, entry_id in enumerate(ordered_ids)}
-    indexed_entries = list(enumerate(entries))
-    reordered = sorted(
-        indexed_entries,
-        key=lambda item: (
-            order.get(item[1].get(key_name), len(order)) if isinstance(item[1], dict) else len(order),
-            item[0],
-        ),
-    )
-    new_entries = [entry for _index, entry in reordered]
-    if new_entries == entries:
-        return False
-    entries[:] = new_entries
-    return True
-
-
-def _reorder_json_list_subset_by_ids(entries: list[object], key_name: str, ordered_ids: list[str]) -> bool:
-    visible_ids = set(ordered_ids)
-    ordered_visible = [
-        entry
-        for entry in sorted(
-            [entry for entry in entries if isinstance(entry, dict) and entry.get(key_name) in visible_ids],
-            key=lambda entry: ordered_ids.index(entry.get(key_name)),
-        )
-    ]
-    if not ordered_visible:
-        return False
-    visible_iter = iter(ordered_visible)
-    new_entries: list[object] = []
-    for entry in entries:
-        if isinstance(entry, dict) and entry.get(key_name) in visible_ids:
-            new_entries.append(next(visible_iter))
-        else:
-            new_entries.append(entry)
-    if new_entries == entries:
-        return False
-    entries[:] = new_entries
-    return True
-
-
-def _reorder_json_mapping_by_ids(mapping: dict[object, object], ordered_ids: list[str]) -> bool:
-    order = {entry_id: position for position, entry_id in enumerate(ordered_ids)}
-    items = list(mapping.items())
-    indexed_items = list(enumerate(items))
-    reordered = [
-        item
-        for _index, item in sorted(indexed_items, key=lambda indexed: (order.get(indexed[1][0], len(order)), indexed[0]))
-    ]
-    if reordered == items:
-        return False
-    mapping.clear()
-    mapping.update(reordered)
-    return True
-
-
-def _json_list_entry_index(entries: list[object], key_name: str, entry_id: str) -> int:
-    for index, entry in enumerate(entries):
-        if isinstance(entry, dict) and entry.get(key_name) == entry_id:
-            return index
-    return -1
-
-
-def _move_action_parameter_entry(data: dict[str, object], action_id: str, parameter_name: str, offset: int) -> bool:
-    actions = data.get("actions")
-    if not isinstance(actions, list):
-        return False
-    for action in actions:
-        if not isinstance(action, dict) or action.get("id") != action_id:
-            continue
-        parameters = action.get("parameters")
-        if not isinstance(parameters, list):
-            return False
-        return _move_json_list_entry(parameters, "name", parameter_name, offset)
-    return False
-
-
-def _reorder_action_parameter_entries(data: dict[str, object], action_id: str, ordered_names: list[str]) -> bool:
-    actions = data.get("actions")
-    if not isinstance(actions, list):
-        return False
-    for action in actions:
-        if not isinstance(action, dict) or action.get("id") != action_id:
-            continue
-        parameters = action.get("parameters")
-        if not isinstance(parameters, list):
-            return False
-        return _reorder_json_list_by_ids(parameters, "name", ordered_names)
-    return False
-
-
-def _set_task_action_drag_selection(selection: object, action_id: str) -> None:
-    selection.set(selection.get_target(), 8, action_id.encode("utf-8"))
-
-
-def _task_action_drag_selection_id(selection: object) -> str:
-    data = selection.get_data()
-    if not data:
-        return ""
-    if isinstance(data, str):
-        return data.strip()
-    return bytes(data).decode("utf-8").strip()
-
-
-def _parameter_field_order(parameter_type: str, fields: set[str]) -> list[str]:
-    preferred_by_type = {
-        "board": ["name", "host", "password_file", "tftp_root", "nfs_root", "user", "deployment_folder_name"],
-        "file": ["name", "path"],
-        "local_file": ["name", "path"],
-        "remote_file": ["name", "path"],
-    }
-    preferred = preferred_by_type.get(parameter_type, ["name"])
-    ordered = [field for field in preferred if field in fields]
-    ordered.extend(sorted(field for field in fields if field not in set(ordered)))
-    return ordered
-
-
-def _parameter_type_fields(data: dict[str, object], parameter_type: str) -> set[str]:
-    parameter_types = data.get("parameter_types")
-    if not isinstance(parameter_types, dict):
-        return set()
-    definition = parameter_types.get(parameter_type)
-    if not isinstance(definition, dict):
-        return set()
-    fields = definition.get("fields")
-    if not isinstance(fields, dict):
-        return set()
-    return {field for field in fields if isinstance(field, str)}
-
-
-def _parameter_field_type(data: dict[str, object], parameter_type: str, field_name: str) -> str:
-    parameter_types = data.get("parameter_types")
-    if not isinstance(parameter_types, dict):
-        return "string"
-    definition = parameter_types.get(parameter_type)
-    if not isinstance(definition, dict):
-        return "string"
-    fields = definition.get("fields")
-    if not isinstance(fields, dict):
-        return "string"
-    field_schema = fields.get(field_name)
-    if isinstance(field_schema, str):
-        return field_schema
-    if isinstance(field_schema, dict):
-        field_type = field_schema.get("type")
-        if isinstance(field_type, str) and field_type:
-            return field_type
-    return "string"
-
-
-def _field_type_enum_values(data: dict[str, object], field_type: str) -> list[str] | None:
-    field_types = data.get("field_types")
-    if not isinstance(field_types, dict):
-        return None
-    definition = field_types.get(field_type)
-    if not isinstance(definition, dict):
-        return None
-    if definition.get("type") != "enum":
-        return None
-    values = definition.get("values")
-    if not isinstance(values, list) or not all(isinstance(value, str) for value in values):
-        return []
-    return values
-
-
-def task_check_shell_command(workspace: Path, task: TaskSummary) -> str:
-    return " ".join(
-        [
-            "cd",
-            shlex.quote(str(workspace)),
-            "&&",
-            shlex.join(
-                [
-                    sys_executable(),
-                    "-m",
-                    "agent_tools.tools.agent_workspace.actions",
-                    "task-check",
-                    "--workspace",
-                    str(workspace),
-                    "--task",
-                    str(task.path),
-                ]
-            ),
-        ]
-    )
-
-
-def task_action_shell_command(action: TaskAction) -> str:
-    command = action.command if isinstance(action.command, str) else shlex.join(action.command)
-    env_values = dict(action.env)
-    env_values[PAF_HIDE_TASK_ENV_VAR] = "1"
-    env = " ".join(
-        f"{key}={shlex.quote(value)}"
-        for key, value in sorted(env_values.items())
-    )
-    prefix = f"{env} " if env else ""
-    log_name = task_action_log_basename(action.action_id)
-    inner = "\n".join(
-        [
-            "set -o pipefail",
-            "__agent_task_dir=$PWD",
-            'while [ "$__agent_task_dir" != "/" ] && [ ! -f "$__agent_task_dir/TASK_DESCRIPTION.md" ]; do',
-            '    __agent_task_dir=$(dirname "$__agent_task_dir")',
-            "done",
-            'if [ ! -f "$__agent_task_dir/TASK_DESCRIPTION.md" ]; then',
-            "    __agent_task_dir=$PWD",
-            "fi",
-            f"__agent_log_dir=\"$__agent_task_dir/{TASK_ACTION_LOGS_DIR.as_posix()}\"",
-            'mkdir -p "$__agent_log_dir"',
-            f"__agent_log=\"$__agent_log_dir/{log_name}-$(date +%Y%m%d-%H%M%S).log\"",
-            'echo "Logging task action to $__agent_log"',
-            f"({prefix}{command}) 2>&1 | tee -a \"$__agent_log\"",
-            "exit ${PIPESTATUS[0]}",
-        ]
-    )
-    return f"cd {shlex.quote(str(action.cwd))} && bash -lc {shlex.quote(inner)}"
-
-
-def sys_executable() -> str:
-    return sys.executable or "python3"
-
-
-def _codex_executable() -> str:
-    return agent_executable("codex") or "codex"
-
-
-def _claude_executable() -> str:
-    return agent_executable("claude") or "claude"
-
-
-def _feed_terminal(terminal: Vte.Terminal, text: str) -> None:
-    data = text.encode()
-    attempts = (
-        lambda: terminal.feed_child(text),
-        lambda: terminal.feed_child(text, len(text)),
-        lambda: terminal.feed_child(data),
-        lambda: terminal.feed_child(data, len(data)),
-    )
-    for attempt in attempts:
-        try:
-            attempt()
-            return
-        except TypeError:
-            continue
-    feed_binary = getattr(terminal, "feed_child_binary", None)
-    if feed_binary is not None:
-        try:
-            feed_binary(data)
-            return
-        except TypeError:
-            feed_binary(data, len(data))
-            return
-    raise TypeError("VTE Terminal.feed_child signature is unsupported")
-
-
-def _terminal_env(env: dict[str, str]) -> list[str]:
-    env.setdefault("TERM", "xterm-256color")
-    return [f"{key}={value}" for key, value in env.items()]
-
-
 def _rgba(color: str) -> Gdk.RGBA:
     rgba = Gdk.RGBA()
     rgba.parse(color)
     return rgba
-
-
-def _terminal_palette(theme: str) -> tuple[str, ...]:
-    if theme == "dark":
-        return (
-            "#111315",
-            "#e06c75",
-            "#7ec699",
-            "#d19a66",
-            "#7aa2f7",
-            "#c678dd",
-            "#56b6c2",
-            "#e8eaed",
-            "#5c6370",
-            "#ef8088",
-            "#98d6ac",
-            "#e5c07b",
-            "#9ab6ff",
-            "#d39aea",
-            "#7fd4df",
-            "#ffffff",
-        )
-    return (
-        "#202124",
-        "#b3261e",
-        "#137333",
-        "#b06000",
-        "#1a5fb4",
-        "#8e24aa",
-        "#007b83",
-        "#f2f2f2",
-        "#5f6368",
-        "#d93025",
-        "#188038",
-        "#ea8600",
-        "#2f6fbb",
-        "#a142f4",
-        "#129eaf",
-        "#ffffff",
-    )
-
-
-def _theme_colors(theme: str) -> dict[str, str]:
-    if theme == "dark":
-        return {
-            "background": "#202124",
-            "codex_running_background": "#26384d",
-            "codex_running_border": "#7aa2f7",
-            "codex_running_foreground": "#ffffff",
-            "codex_running_glow": "rgba(122, 162, 247, 0.75)",
-            "agent_session_background": "#4b3713",
-            "agent_session_foreground": "#ffe6a3",
-            "agent_external_background": "#34383d",
-            "agent_external_foreground": "#a8b0ba",
-            "text_background": "#111315",
-            "terminal_background": "#111315",
-            "control_background": "#2b2f33",
-            "control_hover_background": "#343a40",
-            "titlebar_background": "#16191d",
-            "tab_background": "#202124",
-            "tab_selected_background": "#111315",
-            "tab_selected_foreground": "#f5f7fa",
-            "muted_foreground": "#a8b0ba",
-            "selection_background": "#3f6f9f",
-            "selection_foreground": "#ffffff",
-            "menu_background": "#252a2f",
-            "border": "#4a5058",
-            "separator": "#6a727c",
-            "foreground": "#e8eaed",
-        }
-    return {
-        "background": "#f2f2f2",
-        "codex_running_background": "#d9e7ff",
-        "codex_running_border": "#2f6fbb",
-        "codex_running_foreground": "#14345f",
-        "codex_running_glow": "rgba(47, 111, 187, 0.45)",
-        "agent_session_background": "#fff1c2",
-        "agent_session_foreground": "#5c3b00",
-        "agent_external_background": "#e0e0e0",
-        "agent_external_foreground": "#5f6368",
-        "text_background": "#ffffff",
-        "terminal_background": "#ffffff",
-        "control_background": "#f8f8f8",
-        "control_hover_background": "#ffffff",
-        "titlebar_background": "#ededed",
-        "tab_background": "#e8e8e8",
-        "tab_selected_background": "#ffffff",
-        "tab_selected_foreground": "#202124",
-        "muted_foreground": "#5f6368",
-        "selection_background": "#2f6fbb",
-        "selection_foreground": "#ffffff",
-        "menu_background": "#ffffff",
-        "border": "#b8b8b8",
-        "separator": "#8c8c8c",
-        "foreground": "#202124",
-    }
-
-
-def open_path(path: Path) -> None:
-    if sys.platform == "darwin":
-        command = ["open", str(path)]
-    elif os.name == "nt":
-        command = ["cmd", "/c", "start", "", str(path)]
-    else:
-        command = ["xdg-open", str(path)]
-    try:
-        import subprocess
-
-        subprocess.Popen(command)
-    except OSError:
-        return
-
-
-def open_text_file(path: Path) -> None:
-    editor = os.environ.get("VISUAL") or os.environ.get("EDITOR")
-    if editor:
-        try:
-            subprocess.Popen([*shlex.split(editor), str(path)])
-            return
-        except (OSError, ValueError):
-            pass
-    for executable in ("gnome-text-editor", "gedit", "kate", "code", "xdg-open"):
-        if shutil.which(executable):
-            try:
-                subprocess.Popen([executable, str(path)])
-                return
-            except OSError:
-                continue
-
-
-def open_containing_folder(path: Path) -> None:
-    if sys.platform == "darwin":
-        _open_command_or_parent(["open", "-R", str(path)], path)
-    elif os.name == "nt":
-        _open_command_or_parent(["explorer", f"/select,{path}"], path)
-    elif not _show_file_in_freedesktop_file_manager(path):
-        open_path(path.parent)
-
-
-def _open_command_or_parent(command: list[str], path: Path) -> None:
-    try:
-        subprocess.Popen(command)
-    except OSError:
-        open_path(path.parent)
-
-
-def _show_file_in_freedesktop_file_manager(path: Path) -> bool:
-    try:
-        bus = Gio.bus_get_sync(Gio.BusType.SESSION, None)
-        bus.call_sync(
-            "org.freedesktop.FileManager1",
-            "/org/freedesktop/FileManager1",
-            "org.freedesktop.FileManager1",
-            "ShowItems",
-            GLib.Variant("(ass)", ([path.resolve().as_uri()], "")),
-            None,
-            Gio.DBusCallFlags.NONE,
-            1000,
-            None,
-        )
-    except (GLib.Error, OSError, RuntimeError, ValueError):
-        return False
-    return True
-
-
-def open_artifact_path(path: Path) -> None:
-    if path.suffix.casefold() == ".svg":
-        command = _svg_open_command(path)
-        if command is not None:
-            subprocess.Popen(command)
-            return
-    open_path(path)
-
-
-def _svg_open_command(path: Path) -> list[str] | None:
-    browser = os.environ.get("BROWSER")
-    if browser:
-        return [*shlex.split(browser), str(path)]
-    for executable in ("firefox", "google-chrome", "chromium", "chromium-browser", "xdg-open"):
-        resolved = shutil.which(executable)
-        if resolved is not None:
-            return [resolved, str(path)]
-    return None
 
 
 def _agent_workspace_icon_path() -> Path:

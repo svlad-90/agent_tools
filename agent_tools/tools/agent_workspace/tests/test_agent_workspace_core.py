@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from datetime import datetime
+from importlib import resources
 from pathlib import Path
 import json
 import os
@@ -13,6 +15,8 @@ from agent_tools.tools.agent_workspace.core import AGENT_STATUS_MANUAL_USAGE_ENT
 from agent_tools.tools.agent_workspace.core import ConsoleChunk
 from agent_tools.tools.agent_workspace.core import PAF_HIDE_TASK_ENV_VAR
 from agent_tools.tools.agent_workspace.core import TaskAction
+from agent_tools.tools.agent_workspace.core import TaskActionParameter
+from agent_tools.tools.agent_workspace.core import TaskActionsConfig
 from agent_tools.tools.agent_workspace.core import TaskSummary
 from agent_tools.tools.agent_workspace.core import load_task_actions_config
 from agent_tools.tools.agent_workspace.core import agent_executable
@@ -77,6 +81,8 @@ from agent_tools.tools.agent_workspace.core import task_status_label
 from agent_tools.tools.agent_workspace.core import task_selected_agent_has_resumable_state
 from agent_tools.tools.agent_workspace.core import task_state_path
 from agent_tools.tools.agent_workspace import core as core_module
+from agent_tools.tools.agent_workspace import gtk_open as gtk_open_module
+from agent_tools.tools.agent_workspace import gtk_terminal_ui as gtk_terminal_ui_module
 from agent_tools.tools.agent_workspace import gtk_ui as gtk_ui_module
 from agent_tools.tools.agent_workspace import install_desktop as install_desktop_module
 from agent_tools.tools.agent_workspace.gtk_ui import WorkspaceGtkGui
@@ -89,6 +95,7 @@ from agent_tools.tools.agent_workspace.gtk_ui import task_check_shell_command as
 from agent_tools.tools.agent_workspace.gtk_ui import _artifact_context_action as gtk_artifact_context_action
 from agent_tools.tools.agent_workspace.gtk_ui import _artifact_delete_paths as gtk_artifact_delete_paths
 from agent_tools.tools.agent_workspace.gtk_ui import _artifact_selectable_path as gtk_artifact_selectable_path
+from agent_tools.tools.agent_workspace.gtk_ui import _artifact_updated_label as gtk_artifact_updated_label
 from agent_tools.tools.agent_workspace.gtk_ui import _is_pane_separator_event as gtk_is_pane_separator_event
 from agent_tools.tools.agent_workspace.gtk_ui import _notebook_event_in_empty_tab_area as gtk_notebook_event_in_empty_tab_area
 from agent_tools.tools.agent_workspace.gtk_ui import open_containing_folder as gtk_open_containing_folder
@@ -121,6 +128,22 @@ from agent_tools.tools.agent_workspace.ui import task_check_shell_command
 from agent_tools.tools.agent_workspace.ui import _tk_control_shortcut
 from agent_tools.tools.agent_workspace.ui import AgentWorkspace
 from agent_tools.tools.agent_workspace.actions import main as actions_main
+from agent_tools.tools.agent_workspace.task_action_files import task_action_code_path
+from agent_tools.tools.agent_workspace.task_action_menu import task_action_menu_state
+from agent_tools.tools.agent_workspace.task_action_menu import task_parameter_menu_state
+from agent_tools.tools.agent_workspace.task_action_menu import task_reorder_label_key
+from agent_tools.tools.agent_workspace.task_action_menu import task_shortcut_menu_state
+from agent_tools.tools.agent_workspace.task_action_model import add_task_shortcut
+from agent_tools.tools.agent_workspace.task_action_model import delete_parameter_set_value
+from agent_tools.tools.agent_workspace.task_action_model import delete_task_shortcut
+from agent_tools.tools.agent_workspace.task_action_model import parameter_dialog_field_names
+from agent_tools.tools.agent_workspace.task_action_model import reorder_task_action_data
+from agent_tools.tools.agent_workspace.task_action_model import upsert_parameter_set_value
+from agent_tools.tools.agent_workspace.task_action_state import bindings_for_action_run
+from agent_tools.tools.agent_workspace.task_action_state import parameter_button_label
+from agent_tools.tools.agent_workspace.task_action_state import parameter_values
+from agent_tools.tools.agent_workspace.task_action_state import selected_parameter_value
+from agent_tools.tools.agent_workspace.task_action_state import shortcuts_for_action
 from gi.repository import Gdk
 from gi.repository import Gtk
 from gi.repository import Pango
@@ -807,6 +830,11 @@ def test_gtk_artifact_selectable_path_stays_inside_task(tmp_path: Path) -> None:
     assert gtk_artifact_selectable_path(summary, outside) is None
 
 
+def test_gtk_artifact_updated_label_formats_timestamp() -> None:
+    assert gtk_artifact_updated_label(0) == ""
+    assert gtk_artifact_updated_label(100) == datetime.fromtimestamp(100).strftime("%Y-%m-%d %H:%M")
+
+
 def test_gtk_open_containing_folder_falls_back_to_parent_on_linux(
     monkeypatch: object,
     tmp_path: Path,
@@ -816,9 +844,9 @@ def test_gtk_open_containing_folder_falls_back_to_parent_on_linux(
     artifact_path.write_text("<html>", encoding="utf-8")
     calls: list[Path] = []
 
-    monkeypatch.setattr(gtk_ui_module.sys, "platform", "linux")
-    monkeypatch.setattr(gtk_ui_module, "_show_file_in_freedesktop_file_manager", lambda _path: False)
-    monkeypatch.setattr(gtk_ui_module, "open_path", lambda path: calls.append(path))
+    monkeypatch.setattr(gtk_open_module.sys, "platform", "linux")
+    monkeypatch.setattr(gtk_open_module, "_show_file_in_freedesktop_file_manager", lambda _path: False)
+    monkeypatch.setattr(gtk_open_module, "open_path", lambda path: calls.append(path))
 
     gtk_open_containing_folder(artifact_path)
 
@@ -3283,8 +3311,8 @@ def test_gtk_copy_terminal_selection_falls_back_to_plain_copy() -> None:
 def test_gtk_copy_terminal_selection_falls_back_to_primary_selection(monkeypatch) -> None:
     terminal = FakeGtkCopyTerminal(has_selection=False, text="visible terminal output")
     copied: list[str] = []
-    monkeypatch.setattr(gtk_ui_module, "_clipboard_text", lambda _selection: "Claude selection")
-    monkeypatch.setattr(gtk_ui_module, "_set_clipboard_text", copied.append)
+    monkeypatch.setattr(gtk_terminal_ui_module, "clipboard_text", lambda _selection: "Claude selection")
+    monkeypatch.setattr(gtk_terminal_ui_module, "set_clipboard_text", copied.append)
 
     gtk_copy_terminal_selection(terminal)  # type: ignore[arg-type]
 
@@ -3297,8 +3325,8 @@ def test_gtk_copy_terminal_selection_falls_back_to_primary_selection(monkeypatch
 def test_gtk_copy_terminal_selection_ignores_empty_primary_selection(monkeypatch) -> None:
     terminal = FakeGtkCopyTerminal(has_selection=False, text="visible terminal output")
     copied: list[str] = []
-    monkeypatch.setattr(gtk_ui_module, "_clipboard_text", lambda _selection: "\n")
-    monkeypatch.setattr(gtk_ui_module, "_set_clipboard_text", copied.append)
+    monkeypatch.setattr(gtk_terminal_ui_module, "clipboard_text", lambda _selection: "\n")
+    monkeypatch.setattr(gtk_terminal_ui_module, "set_clipboard_text", copied.append)
 
     gtk_copy_terminal_selection(terminal)  # type: ignore[arg-type]
 
@@ -3411,6 +3439,19 @@ def test_gtk_translates_agent_and_manual_labels() -> None:
     assert "TASK_ACTIONS.json" in GTK_TRANSLATIONS["uk"]["manual_usage_actions"]
 
 
+def test_agent_workspace_string_json_files_are_package_resources() -> None:
+    package_files = resources.files("agent_tools.tools.agent_workspace")
+    for filename in (
+        "gtk_language_instructions.json",
+        "gtk_translations.json",
+        "gtk_ui_strings.json",
+        "tk_strings.json",
+        "workspace_strings.json",
+    ):
+        content = package_files.joinpath(filename).read_text(encoding="utf-8")
+        assert isinstance(json.loads(content), dict)
+
+
 def test_gtk_svg_open_command_prefers_browser(monkeypatch: object, tmp_path: Path) -> None:
     path = tmp_path / "flow.svg"
     monkeypatch.setenv("BROWSER", "firefox --new-tab")  # type: ignore[attr-defined]
@@ -3427,7 +3468,7 @@ def test_gtk_svg_open_command_uses_browser_before_xdg_open(monkeypatch: object, 
             return f"/usr/bin/{executable}"
         return None
 
-    monkeypatch.setattr("agent_tools.tools.agent_workspace.gtk_ui.shutil.which", fake_which)  # type: ignore[attr-defined]
+    monkeypatch.setattr("agent_tools.tools.agent_workspace.gtk_open.shutil.which", fake_which)  # type: ignore[attr-defined]
 
     assert gtk_svg_open_command(path) == ["/usr/bin/firefox", str(path)]
 
@@ -3436,9 +3477,9 @@ def test_gtk_open_text_file_prefers_editor(monkeypatch: object, tmp_path: Path) 
     path = tmp_path / "TASK_ACTIONS.json"
     calls: list[list[str]] = []
     monkeypatch.setenv("EDITOR", "nano --wait")  # type: ignore[attr-defined]
-    monkeypatch.setattr(gtk_ui_module.subprocess, "Popen", lambda command: calls.append(command))  # type: ignore[attr-defined]
+    monkeypatch.setattr(gtk_open_module.subprocess, "Popen", lambda command: calls.append(command))  # type: ignore[attr-defined]
 
-    gtk_ui_module.open_text_file(path)
+    gtk_open_module.open_text_file(path)
 
     assert calls == [["nano", "--wait", str(path)]]
 
@@ -3817,6 +3858,185 @@ def test_gtk_task_action_code_path_resolves_shell_wrapper(tmp_path: Path) -> Non
     assert gui._task_action_code_path(action) == script.resolve()
 
 
+def test_task_action_code_path_rejects_invalid_or_escaping_commands(tmp_path: Path) -> None:
+    outside = tmp_path.parent / "outside.sh"
+    outside.write_text("#!/bin/sh\n", encoding="utf-8")
+
+    assert task_action_code_path(
+        TaskAction(
+            action_id="outside",
+            label="Outside",
+            command=("bash", str(outside)),
+            cwd=tmp_path,
+            env={},
+        )
+    ) is None
+    assert task_action_code_path(
+        TaskAction(
+            action_id="invalid",
+            label="Invalid",
+            command="'unterminated",
+            cwd=tmp_path,
+            env={},
+        )
+    ) is None
+
+
+def test_task_action_state_helpers_resolve_shortcuts_parameters_and_bindings(tmp_path: Path) -> None:
+    parameter = TaskActionParameter(
+        name="profile",
+        label="Profile",
+        parameter_type="choice",
+        set_name="profiles",
+        default="dev",
+    )
+    global_parameter = TaskActionParameter(
+        name="profile",
+        label="Profile",
+        parameter_type="choice",
+        set_name="profiles",
+        default="dev",
+        global_name="active_profile",
+    )
+    action = TaskAction(
+        action_id="build",
+        label="Build",
+        command=("scripts/build.sh",),
+        cwd=tmp_path,
+        env={},
+        parameters=(parameter,),
+        bindings={"profile": "release"},
+    )
+    shortcut = TaskAction(
+        action_id="build-release",
+        label="Build release",
+        command=("scripts/build.sh",),
+        cwd=tmp_path,
+        env={},
+        base_action_id="build",
+        is_shortcut=True,
+    )
+    other_shortcut = TaskAction(
+        action_id="test-release",
+        label="Test release",
+        command=("scripts/test.sh",),
+        cwd=tmp_path,
+        env={},
+        base_action_id="test",
+        is_shortcut=True,
+    )
+    config = TaskActionsConfig(
+        actions=[action],
+        base_actions=[action],
+        parameter_sets={
+            "profiles": {
+                "dev": {"label": "Dev"},
+                "release": {"name": "Release"},
+            }
+        },
+        global_parameter_bindings={"active_profile": "release"},
+        errors=[],
+    )
+
+    assert shortcuts_for_action(action, [shortcut, other_shortcut]) == [shortcut]
+    assert parameter_values(parameter, config) == config.parameter_sets["profiles"]
+    assert selected_parameter_value(parameter, {}, config.global_parameter_bindings) == "dev"
+    assert selected_parameter_value(parameter, {"profile": "release"}, {}) == "release"
+    assert selected_parameter_value(global_parameter, {}, config.global_parameter_bindings) == "release"
+    assert parameter_button_label(parameter, config, {"profile": "release"}) == "Profile: Release"
+    assert parameter_button_label(parameter, config, {"profile": "missing"}) == "Profile: missing"
+    assert bindings_for_action_run(action, "build", {"profile": "dev"}) == {"profile": "dev"}
+    assert bindings_for_action_run(action, "other", {"profile": "dev"}) == {"profile": "release"}
+
+
+def test_task_action_parameter_set_helpers_upsert_rename_and_delete() -> None:
+    data: dict[str, object] = {
+        "parameter_sets": {
+            "profiles": {
+                "dev": {"name": "Dev"},
+                "release": {"name": "Release"},
+            }
+        }
+    }
+
+    assert upsert_parameter_set_value(data, "profiles", "dev", "release", {"name": "Release copy"}) == "release_2"
+    assert data["parameter_sets"] == {
+        "profiles": {
+            "release": {"name": "Release"},
+            "release_2": {"name": "Release copy"},
+        }
+    }
+    assert upsert_parameter_set_value(data, "profiles", "release_2", "prod", {"name": "Prod"}) == "prod"
+    assert data["parameter_sets"] == {
+        "profiles": {
+            "release": {"name": "Release"},
+            "prod": {"name": "Prod"},
+        }
+    }
+    assert delete_parameter_set_value(data, "profiles", "release")
+    assert not delete_parameter_set_value(data, "profiles", "missing")
+    assert data["parameter_sets"] == {"profiles": {"prod": {"name": "Prod"}}}
+
+
+def test_task_action_parameter_set_helpers_reject_malformed_data() -> None:
+    malformed_sets: dict[str, object] = {"parameter_sets": []}
+    malformed_values: dict[str, object] = {"parameter_sets": {"profiles": []}}
+
+    assert upsert_parameter_set_value(malformed_sets, "profiles", None, "dev", {"name": "Dev"}) is None
+    assert upsert_parameter_set_value(malformed_values, "profiles", None, "dev", {"name": "Dev"}) is None
+    assert not delete_parameter_set_value(malformed_sets, "profiles", "dev")
+    assert not delete_parameter_set_value(malformed_values, "profiles", "dev")
+
+
+def test_task_action_shortcut_helpers_add_and_delete() -> None:
+    data: dict[str, object] = {
+        "shortcuts": [
+            {"id": "copy-rpi5", "label": "Copy RPI5", "action": "copy", "bindings": {"board": "rpi5"}},
+        ]
+    }
+
+    assert add_task_shortcut(data, "copy-rpi6", "Copy RPI6", "copy", {"board": "rpi6"})
+    assert data["shortcuts"] == [
+        {"id": "copy-rpi5", "label": "Copy RPI5", "action": "copy", "bindings": {"board": "rpi5"}},
+        {"id": "copy-rpi6", "label": "Copy RPI6", "action": "copy", "bindings": {"board": "rpi6"}},
+    ]
+    assert delete_task_shortcut(data, "copy-rpi5")
+    assert data["shortcuts"] == [
+        {"id": "copy-rpi6", "label": "Copy RPI6", "action": "copy", "bindings": {"board": "rpi6"}},
+    ]
+    assert not delete_task_shortcut(data, "missing")
+
+
+def test_task_action_shortcut_helpers_reject_malformed_data() -> None:
+    data: dict[str, object] = {"shortcuts": {}}
+
+    assert not add_task_shortcut(data, "copy", "Copy", "copy", {})
+    assert not delete_task_shortcut(data, "copy")
+    assert data == {"shortcuts": {}}
+
+
+def test_task_action_parameter_dialog_field_names_merge_schema_initial_and_existing_values() -> None:
+    data: dict[str, object] = {
+        "parameter_types": {
+            "board": {
+                "fields": {
+                    "name": {"type": "string"},
+                    "host": {"type": "string"},
+                    "user": {"type": "string"},
+                }
+            }
+        }
+    }
+
+    assert parameter_dialog_field_names(
+        data,
+        "board",
+        {"password_file"},
+        [{"deployment_folder_name": "lab"}, {"host": "10.0.0.2"}],
+    ) == ["name", "host", "password_file", "user", "deployment_folder_name"]
+    assert parameter_dialog_field_names({}, "custom", set(), []) == ["name"]
+
+
 def test_load_task_actions_resolves_parameter_sets_and_shortcuts(tmp_path: Path) -> None:
     task = tmp_path / "tasks" / "sample-task"
     scripts = task / "scripts"
@@ -3905,6 +4125,26 @@ def test_gtk_action_ui_string_ids_support_language_fallback() -> None:
     assert gtk_ui_module._ui_string("ru", "action.add_value", set_name="boards") == "Добавить boards"
 
 
+def test_task_action_menu_state_helpers_select_labels_and_paths(tmp_path: Path) -> None:
+    code_path = tmp_path / "scripts" / "build.sh"
+
+    assert task_reorder_label_key(False) == "action.reorder_actions"
+    assert task_reorder_label_key(True) == "action.stop_reorder_actions"
+    assert task_parameter_menu_state("rpi5", True).selected_value == "rpi5"
+    assert task_parameter_menu_state("rpi5", True).reorder_label_key == "action.stop_reorder_actions"
+
+    action_state = task_action_menu_state(tmp_path, code_path, False)
+    assert action_state.actions_file == tmp_path / "TASK_ACTIONS.json"
+    assert action_state.code_path == code_path
+    assert action_state.reorder_label_key == "action.reorder_actions"
+
+    missing_task_state = task_action_menu_state(None, None, True)
+    assert missing_task_state.actions_file is None
+    assert missing_task_state.code_path is None
+    assert missing_task_state.reorder_label_key == "action.stop_reorder_actions"
+    assert task_shortcut_menu_state(False).reorder_label_key == "action.reorder_actions"
+
+
 def test_gtk_json_reorder_helpers_move_actions_parameters_and_shortcuts() -> None:
     data: dict[str, object] = {
         "actions": [
@@ -3986,6 +4226,97 @@ def test_gtk_json_reorder_helpers_move_actions_parameters_and_shortcuts() -> Non
         "copy-a",
         "other-b",
     ]
+
+
+def test_task_action_order_helper_reorders_supported_groups() -> None:
+    data: dict[str, object] = {
+        "actions": [
+            {"id": "full"},
+            {
+                "id": "copy",
+                "parameters": [
+                    {"name": "board"},
+                    {"name": "source"},
+                    {"name": "target"},
+                ],
+            },
+        ],
+        "shortcuts": [
+            {"id": "other-a"},
+            {"id": "copy-a"},
+            {"id": "copy-b"},
+            {"id": "other-b"},
+        ],
+        "global_parameters": {
+            "board": {"value": "rpi5"},
+            "image": {"value": "full_ufs_gz"},
+        },
+    }
+
+    assert reorder_task_action_data(data, "action", ["copy", "full"])
+    actions = data["actions"]
+    assert isinstance(actions, list)
+    assert [entry["id"] for entry in actions if isinstance(entry, dict)] == ["copy", "full"]
+
+    assert reorder_task_action_data(data, "shortcut", ["copy-b", "copy-a"])
+    shortcuts = data["shortcuts"]
+    assert isinstance(shortcuts, list)
+    assert [entry["id"] for entry in shortcuts if isinstance(entry, dict)] == [
+        "other-a",
+        "copy-b",
+        "copy-a",
+        "other-b",
+    ]
+
+    assert reorder_task_action_data(data, "parameter", ["target", "source", "board"], selected_action_id="copy")
+    copy_action = next(entry for entry in actions if isinstance(entry, dict) and entry.get("id") == "copy")
+    assert isinstance(copy_action, dict)
+    parameters = copy_action["parameters"]
+    assert isinstance(parameters, list)
+    assert [entry["name"] for entry in parameters if isinstance(entry, dict)] == ["target", "source", "board"]
+
+    assert reorder_task_action_data(data, "global_parameter", ["image", "board"])
+    global_parameters = data["global_parameters"]
+    assert isinstance(global_parameters, dict)
+    assert list(global_parameters) == ["image", "board"]
+
+    assert not reorder_task_action_data(data, "parameter", ["board", "source", "target"])
+    assert not reorder_task_action_data(data, "missing", [])
+
+
+def test_gtk_task_actions_mutator_handles_save_reload_noop_and_errors(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    task_path = tmp_path / "tasks" / "sample"
+    task_path.mkdir(parents=True)
+    task = discover_tasks_with_context(task_path, tmp_path)
+    gui = WorkspaceGtkGui.__new__(WorkspaceGtkGui)
+    gui.selected_task = task
+    gui.task_action_errors = []
+    reloads: list[str] = []
+    saved: list[dict[str, object]] = []
+
+    gui._require_task = lambda show_dialog=True: gui.selected_task  # type: ignore[method-assign]
+    gui._load_task_action_buttons = lambda: reloads.append("reload")  # type: ignore[method-assign]
+    gui._update_actions_message = lambda: reloads.append("error")  # type: ignore[method-assign]
+    monkeypatch.setattr(gtk_ui_module, "load_task_actions_data", lambda _task: ({"actions": []}, []))
+    monkeypatch.setattr(gtk_ui_module, "save_task_actions_data", lambda _task, data: saved.append(dict(data)))
+
+    assert gui._mutate_task_actions_data(lambda data: data.setdefault("changed", True) is True)
+    assert saved == [{"actions": [], "changed": True}]
+    assert reloads == ["reload"]
+
+    reloads.clear()
+    assert not gui._mutate_task_actions_data(lambda _data: False)
+    assert reloads == []
+    assert not gui._mutate_task_actions_data(lambda _data: False, reload_on_no_change=True)
+    assert reloads == ["reload"]
+
+    monkeypatch.setattr(gtk_ui_module, "load_task_actions_data", lambda _task: ({}, ["broken"]))
+    assert not gui._mutate_task_actions_data(lambda _data: True)
+    assert gui.task_action_errors == ["broken"]
+    assert reloads == ["reload", "error"]
 
 
 def test_gtk_task_action_drag_reorder_sequence_moves_one_slot_at_a_time() -> None:

@@ -22,6 +22,15 @@ import uuid
 from agent_tools.paf_workspace.task_check import check_task
 from agent_tools.paf_workspace.task_check import render_text
 
+from .workspace_strings import AGENT_STATUS_MANUAL_ENTRIES
+from .workspace_strings import AGENT_STATUS_MANUAL_MENU_LABEL
+from .workspace_strings import AGENT_STATUS_MANUAL_SUBTITLE
+from .workspace_strings import AGENT_STATUS_MANUAL_TITLE
+from .workspace_strings import AGENT_STATUS_MANUAL_USAGE_ENTRIES
+from .workspace_strings import AGENT_STATUS_MANUAL_USAGE_TITLE
+from .workspace_strings import AGENT_STATUS_RUNNING_LABEL
+from .workspace_strings import AGENT_STATUS_TOOLTIPS
+
 
 TASK_CONTEXT_BUDGET = 8_000
 TASKS_DIR_NAME = "tasks"
@@ -72,30 +81,6 @@ AGENT_IDLE_MARKER = "□"
 AGENT_EXTERNAL_ACTIVE_MARKER = "×"
 AGENT_RUNNING_SPINNER_FRAMES = ("▷",)
 CODEX_SESSION_ID_RE = re.compile(r"([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})")
-AGENT_STATUS_TOOLTIPS = {
-    AGENT_SESSION_MARKER: "Сессию можно продолжить",
-    AGENT_IDLE_MARKER: "Нет сохраненной сессии",
-    AGENT_EXTERNAL_ACTIVE_MARKER: "Задача занята другим окном",
-}
-AGENT_STATUS_MANUAL_MENU_LABEL = "Manual"
-AGENT_STATUS_MANUAL_TITLE = "Manual"
-AGENT_STATUS_MANUAL_USAGE_TITLE = "Основы"
-AGENT_STATUS_MANUAL_USAGE_ENTRIES = (
-    ("Концепция", "workspace разбит на задачи; каждая задача хранит контекст, артефакты, скрипты и историю работы"),
-    ("Задачи", "создавайте задачу под отдельную цель и выбирайте ее слева, чтобы открыть описание, контекст и терминалы"),
-    ("Агент", "выберите Codex или Claude Code; агент запускается в контексте текущей задачи и получает путь к ней"),
-    ("Копирование", "в Claude Code выделяйте текст с зажатым Shift, затем копируйте через Ctrl+Shift+C"),
-    ("Структура", "TASK_DESCRIPTION.md, TASK_CONTEXT.md, dev/, scripts/ и report/ держат работу воспроизводимой"),
-    ("Действия", "повторяемые команды оформляйте в TASK_ACTIONS.json; можно попросить агента добавить нужную кнопку"),
-    ("Сброс", "сбрасывает только сохраненную ссылку на сессию выбранного агента, не удаляя историю CLI"),
-)
-AGENT_STATUS_MANUAL_SUBTITLE = "Статусы в колонке ИИ"
-AGENT_STATUS_MANUAL_ENTRIES = (
-    (AGENT_SESSION_MARKER, "Пауза", "есть сохраненная сессия последнего активного ИИ агента"),
-    (AGENT_IDLE_MARKER, "Стоп", "нет сохраненной сессии, которую можно продолжить"),
-    ("▷", "Агент запущен", "для этой задачи сейчас работает Codex или Claude Code"),
-    (AGENT_EXTERNAL_ACTIVE_MARKER, "Занято", "ИИ агент для этой задачи запущен в другом окне"),
-)
 AGENT_WORKSPACE_GEOMETRY_RE = re.compile(r"^\d+x\d+(?:[+-]\d+[+-]\d+)?$")
 ANSI_ESCAPE_RE = re.compile(r"\x1b(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])")
 ANSI_OSC_RE = re.compile(r"\x1b\][^\x07]*(?:\x07|\x1b\\)")
@@ -1319,7 +1304,7 @@ def agent_status_tooltip_text(status_text: str) -> str:
     labels: list[str] = []
     for marker in status_text.split():
         if marker.startswith("▷"):
-            label = "Агент запущен"
+            label = AGENT_STATUS_RUNNING_LABEL
         else:
             label = AGENT_STATUS_TOOLTIPS.get(marker, "")
         if label and label not in labels:

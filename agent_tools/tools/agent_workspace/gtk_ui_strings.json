@@ -1,0 +1,152 @@
+{
+  "action.add_value": {
+    "en": "Add {set_name}",
+    "ru": "Добавить {set_name}",
+    "uk": "Додати {set_name}"
+  },
+  "action.browse": {
+    "en": "Browse",
+    "ru": "Выбрать",
+    "uk": "Вибрати"
+  },
+  "action.cannot_open_code": {
+    "en": "Cannot open action code",
+    "ru": "Не удалось открыть код action",
+    "uk": "Не вдалося відкрити код action"
+  },
+  "action.cannot_save_code": {
+    "en": "Cannot save action code",
+    "ru": "Не удалось сохранить код action",
+    "uk": "Не вдалося зберегти код action"
+  },
+  "action.choose_file": {
+    "en": "Choose file",
+    "ru": "Выбрать файл",
+    "uk": "Вибрати файл"
+  },
+  "action.choose_folder": {
+    "en": "Choose folder",
+    "ru": "Выбрать папку",
+    "uk": "Вибрати теку"
+  },
+  "action.configure": {
+    "en": "Configure",
+    "ru": "Настроить",
+    "uk": "Налаштувати"
+  },
+  "action.delete_shortcut": {
+    "en": "Delete shortcut",
+    "ru": "Удалить шорткат",
+    "uk": "Видалити шорткат"
+  },
+  "action.delete_value": {
+    "en": "Delete {value}",
+    "ru": "Удалить {value}",
+    "uk": "Видалити {value}"
+  },
+  "action.duplicate_value": {
+    "en": "Duplicate {value}",
+    "ru": "Отпочковать {value}",
+    "uk": "Відгалузити {value}"
+  },
+  "action.edit": {
+    "en": "Edit",
+    "ru": "Редактировать",
+    "uk": "Редагувати"
+  },
+  "action.edit_value": {
+    "en": "Edit {value}",
+    "ru": "Редактировать {value}",
+    "uk": "Редагувати {value}"
+  },
+  "action.global_parameters": {
+    "en": "Global parameters",
+    "ru": "Глобальные параметры",
+    "uk": "Глобальні параметри"
+  },
+  "action.move_left": {
+    "en": "Move left",
+    "ru": "Сдвинуть влево",
+    "uk": "Посунути вліво"
+  },
+  "action.move_right": {
+    "en": "Move right",
+    "ru": "Сдвинуть вправо",
+    "uk": "Посунути вправо"
+  },
+  "action.no_parameters": {
+    "en": "No parameters",
+    "ru": "Нет параметров",
+    "uk": "Немає параметрів"
+  },
+  "action.no_values": {
+    "en": "No values",
+    "ru": "Нет значений",
+    "uk": "Немає значень"
+  },
+  "action.open_actions_file": {
+    "en": "Open TASK_ACTIONS.json",
+    "ru": "Открыть TASK_ACTIONS.json",
+    "uk": "Відкрити TASK_ACTIONS.json"
+  },
+  "action.parameters": {
+    "en": "Parameters",
+    "ru": "Параметры",
+    "uk": "Параметри"
+  },
+  "action.play_tooltip": {
+    "en": "Click once to arm, click again to run",
+    "ru": "Один клик взводит запуск, второй запускает",
+    "uk": "Один клік готує запуск, другий запускає"
+  },
+  "action.reorder_actions": {
+    "en": "Reorder by drag",
+    "ru": "Переставлять мышкой",
+    "uk": "Переставляти мишкою"
+  },
+  "action.run": {
+    "en": "Run",
+    "ru": "Запустить",
+    "uk": "Запустити"
+  },
+  "action.save_shortcut": {
+    "en": "Save selected as shortcut",
+    "ru": "Сохранить выбранное как шорткат",
+    "uk": "Зберегти вибране як шорткат"
+  },
+  "action.save_shortcut_title": {
+    "en": "Save shortcut",
+    "ru": "Сохранить шорткат",
+    "uk": "Зберегти шорткат"
+  },
+  "action.shortcut_tooltip": {
+    "en": "Shortcut",
+    "ru": "Шорткат",
+    "uk": "Шорткат"
+  },
+  "action.shortcuts": {
+    "en": "Shortcuts",
+    "ru": "Шорткаты",
+    "uk": "Шорткати"
+  },
+  "action.stop_reorder_actions": {
+    "en": "Stop reorder",
+    "ru": "Закончить перестановку",
+    "uk": "Завершити перестановку"
+  },
+  "actions.group": {
+    "en": "Actions",
+    "ru": "Actions",
+    "uk": "Actions"
+  },
+  "console.ai_agent": {
+    "en": "AI agent",
+    "ru": "ИИ агент",
+    "uk": "ШІ агент"
+  },
+  "console.shell": {
+    "en": "shell",
+    "ru": "терминал",
+    "uk": "термінал"
+  }
+}
