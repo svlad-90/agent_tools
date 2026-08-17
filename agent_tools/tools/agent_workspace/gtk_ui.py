@@ -34,7 +34,9 @@ from .artifacts import files_under as _files_under
 from .artifacts import task_artifact_entries as _task_artifact_entries
 from .artifacts import task_artifact_files as _task_artifact_files
 from .task_action_model import field_type_enum_values as _field_type_enum_values
+from .task_action_model import add_task_shortcut as _add_task_shortcut
 from .task_action_model import delete_parameter_set_value as _delete_parameter_set_value
+from .task_action_model import delete_task_shortcut as _delete_task_shortcut
 from .task_action_model import json_list_entry_index as _json_list_entry_index
 from .task_action_model import move_action_parameter_entry as _move_action_parameter_entry
 from .task_action_model import move_id_before as _move_id_before
@@ -2260,36 +2262,15 @@ class WorkspaceGtkGui:
             shortcut_id = id_entry.get_text().strip()
             label = label_entry.get_text().strip()
             if shortcut_id and label:
-                data, errors = load_task_actions_data(task)
-                if not errors:
-                    shortcuts = data.setdefault("shortcuts", [])
-                    if isinstance(shortcuts, list):
-                        shortcuts.append(
-                            {
-                                "id": shortcut_id,
-                                "label": label,
-                                "action": action.base_action_id or action.action_id,
-                                "bindings": dict(self.selected_task_action_bindings),
-                            }
-                        )
-                        save_task_actions_data(task, data)
-                        self._load_task_action_buttons()
+                action_id = action.base_action_id or action.action_id
+                bindings = dict(self.selected_task_action_bindings)
+                self._mutate_task_actions_data(
+                    lambda data: _add_task_shortcut(data, shortcut_id, label, action_id, bindings)
+                )
         dialog.destroy()
 
     def _delete_task_shortcut(self, action: TaskAction) -> None:
-        def mutator(data: dict[str, object]) -> bool:
-            shortcuts = data.get("shortcuts")
-            if not isinstance(shortcuts, list):
-                return False
-            filtered = [
-                entry for entry in shortcuts if not (isinstance(entry, dict) and entry.get("id") == action.action_id)
-            ]
-            if filtered == shortcuts:
-                return False
-            data["shortcuts"] = filtered
-            return True
-
-        self._mutate_task_actions_data(mutator)
+        self._mutate_task_actions_data(lambda data: _delete_task_shortcut(data, action.action_id))
 
     def _watch_task_actions(self, task: TaskSummary) -> None:
         if self.task_actions_monitor_path == task.path:

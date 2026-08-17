@@ -129,7 +129,9 @@ from agent_tools.tools.agent_workspace.ui import _tk_control_shortcut
 from agent_tools.tools.agent_workspace.ui import AgentWorkspace
 from agent_tools.tools.agent_workspace.actions import main as actions_main
 from agent_tools.tools.agent_workspace.task_action_files import task_action_code_path
+from agent_tools.tools.agent_workspace.task_action_model import add_task_shortcut
 from agent_tools.tools.agent_workspace.task_action_model import delete_parameter_set_value
+from agent_tools.tools.agent_workspace.task_action_model import delete_task_shortcut
 from agent_tools.tools.agent_workspace.task_action_model import reorder_task_action_data
 from agent_tools.tools.agent_workspace.task_action_model import upsert_parameter_set_value
 from agent_tools.tools.agent_workspace.task_action_state import bindings_for_action_run
@@ -3979,6 +3981,33 @@ def test_task_action_parameter_set_helpers_reject_malformed_data() -> None:
     assert upsert_parameter_set_value(malformed_values, "profiles", None, "dev", {"name": "Dev"}) is None
     assert not delete_parameter_set_value(malformed_sets, "profiles", "dev")
     assert not delete_parameter_set_value(malformed_values, "profiles", "dev")
+
+
+def test_task_action_shortcut_helpers_add_and_delete() -> None:
+    data: dict[str, object] = {
+        "shortcuts": [
+            {"id": "copy-rpi5", "label": "Copy RPI5", "action": "copy", "bindings": {"board": "rpi5"}},
+        ]
+    }
+
+    assert add_task_shortcut(data, "copy-rpi6", "Copy RPI6", "copy", {"board": "rpi6"})
+    assert data["shortcuts"] == [
+        {"id": "copy-rpi5", "label": "Copy RPI5", "action": "copy", "bindings": {"board": "rpi5"}},
+        {"id": "copy-rpi6", "label": "Copy RPI6", "action": "copy", "bindings": {"board": "rpi6"}},
+    ]
+    assert delete_task_shortcut(data, "copy-rpi5")
+    assert data["shortcuts"] == [
+        {"id": "copy-rpi6", "label": "Copy RPI6", "action": "copy", "bindings": {"board": "rpi6"}},
+    ]
+    assert not delete_task_shortcut(data, "missing")
+
+
+def test_task_action_shortcut_helpers_reject_malformed_data() -> None:
+    data: dict[str, object] = {"shortcuts": {}}
+
+    assert not add_task_shortcut(data, "copy", "Copy", "copy", {})
+    assert not delete_task_shortcut(data, "copy")
+    assert data == {"shortcuts": {}}
 
 
 def test_load_task_actions_resolves_parameter_sets_and_shortcuts(tmp_path: Path) -> None:

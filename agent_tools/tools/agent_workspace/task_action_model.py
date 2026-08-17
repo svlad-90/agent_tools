@@ -57,6 +57,40 @@ def delete_parameter_set_value(data: dict[str, object], set_name: str, value_id:
     return True
 
 
+def add_task_shortcut(
+    data: dict[str, object],
+    shortcut_id: str,
+    label: str,
+    action_id: str,
+    bindings: dict[str, str],
+) -> bool:
+    shortcuts = data.setdefault("shortcuts", [])
+    if not isinstance(shortcuts, list):
+        return False
+    shortcuts.append(
+        {
+            "id": shortcut_id,
+            "label": label,
+            "action": action_id,
+            "bindings": dict(bindings),
+        }
+    )
+    return True
+
+
+def delete_task_shortcut(data: dict[str, object], shortcut_id: str) -> bool:
+    shortcuts = data.get("shortcuts")
+    if not isinstance(shortcuts, list):
+        return False
+    filtered = [
+        entry for entry in shortcuts if not (isinstance(entry, dict) and entry.get("id") == shortcut_id)
+    ]
+    if filtered == shortcuts:
+        return False
+    data["shortcuts"] = filtered
+    return True
+
+
 def move_json_list_entry(entries: list[object], key_name: str, entry_id: str, offset: int) -> bool:
     if offset == 0:
         return False
