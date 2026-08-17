@@ -137,6 +137,13 @@ from .gtk_task_helpers import task_init_command as _task_init_command
 from .gtk_task_helpers import task_path_for_name as _task_path_for_name
 from .gtk_task_style import task_row_style as _task_row_style
 from .gtk_theme import theme_colors as _theme_colors
+from .gtk_widgets import button as _button
+from .gtk_widgets import compact_button as _compact_button
+from .gtk_widgets import flow_box as _flow_box
+from .gtk_widgets import flow_box_add as _flow_box_add
+from .gtk_widgets import remove_style_class_recursive as _remove_style_class_recursive
+from .gtk_widgets import set_widget_opacity_recursive as _set_widget_opacity_recursive
+from .gtk_widgets import task_action_drag_icon as _task_action_drag_icon
 from .gtk_i18n import CODEX_LANGUAGE_INSTRUCTIONS
 from .gtk_i18n import TRANSLATIONS
 from .gtk_i18n import ui_string as _ui_string
@@ -3698,71 +3705,6 @@ class WorkspaceGtkGui:
                 ),
             }
         )
-
-
-def _button(label: str, callback: object) -> Gtk.Button:
-    button = Gtk.Button(label=label)
-    button.connect("clicked", callback)
-    return button
-
-
-def _compact_button(label: str, callback: object | None, *, max_width_chars: int = 22) -> Gtk.Button:
-    button = Gtk.Button()
-    text = Gtk.Label(label=label)
-    text.set_ellipsize(Pango.EllipsizeMode.END)
-    text.set_max_width_chars(max_width_chars)
-    text.set_width_chars(min(max_width_chars, max(4, min(len(label), max_width_chars))))
-    button.add(text)
-    button.set_tooltip_text(label)
-    button.set_size_request(-1, 26)
-    if callback is not None:
-        button.connect("clicked", callback)
-    return button
-
-
-def _flow_box(
-    *,
-    border_width: int = 0,
-    orientation: Gtk.Orientation = Gtk.Orientation.HORIZONTAL,
-    max_children_per_line: int = 24,
-) -> Gtk.FlowBox:
-    box = Gtk.FlowBox()
-    box.set_selection_mode(Gtk.SelectionMode.NONE)
-    box.set_orientation(orientation)
-    box.set_column_spacing(3)
-    box.set_row_spacing(2)
-    box.set_min_children_per_line(1)
-    box.set_max_children_per_line(max_children_per_line)
-    box.set_border_width(border_width)
-    return box
-
-
-def _flow_box_add(box: Gtk.FlowBox, widget: Gtk.Widget) -> None:
-    box.add(widget)
-
-
-def _remove_style_class_recursive(widget: Gtk.Widget, class_name: str) -> None:
-    widget.get_style_context().remove_class(class_name)
-    if isinstance(widget, Gtk.Container):
-        for child in widget.get_children():
-            _remove_style_class_recursive(child, class_name)
-
-
-def _set_widget_opacity_recursive(widget: Gtk.Widget, opacity: float) -> None:
-    widget.set_opacity(opacity)
-    if isinstance(widget, Gtk.Container):
-        for child in widget.get_children():
-            _set_widget_opacity_recursive(child, opacity)
-
-
-def _task_action_drag_icon(label: str) -> Gtk.Button:
-    button = Gtk.Button(label=label)
-    button.set_relief(Gtk.ReliefStyle.NORMAL)
-    button.set_focus_on_click(False)
-    button.get_style_context().add_class("task-action-drag-icon")
-    button.set_opacity(0.9)
-    button.show_all()
-    return button
 
 
 def _is_pane_separator_event(pane: Gtk.Paned, event: Gdk.EventButton, tolerance: int = 8) -> bool:
