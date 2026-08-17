@@ -24,6 +24,39 @@ def unique_parameter_value_id(candidate: str, existing: dict[object, object]) ->
     return f"{candidate}_{index}"
 
 
+def upsert_parameter_set_value(
+    data: dict[str, object],
+    set_name: str,
+    value_id: str | None,
+    candidate_id: str,
+    value: dict[str, str],
+) -> str | None:
+    parameter_sets = data.setdefault("parameter_sets", {})
+    if not isinstance(parameter_sets, dict):
+        return None
+    set_values = parameter_sets.setdefault(set_name, {})
+    if not isinstance(set_values, dict):
+        return None
+    new_id = candidate_id
+    if value_id != new_id:
+        new_id = unique_parameter_value_id(new_id, set_values)
+    if value_id and value_id != new_id:
+        set_values.pop(value_id, None)
+    set_values[new_id] = value
+    return new_id
+
+
+def delete_parameter_set_value(data: dict[str, object], set_name: str, value_id: str) -> bool:
+    parameter_sets = data.get("parameter_sets")
+    if not isinstance(parameter_sets, dict):
+        return False
+    set_values = parameter_sets.get(set_name)
+    if not isinstance(set_values, dict) or value_id not in set_values:
+        return False
+    set_values.pop(value_id, None)
+    return True
+
+
 def move_json_list_entry(entries: list[object], key_name: str, entry_id: str, offset: int) -> bool:
     if offset == 0:
         return False

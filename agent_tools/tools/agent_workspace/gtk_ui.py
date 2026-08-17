@@ -34,6 +34,7 @@ from .artifacts import files_under as _files_under
 from .artifacts import task_artifact_entries as _task_artifact_entries
 from .artifacts import task_artifact_files as _task_artifact_files
 from .task_action_model import field_type_enum_values as _field_type_enum_values
+from .task_action_model import delete_parameter_set_value as _delete_parameter_set_value
 from .task_action_model import json_list_entry_index as _json_list_entry_index
 from .task_action_model import move_action_parameter_entry as _move_action_parameter_entry
 from .task_action_model import move_id_before as _move_id_before
@@ -53,7 +54,7 @@ from .task_action_model import set_task_action_drag_selection as _set_task_actio
 from .task_action_model import shortcut_id_from_label as _shortcut_id_from_label
 from .task_action_model import task_action_drag_selection_id as _task_action_drag_selection_id
 from .task_action_model import task_reorder_order_for_drag_edges as _task_reorder_order_for_drag_edges
-from .task_action_model import unique_parameter_value_id as _unique_parameter_value_id
+from .task_action_model import upsert_parameter_set_value as _upsert_parameter_set_value
 from .task_action_files import task_action_code_path
 from .task_action_state import bindings_for_action_run
 from .task_action_state import parameter_button_label
@@ -2217,17 +2218,9 @@ class WorkspaceGtkGui:
                     text = getter()
                     if text:
                         value[field_name] = text
-                parameter_sets = data.setdefault("parameter_sets", {})
-                if isinstance(parameter_sets, dict):
-                    set_values = parameter_sets.setdefault(parameter.set_name, {})
-                    if isinstance(set_values, dict):
-                        if value_id != new_id:
-                            new_id = _unique_parameter_value_id(new_id, set_values)
-                        if value_id and value_id != new_id:
-                            set_values.pop(value_id, None)
-                        set_values[new_id] = value
-                        save_task_actions_data(task, data)
-                        self._load_task_action_buttons()
+                if _upsert_parameter_set_value(data, parameter.set_name, value_id, new_id, value) is not None:
+                    save_task_actions_data(task, data)
+                    self._load_task_action_buttons()
         dialog.destroy()
 
     def _parameter_field_editor(
@@ -2297,12 +2290,8 @@ class WorkspaceGtkGui:
             self.task_action_errors = errors
             self._update_actions_message()
             return
-        parameter_sets = data.get("parameter_sets")
-        if isinstance(parameter_sets, dict):
-            set_values = parameter_sets.get(parameter.set_name)
-            if isinstance(set_values, dict):
-                set_values.pop(value_id, None)
-                save_task_actions_data(task, data)
+        if _delete_parameter_set_value(data, parameter.set_name, value_id):
+            save_task_actions_data(task, data)
         self._load_task_action_buttons()
 
     def _save_selected_action_as_shortcut(self) -> None:

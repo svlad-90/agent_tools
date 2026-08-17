@@ -129,6 +129,8 @@ from agent_tools.tools.agent_workspace.ui import _tk_control_shortcut
 from agent_tools.tools.agent_workspace.ui import AgentWorkspace
 from agent_tools.tools.agent_workspace.actions import main as actions_main
 from agent_tools.tools.agent_workspace.task_action_files import task_action_code_path
+from agent_tools.tools.agent_workspace.task_action_model import delete_parameter_set_value
+from agent_tools.tools.agent_workspace.task_action_model import upsert_parameter_set_value
 from agent_tools.tools.agent_workspace.task_action_state import bindings_for_action_run
 from agent_tools.tools.agent_workspace.task_action_state import parameter_button_label
 from agent_tools.tools.agent_workspace.task_action_state import parameter_values
@@ -3937,6 +3939,45 @@ def test_task_action_state_helpers_resolve_shortcuts_parameters_and_bindings(tmp
     assert parameter_button_label(parameter, config, {"profile": "missing"}) == "Profile: missing"
     assert bindings_for_action_run(action, "build", {"profile": "dev"}) == {"profile": "dev"}
     assert bindings_for_action_run(action, "other", {"profile": "dev"}) == {"profile": "release"}
+
+
+def test_task_action_parameter_set_helpers_upsert_rename_and_delete() -> None:
+    data: dict[str, object] = {
+        "parameter_sets": {
+            "profiles": {
+                "dev": {"name": "Dev"},
+                "release": {"name": "Release"},
+            }
+        }
+    }
+
+    assert upsert_parameter_set_value(data, "profiles", "dev", "release", {"name": "Release copy"}) == "release_2"
+    assert data["parameter_sets"] == {
+        "profiles": {
+            "release": {"name": "Release"},
+            "release_2": {"name": "Release copy"},
+        }
+    }
+    assert upsert_parameter_set_value(data, "profiles", "release_2", "prod", {"name": "Prod"}) == "prod"
+    assert data["parameter_sets"] == {
+        "profiles": {
+            "release": {"name": "Release"},
+            "prod": {"name": "Prod"},
+        }
+    }
+    assert delete_parameter_set_value(data, "profiles", "release")
+    assert not delete_parameter_set_value(data, "profiles", "missing")
+    assert data["parameter_sets"] == {"profiles": {"prod": {"name": "Prod"}}}
+
+
+def test_task_action_parameter_set_helpers_reject_malformed_data() -> None:
+    malformed_sets: dict[str, object] = {"parameter_sets": []}
+    malformed_values: dict[str, object] = {"parameter_sets": {"profiles": []}}
+
+    assert upsert_parameter_set_value(malformed_sets, "profiles", None, "dev", {"name": "Dev"}) is None
+    assert upsert_parameter_set_value(malformed_values, "profiles", None, "dev", {"name": "Dev"}) is None
+    assert not delete_parameter_set_value(malformed_sets, "profiles", "dev")
+    assert not delete_parameter_set_value(malformed_values, "profiles", "dev")
 
 
 def test_load_task_actions_resolves_parameter_sets_and_shortcuts(tmp_path: Path) -> None:
