@@ -239,6 +239,29 @@ def reorder_action_parameter_entries(data: dict[str, object], action_id: str, or
     return False
 
 
+def reorder_task_action_data(
+    data: dict[str, object],
+    group: str,
+    ordered_ids: list[str],
+    *,
+    selected_action_id: str | None = None,
+) -> bool:
+    if group == "action":
+        actions = data.get("actions")
+        return isinstance(actions, list) and reorder_json_list_by_ids(actions, "id", ordered_ids)
+    if group == "shortcut":
+        shortcuts = data.get("shortcuts")
+        return isinstance(shortcuts, list) and reorder_json_list_subset_by_ids(shortcuts, "id", ordered_ids)
+    if group == "parameter":
+        if selected_action_id is None:
+            return False
+        return reorder_action_parameter_entries(data, selected_action_id, ordered_ids)
+    if group == "global_parameter":
+        global_parameters = data.get("global_parameters")
+        return isinstance(global_parameters, dict) and reorder_json_mapping_by_ids(global_parameters, ordered_ids)
+    return False
+
+
 def set_task_action_drag_selection(selection: object, action_id: str) -> None:
     selection.set(selection.get_target(), 8, action_id.encode("utf-8"))
 

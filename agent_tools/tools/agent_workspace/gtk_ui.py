@@ -47,6 +47,7 @@ from .task_action_model import parameter_field_type as _parameter_field_type
 from .task_action_model import parameter_type_fields as _parameter_type_fields
 from .task_action_model import parameter_value_id_from_name as _parameter_value_id_from_name
 from .task_action_model import reorder_action_parameter_entries as _reorder_action_parameter_entries
+from .task_action_model import reorder_task_action_data as _reorder_task_action_data
 from .task_action_model import reorder_json_list_by_ids as _reorder_json_list_by_ids
 from .task_action_model import reorder_json_list_subset_by_ids as _reorder_json_list_subset_by_ids
 from .task_action_model import reorder_json_mapping_by_ids as _reorder_json_mapping_by_ids
@@ -2012,18 +2013,7 @@ class WorkspaceGtkGui:
             self._load_task_action_buttons()
 
     def _save_task_action_order(self, order: list[str]) -> None:
-        task = self._require_task(show_dialog=False)
-        if task is None:
-            return
-        data, errors = load_task_actions_data(task)
-        if errors:
-            self.task_action_errors = errors
-            self._update_actions_message()
-            return
-        actions = data.get("actions")
-        if isinstance(actions, list) and _reorder_json_list_by_ids(actions, "id", order):
-            save_task_actions_data(task, data)
-            self._load_task_action_buttons()
+        self._save_task_order_group("action", order)
 
     def _task_reorder_order(self, group: str) -> list[str]:
         if group == "action":
@@ -2076,34 +2066,15 @@ class WorkspaceGtkGui:
             self._save_task_shortcut_order(order)
 
     def _save_task_shortcut_order(self, order: list[str]) -> None:
-        task = self._require_task(show_dialog=False)
-        if task is None:
-            return
-        data, errors = load_task_actions_data(task)
-        if errors:
-            self.task_action_errors = errors
-            self._update_actions_message()
-            return
-        shortcuts = data.get("shortcuts")
-        if isinstance(shortcuts, list) and _reorder_json_list_subset_by_ids(shortcuts, "id", order):
-            save_task_actions_data(task, data)
-            self._load_task_action_buttons()
+        self._save_task_order_group("shortcut", order)
 
     def _save_task_parameter_order(self, order: list[str]) -> None:
-        action = self.selected_task_action
-        task = self._require_task(show_dialog=False)
-        if action is None or task is None:
-            return
-        data, errors = load_task_actions_data(task)
-        if errors:
-            self.task_action_errors = errors
-            self._update_actions_message()
-            return
-        if _reorder_action_parameter_entries(data, action.action_id, order):
-            save_task_actions_data(task, data)
-            self._load_task_action_buttons()
+        self._save_task_order_group("parameter", order)
 
     def _save_global_task_parameter_order(self, order: list[str]) -> None:
+        self._save_task_order_group("global_parameter", order)
+
+    def _save_task_order_group(self, group: str, order: list[str]) -> None:
         task = self._require_task(show_dialog=False)
         if task is None:
             return
@@ -2112,8 +2083,9 @@ class WorkspaceGtkGui:
             self.task_action_errors = errors
             self._update_actions_message()
             return
-        global_parameters = data.get("global_parameters")
-        if isinstance(global_parameters, dict) and _reorder_json_mapping_by_ids(global_parameters, order):
+        action = self.selected_task_action
+        selected_action_id = action.action_id if action is not None else None
+        if _reorder_task_action_data(data, group, order, selected_action_id=selected_action_id):
             save_task_actions_data(task, data)
             self._load_task_action_buttons()
 

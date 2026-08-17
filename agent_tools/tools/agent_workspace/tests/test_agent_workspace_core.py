@@ -130,6 +130,7 @@ from agent_tools.tools.agent_workspace.ui import AgentWorkspace
 from agent_tools.tools.agent_workspace.actions import main as actions_main
 from agent_tools.tools.agent_workspace.task_action_files import task_action_code_path
 from agent_tools.tools.agent_workspace.task_action_model import delete_parameter_set_value
+from agent_tools.tools.agent_workspace.task_action_model import reorder_task_action_data
 from agent_tools.tools.agent_workspace.task_action_model import upsert_parameter_set_value
 from agent_tools.tools.agent_workspace.task_action_state import bindings_for_action_run
 from agent_tools.tools.agent_workspace.task_action_state import parameter_button_label
@@ -4149,6 +4150,62 @@ def test_gtk_json_reorder_helpers_move_actions_parameters_and_shortcuts() -> Non
         "copy-a",
         "other-b",
     ]
+
+
+def test_task_action_order_helper_reorders_supported_groups() -> None:
+    data: dict[str, object] = {
+        "actions": [
+            {"id": "full"},
+            {
+                "id": "copy",
+                "parameters": [
+                    {"name": "board"},
+                    {"name": "source"},
+                    {"name": "target"},
+                ],
+            },
+        ],
+        "shortcuts": [
+            {"id": "other-a"},
+            {"id": "copy-a"},
+            {"id": "copy-b"},
+            {"id": "other-b"},
+        ],
+        "global_parameters": {
+            "board": {"value": "rpi5"},
+            "image": {"value": "full_ufs_gz"},
+        },
+    }
+
+    assert reorder_task_action_data(data, "action", ["copy", "full"])
+    actions = data["actions"]
+    assert isinstance(actions, list)
+    assert [entry["id"] for entry in actions if isinstance(entry, dict)] == ["copy", "full"]
+
+    assert reorder_task_action_data(data, "shortcut", ["copy-b", "copy-a"])
+    shortcuts = data["shortcuts"]
+    assert isinstance(shortcuts, list)
+    assert [entry["id"] for entry in shortcuts if isinstance(entry, dict)] == [
+        "other-a",
+        "copy-b",
+        "copy-a",
+        "other-b",
+    ]
+
+    assert reorder_task_action_data(data, "parameter", ["target", "source", "board"], selected_action_id="copy")
+    copy_action = next(entry for entry in actions if isinstance(entry, dict) and entry.get("id") == "copy")
+    assert isinstance(copy_action, dict)
+    parameters = copy_action["parameters"]
+    assert isinstance(parameters, list)
+    assert [entry["name"] for entry in parameters if isinstance(entry, dict)] == ["target", "source", "board"]
+
+    assert reorder_task_action_data(data, "global_parameter", ["image", "board"])
+    global_parameters = data["global_parameters"]
+    assert isinstance(global_parameters, dict)
+    assert list(global_parameters) == ["image", "board"]
+
+    assert not reorder_task_action_data(data, "parameter", ["board", "source", "target"])
+    assert not reorder_task_action_data(data, "missing", [])
 
 
 def test_gtk_task_action_drag_reorder_sequence_moves_one_slot_at_a_time() -> None:
