@@ -227,6 +227,7 @@ def stylesheet() -> str:
     .summary-artifact-preview .diagram-preview-wrap { margin-top: 0; }
     .summary-artifact-preview .diagram-preview { width: min(760px, 100%); }
     .summary-artifact-preview .diagram-preview-canvas { height: clamp(220px, 26vw, 320px); }
+    body:has(.general-report) { --brand-height: 110px; --brand-mark-size: 74px; --brand-title-size: 54px; --brand-subtitle-size: 28px; }
     .report-note, .review-summary { display: block; width: 100%; max-width: 100%; min-width: 0; margin: 0; padding: 12px; border: 1px solid var(--meta-border); border-radius: 6px; background: var(--meta-panel); color: var(--meta-text); white-space: pre-wrap; overflow-wrap: anywhere; font-family: ui-monospace, SFMono-Regular, Consolas, monospace; }
     .report-note { max-width: 100%; }
     .diff-stats { display: grid; gap: 10px; }

@@ -208,6 +208,7 @@ class AssetContractTests(unittest.TestCase):
             'polygon[fill="#D4D4D4"]',
             'polygon[fill="#FBFB77"]',
             ".summary-artifact-preview .diagram-preview { width: min(760px, 100%); }",
+            "body:has(.general-report) { --brand-height: 110px;",
             ".asset-search-match",
             ".asset-search-current",
             ".asset-search-submatch",
