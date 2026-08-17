@@ -88,8 +88,12 @@ These rules apply to every task directory under the workspace root.
     compile databases change.
 11. Task-local GUI actions are the normal way to expose repeated task commands
     in `agent-workspace`. Declare them in `TASK_ACTIONS.json` at the task root
-    whenever a task has useful build, component-build, test, smoke, report, or
-    cleanup commands that a human may rerun without involving an AI agent.
+    only when the action is useful for a human user to run directly without an
+    AI agent. Good candidates include long builds, component builds, hardware
+    flashing/copying, board access, smoke tests, report generation, and cleanup
+    commands that the user is likely to launch repeatedly. Do not add GUI
+    actions for internal agent preprocessing, tiny convenience wrappers,
+    exploratory commands, or one-off experiments just because a script exists.
     The file is JSON with an `actions` list:
 
     ```json
@@ -110,7 +114,7 @@ These rules apply to every task directory under the workspace root.
     shell command or an argv list. `cwd` is optional, defaults to `.`, and must
     stay inside the task directory. `env` is optional and must be a string map.
     Prefer commands under `scripts/` for repeatable task routines; keep
-    one-off experiments out of `TASK_ACTIONS.json`.
+    agent-only helpers and one-off experiments out of `TASK_ACTIONS.json`.
 12. Keep commit-ready source/tooling changes separate from review/report
     artifacts unless the user asks to include both. Review tasks place reports
     under `report/`; source tasks should not accumulate report output as a side
