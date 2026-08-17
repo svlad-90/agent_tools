@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime
 from pathlib import Path
 import json
 import os
@@ -89,6 +90,7 @@ from agent_tools.tools.agent_workspace.gtk_ui import task_check_shell_command as
 from agent_tools.tools.agent_workspace.gtk_ui import _artifact_context_action as gtk_artifact_context_action
 from agent_tools.tools.agent_workspace.gtk_ui import _artifact_delete_paths as gtk_artifact_delete_paths
 from agent_tools.tools.agent_workspace.gtk_ui import _artifact_selectable_path as gtk_artifact_selectable_path
+from agent_tools.tools.agent_workspace.gtk_ui import _artifact_updated_label as gtk_artifact_updated_label
 from agent_tools.tools.agent_workspace.gtk_ui import _is_pane_separator_event as gtk_is_pane_separator_event
 from agent_tools.tools.agent_workspace.gtk_ui import _notebook_event_in_empty_tab_area as gtk_notebook_event_in_empty_tab_area
 from agent_tools.tools.agent_workspace.gtk_ui import open_containing_folder as gtk_open_containing_folder
@@ -805,6 +807,11 @@ def test_gtk_artifact_selectable_path_stays_inside_task(tmp_path: Path) -> None:
     assert gtk_artifact_selectable_path(summary, artifact_path) == artifact_path
     assert gtk_artifact_selectable_path(summary, artifact_dir) is None
     assert gtk_artifact_selectable_path(summary, outside) is None
+
+
+def test_gtk_artifact_updated_label_formats_timestamp() -> None:
+    assert gtk_artifact_updated_label(0) == ""
+    assert gtk_artifact_updated_label(100) == datetime.fromtimestamp(100).strftime("%Y-%m-%d %H:%M")
 
 
 def test_gtk_open_containing_folder_falls_back_to_parent_on_linux(

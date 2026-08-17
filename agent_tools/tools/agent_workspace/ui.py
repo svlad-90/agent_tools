@@ -10,7 +10,6 @@ import platform
 import pty
 import queue
 import select
-import shlex
 import subprocess
 import struct
 import termios
@@ -23,8 +22,6 @@ from tkinter import ttk
 
 from .core import TASK_CONTEXT_BUDGET
 from .core import ConsoleChunk
-from .core import PAF_HIDE_TASK_ENV_VAR
-from .core import TASK_ACTION_LOGS_DIR
 from .core import AGENT_RUNNING_SPINNER_FRAMES
 from .core import AGENT_STATUS_MANUAL_ENTRIES
 from .core import AGENT_STATUS_MANUAL_MENU_LABEL
@@ -76,13 +73,17 @@ from .core import session_marks_task_pending_permission
 from .core import session_is_agent
 from .core import session_is_running_agent
 from .core import session_should_clear_pending_permission
-from .core import task_action_log_basename
 from .core import task_agent_has_resumable_state
 from .core import task_agent_status_text
 from .core import task_agent_session_markers
 from .core import task_agent_selection_with_resumable_fallback
 from .core import task_has_external_active_agent_run
 from .core import task_for_path
+from .commands import claude_executable as _claude_executable
+from .commands import codex_executable as _codex_executable
+from .commands import sys_executable
+from .commands import task_action_shell_command
+from .commands import task_check_shell_command
 
 
 @dataclass
@@ -2238,74 +2239,9 @@ def embedded_terminal_command(
     ]
 
 
-def task_check_shell_command(workspace: Path, task: TaskSummary) -> str:
-    return " ".join(
-        [
-            "cd",
-            shlex.quote(str(workspace)),
-            "&&",
-            shlex.join(
-                [
-                    sys_executable(),
-                    "-m",
-                    "agent_tools.tools.agent_workspace.actions",
-                    "task-check",
-                    "--workspace",
-                    str(workspace),
-                    "--task",
-                    str(task.path),
-                ]
-            ),
-        ]
-    )
-
-
-def task_action_shell_command(action: TaskAction) -> str:
-    command = action.command if isinstance(action.command, str) else shlex.join(action.command)
-    env_values = dict(action.env)
-    env_values[PAF_HIDE_TASK_ENV_VAR] = "1"
-    env = " ".join(
-        f"{key}={shlex.quote(value)}"
-        for key, value in sorted(env_values.items())
-    )
-    prefix = f"{env} " if env else ""
-    log_name = task_action_log_basename(action.action_id)
-    inner = "\n".join(
-        [
-            "set -o pipefail",
-            "__agent_task_dir=$PWD",
-            'while [ "$__agent_task_dir" != "/" ] && [ ! -f "$__agent_task_dir/TASK_DESCRIPTION.md" ]; do',
-            '    __agent_task_dir=$(dirname "$__agent_task_dir")',
-            "done",
-            'if [ ! -f "$__agent_task_dir/TASK_DESCRIPTION.md" ]; then',
-            "    __agent_task_dir=$PWD",
-            "fi",
-            f"__agent_log_dir=\"$__agent_task_dir/{TASK_ACTION_LOGS_DIR.as_posix()}\"",
-            'mkdir -p "$__agent_log_dir"',
-            f"__agent_log=\"$__agent_log_dir/{log_name}-$(date +%Y%m%d-%H%M%S).log\"",
-            'echo "Logging task action to $__agent_log"',
-            f"({prefix}{command}) 2>&1 | tee -a \"$__agent_log\"",
-            "exit ${PIPESTATUS[0]}",
-        ]
-    )
-    return f"cd {shlex.quote(str(action.cwd))} && bash -lc {shlex.quote(inner)}"
-
-
 def console_paste_text(text: str) -> str:
     lines = text.replace("\r\n", "\n").replace("\r", "\n").splitlines()
     return " ".join(line.strip() for line in lines if line.strip())
-
-
-def sys_executable() -> str:
-    return sys.executable or "python3"
-
-
-def _codex_executable() -> str:
-    return agent_executable("codex") or "codex"
-
-
-def _claude_executable() -> str:
-    return agent_executable("claude") or "claude"
 
 
 def _tk_control_shortcut(event: tk.Event[tk.Misc]) -> str | None:

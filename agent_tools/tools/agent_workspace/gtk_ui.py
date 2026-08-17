@@ -1,9 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from collections.abc import Iterator
 from dataclasses import dataclass
-from datetime import datetime
 from pathlib import Path
 import argparse
 import os
@@ -24,8 +22,40 @@ from gi.repository import Gtk
 from gi.repository import Pango
 from gi.repository import Vte
 
+from .artifacts import ArtifactEntry
+from .artifacts import artifact_context_action as _artifact_context_action
+from .artifacts import artifact_delete_paths as _artifact_delete_paths
+from .artifacts import artifact_group as _artifact_group
+from .artifacts import artifact_group_sort_key as _artifact_group_sort_key
+from .artifacts import artifact_relative_label as _artifact_relative_label
+from .artifacts import artifact_selectable_path as _artifact_selectable_path
+from .artifacts import artifact_updated_label as _artifact_updated_label
+from .artifacts import artifact_updated_timestamp as _artifact_updated_timestamp
+from .artifacts import files_under as _files_under
+from .artifacts import task_artifact_entries as _task_artifact_entries
+from .artifacts import task_artifact_files as _task_artifact_files
+from .task_action_model import field_type_enum_values as _field_type_enum_values
+from .task_action_model import json_list_entry_index as _json_list_entry_index
+from .task_action_model import move_action_parameter_entry as _move_action_parameter_entry
+from .task_action_model import move_id_before as _move_id_before
+from .task_action_model import move_id_relative as _move_id_relative
+from .task_action_model import move_json_list_entry as _move_json_list_entry
+from .task_action_model import move_json_list_entry_before as _move_json_list_entry_before
+from .task_action_model import move_json_mapping_entry as _move_json_mapping_entry
+from .task_action_model import parameter_field_order as _parameter_field_order
+from .task_action_model import parameter_field_type as _parameter_field_type
+from .task_action_model import parameter_type_fields as _parameter_type_fields
+from .task_action_model import parameter_value_id_from_name as _parameter_value_id_from_name
+from .task_action_model import reorder_action_parameter_entries as _reorder_action_parameter_entries
+from .task_action_model import reorder_json_list_by_ids as _reorder_json_list_by_ids
+from .task_action_model import reorder_json_list_subset_by_ids as _reorder_json_list_subset_by_ids
+from .task_action_model import reorder_json_mapping_by_ids as _reorder_json_mapping_by_ids
+from .task_action_model import set_task_action_drag_selection as _set_task_action_drag_selection
+from .task_action_model import shortcut_id_from_label as _shortcut_id_from_label
+from .task_action_model import task_action_drag_selection_id as _task_action_drag_selection_id
+from .task_action_model import task_reorder_order_for_drag_edges as _task_reorder_order_for_drag_edges
+from .task_action_model import unique_parameter_value_id as _unique_parameter_value_id
 from .core import TASK_ACTIONS_FILE
-from .core import TASK_ACTION_LOGS_DIR
 from .core import AGENT_RUNNING_SPINNER_FRAMES
 from .core import AGENT_STATUS_MANUAL_MENU_LABEL
 from .core import AGENT_STATUS_MANUAL_TITLE
@@ -39,7 +69,6 @@ from .core import AGENT_WORKSPACE_CLAUDE_MODELS
 from .core import AGENT_WORKSPACE_LANGUAGES
 from .core import AGENT_WORKSPACE_REASONING_EFFORTS
 from .core import AGENT_WORKSPACE_THEMES
-from .core import PAF_HIDE_TASK_ENV_VAR
 from .core import acquire_agent_workspace_lock
 from .core import agent_executable
 from .core import agent_install_command
@@ -81,13 +110,17 @@ from .core import session_marks_task_running_agent
 from .core import session_is_agent
 from .core import session_is_running_agent
 from .core import session_should_clear_pending_permission
-from .core import task_action_log_basename
 from .core import task_agent_has_resumable_state
 from .core import task_agent_status_text
 from .core import task_agent_session_markers
 from .core import task_agent_selection_with_resumable_fallback
 from .core import task_has_external_active_agent_run
 from .core import task_for_path
+from .commands import claude_executable as _claude_executable
+from .commands import codex_executable as _codex_executable
+from .commands import sys_executable
+from .commands import task_action_shell_command
+from .commands import task_check_shell_command
 
 
 TRANSLATIONS = {
@@ -463,7 +496,6 @@ _TASK_ACTIONS_MONITOR_EVENTS = {
     if event is not None
 }
 
-_LOG_SUFFIXES = {".log"}
 AGENT_BUSY_IDLE_DELAY_MS = 1800
 
 
@@ -482,13 +514,6 @@ class TerminalSession:
     output_generation: int = 0
     permission_signature: str | None = None
     ignored_permission_signature: str | None = None
-
-
-@dataclass(frozen=True)
-class ArtifactEntry:
-    group: str
-    path: Path
-    updated: float
 
 
 @dataclass(frozen=True)
@@ -4310,154 +4335,6 @@ def _scrolled(widget: Gtk.Widget) -> Gtk.ScrolledWindow:
     return scrolled
 
 
-def _task_artifact_entries(
-    task: TaskSummary,
-    *,
-    sort_column: str = "name",
-    descending: bool = False,
-) -> list[ArtifactEntry]:
-    entries: list[ArtifactEntry] = []
-    for path in _task_artifact_files(task):
-        group = _artifact_group(task, path)
-        if group is not None:
-            entries.append(ArtifactEntry(group, path, _artifact_updated_timestamp(path)))
-    result: list[ArtifactEntry] = []
-    for group in sorted({entry.group for entry in entries}, key=_artifact_group_sort_key):
-        group_entries = [entry for entry in entries if entry.group == group]
-        if sort_column == "updated":
-            if descending:
-                group_entries.sort(
-                    key=lambda entry: (-entry.updated, _artifact_relative_label(task, entry.path).casefold())
-                )
-            else:
-                group_entries.sort(
-                    key=lambda entry: (entry.updated, _artifact_relative_label(task, entry.path).casefold())
-                )
-        else:
-            group_entries.sort(
-                key=lambda entry: (entry.path.name.casefold(), _artifact_relative_label(task, entry.path).casefold()),
-                reverse=descending,
-            )
-        result.extend(group_entries)
-    return result
-
-
-def _task_artifact_files(task: TaskSummary) -> Iterator[Path]:
-    report = task.path / "report"
-    if not report.is_dir():
-        return
-    for root, dirs, files in os.walk(report):
-        dirs.sort()
-        for filename in sorted(files, key=str.casefold):
-            yield Path(root) / filename
-
-
-def _artifact_group(task: TaskSummary, path: Path) -> str | None:
-    suffix = path.suffix.casefold()
-    try:
-        rel = path.relative_to(task.path)
-    except ValueError:
-        return None
-    parts = rel.parts
-    if len(parts) < 1 or parts[0] != "report":
-        return None
-    if len(parts) >= 2 and parts[1] == "diff":
-        return "diff_reports"
-    if len(parts) >= 2 and parts[1] == "puml":
-        return "diagrams"
-    if suffix in _LOG_SUFFIXES:
-        return "logs"
-    return "artifacts"
-
-
-def _artifact_group_sort_key(group: str) -> int:
-    order = {"logs": 0, "diagrams": 1, "diff_reports": 2, "artifacts": 3}
-    return order.get(group, 99)
-
-
-def _artifact_relative_label(task: TaskSummary, path: Path) -> str:
-    try:
-        return str(path.relative_to(task.path))
-    except ValueError:
-        return str(path)
-
-
-def _artifact_updated_timestamp(path: Path) -> float:
-    try:
-        return path.stat().st_mtime
-    except OSError:
-        return 0.0
-
-
-def _artifact_updated_label(updated: float) -> str:
-    if updated <= 0:
-        return ""
-    return datetime.fromtimestamp(updated).strftime("%Y-%m-%d %H:%M")
-
-
-def _artifact_delete_paths(
-    task: TaskSummary,
-    *,
-    artifact_path: Path | None = None,
-    group: str | None = None,
-    delete_all: bool = False,
-) -> list[Path]:
-    if artifact_path is not None:
-        try:
-            artifact_path.relative_to(task.path)
-        except ValueError:
-            return []
-        return [artifact_path] if artifact_path.is_file() else []
-    if delete_all:
-        return _files_under(task.path / "report")
-    if group == "logs":
-        return [
-            path
-            for path in _files_under(task.path / "report")
-            if path.suffix.casefold() in _LOG_SUFFIXES
-        ]
-    if group == "diagrams":
-        return _files_under(task.path / "report" / "puml")
-    if group == "diff_reports":
-        return _files_under(task.path / "report" / "diff")
-    if group == "artifacts":
-        return [
-            path
-            for path in _files_under(task.path / "report")
-            if _artifact_group(task, path) == "artifacts"
-        ]
-    return []
-
-
-def _artifact_context_action(artifact_path: Path | None, group: str | None) -> str:
-    if artifact_path is not None:
-        return "artifact"
-    if group is not None:
-        return "group"
-    return "all"
-
-
-def _artifact_selectable_path(task: TaskSummary, artifact_path: Path) -> Path | None:
-    try:
-        artifact_path.relative_to(task.path)
-    except ValueError:
-        return None
-    return artifact_path if artifact_path.is_file() else None
-
-
-def _files_under(root: Path) -> list[Path]:
-    if not root.is_dir():
-        return []
-    paths: list[Path] = []
-    for current, dirs, files in os.walk(root):
-        dirs.sort()
-        for filename in sorted(files, key=str.casefold):
-            path = Path(current) / filename
-            if path.is_file():
-                paths.append(path)
-    return paths
-
-
 def ai_agent_task_context_message(task: TaskSummary, workspace: Path, language: str = "en") -> str:
     language_instruction = CODEX_LANGUAGE_INSTRUCTIONS.get(language, CODEX_LANGUAGE_INSTRUCTIONS["en"])
     return ai_agent_task_context_prompt(task, workspace, language_instruction)
@@ -4521,350 +4398,6 @@ def _set_combo_text_choices(combo: Gtk.ComboBoxText, choices: tuple[str, ...], c
         if choice == current:
             active_index = index
     combo.set_active(active_index)
-
-
-def _shortcut_id_from_label(label: str) -> str:
-    value = label.strip().lower()
-    value = "".join(character if character.isalnum() else "-" for character in value)
-    value = "-".join(part for part in value.split("-") if part)
-    return value or "shortcut"
-
-
-def _parameter_value_id_from_name(name: str) -> str:
-    value = name.strip().lower()
-    value = "".join(character if character.isalnum() else "_" for character in value)
-    value = "_".join(part for part in value.split("_") if part)
-    return value or "value"
-
-
-def _unique_parameter_value_id(candidate: str, existing: dict[object, object]) -> str:
-    if candidate not in existing:
-        return candidate
-    index = 2
-    while f"{candidate}_{index}" in existing:
-        index += 1
-    return f"{candidate}_{index}"
-
-
-def _move_json_list_entry(entries: list[object], key_name: str, entry_id: str, offset: int) -> bool:
-    if offset == 0:
-        return False
-    for index, entry in enumerate(entries):
-        if isinstance(entry, dict) and entry.get(key_name) == entry_id:
-            new_index = index + offset
-            if new_index < 0 or new_index >= len(entries):
-                return False
-            entries[index], entries[new_index] = entries[new_index], entries[index]
-            return True
-    return False
-
-
-def _move_json_mapping_entry(mapping: dict[object, object], entry_id: str, offset: int) -> bool:
-    if offset == 0 or entry_id not in mapping:
-        return False
-    items = list(mapping.items())
-    index = next((idx for idx, (key, _value) in enumerate(items) if key == entry_id), -1)
-    new_index = index + offset
-    if index < 0 or new_index < 0 or new_index >= len(items):
-        return False
-    items[index], items[new_index] = items[new_index], items[index]
-    mapping.clear()
-    mapping.update(items)
-    return True
-
-
-def _move_json_list_entry_before(entries: list[object], key_name: str, entry_id: str, before_id: str) -> bool:
-    if entry_id == before_id:
-        return False
-    source_index = _json_list_entry_index(entries, key_name, entry_id)
-    target_index = _json_list_entry_index(entries, key_name, before_id)
-    if source_index < 0 or target_index < 0:
-        return False
-    entry = entries.pop(source_index)
-    if source_index < target_index:
-        target_index -= 1
-    entries.insert(target_index, entry)
-    return True
-
-
-def _move_id_before(entries: list[str], entry_id: str, before_id: str) -> bool:
-    return _move_id_relative(entries, entry_id, before_id, after=False)
-
-
-def _move_id_relative(entries: list[str], entry_id: str, target_id: str, *, after: bool) -> bool:
-    if entry_id == target_id:
-        return False
-    original = list(entries)
-    try:
-        source_index = entries.index(entry_id)
-        target_index = entries.index(target_id)
-    except ValueError:
-        return False
-    value = entries.pop(source_index)
-    if source_index < target_index:
-        target_index -= 1
-    if after:
-        target_index += 1
-    entries.insert(target_index, value)
-    return entries != original
-
-
-def _task_reorder_order_for_drag_edges(
-    order: list[str],
-    source_id: str,
-    target_centers: dict[str, float],
-    *,
-    dragged_left: float,
-    dragged_right: float,
-    moving_right: bool,
-) -> list[str] | None:
-    try:
-        current_slot = order.index(source_id)
-    except ValueError:
-        return None
-    remaining = [item_id for item_id in order if item_id != source_id]
-    if moving_right:
-        next_slot = sum(1 for item_id in remaining if target_centers.get(item_id, float("inf")) <= dragged_right)
-        if next_slot <= current_slot:
-            return None
-    else:
-        next_slot = sum(1 for item_id in remaining if target_centers.get(item_id, float("inf")) < dragged_left)
-        if next_slot >= current_slot:
-            return None
-    next_slot = max(0, min(next_slot, len(remaining)))
-    new_order = list(remaining)
-    new_order.insert(next_slot, source_id)
-    return new_order if new_order != order else None
-
-
-def _reorder_json_list_by_ids(entries: list[object], key_name: str, ordered_ids: list[str]) -> bool:
-    order = {entry_id: position for position, entry_id in enumerate(ordered_ids)}
-    indexed_entries = list(enumerate(entries))
-    reordered = sorted(
-        indexed_entries,
-        key=lambda item: (
-            order.get(item[1].get(key_name), len(order)) if isinstance(item[1], dict) else len(order),
-            item[0],
-        ),
-    )
-    new_entries = [entry for _index, entry in reordered]
-    if new_entries == entries:
-        return False
-    entries[:] = new_entries
-    return True
-
-
-def _reorder_json_list_subset_by_ids(entries: list[object], key_name: str, ordered_ids: list[str]) -> bool:
-    visible_ids = set(ordered_ids)
-    ordered_visible = [
-        entry
-        for entry in sorted(
-            [entry for entry in entries if isinstance(entry, dict) and entry.get(key_name) in visible_ids],
-            key=lambda entry: ordered_ids.index(entry.get(key_name)),
-        )
-    ]
-    if not ordered_visible:
-        return False
-    visible_iter = iter(ordered_visible)
-    new_entries: list[object] = []
-    for entry in entries:
-        if isinstance(entry, dict) and entry.get(key_name) in visible_ids:
-            new_entries.append(next(visible_iter))
-        else:
-            new_entries.append(entry)
-    if new_entries == entries:
-        return False
-    entries[:] = new_entries
-    return True
-
-
-def _reorder_json_mapping_by_ids(mapping: dict[object, object], ordered_ids: list[str]) -> bool:
-    order = {entry_id: position for position, entry_id in enumerate(ordered_ids)}
-    items = list(mapping.items())
-    indexed_items = list(enumerate(items))
-    reordered = [
-        item
-        for _index, item in sorted(indexed_items, key=lambda indexed: (order.get(indexed[1][0], len(order)), indexed[0]))
-    ]
-    if reordered == items:
-        return False
-    mapping.clear()
-    mapping.update(reordered)
-    return True
-
-
-def _json_list_entry_index(entries: list[object], key_name: str, entry_id: str) -> int:
-    for index, entry in enumerate(entries):
-        if isinstance(entry, dict) and entry.get(key_name) == entry_id:
-            return index
-    return -1
-
-
-def _move_action_parameter_entry(data: dict[str, object], action_id: str, parameter_name: str, offset: int) -> bool:
-    actions = data.get("actions")
-    if not isinstance(actions, list):
-        return False
-    for action in actions:
-        if not isinstance(action, dict) or action.get("id") != action_id:
-            continue
-        parameters = action.get("parameters")
-        if not isinstance(parameters, list):
-            return False
-        return _move_json_list_entry(parameters, "name", parameter_name, offset)
-    return False
-
-
-def _reorder_action_parameter_entries(data: dict[str, object], action_id: str, ordered_names: list[str]) -> bool:
-    actions = data.get("actions")
-    if not isinstance(actions, list):
-        return False
-    for action in actions:
-        if not isinstance(action, dict) or action.get("id") != action_id:
-            continue
-        parameters = action.get("parameters")
-        if not isinstance(parameters, list):
-            return False
-        return _reorder_json_list_by_ids(parameters, "name", ordered_names)
-    return False
-
-
-def _set_task_action_drag_selection(selection: object, action_id: str) -> None:
-    selection.set(selection.get_target(), 8, action_id.encode("utf-8"))
-
-
-def _task_action_drag_selection_id(selection: object) -> str:
-    data = selection.get_data()
-    if not data:
-        return ""
-    if isinstance(data, str):
-        return data.strip()
-    return bytes(data).decode("utf-8").strip()
-
-
-def _parameter_field_order(parameter_type: str, fields: set[str]) -> list[str]:
-    preferred_by_type = {
-        "board": ["name", "host", "password_file", "tftp_root", "nfs_root", "user", "deployment_folder_name"],
-        "file": ["name", "path"],
-        "local_file": ["name", "path"],
-        "remote_file": ["name", "path"],
-    }
-    preferred = preferred_by_type.get(parameter_type, ["name"])
-    ordered = [field for field in preferred if field in fields]
-    ordered.extend(sorted(field for field in fields if field not in set(ordered)))
-    return ordered
-
-
-def _parameter_type_fields(data: dict[str, object], parameter_type: str) -> set[str]:
-    parameter_types = data.get("parameter_types")
-    if not isinstance(parameter_types, dict):
-        return set()
-    definition = parameter_types.get(parameter_type)
-    if not isinstance(definition, dict):
-        return set()
-    fields = definition.get("fields")
-    if not isinstance(fields, dict):
-        return set()
-    return {field for field in fields if isinstance(field, str)}
-
-
-def _parameter_field_type(data: dict[str, object], parameter_type: str, field_name: str) -> str:
-    parameter_types = data.get("parameter_types")
-    if not isinstance(parameter_types, dict):
-        return "string"
-    definition = parameter_types.get(parameter_type)
-    if not isinstance(definition, dict):
-        return "string"
-    fields = definition.get("fields")
-    if not isinstance(fields, dict):
-        return "string"
-    field_schema = fields.get(field_name)
-    if isinstance(field_schema, str):
-        return field_schema
-    if isinstance(field_schema, dict):
-        field_type = field_schema.get("type")
-        if isinstance(field_type, str) and field_type:
-            return field_type
-    return "string"
-
-
-def _field_type_enum_values(data: dict[str, object], field_type: str) -> list[str] | None:
-    field_types = data.get("field_types")
-    if not isinstance(field_types, dict):
-        return None
-    definition = field_types.get(field_type)
-    if not isinstance(definition, dict):
-        return None
-    if definition.get("type") != "enum":
-        return None
-    values = definition.get("values")
-    if not isinstance(values, list) or not all(isinstance(value, str) for value in values):
-        return []
-    return values
-
-
-def task_check_shell_command(workspace: Path, task: TaskSummary) -> str:
-    return " ".join(
-        [
-            "cd",
-            shlex.quote(str(workspace)),
-            "&&",
-            shlex.join(
-                [
-                    sys_executable(),
-                    "-m",
-                    "agent_tools.tools.agent_workspace.actions",
-                    "task-check",
-                    "--workspace",
-                    str(workspace),
-                    "--task",
-                    str(task.path),
-                ]
-            ),
-        ]
-    )
-
-
-def task_action_shell_command(action: TaskAction) -> str:
-    command = action.command if isinstance(action.command, str) else shlex.join(action.command)
-    env_values = dict(action.env)
-    env_values[PAF_HIDE_TASK_ENV_VAR] = "1"
-    env = " ".join(
-        f"{key}={shlex.quote(value)}"
-        for key, value in sorted(env_values.items())
-    )
-    prefix = f"{env} " if env else ""
-    log_name = task_action_log_basename(action.action_id)
-    inner = "\n".join(
-        [
-            "set -o pipefail",
-            "__agent_task_dir=$PWD",
-            'while [ "$__agent_task_dir" != "/" ] && [ ! -f "$__agent_task_dir/TASK_DESCRIPTION.md" ]; do',
-            '    __agent_task_dir=$(dirname "$__agent_task_dir")',
-            "done",
-            'if [ ! -f "$__agent_task_dir/TASK_DESCRIPTION.md" ]; then',
-            "    __agent_task_dir=$PWD",
-            "fi",
-            f"__agent_log_dir=\"$__agent_task_dir/{TASK_ACTION_LOGS_DIR.as_posix()}\"",
-            'mkdir -p "$__agent_log_dir"',
-            f"__agent_log=\"$__agent_log_dir/{log_name}-$(date +%Y%m%d-%H%M%S).log\"",
-            'echo "Logging task action to $__agent_log"',
-            f"({prefix}{command}) 2>&1 | tee -a \"$__agent_log\"",
-            "exit ${PIPESTATUS[0]}",
-        ]
-    )
-    return f"cd {shlex.quote(str(action.cwd))} && bash -lc {shlex.quote(inner)}"
-
-
-def sys_executable() -> str:
-    return sys.executable or "python3"
-
-
-def _codex_executable() -> str:
-    return agent_executable("codex") or "codex"
-
-
-def _claude_executable() -> str:
-    return agent_executable("claude") or "claude"
 
 
 def _feed_terminal(terminal: Vte.Terminal, text: str) -> None:
