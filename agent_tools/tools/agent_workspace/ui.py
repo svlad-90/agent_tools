@@ -1038,6 +1038,12 @@ class AgentWorkspace:
         if task is None:
             return
         agent = normalize_agent(self.agent_var.get())
+        if not self._confirm_agent_session_reset(agent):
+            return
+        for session in self._current_task_console_sessions(task):
+            if session.kind == agent and session_is_agent(session_kind=session.kind):
+                self.stop_console(session.session_id)
+                break
         reset_task_agent_session(task, agent)
         self._update_ai_agent_button_label()
         self._refresh_task_session_indicators()
@@ -1339,6 +1345,17 @@ class AgentWorkspace:
                 old_agent=agent_label(old_agent),
                 new_agent=agent_label(new_agent),
             ),
+        )
+
+    def _confirm_agent_session_reset(self, agent: str) -> bool:
+        return self._confirm_dialog(
+            "Сбросить сессию ИИ агента?",
+            (
+                f"Текущая консоль {agent_label(agent)} для этой задачи будет закрыта, "
+                "а сохраненная ссылка на продолжение сессии будет удалена. "
+                "Файлы истории CLI не удаляются. Продолжить?"
+            ),
+            confirm_label="Сбросить сессию",
         )
 
     def _ensure_agent_installed(self, agent: str) -> bool:

@@ -1439,6 +1439,13 @@ def test_ai_agent_launch_state_prefers_running_over_restore() -> None:
     assert state.reset_enabled
 
 
+def test_ai_agent_launch_state_allows_reset_for_running_agent_without_resume() -> None:
+    state = ai_agent_launch_state(running=True, resumable=False)
+
+    assert state.label_key == "ai_agent_running"
+    assert state.reset_enabled
+
+
 def test_ai_agent_launch_state_reports_restore_only_when_resumable() -> None:
     restore_state = ai_agent_launch_state(running=False, resumable=True)
     new_state = ai_agent_launch_state(running=False, resumable=False)
@@ -2037,6 +2044,35 @@ def test_reset_task_agent_session_preserves_selected_agent(tmp_path: Path) -> No
     assert load_task_agent_session(summary, "claude").session_id is None
 
 
+def test_reset_task_agent_session_clears_active_run_for_selected_agent(tmp_path: Path, monkeypatch) -> None:
+    task = tmp_path / "tasks" / "sample-task"
+    task.mkdir(parents=True)
+    summary = discover_tasks_with_context(task, tmp_path)
+    monkeypatch.setattr(core_module, "_process_is_agent_workspace_owner", lambda _pid: True)
+    save_task_active_agent_run(summary, "codex", "run-1", owner_pid=os.getpid())
+
+    assert reset_task_agent_session(summary, "codex")
+
+    assert load_task_agent(summary, "claude") == "codex"
+    assert load_task_active_agent_run(summary) is None
+
+
+def test_reset_task_agent_session_keeps_other_agent_active_run(tmp_path: Path, monkeypatch) -> None:
+    task = tmp_path / "tasks" / "sample-task"
+    task.mkdir(parents=True)
+    summary = discover_tasks_with_context(task, tmp_path)
+    monkeypatch.setattr(core_module, "_process_is_agent_workspace_owner", lambda _pid: True)
+    save_task_active_agent_run(summary, "codex", "run-1", owner_pid=os.getpid())
+
+    assert not reset_task_agent_session(summary, "claude")
+
+    active = load_task_active_agent_run(summary)
+    assert active is not None
+    assert active.agent == "codex"
+    assert active.run_id == "run-1"
+    assert load_task_agent(summary, "codex") == "claude"
+
+
 def test_reset_task_agent_session_selects_agent_even_without_saved_session(tmp_path: Path) -> None:
     task = tmp_path / "tasks" / "sample-task"
     task.mkdir(parents=True)
@@ -2151,6 +2187,32 @@ def test_tk_agent_selection_warns_before_dropping_saved_session(tmp_path: Path, 
 
     assert gui.agent_var.get() == "claude"
     assert load_task_agent(summary, "codex") == "claude"
+    assert load_task_agent_session(summary, "codex").session_id is None
+
+
+def test_gtk_reset_agent_session_requires_confirmation(tmp_path: Path) -> None:
+    task = tmp_path / "tasks" / "sample-task"
+    task.mkdir(parents=True)
+    summary = discover_tasks_with_context(task, tmp_path)
+    save_task_agent_session(summary, "codex", session_id="019feba2-e25e-76e1-9468-aa399758268f")
+
+    gui = WorkspaceGtkGui.__new__(WorkspaceGtkGui)
+    gui._require_task = lambda: summary  # type: ignore[method-assign]
+    gui._selected_agent = lambda: "codex"  # type: ignore[method-assign]
+    gui._current_task_terminal_sessions = lambda selected_task: []  # type: ignore[method-assign]
+    gui._confirm_agent_session_reset = lambda agent: False  # type: ignore[method-assign]
+    gui._invalidate_task_session_marker_cache = lambda task=None: None  # type: ignore[method-assign]
+    gui._update_codex_button_state = lambda: None  # type: ignore[method-assign]
+    gui._refresh_task_row_styles = lambda: None  # type: ignore[method-assign]
+
+    gui.reset_ai_agent_session()
+
+    assert load_task_agent_session(summary, "codex").session_id == "019feba2-e25e-76e1-9468-aa399758268f"
+
+    gui._confirm_agent_session_reset = lambda agent: True  # type: ignore[method-assign]
+
+    gui.reset_ai_agent_session()
+
     assert load_task_agent_session(summary, "codex").session_id is None
 
 
@@ -3049,6 +3111,10 @@ def test_gtk_task_selection_remembers_current_tab_before_switching(tmp_path: Pat
     gui.last_active_terminal_by_task = {}
     gui._refreshing_console_tabs = False
     gui.console_notebook = FakeGtkConsoleNotebook([task_one_agent_page, task_one_shell_page], current_page=1)
+    gui.ai_agent_page = task_one_agent_page
+    gui.ai_agent_terminal_box = None
+    gui._ensure_ai_agent_console_page = lambda: None
+    gui._clear_ai_agent_terminal_page = lambda: None
     gui._task_is_external_active = lambda _task: False
     gui._leave_detail_edit_mode = lambda _view: None
     gui._set_markdown = lambda _view, _text: None
@@ -3326,6 +3392,8 @@ def test_gtk_translates_agent_and_manual_labels() -> None:
     assert GTK_TRANSLATIONS["uk"]["ok"] == "ОК"
     assert "закроет текущую сессию" in GTK_TRANSLATIONS["ru"]["confirm_switch_agent_body"]
     assert "ссылка на продолжение" in GTK_TRANSLATIONS["ru"]["confirm_delete_saved_agent_session_body"]
+    assert "ссылка на продолжение сессии будет удалена" in GTK_TRANSLATIONS["ru"]["confirm_reset_agent_session_body"]
+    assert GTK_TRANSLATIONS["ru"]["confirm_reset_agent_session_button"] == "Сбросить сессию"
     assert "остановит локальные процессы" in GTK_TRANSLATIONS["ru"]["confirm_close_running_agents_body"]
     assert "Предлагаемая команда установки" in GTK_TRANSLATIONS["ru"]["install_agent_body"]
     assert GTK_TRANSLATIONS["ru"]["delete_artifacts"] == "Удалить артефакты"

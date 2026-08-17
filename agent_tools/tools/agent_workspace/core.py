@@ -709,7 +709,7 @@ def ai_agent_model_settings(
 
 def ai_agent_launch_state(*, running: bool, resumable: bool) -> AgentLaunchState:
     if running:
-        return AgentLaunchState(label_key="ai_agent_running", reset_enabled=resumable)
+        return AgentLaunchState(label_key="ai_agent_running", reset_enabled=True)
     if resumable:
         return AgentLaunchState(label_key="restore_ai_agent_session", reset_enabled=True)
     return AgentLaunchState(label_key="run_ai_agent", reset_enabled=False)
@@ -1195,6 +1195,7 @@ def clear_task_agent_session(task: TaskSummary, agent: str) -> bool:
 def reset_task_agent_session(task: TaskSummary, agent: str) -> bool:
     agent = normalize_agent(agent)
     cleared = clear_task_agent_session(task, agent)
+    cleared = clear_task_active_agent_run(task, agent=agent) or cleared
     save_task_agent(task, agent)
     return cleared
 

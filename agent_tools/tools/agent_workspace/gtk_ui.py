@@ -104,6 +104,9 @@ TRANSLATIONS = {
         "confirm_close_running_agents_title": "Close Agent Workspace?",
         "confirm_delete_saved_agent_session_body": "This task has a saved {old_agent} session. Switching to {new_agent} will remove the saved resume link for that session. Continue?",
         "confirm_delete_saved_agent_session_title": "Remove saved session?",
+        "confirm_reset_agent_session_body": "This will close the current {agent} console for this task and remove its saved resume link. CLI history files are not deleted. Continue?",
+        "confirm_reset_agent_session_button": "Reset session",
+        "confirm_reset_agent_session_title": "Reset AI agent session?",
         "confirm_switch_agent_body": "{current} is already running for this task.\n\nConfirming will close the current session and start {next} with the same task context.",
         "confirm_switch_agent_title": "Switch AI agent?",
         "confirm_delete_task_body": "This will permanently delete the task directory.",
@@ -200,6 +203,9 @@ TRANSLATIONS = {
         "confirm_close_running_agents_title": "Закрыть Agent Workspace?",
         "confirm_delete_saved_agent_session_body": "Для этой задачи сохранена сессия {old_agent}. При переключении на {new_agent} ссылка на продолжение этой сессии будет удалена. Продолжить?",
         "confirm_delete_saved_agent_session_title": "Удалить сохраненную сессию?",
+        "confirm_reset_agent_session_body": "Текущая консоль {agent} для этой задачи будет закрыта, а сохраненная ссылка на продолжение сессии будет удалена. Файлы истории CLI не удаляются. Продолжить?",
+        "confirm_reset_agent_session_button": "Сбросить сессию",
+        "confirm_reset_agent_session_title": "Сбросить сессию ИИ агента?",
         "confirm_switch_agent_body": "{current} уже запущен для этой задачи.\n\nПодтверждение закроет текущую сессию и запустит {next} с контекстом той же задачи.",
         "confirm_switch_agent_title": "Сменить ИИ агента?",
         "confirm_delete_task_body": "Папка задачи будет удалена безвозвратно.",
@@ -296,6 +302,9 @@ TRANSLATIONS = {
         "confirm_close_running_agents_title": "Закрити Agent Workspace?",
         "confirm_delete_saved_agent_session_body": "Для цієї задачі збережена сесія {old_agent}. Перемикання на {new_agent} видалить посилання для продовження цієї сесії. Продовжити?",
         "confirm_delete_saved_agent_session_title": "Видалити збережену сесію?",
+        "confirm_reset_agent_session_body": "Поточну консоль {agent} для цієї задачі буде закрито, а збережене посилання для продовження сесії буде видалено. Файли історії CLI не видаляються. Продовжити?",
+        "confirm_reset_agent_session_button": "Скинути сесію",
+        "confirm_reset_agent_session_title": "Скинути сесію ШІ агента?",
         "confirm_switch_agent_body": "{current} вже запущено для цієї задачі.\n\nПідтвердження закриє поточну сесію і запустить {next} з контекстом тієї самої задачі.",
         "confirm_switch_agent_title": "Змінити ШІ агента?",
         "confirm_delete_task_body": "Папку задачі буде видалено безповоротно.",
@@ -764,6 +773,12 @@ class WorkspaceGtkGui:
         self.actions_controls_box.set_opacity(opacity)
 
     def _ensure_ai_agent_console_page(self) -> None:
+        if not hasattr(self, "ai_agent_page"):
+            self.ai_agent_page = None
+        if not hasattr(self, "ai_agent_terminal_box"):
+            self.ai_agent_terminal_box = None
+        if not hasattr(self, "default_agent"):
+            return
         if self.ai_agent_page is None:
             page = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
             control_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=3)
@@ -2784,9 +2799,16 @@ class WorkspaceGtkGui:
         if task is None:
             return
         agent = self._selected_agent()
+        if not self._confirm_agent_session_reset(agent):
+            return
+        for session in self._current_task_terminal_sessions(task):
+            if session.kind == agent and session_is_agent(session_kind=session.kind):
+                self._close_console_session(session, confirm=False, ensure_default=False)
+                break
         reset_task_agent_session(task, agent)
         self._invalidate_task_session_marker_cache(task)
         self._update_codex_button_state()
+        self._refresh_task_row_styles()
 
     def _agent_model(self, agent: str) -> str:
         return self._agent_model_settings(agent).model
@@ -2913,6 +2935,25 @@ class WorkspaceGtkGui:
         )
         dialog.add_button(self._tr("cancel"), Gtk.ResponseType.CANCEL)
         dialog.add_button(self._tr("ok"), Gtk.ResponseType.OK)
+        response = dialog.run()
+        dialog.destroy()
+        return response == Gtk.ResponseType.OK
+
+    def _confirm_agent_session_reset(self, agent: str) -> bool:
+        dialog = Gtk.MessageDialog(
+            transient_for=self.window,
+            flags=Gtk.DialogFlags.MODAL,
+            message_type=Gtk.MessageType.WARNING,
+            buttons=Gtk.ButtonsType.NONE,
+            text=self._tr("confirm_reset_agent_session_title"),
+        )
+        dialog.format_secondary_text(
+            self._tr("confirm_reset_agent_session_body").format(
+                agent=agent_label(agent),
+            )
+        )
+        dialog.add_button(self._tr("cancel"), Gtk.ResponseType.CANCEL)
+        dialog.add_button(self._tr("confirm_reset_agent_session_button"), Gtk.ResponseType.OK)
         response = dialog.run()
         dialog.destroy()
         return response == Gtk.ResponseType.OK
@@ -3210,9 +3251,14 @@ class WorkspaceGtkGui:
         page_num = self.console_notebook.page_num(session.page)
         if page_num >= 0:
             self.console_notebook.remove_page(page_num)
-        elif session_is_agent(session_kind=session.kind) and self.ai_agent_terminal_box is not None:
-            if session.page in self.ai_agent_terminal_box.get_children():
-                self.ai_agent_terminal_box.remove(session.page)
+        else:
+            ai_agent_terminal_box = getattr(self, "ai_agent_terminal_box", None)
+            if (
+                session_is_agent(session_kind=session.kind)
+                and ai_agent_terminal_box is not None
+                and session.page in ai_agent_terminal_box.get_children()
+            ):
+                ai_agent_terminal_box.remove(session.page)
                 self._clear_ai_agent_terminal_page()
         self.terminal_sessions.pop(session.session_id, None)
         if self.last_active_terminal_by_task.get(session.task_path) == session.session_id:
@@ -3587,11 +3633,13 @@ class WorkspaceGtkGui:
         return None
 
     def _session_for_page(self, page: Gtk.Widget) -> TerminalSession | None:
-        if self.ai_agent_page is not None and page is self.ai_agent_page:
+        ai_agent_page = getattr(self, "ai_agent_page", None)
+        if ai_agent_page is not None and page is ai_agent_page:
             task = self.selected_task
             if task is None:
                 return None
-            children = self.ai_agent_terminal_box.get_children() if self.ai_agent_terminal_box is not None else []
+            ai_agent_terminal_box = getattr(self, "ai_agent_terminal_box", None)
+            children = ai_agent_terminal_box.get_children() if ai_agent_terminal_box is not None else []
             for session in self._current_task_terminal_sessions(task):
                 if session_is_agent(session_kind=session.kind) and session.page in children:
                     return session
