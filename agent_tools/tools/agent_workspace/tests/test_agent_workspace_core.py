@@ -15,6 +15,8 @@ from agent_tools.tools.agent_workspace.core import AGENT_STATUS_MANUAL_USAGE_ENT
 from agent_tools.tools.agent_workspace.core import ConsoleChunk
 from agent_tools.tools.agent_workspace.core import PAF_HIDE_TASK_ENV_VAR
 from agent_tools.tools.agent_workspace.core import TaskAction
+from agent_tools.tools.agent_workspace.core import TaskActionParameter
+from agent_tools.tools.agent_workspace.core import TaskActionsConfig
 from agent_tools.tools.agent_workspace.core import TaskSummary
 from agent_tools.tools.agent_workspace.core import load_task_actions_config
 from agent_tools.tools.agent_workspace.core import agent_executable
@@ -127,6 +129,11 @@ from agent_tools.tools.agent_workspace.ui import _tk_control_shortcut
 from agent_tools.tools.agent_workspace.ui import AgentWorkspace
 from agent_tools.tools.agent_workspace.actions import main as actions_main
 from agent_tools.tools.agent_workspace.task_action_files import task_action_code_path
+from agent_tools.tools.agent_workspace.task_action_state import bindings_for_action_run
+from agent_tools.tools.agent_workspace.task_action_state import parameter_button_label
+from agent_tools.tools.agent_workspace.task_action_state import parameter_values
+from agent_tools.tools.agent_workspace.task_action_state import selected_parameter_value
+from agent_tools.tools.agent_workspace.task_action_state import shortcuts_for_action
 from gi.repository import Gdk
 from gi.repository import Gtk
 from gi.repository import Pango
@@ -3863,6 +3870,73 @@ def test_task_action_code_path_rejects_invalid_or_escaping_commands(tmp_path: Pa
             env={},
         )
     ) is None
+
+
+def test_task_action_state_helpers_resolve_shortcuts_parameters_and_bindings(tmp_path: Path) -> None:
+    parameter = TaskActionParameter(
+        name="profile",
+        label="Profile",
+        parameter_type="choice",
+        set_name="profiles",
+        default="dev",
+    )
+    global_parameter = TaskActionParameter(
+        name="profile",
+        label="Profile",
+        parameter_type="choice",
+        set_name="profiles",
+        default="dev",
+        global_name="active_profile",
+    )
+    action = TaskAction(
+        action_id="build",
+        label="Build",
+        command=("scripts/build.sh",),
+        cwd=tmp_path,
+        env={},
+        parameters=(parameter,),
+        bindings={"profile": "release"},
+    )
+    shortcut = TaskAction(
+        action_id="build-release",
+        label="Build release",
+        command=("scripts/build.sh",),
+        cwd=tmp_path,
+        env={},
+        base_action_id="build",
+        is_shortcut=True,
+    )
+    other_shortcut = TaskAction(
+        action_id="test-release",
+        label="Test release",
+        command=("scripts/test.sh",),
+        cwd=tmp_path,
+        env={},
+        base_action_id="test",
+        is_shortcut=True,
+    )
+    config = TaskActionsConfig(
+        actions=[action],
+        base_actions=[action],
+        parameter_sets={
+            "profiles": {
+                "dev": {"label": "Dev"},
+                "release": {"name": "Release"},
+            }
+        },
+        global_parameter_bindings={"active_profile": "release"},
+        errors=[],
+    )
+
+    assert shortcuts_for_action(action, [shortcut, other_shortcut]) == [shortcut]
+    assert parameter_values(parameter, config) == config.parameter_sets["profiles"]
+    assert selected_parameter_value(parameter, {}, config.global_parameter_bindings) == "dev"
+    assert selected_parameter_value(parameter, {"profile": "release"}, {}) == "release"
+    assert selected_parameter_value(global_parameter, {}, config.global_parameter_bindings) == "release"
+    assert parameter_button_label(parameter, config, {"profile": "release"}) == "Profile: Release"
+    assert parameter_button_label(parameter, config, {"profile": "missing"}) == "Profile: missing"
+    assert bindings_for_action_run(action, "build", {"profile": "dev"}) == {"profile": "dev"}
+    assert bindings_for_action_run(action, "other", {"profile": "dev"}) == {"profile": "release"}
 
 
 def test_load_task_actions_resolves_parameter_sets_and_shortcuts(tmp_path: Path) -> None:

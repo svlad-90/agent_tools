@@ -55,6 +55,11 @@ from .task_action_model import task_action_drag_selection_id as _task_action_dra
 from .task_action_model import task_reorder_order_for_drag_edges as _task_reorder_order_for_drag_edges
 from .task_action_model import unique_parameter_value_id as _unique_parameter_value_id
 from .task_action_files import task_action_code_path
+from .task_action_state import bindings_for_action_run
+from .task_action_state import parameter_button_label
+from .task_action_state import parameter_values
+from .task_action_state import selected_parameter_value
+from .task_action_state import shortcuts_for_action
 from .core import TASK_ACTIONS_FILE
 from .core import AGENT_RUNNING_SPINNER_FRAMES
 from .core import AGENT_STATUS_MANUAL_MENU_LABEL
@@ -1798,26 +1803,15 @@ class WorkspaceGtkGui:
         self.save_task_shortcut_box.show_all()
 
     def _shortcuts_for_action(self, action: TaskAction) -> list[TaskAction]:
-        return [
-            shortcut
-            for shortcut in self.task_shortcuts
-            if shortcut.base_action_id == (action.base_action_id or action.action_id)
-        ]
+        return shortcuts_for_action(action, self.task_shortcuts)
 
     def _parameter_button_label(self, parameter: TaskActionParameter) -> str:
-        selected = self._selected_parameter_value(parameter)
-        config = self.task_action_config
-        values = config.parameter_sets.get(parameter.set_name, {}) if config is not None else {}
-        label = values.get(selected, {}).get("name") or values.get(selected, {}).get("label", selected)
-        return f"{parameter.label}: {label}"
+        return parameter_button_label(parameter, self.task_action_config, self.selected_task_action_bindings)
 
     def _selected_parameter_value(self, parameter: TaskActionParameter) -> str:
         config = self.task_action_config
-        if parameter.global_name and config is not None:
-            selected = config.global_parameter_bindings.get(parameter.global_name)
-            if selected:
-                return selected
-        return self.selected_task_action_bindings.get(parameter.name) or parameter.default
+        global_bindings = config.global_parameter_bindings if config is not None else {}
+        return selected_parameter_value(parameter, self.selected_task_action_bindings, global_bindings)
 
     def _on_task_parameter_clicked(self, button: Gtk.Button, parameter: TaskActionParameter) -> None:
         menu = Gtk.Menu()
@@ -1891,15 +1885,12 @@ class WorkspaceGtkGui:
         if config is None:
             return
         selected_id = self.selected_task_action.action_id if self.selected_task_action is not None else None
-        bindings = self.selected_task_action_bindings if selected_id == action.action_id else dict(action.bindings or {})
+        bindings = bindings_for_action_run(action, selected_id, self.selected_task_action_bindings)
         bound = bind_task_action_parameters(action, config.parameter_sets, bindings, config.global_parameter_bindings)
         self.run_custom_task_action(bound)
 
     def _parameter_values(self, parameter: TaskActionParameter) -> dict[str, dict[str, str]]:
-        config = self.task_action_config
-        if config is None:
-            return {}
-        return config.parameter_sets.get(parameter.set_name, {})
+        return parameter_values(parameter, self.task_action_config)
 
     def _task_parameter_context_menu(self, parameter: TaskActionParameter) -> Gtk.Menu:
         menu = Gtk.Menu()
