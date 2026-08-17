@@ -135,6 +135,7 @@ from .gtk_terminal_ui import terminal_text_tail as _terminal_text_tail
 from .gtk_task_helpers import task_actions_signature as _task_actions_signature
 from .gtk_task_helpers import task_init_command as _task_init_command
 from .gtk_task_helpers import task_path_for_name as _task_path_for_name
+from .gtk_task_style import task_row_style as _task_row_style
 from .gtk_theme import theme_colors as _theme_colors
 from .gtk_i18n import CODEX_LANGUAGE_INSTRUCTIONS
 from .gtk_i18n import TRANSLATIONS
@@ -3806,41 +3807,6 @@ def _notebook_tab_rects(notebook: Gtk.Notebook) -> list[tuple[float, float, floa
 def _rect_contains(rect: tuple[float, float, float, float], x: float, y: float) -> bool:
     rect_x, rect_y, width, height = rect
     return rect_x <= x < rect_x + width and rect_y <= y < rect_y + height
-
-
-def _task_row_style(
-    has_agent: bool,
-    has_session: bool,
-    has_external_agent: bool,
-    theme: str,
-) -> tuple[str, bool, str, bool, int, bool]:
-    colors = _theme_colors(theme)
-    if has_agent:
-        return (
-            colors["codex_running_background"],
-            True,
-            colors["codex_running_foreground"],
-            True,
-            int(Pango.Weight.BOLD),
-            True,
-        )
-    if has_external_agent:
-        return (
-            colors["agent_external_background"],
-            True,
-            colors["agent_external_foreground"],
-            True,
-            int(Pango.Weight.NORMAL),
-            True,
-        )
-    return (
-        "",
-        False,
-        "",
-        False,
-        int(Pango.Weight.NORMAL),
-        False,
-    )
 
 
 def _update_text_tag(tag: Gtk.TextTag | None, **properties: object) -> None:
