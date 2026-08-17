@@ -1183,6 +1183,13 @@ def story_script() -> str:
     }
     clearTargetHighlight();
     const navigationTarget = navigationTargetElement(target);
+    if (!isReviewNavigationTarget(navigationTarget)) {
+      navigationTarget.scrollIntoView({block: "start", inline: "nearest"});
+      if (updateUrl && history.replaceState) {
+        history.replaceState(null, "", location.pathname + location.search + "#" + targetId);
+      }
+      return true;
+    }
     activeTarget = navigationTarget;
     navigationTarget.classList.add("story-target-active");
     animateWindowScrollToElement(navigationTarget, jumpDurationMs);
@@ -1197,6 +1204,19 @@ def story_script() -> str:
       return target.querySelector(":scope > .file-header") || target;
     }
     return target;
+  }
+
+  function isReviewNavigationTarget(target) {
+    if (!target || !target.classList) {
+      return false;
+    }
+    if (target.classList.contains("file") || target.classList.contains("file-header")) {
+      return true;
+    }
+    if (target.classList.contains("review-comment")) {
+      return true;
+    }
+    return Boolean(target.closest && target.closest("article.file"));
   }
 
   function jumpToTop() {
