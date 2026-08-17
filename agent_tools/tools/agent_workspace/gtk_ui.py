@@ -44,9 +44,8 @@ from .task_action_model import move_id_relative as _move_id_relative
 from .task_action_model import move_json_list_entry as _move_json_list_entry
 from .task_action_model import move_json_list_entry_before as _move_json_list_entry_before
 from .task_action_model import move_json_mapping_entry as _move_json_mapping_entry
-from .task_action_model import parameter_field_order as _parameter_field_order
+from .task_action_model import parameter_dialog_field_names as _parameter_dialog_field_names
 from .task_action_model import parameter_field_type as _parameter_field_type
-from .task_action_model import parameter_type_fields as _parameter_type_fields
 from .task_action_model import parameter_value_id_from_name as _parameter_value_id_from_name
 from .task_action_model import reorder_action_parameter_entries as _reorder_action_parameter_entries
 from .task_action_model import reorder_task_action_data as _reorder_task_action_data
@@ -2148,10 +2147,12 @@ class WorkspaceGtkGui:
         content = dialog.get_content_area()
         content.pack_start(grid, True, True, 0)
         field_getters: dict[str, Callable[[], str]] = {}
-        known_fields = _parameter_type_fields(data, parameter.parameter_type) or {"name"}
-        for value in self._parameter_values(parameter).values():
-            known_fields.update(value)
-        field_names = _parameter_field_order(parameter.parameter_type, set(fields) | known_fields)
+        field_names = _parameter_dialog_field_names(
+            data,
+            parameter.parameter_type,
+            set(fields),
+            list(self._parameter_values(parameter).values()),
+        )
         for row, field_name in enumerate(field_names):
             editor, getter = self._parameter_field_editor(
                 data,

@@ -136,6 +136,7 @@ from agent_tools.tools.agent_workspace.task_action_menu import task_shortcut_men
 from agent_tools.tools.agent_workspace.task_action_model import add_task_shortcut
 from agent_tools.tools.agent_workspace.task_action_model import delete_parameter_set_value
 from agent_tools.tools.agent_workspace.task_action_model import delete_task_shortcut
+from agent_tools.tools.agent_workspace.task_action_model import parameter_dialog_field_names
 from agent_tools.tools.agent_workspace.task_action_model import reorder_task_action_data
 from agent_tools.tools.agent_workspace.task_action_model import upsert_parameter_set_value
 from agent_tools.tools.agent_workspace.task_action_state import bindings_for_action_run
@@ -4012,6 +4013,28 @@ def test_task_action_shortcut_helpers_reject_malformed_data() -> None:
     assert not add_task_shortcut(data, "copy", "Copy", "copy", {})
     assert not delete_task_shortcut(data, "copy")
     assert data == {"shortcuts": {}}
+
+
+def test_task_action_parameter_dialog_field_names_merge_schema_initial_and_existing_values() -> None:
+    data: dict[str, object] = {
+        "parameter_types": {
+            "board": {
+                "fields": {
+                    "name": {"type": "string"},
+                    "host": {"type": "string"},
+                    "user": {"type": "string"},
+                }
+            }
+        }
+    }
+
+    assert parameter_dialog_field_names(
+        data,
+        "board",
+        {"password_file"},
+        [{"deployment_folder_name": "lab"}, {"host": "10.0.0.2"}],
+    ) == ["name", "host", "password_file", "user", "deployment_folder_name"]
+    assert parameter_dialog_field_names({}, "custom", set(), []) == ["name"]
 
 
 def test_load_task_actions_resolves_parameter_sets_and_shortcuts(tmp_path: Path) -> None:

@@ -322,6 +322,18 @@ def parameter_field_order(parameter_type: str, fields: set[str]) -> list[str]:
     return ordered
 
 
+def parameter_dialog_field_names(
+    data: dict[str, object],
+    parameter_type: str,
+    initial_fields: set[str],
+    existing_values: list[dict[str, str]],
+) -> list[str]:
+    known_fields = parameter_type_fields(data, parameter_type) or {"name"}
+    for value in existing_values:
+        known_fields.update(value)
+    return parameter_field_order(parameter_type, set(initial_fields) | known_fields)
+
+
 def parameter_type_fields(data: dict[str, object], parameter_type: str) -> set[str]:
     parameter_types = data.get("parameter_types")
     if not isinstance(parameter_types, dict):
