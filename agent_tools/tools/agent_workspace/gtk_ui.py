@@ -1354,6 +1354,7 @@ class WorkspaceGtkGui:
     def _task_action_button(self, action: TaskAction, *, shortcut: bool) -> Gtk.Widget:
         button = _compact_button(action.label, lambda _button, item=action: self._on_task_action_clicked(item))
         button.set_size_request(-1, 20)
+        button.set_focus_on_click(False)
         button.add_events(Gdk.EventMask.BUTTON_PRESS_MASK)
         if shortcut:
             button.set_tooltip_text(self._s("action.shortcut_tooltip"))
@@ -1362,15 +1363,14 @@ class WorkspaceGtkGui:
         button.connect("button-press-event", self._on_task_action_button_press, action)
         button.get_style_context().add_class("task-action-label-button")
         self.task_action_buttons[action.action_id] = button
-        overlay = Gtk.Overlay()
-        overlay.add(button)
+        row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=1)
+        row.pack_start(button, False, False, 0)
         play = Gtk.Button.new_from_icon_name("media-playback-start-symbolic", Gtk.IconSize.MENU)
         play.set_size_request(20, 20)
         play.set_relief(Gtk.ReliefStyle.NONE)
         play.set_focus_on_click(False)
-        play.set_halign(Gtk.Align.END)
-        play.set_valign(Gtk.Align.CENTER)
-        play.set_opacity(0.0)
+        play.set_no_show_all(True)
+        play.set_visible(False)
         play.set_sensitive(False)
         play.set_tooltip_text(self._s("action.play_tooltip"))
         play.get_style_context().add_class("task-action-play-button")
@@ -1378,12 +1378,12 @@ class WorkspaceGtkGui:
         play.connect("clicked", self._on_task_action_play_clicked, action)
         play.connect("button-press-event", self._on_task_action_play_button_press, action)
         self.task_action_play_buttons[action.action_id] = play
-        overlay.add_overlay(play)
-        overlay.show_all()
+        row.pack_start(play, False, False, 0)
+        row.show_all()
         event_box = Gtk.EventBox()
         event_box.set_visible_window(False)
         setattr(event_box, "_task_reorder_id", action.action_id)
-        event_box.add(overlay)
+        event_box.add(row)
         if self.task_action_reorder_mode:
             event_box.add_events(Gdk.EventMask.BUTTON_PRESS_MASK)
             event_box.connect("button-press-event", self._on_task_reorder_button_press, action.action_id)
@@ -1476,13 +1476,13 @@ class WorkspaceGtkGui:
                 context.add_class("task-action-selected")
                 if play is not None:
                     play.get_style_context().add_class("task-action-selected")
-                    play.set_opacity(1.0)
+                    play.set_visible(True)
                     play.set_sensitive(True)
             else:
                 context.remove_class("task-action-selected")
                 if play is not None:
                     play.get_style_context().remove_class("task-action-selected")
-                    play.set_opacity(0.0)
+                    play.set_visible(False)
                     play.set_sensitive(False)
 
     def _on_task_action_clicked(self, action: TaskAction) -> None:
@@ -3486,11 +3486,20 @@ class WorkspaceGtkGui:
             padding-right: 2px;
             min-width: 20px;
         }}
+        button.task-action-label-button,
+        button.task-action-play-button {{
+            outline-width: 0;
+            outline-offset: 0;
+        }}
+        button.task-action-label-button:focus,
+        button.task-action-play-button:focus {{
+            outline-style: none;
+            outline-width: 0;
+        }}
         button.task-action-selected {{
             background: {colors['codex_running_background']};
             color: {colors['codex_running_foreground']};
             border-color: {colors['codex_running_border']};
-            box-shadow: 0 0 5px {colors['codex_running_glow']};
         }}
         button.task-action-run-armed {{
             background: #8a6d1f;

@@ -314,6 +314,7 @@ class FakeGtkButton:
         self.text = ""
         self.sensitive = False
         self.opacity = 1.0
+        self.visible = False
         self.style_context = FakeGtkStyleContext()
 
     def get_style_context(self) -> FakeGtkStyleContext:
@@ -327,6 +328,9 @@ class FakeGtkButton:
 
     def set_opacity(self, value: float) -> None:
         self.opacity = value
+
+    def set_visible(self, value: bool) -> None:
+        self.visible = value
 
 
 class FakeGtkTreeColumn:
@@ -3211,17 +3215,17 @@ def test_gtk_task_action_selection_shows_only_selected_play_button(tmp_path: Pat
 
     assert "task-action-selected" in build_button.style_context.classes
     assert "task-action-selected" not in test_button.style_context.classes
-    assert build_play.opacity == 1.0
+    assert build_play.visible
     assert build_play.sensitive
-    assert test_play.opacity == 0.0
+    assert not test_play.visible
     assert not test_play.sensitive
 
     gui.selected_task_action = test
     gui._update_task_action_button_selection()
 
-    assert build_play.opacity == 0.0
+    assert not build_play.visible
     assert not build_play.sensitive
-    assert test_play.opacity == 1.0
+    assert test_play.visible
     assert test_play.sensitive
 
 
