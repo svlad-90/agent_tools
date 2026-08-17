@@ -1855,16 +1855,13 @@ class WorkspaceGtkGui:
         self._update_task_action_button_selection()
 
     def _select_global_task_parameter(self, parameter: TaskActionParameter, selected: str) -> None:
-        task = self._require_task(show_dialog=False)
-        if task is None or not parameter.global_name:
+        if not parameter.global_name:
             return
-        data, errors = load_task_actions_data(task)
-        if errors:
-            self.task_action_errors = errors
-            self._update_actions_message()
-            return
-        globals_data = data.setdefault("global_parameters", {})
-        if isinstance(globals_data, dict):
+
+        def mutator(data: dict[str, object]) -> bool:
+            globals_data = data.setdefault("global_parameters", {})
+            if not isinstance(globals_data, dict):
+                return False
             definition = globals_data.get(parameter.global_name)
             if isinstance(definition, dict):
                 definition["value"] = selected
@@ -1874,8 +1871,9 @@ class WorkspaceGtkGui:
                     "type": parameter.parameter_type,
                     "value": selected,
                 }
-            save_task_actions_data(task, data)
-        self._load_task_action_buttons()
+            return True
+
+        self._mutate_task_actions_data(mutator, reload_on_no_change=True)
 
     def _run_selected_task_action(self) -> None:
         action = self.selected_task_action
@@ -1985,32 +1983,16 @@ class WorkspaceGtkGui:
         return menu
 
     def _move_task_action(self, action: TaskAction, offset: int) -> None:
-        task = self._require_task(show_dialog=False)
-        if task is None:
-            return
-        data, errors = load_task_actions_data(task)
-        if errors:
-            self.task_action_errors = errors
-            self._update_actions_message()
-            return
-        actions = data.get("actions")
-        if isinstance(actions, list) and _move_json_list_entry(actions, "id", action.action_id, offset):
-            save_task_actions_data(task, data)
-            self._load_task_action_buttons()
+        self._mutate_task_actions_data(
+            lambda data: isinstance(data.get("actions"), list)
+            and _move_json_list_entry(data["actions"], "id", action.action_id, offset)
+        )
 
     def _move_task_action_before(self, source_id: str, target_id: str) -> None:
-        task = self._require_task(show_dialog=False)
-        if task is None:
-            return
-        data, errors = load_task_actions_data(task)
-        if errors:
-            self.task_action_errors = errors
-            self._update_actions_message()
-            return
-        actions = data.get("actions")
-        if isinstance(actions, list) and _move_json_list_entry_before(actions, "id", source_id, target_id):
-            save_task_actions_data(task, data)
-            self._load_task_action_buttons()
+        self._mutate_task_actions_data(
+            lambda data: isinstance(data.get("actions"), list)
+            and _move_json_list_entry_before(data["actions"], "id", source_id, target_id)
+        )
 
     def _save_task_action_order(self, order: list[str]) -> None:
         self._save_task_order_group("action", order)
@@ -2075,68 +2057,62 @@ class WorkspaceGtkGui:
         self._save_task_order_group("global_parameter", order)
 
     def _save_task_order_group(self, group: str, order: list[str]) -> None:
+        action = self.selected_task_action
+        selected_action_id = action.action_id if action is not None else None
+        self._mutate_task_actions_data(
+            lambda data: _reorder_task_action_data(data, group, order, selected_action_id=selected_action_id)
+        )
+
+    def _mutate_task_actions_data(
+        self,
+        mutator: Callable[[dict[str, object]], bool],
+        *,
+        reload_actions: bool = True,
+        reload_on_no_change: bool = False,
+    ) -> bool:
         task = self._require_task(show_dialog=False)
         if task is None:
-            return
+            return False
         data, errors = load_task_actions_data(task)
         if errors:
             self.task_action_errors = errors
             self._update_actions_message()
-            return
-        action = self.selected_task_action
-        selected_action_id = action.action_id if action is not None else None
-        if _reorder_task_action_data(data, group, order, selected_action_id=selected_action_id):
-            save_task_actions_data(task, data)
+            return False
+        if not mutator(data):
+            if reload_actions and reload_on_no_change:
+                self._load_task_action_buttons()
+            return False
+        save_task_actions_data(task, data)
+        if reload_actions:
             self._load_task_action_buttons()
+        return True
 
     def _set_task_action_reorder_mode(self, enabled: bool) -> None:
         self.task_action_reorder_mode = enabled
         self._load_task_action_buttons()
 
     def _move_task_shortcut(self, action: TaskAction, offset: int) -> None:
-        task = self._require_task(show_dialog=False)
-        if task is None:
-            return
-        data, errors = load_task_actions_data(task)
-        if errors:
-            self.task_action_errors = errors
-            self._update_actions_message()
-            return
-        shortcuts = data.get("shortcuts")
-        if isinstance(shortcuts, list) and _move_json_list_entry(shortcuts, "id", action.action_id, offset):
-            save_task_actions_data(task, data)
-            self._load_task_action_buttons()
+        self._mutate_task_actions_data(
+            lambda data: isinstance(data.get("shortcuts"), list)
+            and _move_json_list_entry(data["shortcuts"], "id", action.action_id, offset)
+        )
 
     def _move_task_parameter(self, parameter: TaskActionParameter, offset: int) -> None:
         if parameter.global_name:
             self._move_global_task_parameter(parameter.global_name, offset)
             return
         action = self.selected_task_action
-        task = self._require_task(show_dialog=False)
-        if action is None or task is None:
+        if action is None:
             return
-        data, errors = load_task_actions_data(task)
-        if errors:
-            self.task_action_errors = errors
-            self._update_actions_message()
-            return
-        if _move_action_parameter_entry(data, action.action_id, parameter.name, offset):
-            save_task_actions_data(task, data)
-            self._load_task_action_buttons()
+        self._mutate_task_actions_data(
+            lambda data: _move_action_parameter_entry(data, action.action_id, parameter.name, offset)
+        )
 
     def _move_global_task_parameter(self, global_name: str, offset: int) -> None:
-        task = self._require_task(show_dialog=False)
-        if task is None:
-            return
-        data, errors = load_task_actions_data(task)
-        if errors:
-            self.task_action_errors = errors
-            self._update_actions_message()
-            return
-        global_parameters = data.get("global_parameters")
-        if isinstance(global_parameters, dict) and _move_json_mapping_entry(global_parameters, global_name, offset):
-            save_task_actions_data(task, data)
-            self._load_task_action_buttons()
+        self._mutate_task_actions_data(
+            lambda data: isinstance(data.get("global_parameters"), dict)
+            and _move_json_mapping_entry(data["global_parameters"], global_name, offset)
+        )
 
     def _edit_parameter_set_value(
         self,
@@ -2254,17 +2230,10 @@ class WorkspaceGtkGui:
         dialog.destroy()
 
     def _delete_parameter_set_value(self, parameter: TaskActionParameter, value_id: str) -> None:
-        task = self._require_task(show_dialog=False)
-        if task is None:
-            return
-        data, errors = load_task_actions_data(task)
-        if errors:
-            self.task_action_errors = errors
-            self._update_actions_message()
-            return
-        if _delete_parameter_set_value(data, parameter.set_name, value_id):
-            save_task_actions_data(task, data)
-        self._load_task_action_buttons()
+        self._mutate_task_actions_data(
+            lambda data: _delete_parameter_set_value(data, parameter.set_name, value_id),
+            reload_on_no_change=True,
+        )
 
     def _save_selected_action_as_shortcut(self) -> None:
         action = self.selected_task_action
@@ -2308,21 +2277,19 @@ class WorkspaceGtkGui:
         dialog.destroy()
 
     def _delete_task_shortcut(self, action: TaskAction) -> None:
-        task = self._require_task(show_dialog=False)
-        if task is None:
-            return
-        data, errors = load_task_actions_data(task)
-        if errors:
-            self.task_action_errors = errors
-            self._update_actions_message()
-            return
-        shortcuts = data.get("shortcuts")
-        if isinstance(shortcuts, list):
-            data["shortcuts"] = [
+        def mutator(data: dict[str, object]) -> bool:
+            shortcuts = data.get("shortcuts")
+            if not isinstance(shortcuts, list):
+                return False
+            filtered = [
                 entry for entry in shortcuts if not (isinstance(entry, dict) and entry.get("id") == action.action_id)
             ]
-            save_task_actions_data(task, data)
-        self._load_task_action_buttons()
+            if filtered == shortcuts:
+                return False
+            data["shortcuts"] = filtered
+            return True
+
+        self._mutate_task_actions_data(mutator)
 
     def _watch_task_actions(self, task: TaskSummary) -> None:
         if self.task_actions_monitor_path == task.path:

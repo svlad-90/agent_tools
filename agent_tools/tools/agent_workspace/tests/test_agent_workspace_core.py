@@ -4208,6 +4208,41 @@ def test_task_action_order_helper_reorders_supported_groups() -> None:
     assert not reorder_task_action_data(data, "missing", [])
 
 
+def test_gtk_task_actions_mutator_handles_save_reload_noop_and_errors(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    task_path = tmp_path / "tasks" / "sample"
+    task_path.mkdir(parents=True)
+    task = discover_tasks_with_context(task_path, tmp_path)
+    gui = WorkspaceGtkGui.__new__(WorkspaceGtkGui)
+    gui.selected_task = task
+    gui.task_action_errors = []
+    reloads: list[str] = []
+    saved: list[dict[str, object]] = []
+
+    gui._require_task = lambda show_dialog=True: gui.selected_task  # type: ignore[method-assign]
+    gui._load_task_action_buttons = lambda: reloads.append("reload")  # type: ignore[method-assign]
+    gui._update_actions_message = lambda: reloads.append("error")  # type: ignore[method-assign]
+    monkeypatch.setattr(gtk_ui_module, "load_task_actions_data", lambda _task: ({"actions": []}, []))
+    monkeypatch.setattr(gtk_ui_module, "save_task_actions_data", lambda _task, data: saved.append(dict(data)))
+
+    assert gui._mutate_task_actions_data(lambda data: data.setdefault("changed", True) is True)
+    assert saved == [{"actions": [], "changed": True}]
+    assert reloads == ["reload"]
+
+    reloads.clear()
+    assert not gui._mutate_task_actions_data(lambda _data: False)
+    assert reloads == []
+    assert not gui._mutate_task_actions_data(lambda _data: False, reload_on_no_change=True)
+    assert reloads == ["reload"]
+
+    monkeypatch.setattr(gtk_ui_module, "load_task_actions_data", lambda _task: ({}, ["broken"]))
+    assert not gui._mutate_task_actions_data(lambda _data: True)
+    assert gui.task_action_errors == ["broken"]
+    assert reloads == ["reload", "error"]
+
+
 def test_gtk_task_action_drag_reorder_sequence_moves_one_slot_at_a_time() -> None:
     order = ["full", "copy", "clean", "webcam"]
 
