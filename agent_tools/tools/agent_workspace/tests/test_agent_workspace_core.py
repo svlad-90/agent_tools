@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+from importlib import resources
 from pathlib import Path
 import json
 import os
@@ -3418,6 +3419,19 @@ def test_gtk_translates_agent_and_manual_labels() -> None:
     assert "контексті поточної задачі" in GTK_TRANSLATIONS["uk"]["manual_usage_agent"]
     assert "Shift" in GTK_TRANSLATIONS["uk"]["manual_usage_copy"]
     assert "TASK_ACTIONS.json" in GTK_TRANSLATIONS["uk"]["manual_usage_actions"]
+
+
+def test_agent_workspace_string_json_files_are_package_resources() -> None:
+    package_files = resources.files("agent_tools.tools.agent_workspace")
+    for filename in (
+        "gtk_language_instructions.json",
+        "gtk_translations.json",
+        "gtk_ui_strings.json",
+        "tk_strings.json",
+        "workspace_strings.json",
+    ):
+        content = package_files.joinpath(filename).read_text(encoding="utf-8")
+        assert isinstance(json.loads(content), dict)
 
 
 def test_gtk_svg_open_command_prefers_browser(monkeypatch: object, tmp_path: Path) -> None:
