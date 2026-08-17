@@ -223,6 +223,7 @@ class WorkspaceGtkGui:
         self.selected_task_action: TaskAction | None = None
         self.selected_task_action_bindings: dict[str, str] = {}
         self.task_action_buttons: dict[str, Gtk.Button] = {}
+        self.task_action_play_buttons: dict[str, Gtk.Button] = {}
         self.global_task_parameter_box: Gtk.FlowBox | None = None
         self.task_action_errors: list[str] = []
         self.status_message = ""
@@ -440,6 +441,7 @@ class WorkspaceGtkGui:
         parameter_content.set_border_width(2)
         parameter_frame.add(parameter_content)
         self.task_action_parameter_box = _flow_box()
+        self.task_action_parameter_box.set_size_request(-1, 20)
         self.task_action_parameter_box.set_sort_func(self._task_parameter_flow_sort)
         self._connect_task_reorder_box(self.task_action_parameter_box, "parameter")
         parameter_content.pack_start(self.task_action_parameter_box, True, True, 0)
@@ -449,11 +451,13 @@ class WorkspaceGtkGui:
         shortcuts_content = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=3)
         shortcuts_content.set_border_width(2)
         shortcuts_frame.add(shortcuts_content)
-        self.task_shortcuts_box = _flow_box(border_width=2)
+        self.task_shortcuts_box = _flow_box()
+        self.task_shortcuts_box.set_size_request(-1, 20)
         self.task_shortcuts_box.set_sort_func(self._task_shortcut_flow_sort)
         self._connect_task_reorder_box(self.task_shortcuts_box, "shortcut")
         shortcuts_content.pack_start(self.task_shortcuts_box, True, True, 0)
         self.save_task_shortcut_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=2)
+        self.save_task_shortcut_box.set_size_request(-1, 20)
         shortcuts_content.pack_end(self.save_task_shortcut_box, False, False, 0)
 
         global_parameter_frame = Gtk.Frame(label=self._s("action.global_parameters"))
@@ -462,6 +466,7 @@ class WorkspaceGtkGui:
         global_parameter_content.set_border_width(2)
         global_parameter_frame.add(global_parameter_content)
         self.global_task_parameter_box = _flow_box()
+        self.global_task_parameter_box.set_size_request(-1, 20)
         self.global_task_parameter_box.set_sort_func(self._global_task_parameter_flow_sort)
         self._connect_task_reorder_box(self.global_task_parameter_box, "global_parameter")
         global_parameter_content.pack_start(self.global_task_parameter_box, True, True, 0)
@@ -1276,6 +1281,7 @@ class WorkspaceGtkGui:
         self.selected_task_action = None
         self.selected_task_action_bindings = {}
         self.task_action_buttons = {}
+        self.task_action_play_buttons = {}
         self._clear_task_action_buttons()
         self._clear_task_action_parameters()
         self._update_actions_message()
@@ -1312,6 +1318,7 @@ class WorkspaceGtkGui:
         self.task_base_actions = config.base_actions
         self.task_shortcuts = [action for action in config.actions if action.is_shortcut]
         self.task_action_buttons = {}
+        self.task_action_play_buttons = {}
         self.task_actions_signature = _task_actions_signature(task)
         self.task_action_errors = config.errors
         self._update_actions_message()
@@ -1346,28 +1353,37 @@ class WorkspaceGtkGui:
 
     def _task_action_button(self, action: TaskAction, *, shortcut: bool) -> Gtk.Widget:
         button = _compact_button(action.label, lambda _button, item=action: self._on_task_action_clicked(item))
+        button.set_size_request(-1, 20)
         button.add_events(Gdk.EventMask.BUTTON_PRESS_MASK)
         if shortcut:
             button.set_tooltip_text(self._s("action.shortcut_tooltip"))
             button.connect("button-press-event", self._on_task_shortcut_button_press, action)
             return button
         button.connect("button-press-event", self._on_task_action_button_press, action)
+        button.get_style_context().add_class("task-action-label-button")
         self.task_action_buttons[action.action_id] = button
-        row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=1)
-        row.pack_start(button, True, True, 0)
+        overlay = Gtk.Overlay()
+        overlay.add(button)
         play = Gtk.Button.new_from_icon_name("media-playback-start-symbolic", Gtk.IconSize.MENU)
+        play.set_size_request(20, 20)
         play.set_relief(Gtk.ReliefStyle.NONE)
         play.set_focus_on_click(False)
+        play.set_halign(Gtk.Align.END)
+        play.set_valign(Gtk.Align.CENTER)
+        play.set_opacity(0.0)
+        play.set_sensitive(False)
         play.set_tooltip_text(self._s("action.play_tooltip"))
+        play.get_style_context().add_class("task-action-play-button")
         play.add_events(Gdk.EventMask.BUTTON_PRESS_MASK)
         play.connect("clicked", self._on_task_action_play_clicked, action)
         play.connect("button-press-event", self._on_task_action_play_button_press, action)
-        row.pack_start(play, False, False, 0)
-        row.show_all()
+        self.task_action_play_buttons[action.action_id] = play
+        overlay.add_overlay(play)
+        overlay.show_all()
         event_box = Gtk.EventBox()
         event_box.set_visible_window(False)
         setattr(event_box, "_task_reorder_id", action.action_id)
-        event_box.add(row)
+        event_box.add(overlay)
         if self.task_action_reorder_mode:
             event_box.add_events(Gdk.EventMask.BUTTON_PRESS_MASK)
             event_box.connect("button-press-event", self._on_task_reorder_button_press, action.action_id)
@@ -1455,10 +1471,19 @@ class WorkspaceGtkGui:
         selected_id = self.selected_task_action.action_id if self.selected_task_action is not None else None
         for action_id, button in self.task_action_buttons.items():
             context = button.get_style_context()
+            play = self.task_action_play_buttons.get(action_id)
             if action_id == selected_id:
                 context.add_class("task-action-selected")
+                if play is not None:
+                    play.get_style_context().add_class("task-action-selected")
+                    play.set_opacity(1.0)
+                    play.set_sensitive(True)
             else:
                 context.remove_class("task-action-selected")
+                if play is not None:
+                    play.get_style_context().remove_class("task-action-selected")
+                    play.set_opacity(0.0)
+                    play.set_sensitive(False)
 
     def _on_task_action_clicked(self, action: TaskAction) -> None:
         if action.is_shortcut:
@@ -1735,6 +1760,7 @@ class WorkspaceGtkGui:
             self.global_task_parameter_box.remove(child)
         for parameter in self._global_task_parameters():
             button = _compact_button(self._parameter_button_label(parameter), None, max_width_chars=18)
+            button.set_size_request(-1, 20)
             button.add_events(Gdk.EventMask.BUTTON_PRESS_MASK)
             button.connect("clicked", self._on_task_parameter_clicked, parameter)
             button.connect("button-press-event", self._on_task_parameter_button_press, parameter)
@@ -1773,11 +1799,13 @@ class WorkspaceGtkGui:
             return
         local_parameters = [parameter for parameter in action.parameters if not parameter.global_name]
         if not local_parameters:
-            no_parameters = Gtk.Label(label=self._s("action.no_parameters"))
-            no_parameters.set_margin_start(4)
+            no_parameters = _compact_button(self._s("action.no_parameters"), None, max_width_chars=18)
+            no_parameters.set_size_request(-1, 20)
+            no_parameters.set_sensitive(False)
             _flow_box_add(self.task_action_parameter_box, no_parameters)
         for parameter in local_parameters:
             button = _compact_button(self._parameter_button_label(parameter), None, max_width_chars=18)
+            button.set_size_request(-1, 20)
             button.add_events(Gdk.EventMask.BUTTON_PRESS_MASK)
             button.connect("clicked", self._on_task_parameter_clicked, parameter)
             button.connect("button-press-event", self._on_task_parameter_button_press, parameter)
@@ -1802,6 +1830,7 @@ class WorkspaceGtkGui:
                 ),
             )
         shortcut_button = _compact_button(self._s("action.save_shortcut"), None, max_width_chars=24)
+        shortcut_button.set_size_request(-1, 20)
         shortcut_button.connect("clicked", lambda _button: self._save_selected_action_as_shortcut())
         self.save_task_shortcut_box.pack_start(shortcut_button, False, False, 0)
         self.task_action_parameter_box.show_all()
@@ -3451,6 +3480,11 @@ class WorkspaceGtkGui:
         .actions-panel flowboxchild {{
             padding: 0;
             margin: 0;
+        }}
+        button.task-action-play-button {{
+            padding-left: 2px;
+            padding-right: 2px;
+            min-width: 20px;
         }}
         button.task-action-selected {{
             background: {colors['codex_running_background']};

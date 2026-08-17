@@ -313,6 +313,7 @@ class FakeGtkButton:
     def __init__(self) -> None:
         self.text = ""
         self.sensitive = False
+        self.opacity = 1.0
         self.style_context = FakeGtkStyleContext()
 
     def get_style_context(self) -> FakeGtkStyleContext:
@@ -323,6 +324,9 @@ class FakeGtkButton:
 
     def set_sensitive(self, value: bool) -> None:
         self.sensitive = value
+
+    def set_opacity(self, value: float) -> None:
+        self.opacity = value
 
 
 class FakeGtkTreeColumn:
@@ -3177,6 +3181,48 @@ def test_gtk_task_selection_remembers_current_tab_before_switching(tmp_path: Pat
     assert task_two_shell.terminal.focused
     assert gui.last_active_terminal_by_task == {summary_one.path: task_one_shell.session_id}
     assert artifact_events == ["store"]
+
+
+def test_gtk_task_action_selection_shows_only_selected_play_button(tmp_path: Path) -> None:
+    build = TaskAction(
+        action_id="build",
+        label="Build",
+        command=("scripts/build.sh",),
+        cwd=tmp_path,
+        env={},
+    )
+    test = TaskAction(
+        action_id="test",
+        label="Test",
+        command=("scripts/test.sh",),
+        cwd=tmp_path,
+        env={},
+    )
+    build_button = FakeGtkButton()
+    test_button = FakeGtkButton()
+    build_play = FakeGtkButton()
+    test_play = FakeGtkButton()
+    gui = WorkspaceGtkGui.__new__(WorkspaceGtkGui)
+    gui.selected_task_action = build
+    gui.task_action_buttons = {"build": build_button, "test": test_button}
+    gui.task_action_play_buttons = {"build": build_play, "test": test_play}
+
+    gui._update_task_action_button_selection()
+
+    assert "task-action-selected" in build_button.style_context.classes
+    assert "task-action-selected" not in test_button.style_context.classes
+    assert build_play.opacity == 1.0
+    assert build_play.sensitive
+    assert test_play.opacity == 0.0
+    assert not test_play.sensitive
+
+    gui.selected_task_action = test
+    gui._update_task_action_button_selection()
+
+    assert build_play.opacity == 0.0
+    assert not build_play.sensitive
+    assert test_play.opacity == 1.0
+    assert test_play.sensitive
 
 
 def test_gtk_main_notebook_switch_loads_artifacts_lazily(tmp_path: Path) -> None:
