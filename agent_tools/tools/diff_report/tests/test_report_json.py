@@ -113,6 +113,19 @@ class ReportJsonTests(unittest.TestCase):
             "security risk",
             'data-story-diagram="flow"',
             "report-settings-launcher",
+            '<nav class="report-toc"',
+            '<a href="#report-table-1">Requirement Queue</a>',
+            'id="report-top"',
+            'id="summary-section"',
+            'id="report-metrics"',
+            'id="report-status-cards"',
+            'id="report-heatmaps"',
+            'id="report-timeline"',
+            'id="report-artifacts"',
+            'id="report-diagrams"',
+            'id="report-logs"',
+            'document.addEventListener("click", (event) => {',
+            'target.scrollIntoView({block: "start", inline: "nearest"});',
         ]
         for fragment in expected:
             with self.subTest(fragment=fragment):

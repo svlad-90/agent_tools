@@ -114,10 +114,11 @@ def render_report_json_html(report: GenericReport) -> str:
     comments = report.comments
     parts: list[str] = []
     parts.append(html_header(report.title))
+    parts.append(_render_report_toc(report))
     parts.append(
         f"""
 <main class="general-report">
-  <header>
+  <header id="report-top">
     <h1>{_esc(report.title)}</h1>
   </header>
 """
@@ -303,7 +304,7 @@ def links_from_payload(raw_links: Any, field: str) -> tuple[dict[str, str], ...]
 
 
 def _render_metrics_section(metrics: tuple[ReportMetric, ...]) -> str:
-    parts = ['  <section class="report-metrics"><h2>Metrics</h2><div class="report-metric-grid">\n']
+    parts = ['  <section class="report-metrics" id="report-metrics"><h2>Metrics</h2><div class="report-metric-grid">\n']
     for metric in metrics:
         status = _status_class(metric.status)
         parts.append(
@@ -319,7 +320,7 @@ def _render_metrics_section(metrics: tuple[ReportMetric, ...]) -> str:
 
 
 def _render_status_cards_section(cards: tuple[ReportStatusCard, ...]) -> str:
-    parts = ['  <section class="report-status-cards"><h2>Status Cards</h2><div class="report-card-grid">\n']
+    parts = ['  <section class="report-status-cards" id="report-status-cards"><h2>Status Cards</h2><div class="report-card-grid">\n']
     for card in cards:
         parts.append(
             f'    <article class="report-card {_status_class(card.status)}" id="{_anchor(card.title)}">'
@@ -345,9 +346,10 @@ def _render_status_cards_section(cards: tuple[ReportStatusCard, ...]) -> str:
 
 def _render_heatmaps_section(heatmaps: tuple[ReportHeatmap, ...]) -> str:
     parts: list[str] = []
-    for heatmap in heatmaps:
+    for index, heatmap in enumerate(heatmaps):
         keys = _heatmap_keys(heatmap.rows)
-        parts.append(f'  <section class="report-heatmap"><h2>{_esc(heatmap.title)}</h2>\n')
+        section_id = "report-heatmaps" if index == 0 else f"report-heatmap-{index + 1}"
+        parts.append(f'  <section class="report-heatmap" id="{section_id}"><h2>{_esc(heatmap.title)}</h2>\n')
         parts.append('    <div class="report-heatmap-grid" role="table">\n')
         parts.append('      <div class="report-heatmap-row report-heatmap-header" role="row">\n')
         for key in keys:
@@ -393,7 +395,7 @@ def _render_tables_section(tables: tuple[ReportTable, ...], comments: ReviewComm
 
 
 def _render_timeline_section(items: tuple[ReportTimelineItem, ...]) -> str:
-    parts = ['  <section class="report-timeline"><h2>Timeline</h2><ol class="report-timeline-list">\n']
+    parts = ['  <section class="report-timeline" id="report-timeline"><h2>Timeline</h2><ol class="report-timeline-list">\n']
     for item in items:
         parts.append(f'    <li class="{_status_class(item.status)}">')
         parts.append('<div class="report-timeline-marker"></div><div class="report-timeline-content">')
@@ -410,7 +412,7 @@ def _render_timeline_section(items: tuple[ReportTimelineItem, ...]) -> str:
 
 
 def _render_artifacts_section(artifacts: tuple[ReportArtifact, ...]) -> str:
-    parts = ['  <section class="report-artifacts"><h2>Artifacts</h2><div class="report-artifact-list">\n']
+    parts = ['  <section class="report-artifacts" id="report-artifacts"><h2>Artifacts</h2><div class="report-artifact-list">\n']
     for artifact in artifacts:
         parts.append(
             f'    <a class="report-artifact" href="{_esc(artifact.path)}">'
@@ -454,6 +456,44 @@ def _render_table_value(value: Any, comments: ReviewComments) -> str:
     if _looks_like_status(status_text):
         return _render_status_badge(status_text)
     return _format_text(status_text, comments.vocabulary)
+
+
+def _render_report_toc(report: GenericReport) -> str:
+    items = _report_toc_items(report)
+    if not items:
+        return ""
+    parts = ['<nav class="report-toc" aria-label="Report table of contents">\n']
+    parts.append('  <div class="report-toc-head">Contents</div>\n')
+    parts.append("  <ol>\n")
+    for label, href in items:
+        parts.append(f'    <li><a href="{_esc(href)}">{_esc(label)}</a></li>\n')
+    parts.append("  </ol>\n</nav>\n")
+    return "".join(parts)
+
+
+def _report_toc_items(report: GenericReport) -> list[tuple[str, str]]:
+    items: list[tuple[str, str]] = [("Top", "#report-top")]
+    if report.comments.summary or report.comments.summary_blocks:
+        items.append(("Summary", "#summary-section"))
+    if report.metrics:
+        items.append(("Metrics", "#report-metrics"))
+    if report.status_cards:
+        items.append(("Status Cards", "#report-status-cards"))
+    if report.heatmaps:
+        items.append(("Heatmaps", "#report-heatmaps"))
+    for index, table in enumerate(report.tables):
+        items.append((table.title, f"#report-table-{index + 1}"))
+    if report.timeline:
+        items.append(("Timeline", "#report-timeline"))
+    if report.artifacts:
+        items.append(("Artifacts", "#report-artifacts"))
+    if report.comments.diagrams:
+        items.append(("Diagrams", "#report-diagrams"))
+    if report.comments.logs:
+        items.append(("Logs", "#report-logs"))
+    if report.comments.story:
+        items.append(("Story", "#story"))
+    return items
 
 
 def _render_status_badge(status: str | None) -> str:
@@ -537,6 +577,21 @@ def _report_filter_script() -> str:
       });
     });
   });
+  document.addEventListener("click", (event) => {
+    const link = event.target.closest && event.target.closest(".report-toc a[href^='#']");
+    if (!link) return;
+    const href = link.getAttribute("href") || "";
+    const target = document.getElementById(href.slice(1));
+    if (!target) return;
+    event.preventDefault();
+    event.stopPropagation();
+    target.scrollIntoView({block: "start", inline: "nearest"});
+    if (history.pushState) {
+      history.pushState(null, "", href);
+    } else {
+      location.hash = href;
+    }
+  }, true);
 })();
 </script>
 """

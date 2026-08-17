@@ -131,7 +131,7 @@ def _comment_count(comments: ReviewComments) -> int:
 
 
 def _render_summary_section(comments: ReviewComments) -> str:
-    parts = ['  <section class="summary-section"><h2>Reviewer Summary</h2><div class="review-summary-blocks">\n']
+    parts = ['  <section class="summary-section" id="summary-section"><h2>Reviewer Summary</h2><div class="review-summary-blocks">\n']
     if comments.summary_blocks:
         for block in comments.summary_blocks:
             if block.kind == "text":
@@ -345,7 +345,7 @@ def _story_anchor(step: StoryStep, index: int) -> str:
 
 
 def _render_diagrams_section(comments: ReviewComments) -> str:
-    parts = ['  <details class="asset-inventory"><summary>Diagrams</summary><div class="diagram-list">\n']
+    parts = ['  <details class="asset-inventory" id="report-diagrams"><summary>Diagrams</summary><div class="diagram-list">\n']
     for diagram in sorted(comments.diagrams.values(), key=lambda item: item.diagram_id):
         parts.append(_render_diagram_preview(diagram))
     parts.append("  </div></details>\n")
@@ -353,7 +353,7 @@ def _render_diagrams_section(comments: ReviewComments) -> str:
 
 
 def _render_logs_section(comments: ReviewComments) -> str:
-    parts = ['  <details class="asset-inventory"><summary>Logs</summary><div class="diagram-list">\n']
+    parts = ['  <details class="asset-inventory" id="report-logs"><summary>Logs</summary><div class="diagram-list">\n']
     for log in sorted(comments.logs.values(), key=lambda item: item.log_id):
         parts.append(_render_log_preview(log))
     parts.append("  </div></details>\n")

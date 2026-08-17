@@ -239,6 +239,7 @@ def stylesheet() -> str:
     .diff-stat-add { color: var(--stat-add); }
     .diff-stat-del { color: var(--stat-del); }
     .general-report section { overflow: hidden; }
+    .general-report .report-table-section { overflow: visible; }
     .report-metric-grid, .report-card-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; }
     .report-metric, .report-card, .report-artifact { min-width: 0; border: 1px solid var(--meta-border); border-radius: 8px; background: var(--meta-panel); color: var(--meta-text); }
     .report-metric { display: grid; gap: 6px; padding: 14px; border-left: 5px solid var(--meta-border); }
@@ -271,12 +272,13 @@ def stylesheet() -> str:
     .report-heatmap-cell.status-gap, .report-heatmap-cell.status-fail, .report-heatmap-cell.status-blocked { background: color-mix(in srgb, var(--del-bg) 76%, var(--panel)); color: var(--stat-del); font-weight: 800; }
     .report-table-filter { display: grid; gap: 5px; max-width: 460px; margin-bottom: 10px; }
     .report-table-filter input { min-height: 36px; padding: 0 10px; border: 1px solid var(--border); border-radius: 6px; background: var(--button-bg); color: var(--text); font: inherit; }
-    .report-table-wrap { max-width: 100%; overflow: auto; border: 1px solid var(--border); border-radius: 8px; }
-    .report-table { width: 100%; min-width: 720px; border-collapse: collapse; table-layout: auto; }
+    .report-table-wrap { max-width: 100%; overflow: visible; border: 1px solid var(--border); border-radius: 8px; }
+    .report-table { width: 100%; min-width: 720px; border-collapse: separate; border-spacing: 0; table-layout: auto; }
     .report-table th, .report-table td { padding: 9px 10px; border-bottom: 1px solid var(--border); border-right: 1px solid var(--border); text-align: left; vertical-align: top; overflow-wrap: anywhere; }
     .report-table th:last-child, .report-table td:last-child { border-right: 0; }
     .report-table tr:last-child td { border-bottom: 0; }
-    .report-table th { position: sticky; top: 0; z-index: 1; background: var(--header-bg); color: var(--meta-label); font-size: .82em; text-transform: uppercase; letter-spacing: .04em; }
+    .report-table thead { position: sticky; top: 0; z-index: 5; }
+    .report-table th { position: sticky; top: 0; z-index: 5; background: var(--header-bg); background-clip: padding-box; color: var(--meta-label); font-size: .82em; text-transform: uppercase; letter-spacing: .04em; box-shadow: 0 1px 0 var(--border), 0 6px 12px color-mix(in srgb, var(--shadow) 38%, transparent); }
     .report-table td .report-status-badge { margin-right: 6px; margin-bottom: 4px; }
     .report-timeline-list { position: relative; display: grid; gap: 10px; margin: 0; padding: 0; list-style: none; }
     .report-timeline-list li { display: grid; grid-template-columns: 20px minmax(0, 1fr); gap: 10px; min-width: 0; }
@@ -294,6 +296,11 @@ def stylesheet() -> str:
     .label { display: block; color: var(--meta-label); font-size: .72rem; text-transform: uppercase; letter-spacing: .04em; margin-bottom: 3px; }
     .toc a { display: inline-block; margin: 0 8px 8px 0; color: var(--link); text-decoration: none; }
     .toc a:hover { text-decoration: underline; }
+    .report-toc { position: fixed; left: var(--page-gutter); top: calc(var(--page-gutter) + var(--brand-height) + 12px); bottom: calc(var(--page-gutter) + var(--story-nav-height)); z-index: 7; width: var(--nav-width); box-sizing: border-box; padding: 12px 10px; overflow: auto; overscroll-behavior: contain; border: 1px solid var(--border); border-radius: 8px; background: var(--panel); box-shadow: 0 8px 22px rgba(31,35,40,.10); }
+    .report-toc-head { position: sticky; top: -12px; z-index: 2; margin: -12px -10px 8px; padding: 10px; border-bottom: 1px solid var(--border); background: var(--panel); color: var(--meta-label); font-size: .78em; font-weight: 800; text-transform: uppercase; letter-spacing: .04em; }
+    .report-toc ol { display: grid; gap: 3px; margin: 0; padding: 0; list-style: none; }
+    .report-toc a { display: block; min-width: 0; padding: 5px 7px; border-radius: 5px; color: var(--link); text-decoration: none; font-size: .9em; font-weight: 700; line-height: 1.2; overflow-wrap: anywhere; }
+    .report-toc a:hover { background: var(--button-hover-bg); }
     .review-nav { position: fixed; left: var(--page-gutter); top: var(--review-nav-top); bottom: calc(var(--page-gutter) + var(--story-nav-height)); z-index: 8; width: var(--nav-width); margin: 0; padding: 10px 14px 10px 10px; overflow: auto; overscroll-behavior: contain; box-shadow: 0 8px 22px rgba(31,35,40,.10); }
     .review-nav-head { position: sticky; top: -10px; z-index: 2; display: flex; align-items: center; justify-content: flex-start; gap: 8px; margin: -10px -14px 8px -10px; padding: 10px 14px 8px 10px; background: var(--panel); border-bottom: 1px solid var(--border); box-shadow: 0 2px 0 var(--panel); }
     .review-nav h2 { min-width: 0; margin: 0; font-size: .86em; overflow-wrap: anywhere; }
