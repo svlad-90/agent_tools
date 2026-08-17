@@ -119,3 +119,9 @@ These rules apply to every task directory under the workspace root.
     artifacts unless the user asks to include both. Review tasks place reports
     under `report/`; source tasks should not accumulate report output as a side
     effect.
+13. Task directories are local workspace state, not part of the public
+    `agent_tools` repository payload. Do not merge or push `tasks/<task-name>/`
+    contents into `agent_tools`; keep only the `tasks/` placeholder files
+    needed to preserve the local directory layout in a fresh checkout. If a
+    task directory was accidentally tracked, remove it from Git with
+    `git rm --cached -r tasks/<task-name>` so the local files stay available.

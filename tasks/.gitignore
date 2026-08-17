@@ -1,3 +1,5 @@
+# Task directories are local workspace state. Keep this directory in the
+# repository, but do not track task contents.
 *
 !.gitignore
 !.gitkeep
