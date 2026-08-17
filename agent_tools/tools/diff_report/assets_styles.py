@@ -174,7 +174,7 @@ def stylesheet() -> str:
     .report-brand-inner { position: relative; display: grid; grid-template-columns: var(--brand-mark-size) max-content; align-items: center; justify-content: center; gap: var(--brand-gap); width: 430px; max-width: none; min-height: 0; padding: 16px var(--brand-padding-x); transform: scale(var(--brand-scale)); transform-origin: center; font-weight: 800; letter-spacing: 0; }
     .report-brand-mark { display: flex; align-items: center; justify-content: center; width: var(--brand-mark-size); height: var(--brand-mark-size); border-radius: 10px; background: #0969da; color: #fff; font: 800 calc(var(--brand-mark-size) * .64)/1 ui-monospace, SFMono-Regular, Consolas, monospace; }
     .report-brand-text { display: grid; gap: 2px; min-width: 0; line-height: 1.05; }
-    .report-brand-title { font-size: var(--brand-title-size); white-space: nowrap; }
+    .report-brand-title { color: var(--muted); font-size: calc(var(--brand-title-size) * .62); white-space: nowrap; }
     .report-brand-subtitle { color: var(--muted); font-size: var(--brand-subtitle-size); white-space: nowrap; }
     body.has-diagram-open .report-brand { z-index: 9; }
     .settings-launcher { position: fixed; right: max(8px, calc(var(--floating-content-gutter) - var(--floating-control-size) - var(--floating-control-gap))); bottom: calc(var(--story-nav-height) + 24px); z-index: 32; width: auto; opacity: 1; visibility: visible; pointer-events: auto; transform: translateY(0) scale(1); transition: opacity .18s ease, transform .18s ease, visibility 0s linear .18s, border-color .12s ease, box-shadow .12s ease; }
@@ -238,6 +238,57 @@ def stylesheet() -> str:
     .diff-stats strong { display: block; margin-top: 4px; font: 800 calc(var(--scaled-code-font) * 1.08)/1.2 ui-monospace, SFMono-Regular, Consolas, monospace; }
     .diff-stat-add { color: var(--stat-add); }
     .diff-stat-del { color: var(--stat-del); }
+    .general-report section { overflow: hidden; }
+    .report-metric-grid, .report-card-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; }
+    .report-metric, .report-card, .report-artifact { min-width: 0; border: 1px solid var(--meta-border); border-radius: 8px; background: var(--meta-panel); color: var(--meta-text); }
+    .report-metric { display: grid; gap: 6px; padding: 14px; border-left: 5px solid var(--meta-border); }
+    .report-metric strong { font: 850 calc(var(--scaled-body-font) * 1.55)/1.05 ui-monospace, SFMono-Regular, Consolas, monospace; overflow-wrap: anywhere; }
+    .report-metric-note { color: var(--muted); font-size: .92em; overflow-wrap: anywhere; }
+    .report-card { display: grid; gap: 12px; padding: 14px; border-left: 5px solid var(--meta-border); }
+    .report-card-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; min-width: 0; }
+    .report-card h3 { min-width: 0; margin: 0; font-size: calc(var(--scaled-body-font) * 1.05); overflow-wrap: anywhere; }
+    .report-card-body { color: var(--meta-text); white-space: pre-line; overflow-wrap: anywhere; }
+    .report-card-metrics { display: grid; grid-template-columns: repeat(auto-fit, minmax(92px, 1fr)); gap: 8px; }
+    .report-card-metrics span { min-width: 0; padding: 8px; border: 1px solid var(--border); border-radius: 6px; background: var(--panel); overflow-wrap: anywhere; }
+    .report-card-metrics strong { display: block; margin-top: 3px; font-family: ui-monospace, SFMono-Regular, Consolas, monospace; }
+    .report-card-links { display: flex; flex-wrap: wrap; gap: 8px; }
+    .report-card-links a, .report-artifact { color: var(--link); text-decoration: none; }
+    .report-card-links a { display: inline-flex; align-items: center; min-height: 30px; padding: 0 9px; border: 1px solid var(--border); border-radius: 6px; background: var(--button-bg); font-weight: 700; }
+    .report-card-links a:hover, .report-artifact:hover { border-color: var(--link); background: var(--button-hover-bg); }
+    .report-status-badge { display: inline-flex; align-items: center; justify-content: center; min-height: 26px; padding: 3px 9px; border: 1px solid var(--meta-border); border-radius: 999px; background: var(--button-bg); color: var(--meta-text); font: 800 13px/1.1 ui-monospace, SFMono-Regular, Consolas, monospace; white-space: nowrap; }
+    .status-covered, .status-covered-candidate, .status-pass { border-color: color-mix(in srgb, var(--stat-add) 70%, var(--meta-border)); }
+    .status-covered .report-status-badge, .status-covered-candidate .report-status-badge, .status-pass .report-status-badge, .report-status-badge.status-covered, .report-status-badge.status-covered-candidate, .report-status-badge.status-pass { color: var(--stat-add); border-color: color-mix(in srgb, var(--stat-add) 70%, var(--meta-border)); background: color-mix(in srgb, var(--add-bg) 72%, var(--panel)); }
+    .status-risk, .status-needs-evidence, .status-not-started, .status-unknown, .status-not-applicable-candidate { border-color: color-mix(in srgb, var(--comment-border) 70%, var(--meta-border)); }
+    .status-risk .report-status-badge, .status-needs-evidence .report-status-badge, .status-not-started .report-status-badge, .status-unknown .report-status-badge, .status-not-applicable-candidate .report-status-badge, .report-status-badge.status-risk, .report-status-badge.status-needs-evidence, .report-status-badge.status-not-started, .report-status-badge.status-unknown, .report-status-badge.status-not-applicable-candidate { color: var(--comment-border); border-color: color-mix(in srgb, var(--comment-border) 70%, var(--meta-border)); background: color-mix(in srgb, var(--comment-bg) 70%, var(--panel)); }
+    .status-gap, .status-fail, .status-blocked { border-color: color-mix(in srgb, var(--stat-del) 72%, var(--meta-border)); }
+    .status-gap .report-status-badge, .status-fail .report-status-badge, .status-blocked .report-status-badge, .report-status-badge.status-gap, .report-status-badge.status-fail, .report-status-badge.status-blocked { color: var(--stat-del); border-color: color-mix(in srgb, var(--stat-del) 72%, var(--meta-border)); background: color-mix(in srgb, var(--del-bg) 70%, var(--panel)); }
+    .report-heatmap-grid { display: grid; gap: 6px; overflow-x: auto; padding-bottom: 2px; }
+    .report-heatmap-row { display: grid; grid-template-columns: repeat(var(--report-heatmap-columns, 7), minmax(120px, 1fr)); gap: 6px; min-width: max-content; }
+    .report-heatmap-row > div { min-width: 0; padding: 9px 10px; border: 1px solid var(--meta-border); border-radius: 6px; background: var(--meta-panel); overflow-wrap: anywhere; }
+    .report-heatmap-header > div { background: var(--header-bg); color: var(--meta-label); font-size: .82em; font-weight: 800; text-transform: uppercase; letter-spacing: .04em; }
+    .report-heatmap-cell.status-covered, .report-heatmap-cell.status-covered-candidate { background: color-mix(in srgb, var(--add-bg) 78%, var(--panel)); color: var(--stat-add); font-weight: 800; }
+    .report-heatmap-cell.status-risk, .report-heatmap-cell.status-needs-evidence, .report-heatmap-cell.status-not-applicable-candidate { background: color-mix(in srgb, var(--comment-bg) 76%, var(--panel)); color: var(--comment-border); font-weight: 800; }
+    .report-heatmap-cell.status-gap, .report-heatmap-cell.status-fail, .report-heatmap-cell.status-blocked { background: color-mix(in srgb, var(--del-bg) 76%, var(--panel)); color: var(--stat-del); font-weight: 800; }
+    .report-table-filter { display: grid; gap: 5px; max-width: 460px; margin-bottom: 10px; }
+    .report-table-filter input { min-height: 36px; padding: 0 10px; border: 1px solid var(--border); border-radius: 6px; background: var(--button-bg); color: var(--text); font: inherit; }
+    .report-table-wrap { max-width: 100%; overflow: auto; border: 1px solid var(--border); border-radius: 8px; }
+    .report-table { width: 100%; min-width: 720px; border-collapse: collapse; table-layout: auto; }
+    .report-table th, .report-table td { padding: 9px 10px; border-bottom: 1px solid var(--border); border-right: 1px solid var(--border); text-align: left; vertical-align: top; overflow-wrap: anywhere; }
+    .report-table th:last-child, .report-table td:last-child { border-right: 0; }
+    .report-table tr:last-child td { border-bottom: 0; }
+    .report-table th { position: sticky; top: 0; z-index: 1; background: var(--header-bg); color: var(--meta-label); font-size: .82em; text-transform: uppercase; letter-spacing: .04em; }
+    .report-table td .report-status-badge { margin-right: 6px; margin-bottom: 4px; }
+    .report-timeline-list { position: relative; display: grid; gap: 10px; margin: 0; padding: 0; list-style: none; }
+    .report-timeline-list li { display: grid; grid-template-columns: 20px minmax(0, 1fr); gap: 10px; min-width: 0; }
+    .report-timeline-marker { width: 14px; height: 14px; margin-top: 6px; border: 3px solid var(--meta-border); border-radius: 999px; background: var(--panel); }
+    .report-timeline-content { min-width: 0; padding: 10px 12px; border: 1px solid var(--meta-border); border-radius: 8px; background: var(--meta-panel); overflow-wrap: anywhere; }
+    .report-timeline-content time { display: block; color: var(--muted); font: 700 13px/1.3 ui-monospace, SFMono-Regular, Consolas, monospace; }
+    .report-timeline-content strong { display: inline-block; margin-right: 8px; }
+    .report-timeline-content p { margin: 7px 0 0; white-space: pre-line; }
+    .report-artifact-list { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 10px; }
+    .report-artifact { display: grid; gap: 3px; padding: 11px 12px; }
+    .report-artifact span { font-weight: 800; overflow-wrap: anywhere; }
+    .report-artifact small { color: var(--muted); overflow-wrap: anywhere; }
     code { background: rgba(175,184,193,.2); border-radius: 4px; padding: 1px 5px; font-family: ui-monospace, SFMono-Regular, Consolas, monospace; }
     pre.stat { max-width: 100%; margin: 10px 0 0; padding: 12px; background: var(--code-bg); border-radius: 6px; overflow-x: auto; white-space: pre-wrap; overflow-wrap: anywhere; }
     .label { display: block; color: var(--meta-label); font-size: .72rem; text-transform: uppercase; letter-spacing: .04em; margin-bottom: 3px; }

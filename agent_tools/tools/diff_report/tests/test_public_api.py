@@ -6,15 +6,17 @@ import unittest
 
 import agent_tools.tools.diff_report as diff_report
 from agent_tools.tools.diff_report.cli import main as cli_main
-from agent_tools.tools.diff_report.core import generate_report
+from agent_tools.tools.diff_report.core import generate_report, generate_report_json
 from agent_tools.tools.diff_report.models import DiffReportError
 
 
 class PublicApiTests(unittest.TestCase):
     def test_package_exports_stable_entrypoints(self) -> None:
         self.assertIs(diff_report.generate_report, generate_report)
+        self.assertIs(diff_report.generate_report_json, generate_report_json)
         self.assertIs(diff_report.DiffReportError, DiffReportError)
         self.assertIn("generate_report", diff_report.__all__)
+        self.assertIn("generate_report_json", diff_report.__all__)
         self.assertIn("DiffReportError", diff_report.__all__)
         self.assertIn("main", diff_report.__all__)
 

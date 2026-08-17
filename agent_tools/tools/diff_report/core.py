@@ -6,6 +6,7 @@ from pathlib import Path
 from .comments import comments_from_payload, load_comments, load_comments_payload
 from .diff_source import load_diff_source
 from .models import DiffReportError
+from .report_json import load_report_json, render_report_json_html
 from .render import render_html_report
 from .refresh import enrich_comments_payload, print_refresh_attention
 
@@ -67,3 +68,25 @@ def generate_report(
         render_html_report(title, source, rendered_comments),
         encoding="utf-8",
     )
+
+
+def generate_report_json(
+    *,
+    report_file: Path,
+    output_path: Path,
+    title: str | None = None,
+) -> None:
+    report = load_report_json(report_file)
+    if title is not None:
+        report = type(report)(
+            title=title,
+            comments=report.comments,
+            metrics=report.metrics,
+            status_cards=report.status_cards,
+            heatmaps=report.heatmaps,
+            tables=report.tables,
+            timeline=report.timeline,
+            artifacts=report.artifacts,
+        )
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    output_path.write_text(render_report_json_html(report), encoding="utf-8")

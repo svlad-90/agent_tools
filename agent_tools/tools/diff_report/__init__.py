@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from .core import compact_help, generate_report
+from .core import compact_help, generate_report, generate_report_json
 from .models import DiffReportError
 
 
@@ -14,5 +14,6 @@ __all__ = [
     "DiffReportError",
     "compact_help",
     "generate_report",
+    "generate_report_json",
     "main",
 ]

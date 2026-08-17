@@ -32,7 +32,7 @@ def html_header(title: str) -> str:
 {stylesheet()}  </style>
 </head>
 <body>
-<div class="report-brand" aria-hidden="true"><div class="report-brand-inner"><span class="report-brand-mark">AI</span><span class="report-brand-text"><span class="report-brand-title">Diff</span><span class="report-brand-subtitle">report</span></span></div></div>
+<div class="report-brand" aria-hidden="true"><div class="report-brand-inner"><span class="report-brand-mark">AI</span><span class="report-brand-text"><span class="report-brand-title">report</span></span></div></div>
 <div class="settings-modal" data-settings-modal hidden>
   <div class="settings-backdrop" data-settings-close></div>
   <div class="settings-dialog" role="dialog" aria-modal="true" aria-labelledby="settings-title">

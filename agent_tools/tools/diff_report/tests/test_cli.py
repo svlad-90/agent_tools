@@ -22,6 +22,58 @@ class CliTests(unittest.TestCase):
         self.assertEqual(0, status)
         self.assertIn("diff_report --repo", stdout.getvalue())
 
+    def test_report_json_renders_without_diff_source(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            report_path = root / "dashboard.json"
+            output_path = root / "dashboard.html"
+            report_path.write_text(
+                json.dumps(
+                    {
+                        "title": "Task Dashboard",
+                        "metrics": [{"label": "Rows", "value": 115}],
+                        "tables": [
+                            {
+                                "title": "Queue",
+                                "columns": ["id", "status"],
+                                "rows": [{"id": "VSR-1", "status": "needs_evidence"}],
+                            }
+                        ],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            stdout = io.StringIO()
+
+            with contextlib.redirect_stdout(stdout):
+                status = main(
+                    [
+                        "--report-json",
+                        str(report_path),
+                        "--output",
+                        str(output_path),
+                    ]
+                )
+
+            html = output_path.read_text(encoding="utf-8")
+
+        self.assertEqual(0, status)
+        self.assertEqual(f"{output_path}\n", stdout.getvalue())
+        self.assertIn("<h1>Task Dashboard</h1>", html)
+        self.assertIn("report-metric-grid", html)
+        self.assertIn("VSR-1", html)
+        self.assertNotIn("Diff Stats", html)
+
+    def test_report_json_rejects_diff_modes(self) -> None:
+        stderr = io.StringIO()
+
+        with contextlib.redirect_stderr(stderr):
+            with self.assertRaises(SystemExit) as raised:
+                main(["--report-json", "dashboard.json", "--diff-file", "change.patch"])
+
+        self.assertEqual(2, raised.exception.code)
+        self.assertIn("--report-json cannot be combined", stderr.getvalue())
+
     def test_missing_output_is_argparse_error(self) -> None:
         stderr = io.StringIO()
 

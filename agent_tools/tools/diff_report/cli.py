@@ -7,7 +7,7 @@ from pathlib import Path
 
 from .comments_compose import compose_comments_payload_with_diagnostics
 from .comments_template import build_comments_template
-from .core import compact_help, generate_report
+from .core import compact_help, generate_report, generate_report_json
 from .diff_source import load_diff_source
 from .models import DiffReportError
 
@@ -30,6 +30,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--output-comments", help="Write composed comments JSON and exit.")
     parser.add_argument("--compose-report", help="Write findings compose diagnostics JSON.")
     parser.add_argument("--output", help="HTML report output path.")
+    parser.add_argument("--report-json", help="Render a generic non-diff report from JSON.")
     parser.add_argument("--title", default="PR Diff Review", help="Report title.")
     parser.add_argument("--context", type=int, default=80, help="Git diff context lines.")
     parser.add_argument(
@@ -50,6 +51,8 @@ def main(argv: list[str] | None = None) -> int:
     if args.help_compact:
         print(compact_help())
         return 0
+    if args.report_json and (args.repo or args.diff_file or args.init_comments or args.findings or args.output_comments):
+        parser.error("--report-json cannot be combined with diff, init-comments, or findings modes")
     if args.findings and not args.output_comments:
         parser.error("--output-comments is required when --findings is used")
     if args.output_comments and not args.findings:
@@ -61,6 +64,7 @@ def main(argv: list[str] | None = None) -> int:
 
     try:
         output = _resolve_path(args.output) if args.output else None
+        report_json = _resolve_path(args.report_json) if args.report_json else None
         repo = _resolve_path(args.repo) if args.repo else None
         diff_file = _resolve_path(args.diff_file) if args.diff_file else None
         comments_file = _resolve_path(args.comments) if args.comments else None
@@ -68,6 +72,16 @@ def main(argv: list[str] | None = None) -> int:
         findings_file = _resolve_path(args.findings) if args.findings else None
         output_comments = _resolve_path(args.output_comments) if args.output_comments else None
         compose_report = _resolve_path(args.compose_report) if args.compose_report else None
+        if report_json is not None:
+            if output is None:
+                parser.error("--output is required when --report-json is used")
+            generate_report_json(
+                report_file=report_json,
+                output_path=output,
+                title=args.title if args.title != "PR Diff Review" else None,
+            )
+            print(str(output))
+            return 0
         if init_comments is not None:
             source = load_diff_source(
                 repo,

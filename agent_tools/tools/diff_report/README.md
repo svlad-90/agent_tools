@@ -3,6 +3,12 @@
 Generate a GitHub-style HTML diff report with optional file-level and inline
 review comments.
 
+The same renderer can also produce a generic non-diff HTML report from a
+`report-json` document. This mode is intended for task dashboards, status
+reports, and evidence hubs that should reuse the diff report visual system,
+diagram viewer, log viewer, story navigation, theme controls, and summary
+blocks without requiring a source diff.
+
 ## Usage
 
 ```sh
@@ -20,6 +26,14 @@ python -m agent_tools.tools.diff_report \
   --diff-file change.patch \
   --comments comments.json \
   --output review.html
+```
+
+To render a non-diff task dashboard:
+
+```sh
+python -m agent_tools.tools.diff_report \
+  --report-json task/report/dashboard/dashboard.json \
+  --output task/report/dashboard/index.html
 ```
 
 For reports where comment anchors should be refreshed while regenerating the
@@ -221,6 +235,68 @@ JSON line ranges so they can be inspected without rereading the whole file.
   ]
 }
 ```
+
+## Report JSON
+
+`--report-json` accepts the same shared artifact fields as comments JSON:
+`summary`, `summary_blocks`, `diagrams`, `logs`, `story`, and `vocabulary`.
+It also supports dashboard-oriented widgets:
+
+```json
+{
+  "title": "Task Dashboard",
+  "summary_blocks": [
+    {"type": "text", "body": "Current state and what changed recently."}
+  ],
+  "metrics": [
+    {"label": "VSR rows", "value": 115, "status": "covered_candidate"},
+    {"label": "Risks", "value": 4, "status": "risk", "note": "Security first pass"}
+  ],
+  "status_cards": [
+    {
+      "title": "security",
+      "status": "risk",
+      "body": "SELinux and KeyMint need production evidence.",
+      "metrics": [{"label": "rows", "value": 10}],
+      "links": [{"label": "Security pass", "href": "../domains/security/VSR_SECURITY_PASS.md"}]
+    }
+  ],
+  "heatmaps": [
+    {
+      "title": "Domain Heatmap",
+      "rows": [
+        {"domain": "security", "status": "risk", "total": 10},
+        {"domain": "storage_update", "status": "covered_candidate", "total": 4}
+      ]
+    }
+  ],
+  "tables": [
+    {
+      "title": "Requirement Queue",
+      "columns": ["id", "domain", "status", "next"],
+      "rows": [
+        {"id": "VSR-3.10-023", "domain": "security", "status": "risk", "next": "Confirm production KeyMint path."}
+      ]
+    }
+  ],
+  "timeline": [
+    {"time": "2026-08-17", "title": "Security pass created", "status": "risk"}
+  ],
+  "artifacts": [
+    {"title": "Product architecture", "path": "../analysis/product/architecture/PRODUCT_ARCHITECTURE.md", "kind": "markdown"}
+  ]
+}
+```
+
+Supported widget status values are free-form strings, but the built-in visual
+classes recognize common task states such as `covered`, `covered_candidate`,
+`risk`, `needs_evidence`, `gap`, `not_applicable`,
+`not_applicable_candidate`, `not_started`, `pass`, `fail`, and `blocked`.
+
+Tables are filterable by default. Set `"filterable": false` on a table to omit
+the search box. Table cell values may be strings or objects. Object cells can
+use `text`, `status`, `href`, `diagram`, or `log` to combine badges, links,
+and artifact previews.
 
 Inline comments are attached to new-file line numbers in the rendered diff.
 Use `range` when the comment is about several rendered new-file lines instead
