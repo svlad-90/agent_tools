@@ -84,6 +84,8 @@ from .commands import codex_executable as _codex_executable
 from .commands import sys_executable
 from .commands import task_action_shell_command
 from .commands import task_check_shell_command
+from .tk_strings import AI_AGENT_BUTTON_LABELS as _AI_AGENT_BUTTON_LABELS
+from .tk_strings import tk_string
 
 
 @dataclass
@@ -139,21 +141,9 @@ class HoverTooltip:
             self.window = None
 
 
-_AI_AGENT_BUTTON_LABELS = {
-    "run_ai_agent": "Запустить ИИ агента",
-    "restore_ai_agent_session": "Восстановить сессию ИИ агента",
-    "ai_agent_running": "ИИ агент запущен",
-}
-
-_AI_AGENT_SESSION_DELETE_TITLE = "Удалить сохраненную сессию?"
-_AI_AGENT_SESSION_DELETE_BODY = (
-    "Для этой задачи сохранена сессия {old_agent}. "
-    "При переключении на {new_agent} ссылка на продолжение этой сессии будет удалена. Продолжить?"
-)
-_AI_AGENT_RESTORE_FAILED_MESSAGE = (
-    "Не удалось восстановить сохраненную сессию {agent} для задачи {task}. "
-    "Ссылка на продолжение удалена, консоль ИИ агента закрыта. Запустите ИИ агента еще раз, чтобы начать новую сессию."
-)
+_AI_AGENT_SESSION_DELETE_TITLE = tk_string("delete_saved_session_title")
+_AI_AGENT_SESSION_DELETE_BODY = tk_string("delete_saved_session_body")
+_AI_AGENT_RESTORE_FAILED_MESSAGE = tk_string("restore_failed_message")
 AGENT_BUSY_IDLE_DELAY_MS = 1800
 
 
@@ -255,7 +245,7 @@ class AgentWorkspace:
             style="Workspace.Treeview",
         )
         self.task_tree.heading("#0", text="Task")
-        self.task_tree.heading("agent_status", text="ИИ")
+        self.task_tree.heading("agent_status", text=tk_string("task_agent_status_column"))
         self.task_tree.heading("details", text="Task Details")
         self.task_tree.column("#0", width=250)
         self.task_tree.column("agent_status", width=92, minwidth=72, anchor=tk.CENTER, stretch=False)
@@ -345,12 +335,12 @@ class AgentWorkspace:
         console_frame.pack(side=tk.TOP, fill=tk.BOTH, expand=True)
         console_toolbar = ttk.Frame(console_frame)
         console_toolbar.pack(side=tk.TOP, fill=tk.X)
-        ttk.Button(console_toolbar, text="Новая", command=self.new_console).pack(
+        ttk.Button(console_toolbar, text=tk_string("new"), command=self.new_console).pack(
             side=tk.LEFT,
             padx=2,
             pady=2,
         )
-        ttk.Button(console_toolbar, text="Закрыть", command=self.close_active_console).pack(
+        ttk.Button(console_toolbar, text=tk_string("close"), command=self.close_active_console).pack(
             side=tk.LEFT,
             padx=2,
             pady=2,
@@ -367,7 +357,7 @@ class AgentWorkspace:
         self.agent_combo.bind("<<ComboboxSelected>>", self._on_agent_selected)
         self.run_ai_agent_button = ttk.Button(
             console_toolbar,
-            text="Запустить ИИ агента",
+            text=_AI_AGENT_BUTTON_LABELS["run_ai_agent"],
             command=self.run_ai_agent_console,
         )
         self.run_ai_agent_button.pack(
@@ -377,7 +367,7 @@ class AgentWorkspace:
         )
         self.reset_ai_agent_button = ttk.Button(
             console_toolbar,
-            text="Сбросить сессию",
+            text=tk_string("reset_session"),
             command=self.reset_ai_agent_session,
         )
         self.reset_ai_agent_button.pack(
@@ -661,7 +651,7 @@ class AgentWorkspace:
             ).grid(row=row, column=2, sticky=tk.W, pady=4)
             row += 1
 
-        close_button = ttk.Button(frame, text="ОК", command=window.destroy)
+        close_button = ttk.Button(frame, text=tk_string("ok"), command=window.destroy)
         close_button.grid(row=row, column=0, columnspan=3, sticky=tk.E, pady=(16, 0))
         window.update_idletasks()
         width = window.winfo_width()
@@ -691,7 +681,7 @@ class AgentWorkspace:
         if dev.exists():
             open_path(dev)
         else:
-            messagebox.showinfo("Нет dev/", f"{dev} не существует")
+            messagebox.showinfo(tk_string("no_dev_title"), tk_string("no_dev_body", dev=dev))
 
     def open_settings(self) -> None:
         window = tk.Toplevel(self.root)
@@ -801,7 +791,7 @@ class AgentWorkspace:
         buttons.grid(row=8, column=0, columnspan=2, sticky=tk.E, pady=(10, 0))
         ttk.Button(
             buttons,
-            text="Применить",
+            text=tk_string("apply"),
             command=lambda: self._apply_settings_values(
                 text_size_var,
                 button_size_var,
@@ -815,7 +805,7 @@ class AgentWorkspace:
         ).pack(side=tk.LEFT, padx=2)
         ttk.Button(
             buttons,
-            text="ОК",
+            text=tk_string("ok"),
             command=lambda: self._close_settings(
                 window,
                 text_size_var,
@@ -828,7 +818,7 @@ class AgentWorkspace:
                 claude_effort_var,
             ),
         ).pack(side=tk.LEFT, padx=2)
-        ttk.Button(buttons, text="Отмена", command=window.destroy).pack(side=tk.LEFT, padx=2)
+        ttk.Button(buttons, text=tk_string("cancel"), command=window.destroy).pack(side=tk.LEFT, padx=2)
 
     def _close_settings(
         self,
@@ -997,7 +987,7 @@ class AgentWorkspace:
     def _send_command_to_task_console(self, task: TaskSummary, command: str) -> None:
         session, created = self._writable_console_for_task(task)
         if session is None or session.fd is None:
-            messagebox.showerror("Консоль", "Не удалось открыть консоль задачи для записи.")
+            messagebox.showerror(tk_string("console_title"), tk_string("console_write_unavailable"))
             return
         self._activate_console(session.session_id)
 
@@ -1007,7 +997,7 @@ class AgentWorkspace:
             try:
                 os.write(session.fd, command.encode() + b"\r")
             except OSError as error:
-                messagebox.showerror("Консоль", f"Не удалось записать в консоль: {error}")
+                messagebox.showerror(tk_string("console_title"), tk_string("console_write_failed", error=error))
 
         if created:
             self.root.after(250, write_command)
@@ -1331,11 +1321,11 @@ class AgentWorkspace:
 
     def _confirm_agent_switch(self, current_agent: str, next_agent: str) -> bool:
         return self._confirm_dialog(
-            "Сменить ИИ агента?",
-            (
-                f"{agent_label(current_agent)} уже запущен для этой задачи.\n\n"
-                f"Подтверждение закроет текущую сессию и запустит {agent_label(next_agent)} "
-                "с контекстом той же задачи."
+            tk_string("confirm_switch_agent_title"),
+            tk_string(
+                "confirm_switch_agent_body",
+                current=agent_label(current_agent),
+                next=agent_label(next_agent),
             ),
         )
 
@@ -1350,25 +1340,21 @@ class AgentWorkspace:
 
     def _confirm_agent_session_reset(self, agent: str) -> bool:
         return self._confirm_dialog(
-            "Сбросить сессию ИИ агента?",
-            (
-                f"Текущая консоль {agent_label(agent)} для этой задачи будет закрыта, "
-                "а сохраненная ссылка на продолжение сессии будет удалена. "
-                "Файлы истории CLI не удаляются. Продолжить?"
-            ),
-            confirm_label="Сбросить сессию",
+            tk_string("confirm_reset_agent_session_title"),
+            tk_string("confirm_reset_agent_session_body", agent=agent_label(agent)),
+            confirm_label=tk_string("reset_session"),
         )
 
     def _ensure_agent_installed(self, agent: str) -> bool:
         if agent_executable(agent):
             return True
         install_command = agent_install_command(agent)
-        message = (
-            f"{agent_label(agent)} не установлен или недоступен в PATH.\n\n"
-            f"Установите его, затем перезапустите Agent Workspace или обновите PATH.\n\n"
-            f"Предлагаемая команда установки:\n{install_command}"
+        message = tk_string(
+            "ai_agent_not_installed_body",
+            agent=agent_label(agent),
+            install_command=install_command,
         )
-        messagebox.showerror("ИИ агент не установлен", message)
+        messagebox.showerror(tk_string("ai_agent_not_installed_title"), message)
         return False
 
     def _confirm_close_with_running_agents(self) -> bool:
@@ -1380,18 +1366,14 @@ class AgentWorkspace:
             for session in sessions[:5]
         )
         if len(sessions) > 5:
-            labels += f", и еще {len(sessions) - 5}"
+            labels += tk_string("close_running_agents_more", count=len(sessions) - 5)
         return self._confirm_dialog(
-            "Закрыть Agent Workspace?",
-            (
-                "Есть запущенные терминалы ИИ агентов.\n\n"
-                f"{labels}\n\n"
-                "Закрытие Agent Workspace остановит локальные процессы агентов. "
-                "Восстанавливаемые диалоги можно будет открыть при следующем запуске. Продолжить?"
-            ),
+            tk_string("close_running_agents_title"),
+            tk_string("close_running_agents_body", sessions=labels),
         )
 
-    def _confirm_dialog(self, title: str, body: str, confirm_label: str = "Продолжить") -> bool:
+    def _confirm_dialog(self, title: str, body: str, confirm_label: str | None = None) -> bool:
+        confirm_label = confirm_label or tk_string("continue")
         window = tk.Toplevel(self.root)
         window.title(title)
         window.transient(self.root)
@@ -1409,7 +1391,7 @@ class AgentWorkspace:
             result.set(value)
             window.destroy()
 
-        cancel_button = ttk.Button(buttons, text="Отмена", command=lambda: close(False))
+        cancel_button = ttk.Button(buttons, text=tk_string("cancel"), command=lambda: close(False))
         cancel_button.pack(side=tk.RIGHT, padx=(6, 0))
         ttk.Button(buttons, text=confirm_label, command=lambda: close(True)).pack(side=tk.RIGHT)
         window.protocol("WM_DELETE_WINDOW", lambda: close(False))
@@ -1488,7 +1470,7 @@ class AgentWorkspace:
         try:
             master_fd, slave_fd = pty.openpty()
         except OSError as error:
-            messagebox.showerror("Консоль", f"Не удалось запустить консоль: {error}")
+            messagebox.showerror(tk_string("console_title"), tk_string("console_start_failed", error=error))
             return None
         _set_pty_size(slave_fd, rows=30, columns=120)
         try:
@@ -1504,7 +1486,10 @@ class AgentWorkspace:
             )
         except OSError as error:
             os.close(master_fd)
-            messagebox.showerror("Консоль", f"Не удалось запустить {command[0]}: {error}")
+            messagebox.showerror(
+                tk_string("console_title"),
+                tk_string("console_start_command_failed", command=command[0], error=error),
+            )
             return None
         finally:
             os.close(slave_fd)
@@ -1846,7 +1831,7 @@ class AgentWorkspace:
 
     def _require_task(self) -> TaskSummary | None:
         if self.selected_task is None or self._task_is_external_active(self.selected_task):
-            messagebox.showinfo("Нет задачи", "Сначала выберите задачу")
+            messagebox.showinfo(tk_string("no_task_title"), tk_string("no_task_body"))
             return None
         return self.selected_task
 
