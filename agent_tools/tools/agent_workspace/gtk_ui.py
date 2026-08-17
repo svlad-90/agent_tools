@@ -5,7 +5,6 @@ from dataclasses import dataclass
 from pathlib import Path
 import argparse
 import os
-import shlex
 import shutil
 import subprocess
 import sys
@@ -55,6 +54,7 @@ from .task_action_model import shortcut_id_from_label as _shortcut_id_from_label
 from .task_action_model import task_action_drag_selection_id as _task_action_drag_selection_id
 from .task_action_model import task_reorder_order_for_drag_edges as _task_reorder_order_for_drag_edges
 from .task_action_model import unique_parameter_value_id as _unique_parameter_value_id
+from .task_action_files import task_action_code_path
 from .core import TASK_ACTIONS_FILE
 from .core import AGENT_RUNNING_SPINNER_FRAMES
 from .core import AGENT_STATUS_MANUAL_MENU_LABEL
@@ -1967,26 +1967,7 @@ class WorkspaceGtkGui:
         return menu
 
     def _task_action_code_path(self, action: TaskAction) -> Path | None:
-        command = action.command
-        if isinstance(command, str):
-            try:
-                tokens = shlex.split(command)
-            except ValueError:
-                return None
-        else:
-            tokens = list(command)
-        if not tokens:
-            return None
-        script_index = 1 if tokens[0] in {"bash", "sh", "python", "python3"} and len(tokens) > 1 else 0
-        candidate = Path(tokens[script_index])
-        if not candidate.is_absolute():
-            candidate = action.cwd / candidate
-        candidate = candidate.resolve()
-        try:
-            candidate.relative_to(action.cwd.resolve())
-        except ValueError:
-            return None
-        return candidate if candidate.is_file() else None
+        return task_action_code_path(action)
 
     def _edit_action_code_file(self, path: Path) -> None:
         try:

@@ -126,6 +126,7 @@ from agent_tools.tools.agent_workspace.ui import task_check_shell_command
 from agent_tools.tools.agent_workspace.ui import _tk_control_shortcut
 from agent_tools.tools.agent_workspace.ui import AgentWorkspace
 from agent_tools.tools.agent_workspace.actions import main as actions_main
+from agent_tools.tools.agent_workspace.task_action_files import task_action_code_path
 from gi.repository import Gdk
 from gi.repository import Gtk
 from gi.repository import Pango
@@ -3838,6 +3839,30 @@ def test_gtk_task_action_code_path_resolves_shell_wrapper(tmp_path: Path) -> Non
     gui = WorkspaceGtkGui.__new__(WorkspaceGtkGui)
 
     assert gui._task_action_code_path(action) == script.resolve()
+
+
+def test_task_action_code_path_rejects_invalid_or_escaping_commands(tmp_path: Path) -> None:
+    outside = tmp_path.parent / "outside.sh"
+    outside.write_text("#!/bin/sh\n", encoding="utf-8")
+
+    assert task_action_code_path(
+        TaskAction(
+            action_id="outside",
+            label="Outside",
+            command=("bash", str(outside)),
+            cwd=tmp_path,
+            env={},
+        )
+    ) is None
+    assert task_action_code_path(
+        TaskAction(
+            action_id="invalid",
+            label="Invalid",
+            command="'unterminated",
+            cwd=tmp_path,
+            env={},
+        )
+    ) is None
 
 
 def test_load_task_actions_resolves_parameter_sets_and_shortcuts(tmp_path: Path) -> None:
