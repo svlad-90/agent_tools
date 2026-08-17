@@ -78,6 +78,7 @@ from agent_tools.tools.agent_workspace.core import task_status_label
 from agent_tools.tools.agent_workspace.core import task_selected_agent_has_resumable_state
 from agent_tools.tools.agent_workspace.core import task_state_path
 from agent_tools.tools.agent_workspace import core as core_module
+from agent_tools.tools.agent_workspace import gtk_open as gtk_open_module
 from agent_tools.tools.agent_workspace import gtk_ui as gtk_ui_module
 from agent_tools.tools.agent_workspace import install_desktop as install_desktop_module
 from agent_tools.tools.agent_workspace.gtk_ui import WorkspaceGtkGui
@@ -823,9 +824,9 @@ def test_gtk_open_containing_folder_falls_back_to_parent_on_linux(
     artifact_path.write_text("<html>", encoding="utf-8")
     calls: list[Path] = []
 
-    monkeypatch.setattr(gtk_ui_module.sys, "platform", "linux")
-    monkeypatch.setattr(gtk_ui_module, "_show_file_in_freedesktop_file_manager", lambda _path: False)
-    monkeypatch.setattr(gtk_ui_module, "open_path", lambda path: calls.append(path))
+    monkeypatch.setattr(gtk_open_module.sys, "platform", "linux")
+    monkeypatch.setattr(gtk_open_module, "_show_file_in_freedesktop_file_manager", lambda _path: False)
+    monkeypatch.setattr(gtk_open_module, "open_path", lambda path: calls.append(path))
 
     gtk_open_containing_folder(artifact_path)
 
@@ -3434,7 +3435,7 @@ def test_gtk_svg_open_command_uses_browser_before_xdg_open(monkeypatch: object, 
             return f"/usr/bin/{executable}"
         return None
 
-    monkeypatch.setattr("agent_tools.tools.agent_workspace.gtk_ui.shutil.which", fake_which)  # type: ignore[attr-defined]
+    monkeypatch.setattr("agent_tools.tools.agent_workspace.gtk_open.shutil.which", fake_which)  # type: ignore[attr-defined]
 
     assert gtk_svg_open_command(path) == ["/usr/bin/firefox", str(path)]
 
@@ -3443,9 +3444,9 @@ def test_gtk_open_text_file_prefers_editor(monkeypatch: object, tmp_path: Path) 
     path = tmp_path / "TASK_ACTIONS.json"
     calls: list[list[str]] = []
     monkeypatch.setenv("EDITOR", "nano --wait")  # type: ignore[attr-defined]
-    monkeypatch.setattr(gtk_ui_module.subprocess, "Popen", lambda command: calls.append(command))  # type: ignore[attr-defined]
+    monkeypatch.setattr(gtk_open_module.subprocess, "Popen", lambda command: calls.append(command))  # type: ignore[attr-defined]
 
-    gtk_ui_module.open_text_file(path)
+    gtk_open_module.open_text_file(path)
 
     assert calls == [["nano", "--wait", str(path)]]
 
