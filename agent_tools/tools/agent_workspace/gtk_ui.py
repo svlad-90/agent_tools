@@ -124,6 +124,15 @@ from .commands import task_check_shell_command
 from .gtk_terminal import feed_terminal as _feed_terminal
 from .gtk_terminal import terminal_env as _terminal_env
 from .gtk_terminal import terminal_palette as _terminal_palette
+from .gtk_terminal_ui import clipboard_text as _clipboard_text
+from .gtk_terminal_ui import copy_primary_selection_to_clipboard as _copy_primary_selection_to_clipboard
+from .gtk_terminal_ui import copy_terminal_selection as _copy_terminal_selection
+from .gtk_terminal_ui import set_clipboard_text as _set_clipboard_text
+from .gtk_terminal_ui import terminal_clipboard_shortcut as _terminal_clipboard_shortcut
+from .gtk_terminal_ui import terminal_session_sort_key as _terminal_session_sort_key
+from .gtk_terminal_ui import terminal_tab_label as _terminal_tab_label
+from .gtk_terminal_ui import terminal_tab_text_label as _terminal_tab_text_label
+from .gtk_terminal_ui import terminal_text_tail as _terminal_text_tail
 from .gtk_theme import theme_colors as _theme_colors
 from .gtk_i18n import CODEX_LANGUAGE_INSTRUCTIONS
 from .gtk_i18n import TRANSLATIONS
@@ -3760,28 +3769,6 @@ def _is_pane_separator_event(pane: Gtk.Paned, event: Gdk.EventButton, tolerance:
     return abs(event.y - position) <= tolerance
 
 
-def _terminal_session_sort_key(kind: str, session_id: int) -> tuple[int, int]:
-    return (0 if session_is_agent(session_kind=kind) else 1, session_id)
-
-
-def _terminal_tab_label(kind: str, shell_index: int, *, language: str = "en") -> str:
-    if session_is_agent(session_kind=kind):
-        return _ui_string(language, "console.ai_agent")
-    if kind == "shell":
-        return f"{_ui_string(language, 'console.shell')} {shell_index}"
-    return f"{kind} {shell_index}"
-
-
-def _terminal_tab_text_label(tab: Gtk.Widget | None) -> Gtk.Label | None:
-    if isinstance(tab, Gtk.Label):
-        return tab
-    if isinstance(tab, Gtk.Container):
-        for child in tab.get_children():
-            if isinstance(child, Gtk.Label):
-                return child
-    return None
-
-
 def _notebook_event_in_empty_tab_area(notebook: Gtk.Notebook, event: Gdk.EventButton) -> bool:
     rects = _notebook_tab_rects(notebook)
     if not rects:
@@ -3817,59 +3804,6 @@ def _notebook_tab_rects(notebook: Gtk.Notebook) -> list[tuple[float, float, floa
 def _rect_contains(rect: tuple[float, float, float, float], x: float, y: float) -> bool:
     rect_x, rect_y, width, height = rect
     return rect_x <= x < rect_x + width and rect_y <= y < rect_y + height
-
-
-def _terminal_clipboard_shortcut(keyval: int, state: int, hardware_keycode: int | None = None) -> str | None:
-    modifiers = int(Gdk.ModifierType.CONTROL_MASK | Gdk.ModifierType.SHIFT_MASK)
-    if (state & modifiers) != modifiers:
-        return None
-    if hardware_keycode in {54}:
-        return "copy"
-    if hardware_keycode in {55}:
-        return "paste"
-    char = chr(Gdk.keyval_to_unicode(keyval)).casefold() if Gdk.keyval_to_unicode(keyval) else ""
-    key_name = Gdk.keyval_name(keyval) or ""
-    key_name = key_name.casefold()
-    if char in {"c", "с"} or key_name in {"c", "cyrillic_es"}:
-        return "copy"
-    if char in {"v", "м"} or key_name in {"v", "cyrillic_em"}:
-        return "paste"
-    return None
-
-
-def _copy_terminal_selection(terminal: Vte.Terminal) -> None:
-    terminal.grab_focus()
-    get_has_selection = getattr(terminal, "get_has_selection", None)
-    has_selection = bool(get_has_selection()) if callable(get_has_selection) else True
-    try:
-        terminal.copy_clipboard_format(Vte.Format.TEXT)
-    except (AttributeError, TypeError):
-        terminal.copy_clipboard()
-    if not has_selection:
-        _copy_primary_selection_to_clipboard()
-
-
-def _copy_primary_selection_to_clipboard() -> None:
-    text = _clipboard_text(Gdk.SELECTION_PRIMARY).strip()
-    if not text:
-        return
-    _set_clipboard_text(text)
-
-
-def _clipboard_text(selection: Gdk.Atom) -> str:
-    clipboard = Gtk.Clipboard.get(selection)
-    wait_for_text = getattr(clipboard, "wait_for_text", None)
-    if not callable(wait_for_text):
-        return ""
-    return wait_for_text() or ""
-
-
-def _set_clipboard_text(text: str) -> None:
-    clipboard = Gtk.Clipboard.get(Gdk.SELECTION_CLIPBOARD)
-    clipboard.set_text(text, -1)
-    store = getattr(clipboard, "store", None)
-    if callable(store):
-        store()
 
 
 def _task_row_style(
@@ -3969,23 +3903,6 @@ def _text_buffer_text(buffer: Gtk.TextBuffer) -> str:
     start = buffer.get_start_iter()
     end = buffer.get_end_iter()
     return buffer.get_text(start, end, True)
-
-
-def _terminal_text_tail(terminal: Vte.Terminal, limit: int = 4000) -> str:
-    def include_all(*_args: object) -> bool:
-        return True
-
-    try:
-        result = terminal.get_text(include_all, None)
-    except TypeError:
-        result = terminal.get_text(include_all)
-    if isinstance(result, tuple):
-        text = result[0]
-    else:
-        text = result
-    if not isinstance(text, str):
-        return ""
-    return text[-limit:]
 
 
 def _scrolled(widget: Gtk.Widget) -> Gtk.ScrolledWindow:

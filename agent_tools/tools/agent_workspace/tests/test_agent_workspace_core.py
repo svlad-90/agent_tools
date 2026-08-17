@@ -79,6 +79,7 @@ from agent_tools.tools.agent_workspace.core import task_selected_agent_has_resum
 from agent_tools.tools.agent_workspace.core import task_state_path
 from agent_tools.tools.agent_workspace import core as core_module
 from agent_tools.tools.agent_workspace import gtk_open as gtk_open_module
+from agent_tools.tools.agent_workspace import gtk_terminal_ui as gtk_terminal_ui_module
 from agent_tools.tools.agent_workspace import gtk_ui as gtk_ui_module
 from agent_tools.tools.agent_workspace import install_desktop as install_desktop_module
 from agent_tools.tools.agent_workspace.gtk_ui import WorkspaceGtkGui
@@ -3291,8 +3292,8 @@ def test_gtk_copy_terminal_selection_falls_back_to_plain_copy() -> None:
 def test_gtk_copy_terminal_selection_falls_back_to_primary_selection(monkeypatch) -> None:
     terminal = FakeGtkCopyTerminal(has_selection=False, text="visible terminal output")
     copied: list[str] = []
-    monkeypatch.setattr(gtk_ui_module, "_clipboard_text", lambda _selection: "Claude selection")
-    monkeypatch.setattr(gtk_ui_module, "_set_clipboard_text", copied.append)
+    monkeypatch.setattr(gtk_terminal_ui_module, "clipboard_text", lambda _selection: "Claude selection")
+    monkeypatch.setattr(gtk_terminal_ui_module, "set_clipboard_text", copied.append)
 
     gtk_copy_terminal_selection(terminal)  # type: ignore[arg-type]
 
@@ -3305,8 +3306,8 @@ def test_gtk_copy_terminal_selection_falls_back_to_primary_selection(monkeypatch
 def test_gtk_copy_terminal_selection_ignores_empty_primary_selection(monkeypatch) -> None:
     terminal = FakeGtkCopyTerminal(has_selection=False, text="visible terminal output")
     copied: list[str] = []
-    monkeypatch.setattr(gtk_ui_module, "_clipboard_text", lambda _selection: "\n")
-    monkeypatch.setattr(gtk_ui_module, "_set_clipboard_text", copied.append)
+    monkeypatch.setattr(gtk_terminal_ui_module, "clipboard_text", lambda _selection: "\n")
+    monkeypatch.setattr(gtk_terminal_ui_module, "set_clipboard_text", copied.append)
 
     gtk_copy_terminal_selection(terminal)  # type: ignore[arg-type]
 
