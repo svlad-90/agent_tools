@@ -129,6 +129,10 @@ from agent_tools.tools.agent_workspace.ui import _tk_control_shortcut
 from agent_tools.tools.agent_workspace.ui import AgentWorkspace
 from agent_tools.tools.agent_workspace.actions import main as actions_main
 from agent_tools.tools.agent_workspace.task_action_files import task_action_code_path
+from agent_tools.tools.agent_workspace.task_action_menu import task_action_menu_state
+from agent_tools.tools.agent_workspace.task_action_menu import task_parameter_menu_state
+from agent_tools.tools.agent_workspace.task_action_menu import task_reorder_label_key
+from agent_tools.tools.agent_workspace.task_action_menu import task_shortcut_menu_state
 from agent_tools.tools.agent_workspace.task_action_model import add_task_shortcut
 from agent_tools.tools.agent_workspace.task_action_model import delete_parameter_set_value
 from agent_tools.tools.agent_workspace.task_action_model import delete_task_shortcut
@@ -4096,6 +4100,26 @@ def test_gtk_action_ui_string_ids_support_language_fallback() -> None:
     assert gtk_ui_module._ui_string("ru", "console.shell") == "терминал"
     assert gtk_ui_module._ui_string("missing", "action.parameters") == "Parameters"
     assert gtk_ui_module._ui_string("ru", "action.add_value", set_name="boards") == "Добавить boards"
+
+
+def test_task_action_menu_state_helpers_select_labels_and_paths(tmp_path: Path) -> None:
+    code_path = tmp_path / "scripts" / "build.sh"
+
+    assert task_reorder_label_key(False) == "action.reorder_actions"
+    assert task_reorder_label_key(True) == "action.stop_reorder_actions"
+    assert task_parameter_menu_state("rpi5", True).selected_value == "rpi5"
+    assert task_parameter_menu_state("rpi5", True).reorder_label_key == "action.stop_reorder_actions"
+
+    action_state = task_action_menu_state(tmp_path, code_path, False)
+    assert action_state.actions_file == tmp_path / "TASK_ACTIONS.json"
+    assert action_state.code_path == code_path
+    assert action_state.reorder_label_key == "action.reorder_actions"
+
+    missing_task_state = task_action_menu_state(None, None, True)
+    assert missing_task_state.actions_file is None
+    assert missing_task_state.code_path is None
+    assert missing_task_state.reorder_label_key == "action.stop_reorder_actions"
+    assert task_shortcut_menu_state(False).reorder_label_key == "action.reorder_actions"
 
 
 def test_gtk_json_reorder_helpers_move_actions_parameters_and_shortcuts() -> None:

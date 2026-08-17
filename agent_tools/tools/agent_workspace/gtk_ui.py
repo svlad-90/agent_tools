@@ -59,6 +59,9 @@ from .task_action_model import task_action_drag_selection_id as _task_action_dra
 from .task_action_model import task_reorder_order_for_drag_edges as _task_reorder_order_for_drag_edges
 from .task_action_model import upsert_parameter_set_value as _upsert_parameter_set_value
 from .task_action_files import task_action_code_path
+from .task_action_menu import task_action_menu_state
+from .task_action_menu import task_parameter_menu_state
+from .task_action_menu import task_shortcut_menu_state
 from .task_action_state import bindings_for_action_run
 from .task_action_state import parameter_button_label
 from .task_action_state import parameter_values
@@ -1897,30 +1900,30 @@ class WorkspaceGtkGui:
     def _task_parameter_context_menu(self, parameter: TaskActionParameter) -> Gtk.Menu:
         menu = Gtk.Menu()
         selected = self._selected_parameter_value(parameter)
+        state = task_parameter_menu_state(selected, self.task_action_reorder_mode)
         add_item = Gtk.MenuItem(label=self._s("action.add_value", set_name=parameter.set_name))
         add_item.connect("activate", lambda _item: self._edit_parameter_set_value(parameter, None, None))
-        duplicate_item = Gtk.MenuItem(label=self._s("action.duplicate_value", value=selected))
+        duplicate_item = Gtk.MenuItem(label=self._s("action.duplicate_value", value=state.selected_value))
         duplicate_item.connect(
             "activate",
             lambda _item: self._edit_parameter_set_value(
                 parameter,
                 None,
-                self._parameter_values(parameter).get(selected, {}),
+                self._parameter_values(parameter).get(state.selected_value, {}),
             ),
         )
-        edit_item = Gtk.MenuItem(label=self._s("action.edit_value", value=selected))
+        edit_item = Gtk.MenuItem(label=self._s("action.edit_value", value=state.selected_value))
         edit_item.connect(
             "activate",
             lambda _item: self._edit_parameter_set_value(
                 parameter,
-                selected,
-                self._parameter_values(parameter).get(selected, {}),
+                state.selected_value,
+                self._parameter_values(parameter).get(state.selected_value, {}),
             ),
         )
-        delete_item = Gtk.MenuItem(label=self._s("action.delete_value", value=selected))
-        delete_item.connect("activate", lambda _item: self._delete_parameter_set_value(parameter, selected))
-        reorder_key = "action.stop_reorder_actions" if self.task_action_reorder_mode else "action.reorder_actions"
-        reorder_item = Gtk.MenuItem(label=self._s(reorder_key))
+        delete_item = Gtk.MenuItem(label=self._s("action.delete_value", value=state.selected_value))
+        delete_item.connect("activate", lambda _item: self._delete_parameter_set_value(parameter, state.selected_value))
+        reorder_item = Gtk.MenuItem(label=self._s(state.reorder_label_key))
         reorder_item.connect("activate", lambda _item: self._set_task_action_reorder_mode(not self.task_action_reorder_mode))
         menu.append(add_item)
         menu.append(duplicate_item)
@@ -1933,23 +1936,25 @@ class WorkspaceGtkGui:
 
     def _task_action_context_menu(self, action: TaskAction) -> Gtk.Menu:
         task = self._require_task(show_dialog=False)
-        actions_file = task.path / TASK_ACTIONS_FILE if task is not None else None
-        code_path = self._task_action_code_path(action)
+        state = task_action_menu_state(
+            task.path if task is not None else None,
+            self._task_action_code_path(action),
+            self.task_action_reorder_mode,
+        )
         menu = Gtk.Menu()
         run_item = Gtk.MenuItem(label=self._s("action.run"))
         run_item.connect("activate", lambda _item: self._run_task_action_with_current_bindings(action))
         open_item = Gtk.MenuItem(label=self._s("action.open_actions_file"))
-        if actions_file is not None:
-            open_item.connect("activate", lambda _item, path=actions_file: open_text_file(path))
+        if state.actions_file is not None:
+            open_item.connect("activate", lambda _item, path=state.actions_file: open_text_file(path))
         else:
             open_item.set_sensitive(False)
         edit_item = Gtk.MenuItem(label=self._s("action.edit"))
-        if code_path is not None:
-            edit_item.connect("activate", lambda _item, path=code_path: self._edit_action_code_file(path))
+        if state.code_path is not None:
+            edit_item.connect("activate", lambda _item, path=state.code_path: self._edit_action_code_file(path))
         else:
             edit_item.set_sensitive(False)
-        reorder_key = "action.stop_reorder_actions" if self.task_action_reorder_mode else "action.reorder_actions"
-        reorder_item = Gtk.MenuItem(label=self._s(reorder_key))
+        reorder_item = Gtk.MenuItem(label=self._s(state.reorder_label_key))
         reorder_item.connect("activate", lambda _item: self._set_task_action_reorder_mode(not self.task_action_reorder_mode))
         menu.append(run_item)
         menu.append(open_item)
@@ -1969,13 +1974,13 @@ class WorkspaceGtkGui:
             self._show_error(self._s("action.cannot_open_code"), str(error))
 
     def _task_shortcut_context_menu(self, action: TaskAction) -> Gtk.Menu:
+        state = task_shortcut_menu_state(self.task_action_reorder_mode)
         menu = Gtk.Menu()
         run_item = Gtk.MenuItem(label=self._s("action.run"))
         run_item.connect("activate", lambda _item: self.run_custom_task_action(action))
         delete_item = Gtk.MenuItem(label=self._s("action.delete_shortcut"))
         delete_item.connect("activate", lambda _item: self._delete_task_shortcut(action))
-        reorder_key = "action.stop_reorder_actions" if self.task_action_reorder_mode else "action.reorder_actions"
-        reorder_item = Gtk.MenuItem(label=self._s(reorder_key))
+        reorder_item = Gtk.MenuItem(label=self._s(state.reorder_label_key))
         reorder_item.connect("activate", lambda _item: self._set_task_action_reorder_mode(not self.task_action_reorder_mode))
         menu.append(run_item)
         menu.append(delete_item)
