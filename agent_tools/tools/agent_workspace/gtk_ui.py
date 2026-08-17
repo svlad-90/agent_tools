@@ -2573,7 +2573,7 @@ class WorkspaceGtkGui:
             claude_effort=self.default_claude_effort,
             codex_executable=_codex_executable(),
             claude_executable=_claude_executable(),
-            prompt_suffix=f"Отвечай пользователю на {self.language} языке.",
+            prompt_suffix=CODEX_LANGUAGE_INSTRUCTIONS.get(self.language, CODEX_LANGUAGE_INSTRUCTIONS["en"]),
         )
         for session in self._current_task_terminal_sessions(task):
             if session.kind == agent:
