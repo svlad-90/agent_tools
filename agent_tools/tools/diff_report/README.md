@@ -284,6 +284,22 @@ It also supports dashboard-oriented widgets:
   ],
   "artifacts": [
     {"title": "Product architecture", "path": "../analysis/product/architecture/PRODUCT_ARCHITECTURE.md", "kind": "markdown"}
+  ],
+  "toc_groups": [
+    {
+      "title": "Overview",
+      "items": [
+        {"label": "Top", "href": "#report-top"},
+        {"label": "Metrics", "href": "#report-metrics"}
+      ]
+    },
+    {
+      "title": "Requirement Rows",
+      "open": false,
+      "items": [
+        {"label": "Security VSR Rows", "href": "#report-table-2"}
+      ]
+    }
   ]
 }
 ```
@@ -297,6 +313,12 @@ Tables are filterable by default. Set `"filterable": false` on a table to omit
 the search box. Table cell values may be strings or objects. Object cells can
 use `text`, `status`, `href`, `diagram`, or `log` to combine badges, links,
 and artifact previews.
+
+The table of contents is flat by default. Add `toc_groups` to render it as a
+grouped tree. Each item `href` must point to a section id in the rendered page,
+for example `#report-top`, `#report-metrics`, `#report-table-1`, or
+`#report-artifacts`. Groups are open by default; set `"open": false` to start a
+large group collapsed.
 
 Inline comments are attached to new-file line numbers in the rendered diff.
 Use `range` when the comment is about several rendered new-file lines instead

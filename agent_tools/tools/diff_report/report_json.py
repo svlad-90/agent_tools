@@ -71,6 +71,19 @@ class ReportArtifact:
 
 
 @dataclass(frozen=True)
+class ReportTocItem:
+    label: str
+    href: str
+
+
+@dataclass(frozen=True)
+class ReportTocGroup:
+    title: str
+    items: tuple[ReportTocItem, ...]
+    open: bool = True
+
+
+@dataclass(frozen=True)
 class GenericReport:
     title: str
     comments: ReviewComments
@@ -80,6 +93,7 @@ class GenericReport:
     tables: tuple[ReportTable, ...] = ()
     timeline: tuple[ReportTimelineItem, ...] = ()
     artifacts: tuple[ReportArtifact, ...] = ()
+    toc_groups: tuple[ReportTocGroup, ...] = ()
 
 
 def load_report_json(report_file: Path) -> GenericReport:
@@ -107,6 +121,7 @@ def report_from_payload(
         tables=tables_from_payload(payload.get("tables", [])),
         timeline=timeline_from_payload(payload.get("timeline", [])),
         artifacts=artifacts_from_payload(payload.get("artifacts", [])),
+        toc_groups=toc_groups_from_payload(payload.get("toc_groups", [])),
     )
 
 
@@ -283,6 +298,41 @@ def artifacts_from_payload(raw_items: Any) -> tuple[ReportArtifact, ...]:
             )
         )
     return tuple(artifacts)
+
+
+def toc_groups_from_payload(raw_groups: Any) -> tuple[ReportTocGroup, ...]:
+    if raw_groups is None:
+        return ()
+    if not isinstance(raw_groups, list):
+        raise DiffReportError("report.toc_groups must be a list")
+    groups: list[ReportTocGroup] = []
+    for group_index, group in enumerate(raw_groups):
+        if not isinstance(group, dict):
+            raise DiffReportError(f"report.toc_groups[{group_index}] must be an object")
+        raw_items = group.get("items", [])
+        if not isinstance(raw_items, list) or not raw_items:
+            raise DiffReportError(f"report.toc_groups[{group_index}].items must be a non-empty list")
+        items: list[ReportTocItem] = []
+        for item_index, item in enumerate(raw_items):
+            if not isinstance(item, dict):
+                raise DiffReportError(f"report.toc_groups[{group_index}].items[{item_index}] must be an object")
+            href = _required_text(item, "href", f"report.toc_groups[{group_index}].items[{item_index}]")
+            if not href.startswith("#"):
+                raise DiffReportError(f"report.toc_groups[{group_index}].items[{item_index}].href must start with #")
+            items.append(
+                ReportTocItem(
+                    label=_required_text(item, "label", f"report.toc_groups[{group_index}].items[{item_index}]"),
+                    href=href,
+                )
+            )
+        groups.append(
+            ReportTocGroup(
+                title=_required_text(group, "title", f"report.toc_groups[{group_index}]"),
+                items=tuple(items),
+                open=bool(group.get("open", True)),
+            )
+        )
+    return tuple(groups)
 
 
 def links_from_payload(raw_links: Any, field: str) -> tuple[dict[str, str], ...]:
@@ -464,14 +514,29 @@ def _render_report_toc(report: GenericReport) -> str:
         return ""
     parts = ['<nav class="report-toc" aria-label="Report table of contents">\n']
     parts.append('  <div class="report-toc-head">Contents</div>\n')
-    parts.append("  <ol>\n")
-    for label, href in items:
-        parts.append(f'    <li><a href="{_esc(href)}">{_esc(label)}</a></li>\n')
-    parts.append("  </ol>\n</nav>\n")
+    if report.toc_groups:
+        parts.append('  <div class="report-toc-tree">\n')
+        for group in report.toc_groups:
+            open_attr = " open" if group.open else ""
+            parts.append(f'    <details class="report-toc-group"{open_attr}>\n')
+            parts.append(f'      <summary>{_esc(group.title)}</summary>\n')
+            parts.append("      <ol>\n")
+            for item in group.items:
+                parts.append(f'        <li><a href="{_esc(item.href)}">{_esc(item.label)}</a></li>\n')
+            parts.append("      </ol>\n")
+            parts.append("    </details>\n")
+        parts.append("  </div>\n</nav>\n")
+    else:
+        parts.append("  <ol>\n")
+        for label, href in items:
+            parts.append(f'    <li><a href="{_esc(href)}">{_esc(label)}</a></li>\n')
+        parts.append("  </ol>\n</nav>\n")
     return "".join(parts)
 
 
 def _report_toc_items(report: GenericReport) -> list[tuple[str, str]]:
+    if report.toc_groups:
+        return [(item.label, item.href) for group in report.toc_groups for item in group.items]
     items: list[tuple[str, str]] = [("Top", "#report-top")]
     if report.comments.summary or report.comments.summary_blocks:
         items.append(("Summary", "#summary-section"))
@@ -596,6 +661,10 @@ def _report_filter_script() -> str:
       entry.link.classList.toggle("is-current", active);
       if (active) {
         entry.link.setAttribute("aria-current", "location");
+        const group = entry.link.closest(".report-toc-group");
+        if (group) {
+          group.open = true;
+        }
         if (reveal) {
           entry.link.scrollIntoView({block: "nearest", inline: "nearest"});
         }

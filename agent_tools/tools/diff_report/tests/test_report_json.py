@@ -150,11 +150,52 @@ class ReportJsonTests(unittest.TestCase):
                 "report.tables[0].columns must be a non-empty list",
             ),
             ({"title": "Broken", "timeline": ["bad"]}, "report.timeline[0] must be an object"),
+            ({"title": "Broken", "toc_groups": {}}, "report.toc_groups must be a list"),
+            (
+                {"title": "Broken", "toc_groups": [{"title": "Overview", "items": []}]},
+                "report.toc_groups[0].items must be a non-empty list",
+            ),
+            (
+                {"title": "Broken", "toc_groups": [{"title": "Overview", "items": [{"label": "Top", "href": "top"}]}]},
+                "report.toc_groups[0].items[0].href must start with #",
+            ),
         ]
         for payload, message in invalid_payloads:
             with self.subTest(message=message):
                 with self.assertRaisesRegex(DiffReportError, re.escape(message)):
                     report_from_payload(payload)
+
+    def test_renders_grouped_toc_when_requested(self) -> None:
+        payload = {
+            "title": "Dashboard",
+            "metrics": [{"label": "Risks", "value": 2}],
+            "tables": [
+                {"title": "Top Blockers", "columns": ["domain"], "rows": [{"domain": "security"}]},
+                {"title": "Security VSR Rows", "columns": ["id"], "rows": [{"id": "VSR-1"}]},
+            ],
+            "toc_groups": [
+                {
+                    "title": "Overview",
+                    "items": [
+                        {"label": "Top", "href": "#report-top"},
+                        {"label": "Metrics", "href": "#report-metrics"},
+                    ],
+                },
+                {
+                    "title": "VSR Rows",
+                    "open": False,
+                    "items": [{"label": "Security", "href": "#report-table-2"}],
+                },
+            ],
+        }
+
+        html = render_report_json_html(report_from_payload(payload))
+
+        self.assertIn('<div class="report-toc-tree">', html)
+        self.assertIn('<summary>Overview</summary>', html)
+        self.assertIn('<details class="report-toc-group">', html)
+        self.assertIn('<a href="#report-table-2">Security</a>', html)
+        self.assertIn('const group = entry.link.closest(".report-toc-group");', html)
 
     def test_loads_from_file_relative_artifacts(self) -> None:
         from agent_tools.tools.diff_report.report_json import load_report_json

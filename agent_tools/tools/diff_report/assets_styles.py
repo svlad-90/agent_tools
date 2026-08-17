@@ -303,6 +303,12 @@ def stylesheet() -> str:
     .report-toc a { display: block; min-width: 0; padding: 5px 7px; border-radius: 5px; color: var(--link); text-decoration: none; font-size: .9em; font-weight: 700; line-height: 1.2; overflow-wrap: anywhere; border-left: 3px solid transparent; }
     .report-toc a:hover { background: var(--button-hover-bg); }
     .report-toc a.is-current { background: color-mix(in srgb, var(--comment-bg) 68%, var(--button-hover-bg)); color: var(--text); border-left-color: var(--comment-border); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--comment-border) 32%, transparent); }
+    .report-toc-tree { display: grid; gap: 8px; }
+    .report-toc-group { min-width: 0; border-left: 1px solid color-mix(in srgb, var(--comment-border) 38%, transparent); padding-left: 8px; }
+    .report-toc-group summary { margin: 0 0 4px -8px; padding: 4px 6px; border-radius: 5px; color: color-mix(in srgb, var(--text) 74%, var(--muted)); cursor: pointer; font-size: .78em; font-weight: 820; line-height: 1.2; text-transform: uppercase; letter-spacing: .04em; list-style-position: inside; }
+    .report-toc-group summary:hover { background: var(--button-hover-bg); color: var(--text); }
+    .report-toc-group ol { gap: 2px; padding-left: 5px; }
+    .report-toc-group a { font-size: .84em; font-weight: 690; }
     .review-nav { position: fixed; left: var(--page-gutter); top: var(--review-nav-top); bottom: calc(var(--page-gutter) + var(--story-nav-height)); z-index: 8; width: var(--nav-width); margin: 0; padding: 10px 14px 10px 10px; overflow: auto; overscroll-behavior: contain; box-shadow: 0 8px 22px rgba(31,35,40,.10); }
     .review-nav-head { position: sticky; top: -10px; z-index: 2; display: flex; align-items: center; justify-content: flex-start; gap: 8px; margin: -10px -14px 8px -10px; padding: 10px 14px 8px 10px; background: var(--panel); border-bottom: 1px solid var(--border); box-shadow: 0 2px 0 var(--panel); }
     .review-nav h2 { min-width: 0; margin: 0; font-size: .86em; overflow-wrap: anywhere; }
