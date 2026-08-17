@@ -14,6 +14,7 @@ from agent_tools.tools.agent_workspace.core import ConsoleChunk
 from agent_tools.tools.agent_workspace.core import PAF_HIDE_TASK_ENV_VAR
 from agent_tools.tools.agent_workspace.core import TaskAction
 from agent_tools.tools.agent_workspace.core import TaskSummary
+from agent_tools.tools.agent_workspace.core import load_task_actions_config
 from agent_tools.tools.agent_workspace.core import agent_executable
 from agent_tools.tools.agent_workspace.core import agent_install_command
 from agent_tools.tools.agent_workspace.core import agent_status_tooltip_text
@@ -87,7 +88,6 @@ from agent_tools.tools.agent_workspace.gtk_ui import task_action_shell_command a
 from agent_tools.tools.agent_workspace.gtk_ui import task_check_shell_command as gtk_task_check_shell_command
 from agent_tools.tools.agent_workspace.gtk_ui import _artifact_context_action as gtk_artifact_context_action
 from agent_tools.tools.agent_workspace.gtk_ui import _artifact_delete_paths as gtk_artifact_delete_paths
-from agent_tools.tools.agent_workspace.gtk_ui import _artifact_monitor_dirs as gtk_artifact_monitor_dirs
 from agent_tools.tools.agent_workspace.gtk_ui import _artifact_selectable_path as gtk_artifact_selectable_path
 from agent_tools.tools.agent_workspace.gtk_ui import _is_pane_separator_event as gtk_is_pane_separator_event
 from agent_tools.tools.agent_workspace.gtk_ui import _notebook_event_in_empty_tab_area as gtk_notebook_event_in_empty_tab_area
@@ -105,6 +105,8 @@ from agent_tools.tools.agent_workspace.gtk_ui import _terminal_session_sort_key 
 from agent_tools.tools.agent_workspace.gtk_ui import _terminal_tab_label as gtk_terminal_tab_label
 from agent_tools.tools.agent_workspace.gtk_ui import _terminal_text_tail as gtk_terminal_text_tail
 from agent_tools.tools.agent_workspace.gtk_ui import _theme_colors as gtk_theme_colors
+from agent_tools.tools.agent_workspace.gtk_ui import _set_task_action_drag_selection as gtk_set_task_action_drag_selection
+from agent_tools.tools.agent_workspace.gtk_ui import _task_action_drag_selection_id as gtk_task_action_drag_selection_id
 from agent_tools.tools.agent_workspace.gtk_ui import _agent_workspace_icon_path as gtk_agent_workspace_icon_path
 from agent_tools.tools.agent_workspace.gtk_ui import _agent_workspace_runtime_icon_path as gtk_agent_workspace_runtime_icon_path
 from agent_tools.tools.agent_workspace.ui import codex_console_command
@@ -466,6 +468,22 @@ class FakeGtkSelection:
         return self.model, self.row_iter
 
 
+class FakeGtkDragSelection:
+    def __init__(self) -> None:
+        self.target = "application/x-agent-workspace-task-action"
+        self.data: bytes | None = None
+
+    def get_target(self) -> str:
+        return self.target
+
+    def set(self, target: str, _format: int, data: bytes) -> None:
+        assert target == self.target
+        self.data = data
+
+    def get_data(self) -> bytes | None:
+        return self.data
+
+
 class FakeGtkNotebookEvent:
     def __init__(self, x: float, y: float) -> None:
         self.x = x
@@ -659,12 +677,6 @@ def test_gtk_task_artifact_entries_groups_task_outputs(tmp_path: Path) -> None:
         ("diff_reports", "review.html"),
         ("artifacts", "notes.md"),
     ]
-    assert gtk_artifact_monitor_dirs(summary) == [
-        task / "report",
-        task / "report" / "diff",
-        task / "report" / "puml",
-    ]
-
 
 def test_gtk_task_artifact_entries_can_sort_by_updated_time(tmp_path: Path) -> None:
     task = tmp_path / "tasks" / "sample-task"
@@ -719,6 +731,20 @@ def test_gtk_artifact_sort_column_click_toggles_indicator() -> None:
     gui._set_artifact_sort("updated")
 
     assert gui.artifact_updated_column.sort_order == Gtk.SortType.ASCENDING
+
+
+def test_gtk_artifact_manual_refresh_loads_selected_task(tmp_path: Path) -> None:
+    task = tmp_path / "tasks" / "sample-task"
+    task.mkdir(parents=True)
+    summary = TaskSummary("sample-task", task, True, True, 1, 1, False)
+    gui = WorkspaceGtkGui.__new__(WorkspaceGtkGui)
+    gui.selected_task = summary
+    calls: list[TaskSummary] = []
+    gui._load_task_artifacts = lambda task: calls.append(task)  # type: ignore[method-assign]
+
+    gui._refresh_selected_task_artifacts()
+
+    assert calls == [summary]
 
 
 def test_gtk_artifact_delete_paths_include_hidden_group_files(tmp_path: Path) -> None:
@@ -2839,7 +2865,6 @@ def test_gtk_close_disposes_terminal_sessions_before_quit(monkeypatch: object, t
     gui.last_active_terminal_by_task = {summary.path: session.session_id}
     gui.selected_task = None
     gui.console_notebook = type("Notebook", (), {"page_num": lambda self, page: -1})()
-    gui._clear_artifact_monitors = lambda: None  # type: ignore[method-assign]
     gui._save_settings = lambda: None  # type: ignore[method-assign]
     gui._task_for_path = lambda task_path: summary  # type: ignore[method-assign]
     gui._update_codex_button_state = lambda: None  # type: ignore[method-assign]
@@ -3029,13 +3054,10 @@ def test_gtk_task_selection_remembers_current_tab_before_switching(tmp_path: Pat
     gui._set_markdown = lambda _view, _text: None
     gui._reset_actions = lambda: None
     gui._watch_task_actions = lambda _task: None
-    gui._watch_task_artifacts = lambda _task: (_ for _ in ()).throw(AssertionError("inactive artifacts tab should not scan"))
     gui._load_task_artifacts = lambda _task: (_ for _ in ()).throw(AssertionError("inactive artifacts tab should not load"))
     gui._artifacts_tab_active = lambda: False
     artifact_events: list[str] = []
-    gui._clear_artifact_monitors = lambda: artifact_events.append("monitors")
     gui.artifact_store = type("ArtifactStore", (), {"clear": lambda self: artifact_events.append("store")})()
-    gui.artifact_monitor_path = summary_one.path
     gui._load_task_action_buttons = lambda: None
     gui._set_selected_agent = lambda _agent: None
     gui._renumber_terminal_tabs = lambda _task: None
@@ -3060,8 +3082,7 @@ def test_gtk_task_selection_remembers_current_tab_before_switching(tmp_path: Pat
     assert gui.console_notebook.get_current_page() == 0
     assert task_two_shell.terminal.focused
     assert gui.last_active_terminal_by_task == {summary_one.path: task_one_shell.session_id}
-    assert artifact_events == ["store", "monitors"]
-    assert gui.artifact_monitor_path is None
+    assert artifact_events == ["store"]
 
 
 def test_gtk_main_notebook_switch_loads_artifacts_lazily(tmp_path: Path) -> None:
@@ -3073,14 +3094,13 @@ def test_gtk_main_notebook_switch_loads_artifacts_lazily(tmp_path: Path) -> None
     gui.actions_page = object()
     gui.artifacts_page = object()
     calls: list[tuple[str, TaskSummary]] = []
-    gui._watch_task_artifacts = lambda task: calls.append(("watch", task))
     gui._load_task_artifacts = lambda task: calls.append(("load", task))
     gui._load_task_action_buttons = lambda: calls.append(("actions", summary))
     gui._ensure_default_console_for_selected_task = lambda: calls.append(("console", summary))
 
     gui._on_main_notebook_switch_page(object(), gui.artifacts_page, 1)  # type: ignore[arg-type]
 
-    assert calls == [("watch", summary), ("load", summary)]
+    assert calls == [("load", summary)]
 
 
 def test_gtk_terminal_text_tail_reads_recent_text() -> None:
@@ -3140,10 +3160,12 @@ def test_gtk_terminal_session_sort_key_keeps_agents_first() -> None:
 
 
 def test_gtk_terminal_tab_label_numbers_shells_only() -> None:
-    assert gtk_terminal_tab_label("codex", 0) == "Codex"
-    assert gtk_terminal_tab_label("claude", 0) == "Claude Code"
+    assert gtk_terminal_tab_label("codex", 0) == "AI agent"
+    assert gtk_terminal_tab_label("claude", 0) == "AI agent"
     assert gtk_terminal_tab_label("shell", 1) == "shell 1"
     assert gtk_terminal_tab_label("shell", 2) == "shell 2"
+    assert gtk_terminal_tab_label("codex", 0, language="ru") == "ИИ агент"
+    assert gtk_terminal_tab_label("shell", 1, language="ru") == "терминал 1"
 
 
 def test_gtk_notebook_empty_tab_area_excludes_existing_tabs() -> None:
@@ -3340,6 +3362,17 @@ def test_gtk_svg_open_command_uses_browser_before_xdg_open(monkeypatch: object, 
     monkeypatch.setattr("agent_tools.tools.agent_workspace.gtk_ui.shutil.which", fake_which)  # type: ignore[attr-defined]
 
     assert gtk_svg_open_command(path) == ["/usr/bin/firefox", str(path)]
+
+
+def test_gtk_open_text_file_prefers_editor(monkeypatch: object, tmp_path: Path) -> None:
+    path = tmp_path / "TASK_ACTIONS.json"
+    calls: list[list[str]] = []
+    monkeypatch.setenv("EDITOR", "nano --wait")  # type: ignore[attr-defined]
+    monkeypatch.setattr(gtk_ui_module.subprocess, "Popen", lambda command: calls.append(command))  # type: ignore[attr-defined]
+
+    gtk_ui_module.open_text_file(path)
+
+    assert calls == [["nano", "--wait", str(path)]]
 
 
 def test_gtk_agent_workspace_icon_is_packaged() -> None:
@@ -3698,6 +3731,267 @@ def test_load_task_actions_and_run_command(tmp_path: Path) -> None:
     assert "ok" in report
     assert "\n1\n" in report
     assert "exit code: 0" in report
+
+
+def test_gtk_task_action_code_path_resolves_shell_wrapper(tmp_path: Path) -> None:
+    script = tmp_path / "scripts" / "open-board-webcam.sh"
+    script.parent.mkdir()
+    script.write_text("#!/bin/sh\n", encoding="utf-8")
+    action = TaskAction(
+        action_id="webcam",
+        label="Open board webcam",
+        command=("bash", "scripts/open-board-webcam.sh"),
+        cwd=tmp_path,
+        env={},
+    )
+    gui = WorkspaceGtkGui.__new__(WorkspaceGtkGui)
+
+    assert gui._task_action_code_path(action) == script.resolve()
+
+
+def test_load_task_actions_resolves_parameter_sets_and_shortcuts(tmp_path: Path) -> None:
+    task = tmp_path / "tasks" / "sample-task"
+    scripts = task / "scripts"
+    scripts.mkdir(parents=True)
+    (task / "TASK_DESCRIPTION.md").write_text("# Description\n", encoding="utf-8")
+    (task / "TASK_CONTEXT.md").write_text(_task_context(), encoding="utf-8")
+    (task / "TASK_ACTIONS.json").write_text(
+        json.dumps(
+            {
+                "parameter_types": {
+                    "board": {
+                        "set": "boards",
+                        "fields": {
+                            "name": {"type": "string"},
+                            "host": {"type": "string"},
+                        },
+                    }
+                },
+                "parameter_sets": {
+                    "boards": {
+                        "rpi5": {
+                            "name": "RPI5",
+                            "host": "10.13.64.242",
+                        },
+                        "rpi6": {
+                            "name": "RPI6",
+                            "host": "10.13.64.243",
+                        }
+                    }
+                },
+                "global_parameters": {
+                    "board": {
+                        "label": "Board",
+                        "type": "board",
+                        "value": "rpi6",
+                    }
+                },
+                "actions": [
+                    {
+                        "id": "copy",
+                        "label": "Copy",
+                        "command": ["printf", "ok"],
+                        "cwd": ".",
+                        "parameters": [
+                            {
+                                "name": "board",
+                                "label": "Board",
+                                "type": "board",
+                                "default": "rpi5",
+                                "global": "board",
+                            }
+                        ],
+                    }
+                ],
+                "shortcuts": [
+                    {
+                        "id": "copy-rpi5",
+                        "label": "Copy RPI5",
+                        "action": "copy",
+                        "bindings": {"board": "rpi5"},
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    config = load_task_actions_config(discover_tasks_with_context(task, tmp_path))
+    shortcut = next(action for action in config.actions if action.action_id == "copy-rpi5")
+
+    assert config.errors == []
+    assert config.global_parameter_bindings == {"board": "rpi6"}
+    assert [action.action_id for action in config.base_actions] == ["copy"]
+    assert config.base_actions[0].parameters[0].global_name == "board"
+    assert shortcut.is_shortcut
+    assert shortcut.base_action_id == "copy"
+    assert shortcut.env["TASK_ACTION_PARAM_BOARD"] == "rpi6"
+    assert shortcut.env["TASK_ACTION_PARAM_BOARD_HOST"] == "10.13.64.243"
+
+
+def test_gtk_action_ui_string_ids_support_language_fallback() -> None:
+    assert gtk_ui_module._ui_string("ru", "action.parameters") == "Параметры"
+    assert gtk_ui_module._ui_string("ru", "console.ai_agent") == "ИИ агент"
+    assert gtk_ui_module._ui_string("ru", "console.shell") == "терминал"
+    assert gtk_ui_module._ui_string("missing", "action.parameters") == "Parameters"
+    assert gtk_ui_module._ui_string("ru", "action.add_value", set_name="boards") == "Добавить boards"
+
+
+def test_gtk_json_reorder_helpers_move_actions_parameters_and_shortcuts() -> None:
+    data: dict[str, object] = {
+        "actions": [
+            {"id": "full"},
+            {
+                "id": "copy",
+                "parameters": [
+                    {"name": "board"},
+                    {"name": "source"},
+                    {"name": "target"},
+                ],
+            },
+        ],
+        "shortcuts": [
+            {"id": "copy-a"},
+            {"id": "copy-b"},
+        ],
+        "global_parameters": {
+            "board": {"value": "rpi5"},
+            "image": {"value": "full_ufs_gz"},
+        },
+    }
+
+    actions = data["actions"]
+    shortcuts = data["shortcuts"]
+    globals_data = data["global_parameters"]
+    assert isinstance(actions, list)
+    assert isinstance(shortcuts, list)
+    assert isinstance(globals_data, dict)
+
+    assert gtk_ui_module._move_json_list_entry(actions, "id", "copy", -1)
+    assert [entry["id"] for entry in actions if isinstance(entry, dict)] == ["copy", "full"]
+    assert gtk_ui_module._move_json_list_entry_before(actions, "id", "full", "copy")
+    assert [entry["id"] for entry in actions if isinstance(entry, dict)] == ["full", "copy"]
+
+    assert gtk_ui_module._move_action_parameter_entry(data, "copy", "target", -1)
+    copy_action = next(entry for entry in actions if isinstance(entry, dict) and entry.get("id") == "copy")
+    assert isinstance(copy_action, dict)
+    parameters = copy_action["parameters"]
+    assert isinstance(parameters, list)
+    assert [entry["name"] for entry in parameters if isinstance(entry, dict)] == ["board", "target", "source"]
+
+    assert gtk_ui_module._move_json_list_entry(shortcuts, "id", "copy-a", 1)
+    assert [entry["id"] for entry in shortcuts if isinstance(entry, dict)] == ["copy-b", "copy-a"]
+
+    assert gtk_ui_module._move_json_mapping_entry(globals_data, "image", -1)
+    assert list(globals_data) == ["image", "board"]
+    assert gtk_ui_module._reorder_json_mapping_by_ids(globals_data, ["board", "image"])
+    assert list(globals_data) == ["board", "image"]
+    assert not gtk_ui_module._reorder_json_mapping_by_ids(globals_data, ["board", "image"])
+
+    preview_order = ["full", "copy", "clean"]
+    assert gtk_ui_module._move_id_before(preview_order, "clean", "copy")
+    assert preview_order == ["full", "clean", "copy"]
+    assert gtk_ui_module._move_id_relative(preview_order, "full", "clean", after=True)
+    assert preview_order == ["clean", "full", "copy"]
+    assert not gtk_ui_module._move_id_relative(preview_order, "clean", "full", after=False)
+    assert preview_order == ["clean", "full", "copy"]
+    assert not gtk_ui_module._move_id_relative(preview_order, "copy", "full", after=True)
+    assert preview_order == ["clean", "full", "copy"]
+    assert gtk_ui_module._reorder_json_list_by_ids(actions, "id", ["copy", "full"])
+    assert [entry["id"] for entry in actions if isinstance(entry, dict)] == ["copy", "full"]
+    assert gtk_ui_module._reorder_action_parameter_entries(data, "copy", ["source", "target", "board"])
+    copy_action = next(entry for entry in actions if isinstance(entry, dict) and entry.get("id") == "copy")
+    assert isinstance(copy_action, dict)
+    reordered_parameters = copy_action["parameters"]
+    assert isinstance(reordered_parameters, list)
+    assert [entry["name"] for entry in reordered_parameters if isinstance(entry, dict)] == ["source", "target", "board"]
+    shortcut_entries: list[object] = [
+        {"id": "other-a"},
+        {"id": "copy-a"},
+        {"id": "copy-b"},
+        {"id": "other-b"},
+    ]
+    assert gtk_ui_module._reorder_json_list_subset_by_ids(shortcut_entries, "id", ["copy-b", "copy-a"])
+    assert [entry["id"] for entry in shortcut_entries if isinstance(entry, dict)] == [
+        "other-a",
+        "copy-b",
+        "copy-a",
+        "other-b",
+    ]
+
+
+def test_gtk_task_action_drag_reorder_sequence_moves_one_slot_at_a_time() -> None:
+    order = ["full", "copy", "clean", "webcam"]
+
+    assert gtk_ui_module._move_id_relative(order, "full", "copy", after=True)
+    assert order == ["copy", "full", "clean", "webcam"]
+    assert gtk_ui_module._move_id_relative(order, "full", "clean", after=True)
+    assert order == ["copy", "clean", "full", "webcam"]
+    assert gtk_ui_module._move_id_relative(order, "full", "webcam", after=True)
+    assert order == ["copy", "clean", "webcam", "full"]
+
+    assert gtk_ui_module._move_id_relative(order, "full", "webcam", after=False)
+    assert order == ["copy", "clean", "full", "webcam"]
+    assert gtk_ui_module._move_id_relative(order, "full", "clean", after=False)
+    assert order == ["copy", "full", "clean", "webcam"]
+
+
+def test_gtk_task_reorder_edges_do_not_oscillate_after_swap() -> None:
+    centers = {
+        "copy": 100.0,
+        "clean": 200.0,
+    }
+    order = ["full", "copy", "clean"]
+
+    next_order = gtk_ui_module._task_reorder_order_for_drag_edges(
+        order,
+        "full",
+        centers,
+        dragged_left=61.0,
+        dragged_right=101.0,
+        moving_right=True,
+    )
+    assert next_order == ["copy", "full", "clean"]
+
+    assert (
+        gtk_ui_module._task_reorder_order_for_drag_edges(
+            next_order,
+            "full",
+            centers,
+            dragged_left=61.0,
+            dragged_right=101.0,
+            moving_right=True,
+        )
+        is None
+    )
+    assert (
+        gtk_ui_module._task_reorder_order_for_drag_edges(
+            next_order,
+            "full",
+            centers,
+            dragged_left=101.0,
+            dragged_right=141.0,
+            moving_right=False,
+        )
+        is None
+    )
+    assert gtk_ui_module._task_reorder_order_for_drag_edges(
+        next_order,
+        "full",
+        centers,
+        dragged_left=99.0,
+        dragged_right=139.0,
+        moving_right=False,
+    ) == ["full", "copy", "clean"]
+
+
+def test_gtk_task_action_drag_selection_uses_custom_target_payload() -> None:
+    selection = FakeGtkDragSelection()
+
+    gtk_set_task_action_drag_selection(selection, "parameter:source")
+
+    assert selection.data == b"parameter:source"
+    assert gtk_task_action_drag_selection_id(selection) == "parameter:source"
 
 
 def test_load_task_actions_rejects_escaping_cwd(tmp_path: Path) -> None:

@@ -54,6 +54,26 @@ Task actions are declared by writing `TASK_ACTIONS.json` at the task root. The
 GUI watches that file and refreshes its action buttons when it changes.
 Task actions launched from the GUI set `PAF_HIDE_TASK_ENV=1`, so PAF does not
 dump the full parameter environment into the task console.
+Actions may also declare task-local `parameter_types`, `parameter_sets`,
+`global_parameters`, and `shortcuts`. A base action owns the command, parameter
+types own reusable field structures, parameter sets own reusable values such as
+board IPs or image paths, and shortcuts are user-facing buttons that bind a
+base action to a frequently used parameter combination. Action parameters
+reference a reusable type with `{"name": "...", "type": "..."}`; the type
+declares the backing parameter set via `{"set": "...", "fields": {...}}`.
+Parameters that should be shared across actions add `"global": "<name>"`, and
+the selected value lives under top-level `global_parameters`. The GTK UI shows
+only the shortcuts for the currently selected base action; global parameters
+are rendered separately and affect every action that opts into the same global
+parameter. Actions, action parameters, global parameters, and per-action
+shortcuts can be reordered from their context menus.
+Built-in field types are `string`, `file`, and `folder`; custom enum field
+types are declared under `field_types` with `{"type": "enum", "values": [...]}`.
+Enum fields render as combo boxes. File and folder fields render as editable
+paths with a GUI browse button.
+New action GUI labels should use string IDs in `UI_STRINGS` instead of inline
+literals, with English as the fallback language and Russian/Ukrainian entries
+added for visible text.
 
 Built-in action buttons call `python -m agent_tools.tools.agent_workspace.actions`
 instead of keeping the action implementation in the already-running GUI

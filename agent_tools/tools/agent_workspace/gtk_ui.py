@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from collections.abc import Iterator
 from dataclasses import dataclass
 from datetime import datetime
@@ -30,6 +31,8 @@ from .core import AGENT_STATUS_MANUAL_MENU_LABEL
 from .core import AGENT_STATUS_MANUAL_TITLE
 from .core import AgentModelSettings
 from .core import TaskAction
+from .core import TaskActionParameter
+from .core import TaskActionsConfig
 from .core import TaskSummary
 from .core import AGENT_WORKSPACE_AGENTS
 from .core import AGENT_WORKSPACE_CLAUDE_MODELS
@@ -51,12 +54,15 @@ from .core import agent_workspace_runtime_settings
 from .core import install_agent_workspace_exception_logger
 from .core import agent_output_state_update
 from .core import build_ai_agent_console_command
+from .core import bind_task_action_parameters
 from .core import clear_task_agent_session
 from .core import clear_task_active_agent_run
 from .core import codex_model_choices
 from .core import discover_tasks
 from .core import load_task_agent
 from .core import load_task_actions
+from .core import load_task_actions_config
+from .core import load_task_actions_data
 from .core import load_agent_workspace_settings
 from .core import model_choices_with_current
 from .core import new_agent_session_id
@@ -66,6 +72,7 @@ from .core import read_task_file
 from .core import render_markdown_chunks
 from .core import reset_task_agent_session
 from .core import save_agent_workspace_settings
+from .core import save_task_actions_data
 from .core import save_task_active_agent_run
 from .core import save_task_agent
 from .core import save_task_agent_session
@@ -374,6 +381,59 @@ TRANSLATIONS = {
     },
 }
 
+UI_STRINGS = {
+    "actions.group": {"en": "Actions", "ru": "Actions", "uk": "Actions"},
+    "action.global_parameters": {"en": "Global parameters", "ru": "Глобальные параметры", "uk": "Глобальні параметри"},
+    "action.parameters": {"en": "Parameters", "ru": "Параметры", "uk": "Параметри"},
+    "action.shortcuts": {"en": "Shortcuts", "ru": "Шорткаты", "uk": "Шорткати"},
+    "action.no_parameters": {"en": "No parameters", "ru": "Нет параметров", "uk": "Немає параметрів"},
+    "action.no_values": {"en": "No values", "ru": "Нет значений", "uk": "Немає значень"},
+    "action.shortcut_tooltip": {"en": "Shortcut", "ru": "Шорткат", "uk": "Шорткат"},
+    "action.play_tooltip": {
+        "en": "Click once to arm, click again to run",
+        "ru": "Один клик взводит запуск, второй запускает",
+        "uk": "Один клік готує запуск, другий запускає",
+    },
+    "action.save_shortcut": {
+        "en": "Save selected as shortcut",
+        "ru": "Сохранить выбранное как шорткат",
+        "uk": "Зберегти вибране як шорткат",
+    },
+    "action.configure": {"en": "Configure", "ru": "Настроить", "uk": "Налаштувати"},
+    "action.run": {"en": "Run", "ru": "Запустить", "uk": "Запустити"},
+    "action.open_actions_file": {"en": f"Open {TASK_ACTIONS_FILE}", "ru": f"Открыть {TASK_ACTIONS_FILE}", "uk": f"Відкрити {TASK_ACTIONS_FILE}"},
+    "action.edit": {"en": "Edit", "ru": "Редактировать", "uk": "Редагувати"},
+    "action.delete_shortcut": {"en": "Delete shortcut", "ru": "Удалить шорткат", "uk": "Видалити шорткат"},
+    "action.reorder_actions": {"en": "Reorder by drag", "ru": "Переставлять мышкой", "uk": "Переставляти мишкою"},
+    "action.stop_reorder_actions": {"en": "Stop reorder", "ru": "Закончить перестановку", "uk": "Завершити перестановку"},
+    "action.move_left": {"en": "Move left", "ru": "Сдвинуть влево", "uk": "Посунути вліво"},
+    "action.move_right": {"en": "Move right", "ru": "Сдвинуть вправо", "uk": "Посунути вправо"},
+    "action.add_value": {"en": "Add {set_name}", "ru": "Добавить {set_name}", "uk": "Додати {set_name}"},
+    "action.duplicate_value": {"en": "Duplicate {value}", "ru": "Отпочковать {value}", "uk": "Відгалузити {value}"},
+    "action.edit_value": {"en": "Edit {value}", "ru": "Редактировать {value}", "uk": "Редагувати {value}"},
+    "action.delete_value": {"en": "Delete {value}", "ru": "Удалить {value}", "uk": "Видалити {value}"},
+    "action.save_shortcut_title": {"en": "Save shortcut", "ru": "Сохранить шорткат", "uk": "Зберегти шорткат"},
+    "action.browse": {"en": "Browse", "ru": "Выбрать", "uk": "Вибрати"},
+    "action.choose_folder": {"en": "Choose folder", "ru": "Выбрать папку", "uk": "Вибрати теку"},
+    "action.choose_file": {"en": "Choose file", "ru": "Выбрать файл", "uk": "Вибрати файл"},
+    "action.cannot_open_code": {"en": "Cannot open action code", "ru": "Не удалось открыть код action", "uk": "Не вдалося відкрити код action"},
+    "action.cannot_save_code": {"en": "Cannot save action code", "ru": "Не удалось сохранить код action", "uk": "Не вдалося зберегти код action"},
+    "console.ai_agent": {"en": "AI agent", "ru": "ИИ агент", "uk": "ШІ агент"},
+    "console.shell": {"en": "shell", "ru": "терминал", "uk": "термінал"},
+}
+
+_TASK_ACTION_DRAG_TARGET = "application/x-agent-workspace-task-action"
+_TASK_REORDER_FRAME_DELAY_MS = 16
+
+
+def _ui_string(language: str, key: str, **kwargs: object) -> str:
+    translations = UI_STRINGS.get(key)
+    if translations is None:
+        return key.format(**kwargs) if kwargs else key
+    text = translations.get(language) or translations.get("en") or key
+    return text.format(**kwargs) if kwargs else text
+
+
 CODEX_LANGUAGE_INSTRUCTIONS = {
     "en": "Reply to the user in English.",
     "ru": "Отвечай пользователю на русском языке.",
@@ -393,8 +453,6 @@ _TASK_ACTIONS_MONITOR_EVENTS = {
     )
     if event is not None
 }
-
-_ARTIFACT_MONITOR_EVENTS = _TASK_ACTIONS_MONITOR_EVENTS
 
 _LOG_SUFFIXES = {".log"}
 AGENT_BUSY_IDLE_DELAY_MS = 1800
@@ -436,13 +494,18 @@ class WorkspaceGtkGui:
         self.tasks: list[TaskSummary] = []
         self.selected_task: TaskSummary | None = None
         self.task_actions: list[TaskAction] = []
+        self.task_base_actions: list[TaskAction] = []
+        self.task_shortcuts: list[TaskAction] = []
+        self.task_action_config: TaskActionsConfig | None = None
+        self.selected_task_action: TaskAction | None = None
+        self.selected_task_action_bindings: dict[str, str] = {}
+        self.task_action_buttons: dict[str, Gtk.Button] = {}
+        self.global_task_parameter_box: Gtk.FlowBox | None = None
         self.task_action_errors: list[str] = []
         self.status_message = ""
         self.task_actions_signature: tuple[Path | None, int | None] = (None, None)
         self.task_actions_monitor: Gio.FileMonitor | None = None
         self.task_actions_monitor_path: Path | None = None
-        self.artifact_monitors: list[Gio.FileMonitor] = []
-        self.artifact_monitor_path: Path | None = None
         self.artifact_sort_column = "name"
         self.artifact_sort_descending = False
         self.task_agent_session_marker_cache: dict[Path, tuple[str, ...]] = {}
@@ -474,6 +537,23 @@ class WorkspaceGtkGui:
         self.detail_editing: dict[Gtk.TextView, bool] = {}
         self.detail_original_text: dict[Gtk.TextView, str] = {}
         self.detail_filenames: dict[Gtk.TextView, str] = {}
+        self.ai_agent_page: Gtk.Box | None = None
+        self.ai_agent_tab_label: Gtk.Label | None = None
+        self.ai_agent_terminal_box: Gtk.Box | None = None
+        self.ai_agent_placeholder: Gtk.Label | None = None
+        self.actions_controls_box: Gtk.Box | None = None
+        self.task_reorder_group: str | None = None
+        self.task_action_drag_source_id: str | None = None
+        self.task_action_drag_pointer_offset_x: float | None = None
+        self.task_action_drag_source_width: int = 1
+        self.task_action_drag_last_box_x: float | None = None
+        self.task_action_drag_icon: Gtk.Widget | None = None
+        self.task_action_reorder_preview: list[str] | None = None
+        self.task_action_reorder_committed = False
+        self.task_reorder_sort_source_id: int | None = None
+        self.task_reorder_pending_sort_groups: set[str] = set()
+        self.task_action_run_tokens: dict[str, int] = {}
+        self.task_action_reorder_mode = False
 
         GLib.set_application_name("Agent Workspace")
         GLib.set_prgname("agent-workspace")
@@ -602,39 +682,139 @@ class WorkspaceGtkGui:
         self.notebook.append_page(scrolled, self.artifacts_tab_label)
 
     def _add_actions_tab(self) -> None:
-        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=3)
+        box.set_border_width(3)
+        box.get_style_context().add_class("actions-panel")
         self.actions_page = box
         self.actions_tab_label = Gtk.Label(label=self._tr("actions"))
         self.notebook.append_page(box, self.actions_tab_label)
 
-        action_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
-        box.pack_start(action_row, False, False, 0)
-        action_row.pack_start(self._button("run_task_check", self.run_selected_task_check), False, False, 0)
-        self.task_actions_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
-        action_row.pack_start(self.task_actions_box, False, False, 0)
+        actions_pane = Gtk.Paned(orientation=Gtk.Orientation.VERTICAL)
+        actions_pane.set_wide_handle(True)
+        box.pack_start(actions_pane, True, True, 0)
+
+        controls_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=3)
+        controls_box.set_border_width(0)
+        self.actions_controls_box = controls_box
+        controls_scrolled = Gtk.ScrolledWindow()
+        controls_scrolled.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+        controls_scrolled.set_overlay_scrolling(False)
+        controls_scrolled.add(controls_box)
+        actions_pane.pack1(controls_scrolled, resize=False, shrink=True)
+        actions_pane.connect("notify::position", self._on_actions_pane_position_changed)
+
+        top_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=3)
+        top_row.set_border_width(0)
+        controls_box.pack_start(top_row, False, False, 0)
+
+        self.task_actions_box = self._add_framed_action_group(top_row, self._s("actions.group"), expand=True)
+        self.task_actions_box.set_sort_func(self._task_action_flow_sort)
+        self._connect_task_reorder_box(self.task_actions_box, "action")
+
+        parameter_frame = Gtk.Frame(label=self._s("action.parameters"))
+        controls_box.pack_start(parameter_frame, False, False, 0)
+        parameter_content = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
+        parameter_content.set_border_width(2)
+        parameter_frame.add(parameter_content)
+        self.task_action_parameter_box = _flow_box()
+        self.task_action_parameter_box.set_sort_func(self._task_parameter_flow_sort)
+        self._connect_task_reorder_box(self.task_action_parameter_box, "parameter")
+        parameter_content.pack_start(self.task_action_parameter_box, True, True, 0)
+
+        shortcuts_frame = Gtk.Frame(label=self._s("action.shortcuts"))
+        controls_box.pack_start(shortcuts_frame, False, False, 0)
+        shortcuts_content = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=3)
+        shortcuts_content.set_border_width(2)
+        shortcuts_frame.add(shortcuts_content)
+        self.task_shortcuts_box = _flow_box(border_width=2)
+        self.task_shortcuts_box.set_sort_func(self._task_shortcut_flow_sort)
+        self._connect_task_reorder_box(self.task_shortcuts_box, "shortcut")
+        shortcuts_content.pack_start(self.task_shortcuts_box, True, True, 0)
+        self.save_task_shortcut_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=2)
+        shortcuts_content.pack_end(self.save_task_shortcut_box, False, False, 0)
+
+        global_parameter_frame = Gtk.Frame(label=self._s("action.global_parameters"))
+        controls_box.pack_start(global_parameter_frame, False, False, 0)
+        global_parameter_content = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=3)
+        global_parameter_content.set_border_width(2)
+        global_parameter_frame.add(global_parameter_content)
+        self.global_task_parameter_box = _flow_box()
+        self.global_task_parameter_box.set_sort_func(self._global_task_parameter_flow_sort)
+        self._connect_task_reorder_box(self.global_task_parameter_box, "global_parameter")
+        global_parameter_content.pack_start(self.global_task_parameter_box, True, True, 0)
+
         self.actions_message = Gtk.Label(label="")
         self.actions_message.set_xalign(0)
-        box.pack_start(self.actions_message, False, False, 0)
-
-        codex_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
-        box.pack_start(codex_row, False, False, 0)
-        self.agent_combo = Gtk.ComboBoxText()
-        for agent in AGENT_WORKSPACE_AGENTS:
-            self.agent_combo.append_text(agent)
-        self.agent_combo.set_active(AGENT_WORKSPACE_AGENTS.index(self.default_agent))
-        self.agent_combo.connect("changed", self._on_agent_selected)
-        codex_row.pack_start(self.agent_combo, False, False, 0)
-        self.run_ai_agent_button = self._button("run_ai_agent", self.run_ai_agent_console)
-        self.run_ai_agent_button.set_hexpand(True)
-        codex_row.pack_start(self.run_ai_agent_button, True, True, 0)
-        self.reset_ai_agent_button = self._button("reset_ai_agent_session", self.reset_ai_agent_session)
-        codex_row.pack_start(self.reset_ai_agent_button, False, False, 0)
+        controls_box.pack_start(self.actions_message, False, False, 0)
 
         self.console_notebook = Gtk.Notebook()
         self.console_notebook.add_events(Gdk.EventMask.BUTTON_PRESS_MASK)
         self.console_notebook.connect("button-press-event", self._on_console_notebook_button_press)
         self.console_notebook.connect("switch-page", self._on_console_notebook_switch_page)
-        box.pack_start(self.console_notebook, True, True, 0)
+        actions_pane.pack2(self.console_notebook, resize=True, shrink=False)
+        actions_pane.set_position(210)
+        self._on_actions_pane_position_changed(actions_pane, None)
+        self._ensure_ai_agent_console_page()
+
+    def _on_actions_pane_position_changed(self, pane: Gtk.Paned, _param: object | None) -> None:
+        if self.actions_controls_box is None:
+            return
+        position = pane.get_position()
+        opacity = max(0.0, min(1.0, position / 90.0))
+        self.actions_controls_box.set_opacity(opacity)
+
+    def _ensure_ai_agent_console_page(self) -> None:
+        if self.ai_agent_page is None:
+            page = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
+            control_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=3)
+            control_row.set_border_width(2)
+            page.pack_start(control_row, False, False, 0)
+            self.agent_combo = Gtk.ComboBoxText()
+            for agent in AGENT_WORKSPACE_AGENTS:
+                self.agent_combo.append_text(agent)
+            self.agent_combo.set_active(AGENT_WORKSPACE_AGENTS.index(self.default_agent))
+            self.agent_combo.connect("changed", self._on_agent_selected)
+            control_row.pack_start(self.agent_combo, False, False, 0)
+            self.run_ai_agent_button = self._button("run_ai_agent", self.run_ai_agent_console)
+            self.run_ai_agent_button.set_hexpand(True)
+            control_row.pack_start(self.run_ai_agent_button, True, True, 0)
+            self.reset_ai_agent_button = self._button("reset_ai_agent_session", self.reset_ai_agent_session)
+            control_row.pack_start(self.reset_ai_agent_button, False, False, 0)
+            self.ai_agent_terminal_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
+            self.ai_agent_placeholder = Gtk.Label(label="")
+            self.ai_agent_placeholder.set_xalign(0)
+            self.ai_agent_terminal_box.pack_start(self.ai_agent_placeholder, True, True, 0)
+            page.pack_start(self.ai_agent_terminal_box, True, True, 0)
+            self.ai_agent_page = page
+        if self.console_notebook.page_num(self.ai_agent_page) < 0:
+            self.ai_agent_tab_label = Gtk.Label(label=self._s("console.ai_agent"))
+            self.console_notebook.insert_page(self.ai_agent_page, self.ai_agent_tab_label, 0)
+        self.ai_agent_page.show_all()
+
+    def _set_ai_agent_terminal_page(self, page: Gtk.Widget) -> None:
+        if self.ai_agent_terminal_box is None:
+            return
+        for child in list(self.ai_agent_terminal_box.get_children()):
+            self.ai_agent_terminal_box.remove(child)
+        self.ai_agent_terminal_box.pack_start(page, True, True, 0)
+        self.ai_agent_terminal_box.show_all()
+
+    def _clear_ai_agent_terminal_page(self) -> None:
+        if self.ai_agent_terminal_box is None:
+            return
+        for child in list(self.ai_agent_terminal_box.get_children()):
+            self.ai_agent_terminal_box.remove(child)
+        self.ai_agent_placeholder = Gtk.Label(label="")
+        self.ai_agent_placeholder.set_xalign(0)
+        self.ai_agent_terminal_box.pack_start(self.ai_agent_placeholder, True, True, 0)
+        self.ai_agent_terminal_box.show_all()
+
+    def _add_framed_action_group(self, parent: Gtk.Box, title: str, *, expand: bool) -> Gtk.FlowBox:
+        frame = Gtk.Frame(label=title)
+        parent.pack_start(frame, expand, expand, 0)
+        content = _flow_box(border_width=2)
+        frame.add(content)
+        return content
 
     def refresh_tasks(self, *_args: object) -> None:
         selected_name = self.selected_task.name if self.selected_task is not None else None
@@ -668,12 +848,9 @@ class WorkspaceGtkGui:
         self._reset_actions()
         self._watch_task_actions(self.selected_task)
         if self._artifacts_tab_active():
-            self._watch_task_artifacts(self.selected_task)
             self._load_task_artifacts(self.selected_task)
         else:
             self.artifact_store.clear()
-            self._clear_artifact_monitors()
-            self.artifact_monitor_path = None
         self._load_task_action_buttons()
         self._set_selected_agent(
             task_agent_selection_with_resumable_fallback(
@@ -738,7 +915,6 @@ class WorkspaceGtkGui:
             self._load_task_action_buttons()
             self._ensure_default_console_for_selected_task()
         elif page is self.artifacts_page and self.selected_task is not None:
-            self._watch_task_artifacts(self.selected_task)
             self._load_task_artifacts(self.selected_task)
 
     def _load_task_artifacts(self, task: TaskSummary) -> None:
@@ -760,6 +936,10 @@ class WorkspaceGtkGui:
                 [entry.path.name, rel_path, entry.path, False, _artifact_updated_label(entry.updated)],
             )
         self.artifact_view.expand_all()
+
+    def _refresh_selected_task_artifacts(self, *_args: object) -> None:
+        if self.selected_task is not None:
+            self._load_task_artifacts(self.selected_task)
 
     def _set_artifact_sort(self, sort_column: str) -> None:
         if self.artifact_sort_column == sort_column:
@@ -834,6 +1014,11 @@ class WorkspaceGtkGui:
             open_folder_item.connect("activate", lambda *_: open_containing_folder(selectable_artifact))
             menu.append(open_folder_item)
             menu.append(Gtk.SeparatorMenuItem())
+        refresh_item = Gtk.MenuItem(label=self._tr("refresh"))
+        refresh_item.connect("activate", self._refresh_selected_task_artifacts)
+        refresh_item.set_sensitive(task is not None)
+        menu.append(refresh_item)
+        menu.append(Gtk.SeparatorMenuItem())
         if action == "artifact":
             item = Gtk.MenuItem(label=self._tr("delete_artifact"))
             item.connect("activate", lambda *_: self._delete_artifacts(artifact_path=artifact_path))
@@ -887,41 +1072,6 @@ class WorkspaceGtkGui:
         response = dialog.run()
         dialog.destroy()
         return response == Gtk.ResponseType.OK
-
-    def _watch_task_artifacts(self, task: TaskSummary, *, force: bool = False) -> None:
-        if not force and self.artifact_monitor_path == task.path:
-            return
-        self._clear_artifact_monitors()
-        self.artifact_monitor_path = task.path
-        for path in _artifact_monitor_dirs(task):
-            try:
-                monitor = Gio.File.new_for_path(str(path)).monitor_directory(
-                    Gio.FileMonitorFlags.NONE,
-                    None,
-                )
-            except GLib.Error:
-                continue
-            monitor.connect("changed", self._on_task_artifact_dir_changed)
-            self.artifact_monitors.append(monitor)
-
-    def _clear_artifact_monitors(self) -> None:
-        for monitor in self.artifact_monitors:
-            monitor.cancel()
-        self.artifact_monitors = []
-
-    def _on_task_artifact_dir_changed(
-        self,
-        _monitor: Gio.FileMonitor,
-        _file: Gio.File,
-        _other_file: Gio.File | None,
-        event_type: Gio.FileMonitorEvent,
-    ) -> None:
-        if event_type not in _ARTIFACT_MONITOR_EVENTS:
-            return
-        task = self.selected_task
-        if task is not None:
-            self._watch_task_artifacts(task, force=True)
-            self._load_task_artifacts(task)
 
     def _on_task_view_button_press(self, tree: Gtk.TreeView, event: Gdk.EventButton) -> bool:
         if event.button != 3:
@@ -1121,6 +1271,7 @@ class WorkspaceGtkGui:
         )
         dialog.add_button(self._tr("cancel"), Gtk.ResponseType.CANCEL)
         dialog.add_button(self._tr("ok"), Gtk.ResponseType.OK)
+        dialog.set_default_response(Gtk.ResponseType.OK)
         content = dialog.get_content_area()
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
         box.set_border_width(12)
@@ -1128,6 +1279,7 @@ class WorkspaceGtkGui:
         label = Gtk.Label(label=self._tr("task_name"))
         label.set_xalign(0)
         entry = Gtk.Entry()
+        entry.set_activates_default(True)
         box.pack_start(label, False, False, 0)
         box.pack_start(entry, False, False, 0)
 
@@ -1381,34 +1533,1145 @@ class WorkspaceGtkGui:
             self.notebook.set_current_page(0)
             self._send_command_to_task_terminal(task, task_action_shell_command(action))
 
+    def select_custom_task_action(self, action: TaskAction) -> None:
+        self.selected_task_action = action
+        self.selected_task_action_bindings = dict(action.bindings or {})
+        self._update_task_action_button_selection()
+        self._render_task_action_parameters()
+
     def _reset_actions(self) -> None:
         self.task_actions = []
+        self.task_base_actions = []
+        self.task_shortcuts = []
+        self.task_action_config = None
+        self.selected_task_action = None
+        self.selected_task_action_bindings = {}
+        self.task_action_buttons = {}
         self._clear_task_action_buttons()
+        self._clear_task_action_parameters()
         self._update_actions_message()
 
     def _clear_task_action_buttons(self) -> None:
         for child in self.task_actions_box.get_children():
             self.task_actions_box.remove(child)
+        if self.global_task_parameter_box is not None:
+            for child in self.global_task_parameter_box.get_children():
+                self.global_task_parameter_box.remove(child)
+        for child in self.task_shortcuts_box.get_children():
+            self.task_shortcuts_box.remove(child)
+        for child in self.save_task_shortcut_box.get_children():
+            self.save_task_shortcut_box.remove(child)
+
+    def _clear_task_action_parameters(self) -> None:
+        for child in self.task_action_parameter_box.get_children():
+            self.task_action_parameter_box.remove(child)
+        for child in self.save_task_shortcut_box.get_children():
+            self.save_task_shortcut_box.remove(child)
 
     def _load_task_action_buttons(self) -> None:
         task = self._require_task(show_dialog=False)
         if task is None:
             self.task_actions_signature = (None, None)
             return
-        actions, errors = load_task_actions(task)
+        selected_action_id = self.selected_task_action.action_id if self.selected_task_action is not None else None
+        selected_bindings = dict(self.selected_task_action_bindings)
+        config = load_task_actions_config(task)
         self._clear_task_action_buttons()
-        self.task_actions = actions
+        self._clear_task_action_parameters()
+        self.task_action_config = config
+        self.task_actions = config.actions
+        self.task_base_actions = config.base_actions
+        self.task_shortcuts = [action for action in config.actions if action.is_shortcut]
+        self.task_action_buttons = {}
         self.task_actions_signature = _task_actions_signature(task)
-        self.task_action_errors = errors
+        self.task_action_errors = config.errors
         self._update_actions_message()
-        for action in actions:
-            self.task_actions_box.pack_start(
-                _button(action.label, lambda _button, item=action: self.run_custom_task_action(item)),
-                False,
-                False,
-                0,
+        for action in self.task_base_actions:
+            _flow_box_add(self.task_actions_box, self._task_action_button(action, shortcut=False))
+        self._render_global_task_parameters()
+        selected_action = next(
+            (action for action in self.task_base_actions if action.action_id == selected_action_id),
+            self.task_base_actions[0] if self.task_base_actions else None,
+        )
+        if selected_action is not None:
+            self.selected_task_action = selected_action
+            parameter_names = {parameter.name for parameter in selected_action.parameters}
+            self.selected_task_action_bindings = dict(selected_action.bindings or {})
+            self.selected_task_action_bindings.update(
+                {
+                    name: value
+                    for name, value in selected_bindings.items()
+                    if name in parameter_names
+                }
             )
+            self._update_task_action_button_selection()
+            self._render_task_action_parameters()
+        else:
+            self.selected_task_action = None
+            self.selected_task_action_bindings = {}
         self.task_actions_box.show_all()
+        if self.global_task_parameter_box is not None:
+            self.global_task_parameter_box.show_all()
+        self.task_shortcuts_box.show_all()
+        self.task_action_parameter_box.show_all()
+
+    def _task_action_button(self, action: TaskAction, *, shortcut: bool) -> Gtk.Widget:
+        button = _compact_button(action.label, lambda _button, item=action: self._on_task_action_clicked(item))
+        button.add_events(Gdk.EventMask.BUTTON_PRESS_MASK)
+        if shortcut:
+            button.set_tooltip_text(self._s("action.shortcut_tooltip"))
+            button.connect("button-press-event", self._on_task_shortcut_button_press, action)
+            return button
+        button.connect("button-press-event", self._on_task_action_button_press, action)
+        self.task_action_buttons[action.action_id] = button
+        row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=1)
+        row.pack_start(button, True, True, 0)
+        play = Gtk.Button.new_from_icon_name("media-playback-start-symbolic", Gtk.IconSize.MENU)
+        play.set_relief(Gtk.ReliefStyle.NONE)
+        play.set_focus_on_click(False)
+        play.set_tooltip_text(self._s("action.play_tooltip"))
+        play.add_events(Gdk.EventMask.BUTTON_PRESS_MASK)
+        play.connect("clicked", self._on_task_action_play_clicked, action)
+        play.connect("button-press-event", self._on_task_action_play_button_press, action)
+        row.pack_start(play, False, False, 0)
+        row.show_all()
+        event_box = Gtk.EventBox()
+        event_box.set_visible_window(False)
+        setattr(event_box, "_task_reorder_id", action.action_id)
+        event_box.add(row)
+        if self.task_action_reorder_mode:
+            event_box.add_events(Gdk.EventMask.BUTTON_PRESS_MASK)
+            event_box.connect("button-press-event", self._on_task_reorder_button_press, action.action_id)
+            button.connect("button-press-event", self._on_task_reorder_button_press, action.action_id)
+            target = Gtk.TargetEntry.new(_TASK_ACTION_DRAG_TARGET, Gtk.TargetFlags.SAME_APP, 0)
+            for source_widget in (event_box, button):
+                source_widget.drag_source_set(Gdk.ModifierType.BUTTON1_MASK, [target], Gdk.DragAction.MOVE)
+                source_widget.connect("drag-begin", self._on_task_reorder_drag_begin, "action", action.action_id, action.label)
+                source_widget.connect("drag-end", self._on_task_reorder_drag_end)
+                source_widget.connect("drag-data-get", self._on_task_reorder_drag_data_get, "action", action.action_id)
+            event_box.get_style_context().add_class("task-action-reorder")
+        return event_box
+
+    def _task_action_flow_sort(self, child_a: Gtk.FlowBoxChild, child_b: Gtk.FlowBoxChild) -> int:
+        return self._task_reorder_flow_sort("action", self._task_action_order(), child_a, child_b)
+
+    def _task_parameter_flow_sort(self, child_a: Gtk.FlowBoxChild, child_b: Gtk.FlowBoxChild) -> int:
+        return self._task_reorder_flow_sort("parameter", self._task_parameter_order(), child_a, child_b)
+
+    def _global_task_parameter_flow_sort(self, child_a: Gtk.FlowBoxChild, child_b: Gtk.FlowBoxChild) -> int:
+        return self._task_reorder_flow_sort("global_parameter", self._global_task_parameter_order(), child_a, child_b)
+
+    def _task_shortcut_flow_sort(self, child_a: Gtk.FlowBoxChild, child_b: Gtk.FlowBoxChild) -> int:
+        return self._task_reorder_flow_sort("shortcut", self._task_shortcut_order(), child_a, child_b)
+
+    def _task_reorder_flow_sort(
+        self,
+        group: str,
+        default_order: list[str],
+        child_a: Gtk.FlowBoxChild,
+        child_b: Gtk.FlowBoxChild,
+    ) -> int:
+        order = self.task_action_reorder_preview if self.task_reorder_group == group else default_order
+        order = order or default_order
+        index = {item_id: position for position, item_id in enumerate(order)}
+        item_a = getattr(child_a.get_child(), "_task_reorder_id", "")
+        item_b = getattr(child_b.get_child(), "_task_reorder_id", "")
+        return index.get(item_a, len(index)) - index.get(item_b, len(index))
+
+    def _task_action_order(self) -> list[str]:
+        return [action.action_id for action in self.task_base_actions]
+
+    def _task_parameter_order(self) -> list[str]:
+        action = self.selected_task_action
+        if action is None:
+            return []
+        return [parameter.name for parameter in action.parameters if not parameter.global_name]
+
+    def _global_task_parameter_order(self) -> list[str]:
+        return [parameter.global_name for parameter in self._global_task_parameters() if parameter.global_name]
+
+    def _task_shortcut_order(self) -> list[str]:
+        action = self.selected_task_action
+        if action is None:
+            return []
+        return [shortcut.action_id for shortcut in self._shortcuts_for_action(action)]
+
+    def _task_reorderable_widget(self, widget: Gtk.Widget, *, group: str, item_id: str, label: str) -> Gtk.Widget:
+        event_box = Gtk.EventBox()
+        event_box.set_visible_window(False)
+        setattr(event_box, "_task_reorder_id", item_id)
+        event_box.add(widget)
+        if not self.task_action_reorder_mode:
+            return event_box
+        event_box.add_events(Gdk.EventMask.BUTTON_PRESS_MASK)
+        event_box.connect("button-press-event", self._on_task_reorder_button_press, item_id)
+        widget.connect("button-press-event", self._on_task_reorder_button_press, item_id)
+        target = Gtk.TargetEntry.new(_TASK_ACTION_DRAG_TARGET, Gtk.TargetFlags.SAME_APP, 0)
+        for source_widget in (event_box, widget):
+            source_widget.drag_source_set(Gdk.ModifierType.BUTTON1_MASK, [target], Gdk.DragAction.MOVE)
+            source_widget.connect("drag-begin", self._on_task_reorder_drag_begin, group, item_id, label)
+            source_widget.connect("drag-end", self._on_task_reorder_drag_end)
+            source_widget.connect("drag-data-get", self._on_task_reorder_drag_data_get, group, item_id)
+        event_box.get_style_context().add_class("task-action-reorder")
+        return event_box
+
+    def _connect_task_reorder_box(self, box: Gtk.FlowBox, group: str) -> None:
+        target = Gtk.TargetEntry.new(_TASK_ACTION_DRAG_TARGET, Gtk.TargetFlags.SAME_APP, 0)
+        box.drag_dest_set(Gtk.DestDefaults.DROP, [target], Gdk.DragAction.MOVE)
+        box.connect("drag-motion", self._on_task_reorder_box_drag_motion, group)
+        box.connect("drag-leave", self._on_task_reorder_drag_leave)
+        box.connect("drag-data-received", self._on_task_reorder_box_drag_data_received, group)
+
+    def _update_task_action_button_selection(self) -> None:
+        selected_id = self.selected_task_action.action_id if self.selected_task_action is not None else None
+        for action_id, button in self.task_action_buttons.items():
+            context = button.get_style_context()
+            if action_id == selected_id:
+                context.add_class("task-action-selected")
+            else:
+                context.remove_class("task-action-selected")
+
+    def _on_task_action_clicked(self, action: TaskAction) -> None:
+        if action.is_shortcut:
+            self.run_custom_task_action(action)
+            return
+        self.select_custom_task_action(action)
+
+    def _on_task_action_button_press(
+        self,
+        button: Gtk.Button,
+        event: Gdk.EventButton,
+        action: TaskAction,
+    ) -> bool:
+        if event.type == Gdk.EventType.BUTTON_PRESS and event.button in {2, 3}:
+            self._task_action_context_menu(action).popup_at_widget(
+                button,
+                Gdk.Gravity.SOUTH_WEST,
+                Gdk.Gravity.NORTH_WEST,
+                event,
+            )
+            return True
+        return False
+
+    def _on_task_reorder_button_press(
+        self,
+        widget: Gtk.Widget,
+        event: Gdk.EventButton,
+        item_id: str,
+    ) -> bool:
+        if event.type == Gdk.EventType.BUTTON_PRESS and event.button == 1:
+            self.task_action_drag_source_id = item_id
+            self.task_action_drag_pointer_offset_x = float(event.x)
+            self.task_action_drag_source_width = max(1, widget.get_allocated_width())
+        return False
+
+    def _on_task_reorder_drag_begin(
+        self,
+        widget: Gtk.Widget,
+        context: Gdk.DragContext,
+        group: str,
+        item_id: str,
+        label: str,
+    ) -> None:
+        self.task_reorder_group = group
+        self.task_action_drag_source_id = item_id
+        self.task_action_drag_last_box_x = None
+        self.task_action_drag_source_width = max(1, widget.get_allocated_width())
+        if self.task_action_drag_pointer_offset_x is None:
+            self.task_action_drag_pointer_offset_x = self.task_action_drag_source_width / 2
+        self.task_action_reorder_preview = self._task_reorder_order(group)
+        self.task_action_reorder_committed = False
+        self.task_action_drag_icon = _task_action_drag_icon(label)
+        Gtk.drag_set_icon_widget(context, self.task_action_drag_icon, 18, 14)
+        widget.set_opacity(0.45)
+        widget.get_style_context().add_class("task-action-dragging")
+
+    def _on_task_reorder_drag_end(self, widget: Gtk.Widget, _context: Gdk.DragContext) -> None:
+        widget.set_opacity(1.0)
+        widget.get_style_context().remove_class("task-action-dragging")
+        self._clear_task_reorder_highlights()
+        if self.task_action_drag_icon is not None:
+            self.task_action_drag_icon.destroy()
+            self.task_action_drag_icon = None
+        if self.task_action_reorder_preview is not None and not self.task_action_reorder_committed:
+            self.task_action_reorder_preview = None
+            self._task_reorder_invalidate_sort()
+        self.task_reorder_group = None
+        self.task_action_drag_source_id = None
+        self.task_action_drag_pointer_offset_x = None
+        self.task_action_drag_source_width = 1
+        self.task_action_drag_last_box_x = None
+        self.task_action_reorder_preview = None
+        self.task_action_reorder_committed = False
+
+    def _on_task_reorder_drag_leave(
+        self,
+        widget: Gtk.Widget,
+        _context: Gdk.DragContext,
+        _time: int,
+    ) -> None:
+        return
+
+    def _on_task_reorder_box_drag_motion(
+        self,
+        box: Gtk.FlowBox,
+        context: Gdk.DragContext,
+        x: int,
+        y: int,
+        time: int,
+        group: str,
+    ) -> bool:
+        source_id = self.task_action_drag_source_id
+        if self.task_reorder_group != group or not source_id:
+            return False
+        if self.task_action_reorder_preview is None:
+            self.task_action_reorder_preview = self._task_reorder_order(group)
+        last_x = self.task_action_drag_last_box_x
+        self.task_action_drag_last_box_x = float(x)
+        if last_x is None:
+            Gdk.drag_status(context, Gdk.DragAction.MOVE, time)
+            return True
+        offset = self.task_action_drag_pointer_offset_x
+        if offset is None:
+            offset = self.task_action_drag_source_width / 2
+        dragged_left = x - offset
+        dragged_right = dragged_left + self.task_action_drag_source_width
+        next_order = _task_reorder_order_for_drag_edges(
+            self.task_action_reorder_preview,
+            source_id,
+            self._task_reorder_box_target_centers(box, y),
+            dragged_left=dragged_left,
+            dragged_right=dragged_right,
+            moving_right=x >= last_x,
+        )
+        if next_order is not None:
+            self.task_action_reorder_preview = next_order
+            self._task_reorder_invalidate_sort()
+        Gdk.drag_status(context, Gdk.DragAction.MOVE, time)
+        return True
+
+    def _task_reorder_box_target_centers(self, box: Gtk.FlowBox, y: int) -> dict[str, float]:
+        rows: list[tuple[float, dict[str, float]]] = []
+        for child in box.get_children():
+            widget = child.get_child()
+            item_id = getattr(widget, "_task_reorder_id", "")
+            if not item_id or item_id == self.task_action_drag_source_id:
+                continue
+            allocation = child.get_allocation()
+            center_y = allocation.y + allocation.height / 2
+            row = next((entry for entry in rows if abs(entry[0] - center_y) <= max(1, allocation.height / 2)), None)
+            if row is None:
+                row = (center_y, {})
+                rows.append(row)
+            row[1][item_id] = allocation.x + allocation.width / 2
+        if not rows:
+            return {}
+        _row_y, centers = min(rows, key=lambda row: abs(y - row[0]))
+        return centers
+
+    def _clear_task_reorder_highlights(self) -> None:
+        for box in (
+            self.task_actions_box,
+            self.task_action_parameter_box,
+            self.global_task_parameter_box,
+            self.task_shortcuts_box,
+        ):
+            if box is not None:
+                _remove_style_class_recursive(box, "task-action-dragging")
+                _set_widget_opacity_recursive(box, 1.0)
+
+    def _on_task_reorder_drag_data_get(
+        self,
+        _button: Gtk.Button,
+        _context: Gdk.DragContext,
+        selection: Gtk.SelectionData,
+        _info: int,
+        _time: int,
+        group: str,
+        item_id: str,
+    ) -> None:
+        _set_task_action_drag_selection(selection, f"{group}:{item_id}")
+
+    def _on_task_reorder_drag_data_received(
+        self,
+        _button: Gtk.Button,
+        _context: Gdk.DragContext,
+        _x: int,
+        _y: int,
+        selection: Gtk.SelectionData,
+        _info: int,
+        _time: int,
+        group: str,
+        target_id: str,
+    ) -> None:
+        payload = _task_action_drag_selection_id(selection)
+        source_group, _, source_id = payload.partition(":")
+        if source_group != group:
+            return
+        if source_id and source_id != target_id:
+            if self.task_action_reorder_preview is None:
+                self.task_action_reorder_preview = self._task_reorder_order(group)
+                _move_id_relative(self.task_action_reorder_preview, source_id, target_id, after=False)
+            self._save_task_reorder_order(group, self.task_action_reorder_preview)
+            self.task_action_reorder_committed = True
+
+    def _on_task_reorder_box_drag_data_received(
+        self,
+        _box: Gtk.FlowBox,
+        _context: Gdk.DragContext,
+        _x: int,
+        _y: int,
+        selection: Gtk.SelectionData,
+        _info: int,
+        _time: int,
+        group: str,
+    ) -> None:
+        payload = _task_action_drag_selection_id(selection)
+        source_group, _, _source_id = payload.partition(":")
+        if source_group != group or self.task_action_reorder_preview is None:
+            return
+        self._save_task_reorder_order(group, self.task_action_reorder_preview)
+        self.task_action_reorder_committed = True
+
+    def _on_task_action_play_clicked(self, button: Gtk.Button, action: TaskAction) -> None:
+        token = self.task_action_run_tokens.get(action.action_id)
+        if token is not None:
+            self.task_action_run_tokens.pop(action.action_id, None)
+            self._set_task_action_play_state(button, armed=False, fired=True)
+            self._run_task_action_with_current_bindings(action)
+            GLib.timeout_add(180, self._clear_task_action_play_flash, button)
+            return
+        token = self.task_action_run_tokens.get(action.action_id, 0) + 1
+        self.task_action_run_tokens[action.action_id] = token
+        self._set_task_action_play_state(button, armed=True, fired=False)
+        GLib.timeout_add(500, self._disarm_task_action_play_button, action.action_id, token, button)
+
+    def _on_task_action_play_button_press(
+        self,
+        button: Gtk.Button,
+        event: Gdk.EventButton,
+        action: TaskAction,
+    ) -> bool:
+        if event.type == Gdk.EventType.BUTTON_PRESS and event.button in {2, 3}:
+            self._task_action_context_menu(action).popup_at_widget(
+                button,
+                Gdk.Gravity.SOUTH_WEST,
+                Gdk.Gravity.NORTH_WEST,
+                event,
+            )
+            return True
+        return False
+
+    def _disarm_task_action_play_button(self, action_id: str, token: int, button: Gtk.Button) -> bool:
+        if self.task_action_run_tokens.get(action_id) == token:
+            self.task_action_run_tokens.pop(action_id, None)
+            self._set_task_action_play_state(button, armed=False, fired=False)
+        return False
+
+    def _clear_task_action_play_flash(self, button: Gtk.Button) -> bool:
+        self._set_task_action_play_state(button, armed=False, fired=False)
+        return False
+
+    def _set_task_action_play_state(self, button: Gtk.Button, *, armed: bool, fired: bool) -> None:
+        context = button.get_style_context()
+        if armed:
+            context.add_class("task-action-run-armed")
+        else:
+            context.remove_class("task-action-run-armed")
+        if fired:
+            context.add_class("task-action-run-fired")
+        else:
+            context.remove_class("task-action-run-fired")
+
+    def _on_task_shortcut_button_press(
+        self,
+        button: Gtk.Button,
+        event: Gdk.EventButton,
+        action: TaskAction,
+    ) -> bool:
+        if event.type == Gdk.EventType.BUTTON_PRESS and event.button in {2, 3}:
+            self._task_shortcut_context_menu(action).popup_at_widget(
+                button,
+                Gdk.Gravity.SOUTH_WEST,
+                Gdk.Gravity.NORTH_WEST,
+                event,
+            )
+            return True
+        return False
+
+    def _render_global_task_parameters(self) -> None:
+        if self.global_task_parameter_box is None:
+            return
+        for child in self.global_task_parameter_box.get_children():
+            self.global_task_parameter_box.remove(child)
+        for parameter in self._global_task_parameters():
+            button = _compact_button(self._parameter_button_label(parameter), None, max_width_chars=18)
+            button.add_events(Gdk.EventMask.BUTTON_PRESS_MASK)
+            button.connect("clicked", self._on_task_parameter_clicked, parameter)
+            button.connect("button-press-event", self._on_task_parameter_button_press, parameter)
+            item_id = parameter.global_name or parameter.name
+            _flow_box_add(
+                self.global_task_parameter_box,
+                self._task_reorderable_widget(
+                    button,
+                    group="global_parameter",
+                    item_id=item_id,
+                    label=self._parameter_button_label(parameter),
+                ),
+            )
+        self.global_task_parameter_box.show_all()
+
+    def _global_task_parameters(self) -> list[TaskActionParameter]:
+        parameters: list[TaskActionParameter] = []
+        seen: set[str] = set()
+        for action in self.task_base_actions:
+            for parameter in action.parameters:
+                if parameter.global_name and parameter.global_name not in seen:
+                    parameters.append(parameter)
+                    seen.add(parameter.global_name)
+        if self.task_action_config is not None:
+            order = {name: index for index, name in enumerate(self.task_action_config.global_parameter_bindings)}
+            parameters.sort(key=lambda parameter: order.get(parameter.global_name or "", len(order)))
+        return parameters
+
+    def _render_task_action_parameters(self) -> None:
+        self._clear_task_action_parameters()
+        for child in self.task_shortcuts_box.get_children():
+            self.task_shortcuts_box.remove(child)
+        action = self.selected_task_action
+        if action is None:
+            self.task_action_parameter_box.show_all()
+            return
+        local_parameters = [parameter for parameter in action.parameters if not parameter.global_name]
+        if not local_parameters:
+            no_parameters = Gtk.Label(label=self._s("action.no_parameters"))
+            no_parameters.set_margin_start(4)
+            _flow_box_add(self.task_action_parameter_box, no_parameters)
+        for parameter in local_parameters:
+            button = _compact_button(self._parameter_button_label(parameter), None, max_width_chars=18)
+            button.add_events(Gdk.EventMask.BUTTON_PRESS_MASK)
+            button.connect("clicked", self._on_task_parameter_clicked, parameter)
+            button.connect("button-press-event", self._on_task_parameter_button_press, parameter)
+            _flow_box_add(
+                self.task_action_parameter_box,
+                self._task_reorderable_widget(
+                    button,
+                    group="parameter",
+                    item_id=parameter.name,
+                    label=self._parameter_button_label(parameter),
+                ),
+            )
+        for shortcut in self._shortcuts_for_action(action):
+            shortcut_button = self._task_action_button(shortcut, shortcut=True)
+            _flow_box_add(
+                self.task_shortcuts_box,
+                self._task_reorderable_widget(
+                    shortcut_button,
+                    group="shortcut",
+                    item_id=shortcut.action_id,
+                    label=shortcut.label,
+                ),
+            )
+        shortcut_button = _compact_button(self._s("action.save_shortcut"), None, max_width_chars=24)
+        shortcut_button.connect("clicked", lambda _button: self._save_selected_action_as_shortcut())
+        self.save_task_shortcut_box.pack_start(shortcut_button, False, False, 0)
+        self.task_action_parameter_box.show_all()
+        self.task_shortcuts_box.show_all()
+        self.save_task_shortcut_box.show_all()
+
+    def _shortcuts_for_action(self, action: TaskAction) -> list[TaskAction]:
+        return [
+            shortcut
+            for shortcut in self.task_shortcuts
+            if shortcut.base_action_id == (action.base_action_id or action.action_id)
+        ]
+
+    def _parameter_button_label(self, parameter: TaskActionParameter) -> str:
+        selected = self._selected_parameter_value(parameter)
+        config = self.task_action_config
+        values = config.parameter_sets.get(parameter.set_name, {}) if config is not None else {}
+        label = values.get(selected, {}).get("name") or values.get(selected, {}).get("label", selected)
+        return f"{parameter.label}: {label}"
+
+    def _selected_parameter_value(self, parameter: TaskActionParameter) -> str:
+        config = self.task_action_config
+        if parameter.global_name and config is not None:
+            selected = config.global_parameter_bindings.get(parameter.global_name)
+            if selected:
+                return selected
+        return self.selected_task_action_bindings.get(parameter.name) or parameter.default
+
+    def _on_task_parameter_clicked(self, button: Gtk.Button, parameter: TaskActionParameter) -> None:
+        menu = Gtk.Menu()
+        values = self._parameter_values(parameter)
+        if not values:
+            item = Gtk.MenuItem(label=self._s("action.no_values"))
+            item.set_sensitive(False)
+            menu.append(item)
+        for value_id, fields in values.items():
+            label = fields.get("label", value_id)
+            item = Gtk.MenuItem(label=label)
+            item.connect("activate", lambda _item, selected=value_id: self._select_task_parameter(parameter, selected))
+            menu.append(item)
+        menu.show_all()
+        menu.popup_at_widget(button, Gdk.Gravity.SOUTH_WEST, Gdk.Gravity.NORTH_WEST, None)
+
+    def _on_task_parameter_button_press(
+        self,
+        button: Gtk.Button,
+        event: Gdk.EventButton,
+        parameter: TaskActionParameter,
+    ) -> bool:
+        if event.type == Gdk.EventType.BUTTON_PRESS and event.button in {2, 3}:
+            self._task_parameter_context_menu(parameter).popup_at_widget(
+                button,
+                Gdk.Gravity.SOUTH_WEST,
+                Gdk.Gravity.NORTH_WEST,
+                event,
+            )
+            return True
+        return False
+
+    def _select_task_parameter(self, parameter: TaskActionParameter, selected: str) -> None:
+        if parameter.global_name:
+            self._select_global_task_parameter(parameter, selected)
+            return
+        self.selected_task_action_bindings[parameter.name] = selected
+        self._render_task_action_parameters()
+        self._update_task_action_button_selection()
+
+    def _select_global_task_parameter(self, parameter: TaskActionParameter, selected: str) -> None:
+        task = self._require_task(show_dialog=False)
+        if task is None or not parameter.global_name:
+            return
+        data, errors = load_task_actions_data(task)
+        if errors:
+            self.task_action_errors = errors
+            self._update_actions_message()
+            return
+        globals_data = data.setdefault("global_parameters", {})
+        if isinstance(globals_data, dict):
+            definition = globals_data.get(parameter.global_name)
+            if isinstance(definition, dict):
+                definition["value"] = selected
+            else:
+                globals_data[parameter.global_name] = {
+                    "label": parameter.label,
+                    "type": parameter.parameter_type,
+                    "value": selected,
+                }
+            save_task_actions_data(task, data)
+        self._load_task_action_buttons()
+
+    def _run_selected_task_action(self) -> None:
+        action = self.selected_task_action
+        if action is not None:
+            self._run_task_action_with_current_bindings(action)
+
+    def _run_task_action_with_current_bindings(self, action: TaskAction) -> None:
+        config = self.task_action_config
+        if config is None:
+            return
+        selected_id = self.selected_task_action.action_id if self.selected_task_action is not None else None
+        bindings = self.selected_task_action_bindings if selected_id == action.action_id else dict(action.bindings or {})
+        bound = bind_task_action_parameters(action, config.parameter_sets, bindings, config.global_parameter_bindings)
+        self.run_custom_task_action(bound)
+
+    def _parameter_values(self, parameter: TaskActionParameter) -> dict[str, dict[str, str]]:
+        config = self.task_action_config
+        if config is None:
+            return {}
+        return config.parameter_sets.get(parameter.set_name, {})
+
+    def _task_parameter_context_menu(self, parameter: TaskActionParameter) -> Gtk.Menu:
+        menu = Gtk.Menu()
+        selected = self._selected_parameter_value(parameter)
+        add_item = Gtk.MenuItem(label=self._s("action.add_value", set_name=parameter.set_name))
+        add_item.connect("activate", lambda _item: self._edit_parameter_set_value(parameter, None, None))
+        duplicate_item = Gtk.MenuItem(label=self._s("action.duplicate_value", value=selected))
+        duplicate_item.connect(
+            "activate",
+            lambda _item: self._edit_parameter_set_value(
+                parameter,
+                None,
+                self._parameter_values(parameter).get(selected, {}),
+            ),
+        )
+        edit_item = Gtk.MenuItem(label=self._s("action.edit_value", value=selected))
+        edit_item.connect(
+            "activate",
+            lambda _item: self._edit_parameter_set_value(
+                parameter,
+                selected,
+                self._parameter_values(parameter).get(selected, {}),
+            ),
+        )
+        delete_item = Gtk.MenuItem(label=self._s("action.delete_value", value=selected))
+        delete_item.connect("activate", lambda _item: self._delete_parameter_set_value(parameter, selected))
+        reorder_key = "action.stop_reorder_actions" if self.task_action_reorder_mode else "action.reorder_actions"
+        reorder_item = Gtk.MenuItem(label=self._s(reorder_key))
+        reorder_item.connect("activate", lambda _item: self._set_task_action_reorder_mode(not self.task_action_reorder_mode))
+        menu.append(add_item)
+        menu.append(duplicate_item)
+        menu.append(edit_item)
+        menu.append(delete_item)
+        menu.append(Gtk.SeparatorMenuItem())
+        menu.append(reorder_item)
+        menu.show_all()
+        return menu
+
+    def _task_action_context_menu(self, action: TaskAction) -> Gtk.Menu:
+        task = self._require_task(show_dialog=False)
+        actions_file = task.path / TASK_ACTIONS_FILE if task is not None else None
+        code_path = self._task_action_code_path(action)
+        menu = Gtk.Menu()
+        run_item = Gtk.MenuItem(label=self._s("action.run"))
+        run_item.connect("activate", lambda _item: self._run_task_action_with_current_bindings(action))
+        open_item = Gtk.MenuItem(label=self._s("action.open_actions_file"))
+        if actions_file is not None:
+            open_item.connect("activate", lambda _item, path=actions_file: open_text_file(path))
+        else:
+            open_item.set_sensitive(False)
+        edit_item = Gtk.MenuItem(label=self._s("action.edit"))
+        if code_path is not None:
+            edit_item.connect("activate", lambda _item, path=code_path: self._edit_action_code_file(path))
+        else:
+            edit_item.set_sensitive(False)
+        reorder_key = "action.stop_reorder_actions" if self.task_action_reorder_mode else "action.reorder_actions"
+        reorder_item = Gtk.MenuItem(label=self._s(reorder_key))
+        reorder_item.connect("activate", lambda _item: self._set_task_action_reorder_mode(not self.task_action_reorder_mode))
+        menu.append(run_item)
+        menu.append(open_item)
+        menu.append(edit_item)
+        menu.append(Gtk.SeparatorMenuItem())
+        menu.append(reorder_item)
+        menu.show_all()
+        return menu
+
+    def _task_action_code_path(self, action: TaskAction) -> Path | None:
+        command = action.command
+        if isinstance(command, str):
+            try:
+                tokens = shlex.split(command)
+            except ValueError:
+                return None
+        else:
+            tokens = list(command)
+        if not tokens:
+            return None
+        script_index = 1 if tokens[0] in {"bash", "sh", "python", "python3"} and len(tokens) > 1 else 0
+        candidate = Path(tokens[script_index])
+        if not candidate.is_absolute():
+            candidate = action.cwd / candidate
+        candidate = candidate.resolve()
+        try:
+            candidate.relative_to(action.cwd.resolve())
+        except ValueError:
+            return None
+        return candidate if candidate.is_file() else None
+
+    def _edit_action_code_file(self, path: Path) -> None:
+        try:
+            open_text_file(path)
+        except OSError as error:
+            self._show_error(self._s("action.cannot_open_code"), str(error))
+
+    def _task_shortcut_context_menu(self, action: TaskAction) -> Gtk.Menu:
+        menu = Gtk.Menu()
+        run_item = Gtk.MenuItem(label=self._s("action.run"))
+        run_item.connect("activate", lambda _item: self.run_custom_task_action(action))
+        delete_item = Gtk.MenuItem(label=self._s("action.delete_shortcut"))
+        delete_item.connect("activate", lambda _item: self._delete_task_shortcut(action))
+        reorder_key = "action.stop_reorder_actions" if self.task_action_reorder_mode else "action.reorder_actions"
+        reorder_item = Gtk.MenuItem(label=self._s(reorder_key))
+        reorder_item.connect("activate", lambda _item: self._set_task_action_reorder_mode(not self.task_action_reorder_mode))
+        menu.append(run_item)
+        menu.append(delete_item)
+        menu.append(Gtk.SeparatorMenuItem())
+        menu.append(reorder_item)
+        menu.show_all()
+        return menu
+
+    def _move_task_action(self, action: TaskAction, offset: int) -> None:
+        task = self._require_task(show_dialog=False)
+        if task is None:
+            return
+        data, errors = load_task_actions_data(task)
+        if errors:
+            self.task_action_errors = errors
+            self._update_actions_message()
+            return
+        actions = data.get("actions")
+        if isinstance(actions, list) and _move_json_list_entry(actions, "id", action.action_id, offset):
+            save_task_actions_data(task, data)
+            self._load_task_action_buttons()
+
+    def _move_task_action_before(self, source_id: str, target_id: str) -> None:
+        task = self._require_task(show_dialog=False)
+        if task is None:
+            return
+        data, errors = load_task_actions_data(task)
+        if errors:
+            self.task_action_errors = errors
+            self._update_actions_message()
+            return
+        actions = data.get("actions")
+        if isinstance(actions, list) and _move_json_list_entry_before(actions, "id", source_id, target_id):
+            save_task_actions_data(task, data)
+            self._load_task_action_buttons()
+
+    def _save_task_action_order(self, order: list[str]) -> None:
+        task = self._require_task(show_dialog=False)
+        if task is None:
+            return
+        data, errors = load_task_actions_data(task)
+        if errors:
+            self.task_action_errors = errors
+            self._update_actions_message()
+            return
+        actions = data.get("actions")
+        if isinstance(actions, list) and _reorder_json_list_by_ids(actions, "id", order):
+            save_task_actions_data(task, data)
+            self._load_task_action_buttons()
+
+    def _task_reorder_order(self, group: str) -> list[str]:
+        if group == "action":
+            return self._task_action_order()
+        if group == "parameter":
+            return self._task_parameter_order()
+        if group == "global_parameter":
+            return self._global_task_parameter_order()
+        if group == "shortcut":
+            return self._task_shortcut_order()
+        return []
+
+    def _task_reorder_invalidate_sort(self) -> None:
+        group = self.task_reorder_group
+        if not group:
+            return
+        self.task_reorder_pending_sort_groups.add(group)
+        if self.task_reorder_sort_source_id is None:
+            self.task_reorder_sort_source_id = GLib.timeout_add(
+                _TASK_REORDER_FRAME_DELAY_MS,
+                self._flush_task_reorder_sort,
+            )
+
+    def _flush_task_reorder_sort(self) -> bool:
+        groups = set(self.task_reorder_pending_sort_groups)
+        self.task_reorder_pending_sort_groups.clear()
+        self.task_reorder_sort_source_id = None
+        for group in groups:
+            self._invalidate_task_reorder_group_sort(group)
+        return False
+
+    def _invalidate_task_reorder_group_sort(self, group: str) -> None:
+        if group == "action":
+            self.task_actions_box.invalidate_sort()
+        elif group == "parameter":
+            self.task_action_parameter_box.invalidate_sort()
+        elif group == "global_parameter" and self.global_task_parameter_box is not None:
+            self.global_task_parameter_box.invalidate_sort()
+        elif group == "shortcut":
+            self.task_shortcuts_box.invalidate_sort()
+
+    def _save_task_reorder_order(self, group: str, order: list[str]) -> None:
+        if group == "action":
+            self._save_task_action_order(order)
+        elif group == "parameter":
+            self._save_task_parameter_order(order)
+        elif group == "global_parameter":
+            self._save_global_task_parameter_order(order)
+        elif group == "shortcut":
+            self._save_task_shortcut_order(order)
+
+    def _save_task_shortcut_order(self, order: list[str]) -> None:
+        task = self._require_task(show_dialog=False)
+        if task is None:
+            return
+        data, errors = load_task_actions_data(task)
+        if errors:
+            self.task_action_errors = errors
+            self._update_actions_message()
+            return
+        shortcuts = data.get("shortcuts")
+        if isinstance(shortcuts, list) and _reorder_json_list_subset_by_ids(shortcuts, "id", order):
+            save_task_actions_data(task, data)
+            self._load_task_action_buttons()
+
+    def _save_task_parameter_order(self, order: list[str]) -> None:
+        action = self.selected_task_action
+        task = self._require_task(show_dialog=False)
+        if action is None or task is None:
+            return
+        data, errors = load_task_actions_data(task)
+        if errors:
+            self.task_action_errors = errors
+            self._update_actions_message()
+            return
+        if _reorder_action_parameter_entries(data, action.action_id, order):
+            save_task_actions_data(task, data)
+            self._load_task_action_buttons()
+
+    def _save_global_task_parameter_order(self, order: list[str]) -> None:
+        task = self._require_task(show_dialog=False)
+        if task is None:
+            return
+        data, errors = load_task_actions_data(task)
+        if errors:
+            self.task_action_errors = errors
+            self._update_actions_message()
+            return
+        global_parameters = data.get("global_parameters")
+        if isinstance(global_parameters, dict) and _reorder_json_mapping_by_ids(global_parameters, order):
+            save_task_actions_data(task, data)
+            self._load_task_action_buttons()
+
+    def _set_task_action_reorder_mode(self, enabled: bool) -> None:
+        self.task_action_reorder_mode = enabled
+        self._load_task_action_buttons()
+
+    def _move_task_shortcut(self, action: TaskAction, offset: int) -> None:
+        task = self._require_task(show_dialog=False)
+        if task is None:
+            return
+        data, errors = load_task_actions_data(task)
+        if errors:
+            self.task_action_errors = errors
+            self._update_actions_message()
+            return
+        shortcuts = data.get("shortcuts")
+        if isinstance(shortcuts, list) and _move_json_list_entry(shortcuts, "id", action.action_id, offset):
+            save_task_actions_data(task, data)
+            self._load_task_action_buttons()
+
+    def _move_task_parameter(self, parameter: TaskActionParameter, offset: int) -> None:
+        if parameter.global_name:
+            self._move_global_task_parameter(parameter.global_name, offset)
+            return
+        action = self.selected_task_action
+        task = self._require_task(show_dialog=False)
+        if action is None or task is None:
+            return
+        data, errors = load_task_actions_data(task)
+        if errors:
+            self.task_action_errors = errors
+            self._update_actions_message()
+            return
+        if _move_action_parameter_entry(data, action.action_id, parameter.name, offset):
+            save_task_actions_data(task, data)
+            self._load_task_action_buttons()
+
+    def _move_global_task_parameter(self, global_name: str, offset: int) -> None:
+        task = self._require_task(show_dialog=False)
+        if task is None:
+            return
+        data, errors = load_task_actions_data(task)
+        if errors:
+            self.task_action_errors = errors
+            self._update_actions_message()
+            return
+        global_parameters = data.get("global_parameters")
+        if isinstance(global_parameters, dict) and _move_json_mapping_entry(global_parameters, global_name, offset):
+            save_task_actions_data(task, data)
+            self._load_task_action_buttons()
+
+    def _edit_parameter_set_value(
+        self,
+        parameter: TaskActionParameter,
+        value_id: str | None,
+        initial: dict[str, str] | None,
+    ) -> None:
+        task = self._require_task(show_dialog=False)
+        if task is None:
+            return
+        data, errors = load_task_actions_data(task)
+        if errors:
+            self.task_action_errors = errors
+            self._update_actions_message()
+            return
+        fields = dict(initial or {})
+        dialog = Gtk.Dialog(
+            title=f"{'Edit' if value_id else 'Add'} {parameter.set_name}",
+            transient_for=self.window,
+            flags=Gtk.DialogFlags.MODAL,
+        )
+        dialog.add_button(self._tr("cancel"), Gtk.ResponseType.CANCEL)
+        dialog.add_button(self._tr("save"), Gtk.ResponseType.OK)
+        grid = Gtk.Grid(column_spacing=8, row_spacing=6)
+        grid.set_border_width(10)
+        content = dialog.get_content_area()
+        content.pack_start(grid, True, True, 0)
+        field_getters: dict[str, Callable[[], str]] = {}
+        known_fields = _parameter_type_fields(data, parameter.parameter_type) or {"name"}
+        for value in self._parameter_values(parameter).values():
+            known_fields.update(value)
+        field_names = _parameter_field_order(parameter.parameter_type, set(fields) | known_fields)
+        for row, field_name in enumerate(field_names):
+            editor, getter = self._parameter_field_editor(
+                data,
+                parameter.parameter_type,
+                field_name,
+                fields.get(field_name, ""),
+            )
+            field_getters[field_name] = getter
+            grid.attach(Gtk.Label(label=field_name), 0, row, 1, 1)
+            grid.attach(editor, 1, row, 1, 1)
+        dialog.show_all()
+        response = dialog.run()
+        if response == Gtk.ResponseType.OK:
+            name_text = field_getters.get("name", lambda: "")().strip()
+            new_id = _parameter_value_id_from_name(name_text or value_id or parameter.set_name)
+            if new_id:
+                value: dict[str, str] = {}
+                for field_name, getter in field_getters.items():
+                    text = getter()
+                    if text:
+                        value[field_name] = text
+                parameter_sets = data.setdefault("parameter_sets", {})
+                if isinstance(parameter_sets, dict):
+                    set_values = parameter_sets.setdefault(parameter.set_name, {})
+                    if isinstance(set_values, dict):
+                        if value_id != new_id:
+                            new_id = _unique_parameter_value_id(new_id, set_values)
+                        if value_id and value_id != new_id:
+                            set_values.pop(value_id, None)
+                        set_values[new_id] = value
+                        save_task_actions_data(task, data)
+                        self._load_task_action_buttons()
+        dialog.destroy()
+
+    def _parameter_field_editor(
+        self,
+        data: dict[str, object],
+        parameter_type: str,
+        field_name: str,
+        value: str,
+    ) -> tuple[Gtk.Widget, Callable[[], str]]:
+        field_type = _parameter_field_type(data, parameter_type, field_name)
+        enum_values = _field_type_enum_values(data, field_type)
+        if enum_values is not None:
+            combo = Gtk.ComboBoxText()
+            active_index = 0
+            values = enum_values if value in enum_values else [value, *enum_values] if value else enum_values
+            for index, item in enumerate(values):
+                combo.append_text(item)
+                if item == value:
+                    active_index = index
+            if values:
+                combo.set_active(active_index)
+            return combo, lambda: combo.get_active_text() or ""
+
+        if field_type in {"file", "folder"}:
+            row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
+            entry = Gtk.Entry()
+            entry.set_text(value)
+            row.pack_start(entry, True, True, 0)
+            browse = Gtk.Button(label=self._s("action.browse"))
+            browse.connect("clicked", lambda _button: self._choose_parameter_path(entry, field_type))
+            row.pack_start(browse, False, False, 0)
+            return row, lambda: entry.get_text()
+
+        entry = Gtk.Entry()
+        entry.set_text(value)
+        return entry, lambda: entry.get_text()
+
+    def _choose_parameter_path(self, entry: Gtk.Entry, field_type: str) -> None:
+        action = Gtk.FileChooserAction.SELECT_FOLDER if field_type == "folder" else Gtk.FileChooserAction.OPEN
+        dialog = Gtk.FileChooserDialog(
+            title=self._s("action.choose_folder") if field_type == "folder" else self._s("action.choose_file"),
+            transient_for=self.window,
+            action=action,
+        )
+        dialog.add_button(self._tr("cancel"), Gtk.ResponseType.CANCEL)
+        dialog.add_button(self._tr("ok"), Gtk.ResponseType.OK)
+        current = entry.get_text().strip()
+        if current:
+            current_path = Path(current).expanduser()
+            if current_path.exists():
+                if current_path.is_dir():
+                    dialog.set_current_folder(str(current_path))
+                else:
+                    dialog.set_filename(str(current_path))
+        if dialog.run() == Gtk.ResponseType.OK:
+            selected = dialog.get_filename()
+            if selected:
+                entry.set_text(selected)
+        dialog.destroy()
+
+    def _delete_parameter_set_value(self, parameter: TaskActionParameter, value_id: str) -> None:
+        task = self._require_task(show_dialog=False)
+        if task is None:
+            return
+        data, errors = load_task_actions_data(task)
+        if errors:
+            self.task_action_errors = errors
+            self._update_actions_message()
+            return
+        parameter_sets = data.get("parameter_sets")
+        if isinstance(parameter_sets, dict):
+            set_values = parameter_sets.get(parameter.set_name)
+            if isinstance(set_values, dict):
+                set_values.pop(value_id, None)
+                save_task_actions_data(task, data)
+        self._load_task_action_buttons()
+
+    def _save_selected_action_as_shortcut(self) -> None:
+        action = self.selected_task_action
+        task = self._require_task(show_dialog=False)
+        if action is None or task is None:
+            return
+        dialog = Gtk.Dialog(title=self._s("action.save_shortcut_title"), transient_for=self.window, flags=Gtk.DialogFlags.MODAL)
+        dialog.add_button(self._tr("cancel"), Gtk.ResponseType.CANCEL)
+        dialog.add_button(self._tr("save"), Gtk.ResponseType.OK)
+        grid = Gtk.Grid(column_spacing=8, row_spacing=6)
+        grid.set_border_width(10)
+        dialog.get_content_area().pack_start(grid, True, True, 0)
+        label_entry = Gtk.Entry()
+        label_entry.set_text(action.label)
+        id_entry = Gtk.Entry()
+        id_entry.set_text(_shortcut_id_from_label(action.label))
+        grid.attach(Gtk.Label(label="label"), 0, 0, 1, 1)
+        grid.attach(label_entry, 1, 0, 1, 1)
+        grid.attach(Gtk.Label(label="id"), 0, 1, 1, 1)
+        grid.attach(id_entry, 1, 1, 1, 1)
+        dialog.show_all()
+        response = dialog.run()
+        if response == Gtk.ResponseType.OK:
+            shortcut_id = id_entry.get_text().strip()
+            label = label_entry.get_text().strip()
+            if shortcut_id and label:
+                data, errors = load_task_actions_data(task)
+                if not errors:
+                    shortcuts = data.setdefault("shortcuts", [])
+                    if isinstance(shortcuts, list):
+                        shortcuts.append(
+                            {
+                                "id": shortcut_id,
+                                "label": label,
+                                "action": action.base_action_id or action.action_id,
+                                "bindings": dict(self.selected_task_action_bindings),
+                            }
+                        )
+                        save_task_actions_data(task, data)
+                        self._load_task_action_buttons()
+        dialog.destroy()
+
+    def _delete_task_shortcut(self, action: TaskAction) -> None:
+        task = self._require_task(show_dialog=False)
+        if task is None:
+            return
+        data, errors = load_task_actions_data(task)
+        if errors:
+            self.task_action_errors = errors
+            self._update_actions_message()
+            return
+        shortcuts = data.get("shortcuts")
+        if isinstance(shortcuts, list):
+            data["shortcuts"] = [
+                entry for entry in shortcuts if not (isinstance(entry, dict) and entry.get("id") == action.action_id)
+            ]
+            save_task_actions_data(task, data)
+        self._load_task_action_buttons()
 
     def _watch_task_actions(self, task: TaskSummary) -> None:
         if self.task_actions_monitor_path == task.path:
@@ -1710,6 +2973,10 @@ class WorkspaceGtkGui:
         if page_num < 0:
             return
         page = self.console_notebook.get_nth_page(page_num)
+        session = self._session_for_page(page)
+        if session is not None:
+            self._close_console_session(session)
+            return
         for session_id, session in list(self.terminal_sessions.items()):
             if session.page is page:
                 self._close_console_session(session)
@@ -1809,6 +3076,8 @@ class WorkspaceGtkGui:
         try:
             while self.console_notebook.get_n_pages() > 0:
                 self.console_notebook.remove_page(0)
+            self._ensure_ai_agent_console_page()
+            self._clear_ai_agent_terminal_page()
             self._renumber_terminal_tabs(task)
             for session in self._current_task_terminal_sessions(task):
                 self._show_terminal_tab(session, renumber=False)
@@ -1843,15 +3112,19 @@ class WorkspaceGtkGui:
             tab = self.console_notebook.get_tab_label(session.page)
             label = _terminal_tab_text_label(tab)
             if label is not None:
-                label.set_text(_terminal_tab_label(session.kind, shell_index))
+                label.set_text(_terminal_tab_label(session.kind, shell_index, language=self.language))
 
     def _show_terminal_tab(self, session: TerminalSession, *, renumber: bool = True) -> None:
+        if session_is_agent(session_kind=session.kind):
+            self._ensure_ai_agent_console_page()
+            self._set_ai_agent_terminal_page(session.page)
+            if self.console_notebook.page_num(self.ai_agent_page) >= 0:
+                self.console_notebook.set_current_page(self.console_notebook.page_num(self.ai_agent_page))
+            session.page.show_all()
+            return
         if self.console_notebook.page_num(session.page) < 0:
             tab = self._terminal_tab_widget(session)
-            if session_is_agent(session_kind=session.kind):
-                self.console_notebook.insert_page(session.page, tab, 0)
-            else:
-                self.console_notebook.append_page(session.page, tab)
+            self.console_notebook.append_page(session.page, tab)
         session.page.show_all()
         if renumber:
             self._renumber_terminal_tabs(self._task_for_path(session.task_path))
@@ -1885,6 +3158,12 @@ class WorkspaceGtkGui:
             self.console_notebook.set_current_page(page_num)
             if remember:
                 self.last_active_terminal_by_task[session.task_path] = session.session_id
+        elif session_is_agent(session_kind=session.kind) and self.ai_agent_page is not None:
+            agent_page_num = self.console_notebook.page_num(self.ai_agent_page)
+            if agent_page_num >= 0:
+                self.console_notebook.set_current_page(agent_page_num)
+                if remember:
+                    self.last_active_terminal_by_task[session.task_path] = session.session_id
         session.terminal.grab_focus()
 
     def _remember_current_console_tab(self) -> None:
@@ -1931,6 +3210,10 @@ class WorkspaceGtkGui:
         page_num = self.console_notebook.page_num(session.page)
         if page_num >= 0:
             self.console_notebook.remove_page(page_num)
+        elif session_is_agent(session_kind=session.kind) and self.ai_agent_terminal_box is not None:
+            if session.page in self.ai_agent_terminal_box.get_children():
+                self.ai_agent_terminal_box.remove(session.page)
+                self._clear_ai_agent_terminal_page()
         self.terminal_sessions.pop(session.session_id, None)
         if self.last_active_terminal_by_task.get(session.task_path) == session.session_id:
             self.last_active_terminal_by_task.pop(session.task_path, None)
@@ -2304,6 +3587,15 @@ class WorkspaceGtkGui:
         return None
 
     def _session_for_page(self, page: Gtk.Widget) -> TerminalSession | None:
+        if self.ai_agent_page is not None and page is self.ai_agent_page:
+            task = self.selected_task
+            if task is None:
+                return None
+            children = self.ai_agent_terminal_box.get_children() if self.ai_agent_terminal_box is not None else []
+            for session in self._current_task_terminal_sessions(task):
+                if session_is_agent(session_kind=session.kind) and session.page in children:
+                    return session
+            return None
         for session in self.terminal_sessions.values():
             if session.page is page:
                 return session
@@ -2420,12 +3712,17 @@ class WorkspaceGtkGui:
         self.details_tab_label.set_text(self._tr("details"))
         self.artifacts_tab_label.set_text(self._tr("artifacts"))
         self.actions_tab_label.set_text(self._tr("actions"))
+        if self.ai_agent_tab_label is not None:
+            self.ai_agent_tab_label.set_text(self._s("console.ai_agent"))
         if self.selected_task is not None and self._artifacts_tab_active():
             self._load_task_artifacts(self.selected_task)
         self._update_ai_agent_button_label()
 
     def _tr(self, key: str) -> str:
         return TRANSLATIONS.get(self.language, TRANSLATIONS["en"]).get(key, TRANSLATIONS["en"].get(key, key))
+
+    def _s(self, key: str, **kwargs: object) -> str:
+        return _ui_string(self.language, key, **kwargs)
 
     def _on_main_pane_button_press(self, _pane: Gtk.Paned, event: Gdk.EventButton) -> bool:
         if event.type == Gdk.EventType.DOUBLE_BUTTON_PRESS and _is_pane_separator_event(self.main_pane, event):
@@ -2504,6 +3801,49 @@ class WorkspaceGtkGui:
         }}
         button:hover {{
             background: {colors['control_hover_background']};
+        }}
+        .actions-panel frame {{
+            padding: 1px;
+        }}
+        .actions-panel button {{
+            padding: 1px 6px;
+            min-height: 0;
+            min-width: 0;
+        }}
+        .actions-panel flowboxchild {{
+            padding: 0;
+            margin: 0;
+        }}
+        button.task-action-selected {{
+            background: {colors['codex_running_background']};
+            color: {colors['codex_running_foreground']};
+            border-color: {colors['codex_running_border']};
+            box-shadow: 0 0 5px {colors['codex_running_glow']};
+        }}
+        button.task-action-run-armed {{
+            background: #8a6d1f;
+            color: #fff4cf;
+            border-color: #f2c94c;
+            box-shadow: 0 0 6px #f2c94c;
+        }}
+        button.task-action-run-fired {{
+            background: #1f7a3a;
+            color: #eafff0;
+            border-color: #35d06f;
+            box-shadow: 0 0 7px #35d06f;
+        }}
+        button.task-action-dragging,
+        .task-action-dragging button {{
+            background: #64501d;
+            border-color: #f2c94c;
+            box-shadow: none;
+        }}
+        button.task-action-drag-icon {{
+            background: {colors['codex_running_background']};
+            color: {colors['codex_running_foreground']};
+            border-color: #f2c94c;
+            box-shadow: 0 0 10px #f2c94c;
+            padding: 3px 10px;
         }}
         button.codex-running {{
             background: {colors['codex_running_background']};
@@ -2592,7 +3932,6 @@ class WorkspaceGtkGui:
         self._closing = True
         if self.task_actions_monitor is not None:
             self.task_actions_monitor.cancel()
-        self._clear_artifact_monitors()
         self._close_all_terminal_sessions()
         self._save_settings()
         Gtk.main_quit()
@@ -2623,6 +3962,65 @@ def _button(label: str, callback: object) -> Gtk.Button:
     return button
 
 
+def _compact_button(label: str, callback: object | None, *, max_width_chars: int = 22) -> Gtk.Button:
+    button = Gtk.Button()
+    text = Gtk.Label(label=label)
+    text.set_ellipsize(Pango.EllipsizeMode.END)
+    text.set_max_width_chars(max_width_chars)
+    text.set_width_chars(min(max_width_chars, max(4, min(len(label), max_width_chars))))
+    button.add(text)
+    button.set_tooltip_text(label)
+    button.set_size_request(-1, 26)
+    if callback is not None:
+        button.connect("clicked", callback)
+    return button
+
+
+def _flow_box(
+    *,
+    border_width: int = 0,
+    orientation: Gtk.Orientation = Gtk.Orientation.HORIZONTAL,
+    max_children_per_line: int = 24,
+) -> Gtk.FlowBox:
+    box = Gtk.FlowBox()
+    box.set_selection_mode(Gtk.SelectionMode.NONE)
+    box.set_orientation(orientation)
+    box.set_column_spacing(3)
+    box.set_row_spacing(2)
+    box.set_min_children_per_line(1)
+    box.set_max_children_per_line(max_children_per_line)
+    box.set_border_width(border_width)
+    return box
+
+
+def _flow_box_add(box: Gtk.FlowBox, widget: Gtk.Widget) -> None:
+    box.add(widget)
+
+
+def _remove_style_class_recursive(widget: Gtk.Widget, class_name: str) -> None:
+    widget.get_style_context().remove_class(class_name)
+    if isinstance(widget, Gtk.Container):
+        for child in widget.get_children():
+            _remove_style_class_recursive(child, class_name)
+
+
+def _set_widget_opacity_recursive(widget: Gtk.Widget, opacity: float) -> None:
+    widget.set_opacity(opacity)
+    if isinstance(widget, Gtk.Container):
+        for child in widget.get_children():
+            _set_widget_opacity_recursive(child, opacity)
+
+
+def _task_action_drag_icon(label: str) -> Gtk.Button:
+    button = Gtk.Button(label=label)
+    button.set_relief(Gtk.ReliefStyle.NORMAL)
+    button.set_focus_on_click(False)
+    button.get_style_context().add_class("task-action-drag-icon")
+    button.set_opacity(0.9)
+    button.show_all()
+    return button
+
+
 def _is_pane_separator_event(pane: Gtk.Paned, event: Gdk.EventButton, tolerance: int = 8) -> bool:
     position = pane.get_position()
     if pane.get_orientation() == Gtk.Orientation.HORIZONTAL:
@@ -2634,9 +4032,11 @@ def _terminal_session_sort_key(kind: str, session_id: int) -> tuple[int, int]:
     return (0 if session_is_agent(session_kind=kind) else 1, session_id)
 
 
-def _terminal_tab_label(kind: str, shell_index: int) -> str:
+def _terminal_tab_label(kind: str, shell_index: int, *, language: str = "en") -> str:
     if session_is_agent(session_kind=kind):
-        return agent_label(kind)
+        return _ui_string(language, "console.ai_agent")
+    if kind == "shell":
+        return f"{_ui_string(language, 'console.shell')} {shell_index}"
     return f"{kind} {shell_index}"
 
 
@@ -2947,18 +4347,6 @@ def _artifact_updated_label(updated: float) -> str:
     return datetime.fromtimestamp(updated).strftime("%Y-%m-%d %H:%M")
 
 
-def _artifact_monitor_dirs(task: TaskSummary) -> list[Path]:
-    roots = (task.path / "report", task.path / "report" / "diff", task.path / "report" / "puml")
-    dirs: set[Path] = set()
-    for root in roots:
-        if not root.is_dir():
-            continue
-        for current, child_dirs, _files in os.walk(root):
-            child_dirs.sort()
-            dirs.add(Path(current))
-    return sorted(dirs, key=lambda path: str(path).casefold())
-
-
 def _artifact_delete_paths(
     task: TaskSummary,
     *,
@@ -3085,6 +4473,285 @@ def _set_combo_text_choices(combo: Gtk.ComboBoxText, choices: tuple[str, ...], c
         if choice == current:
             active_index = index
     combo.set_active(active_index)
+
+
+def _shortcut_id_from_label(label: str) -> str:
+    value = label.strip().lower()
+    value = "".join(character if character.isalnum() else "-" for character in value)
+    value = "-".join(part for part in value.split("-") if part)
+    return value or "shortcut"
+
+
+def _parameter_value_id_from_name(name: str) -> str:
+    value = name.strip().lower()
+    value = "".join(character if character.isalnum() else "_" for character in value)
+    value = "_".join(part for part in value.split("_") if part)
+    return value or "value"
+
+
+def _unique_parameter_value_id(candidate: str, existing: dict[object, object]) -> str:
+    if candidate not in existing:
+        return candidate
+    index = 2
+    while f"{candidate}_{index}" in existing:
+        index += 1
+    return f"{candidate}_{index}"
+
+
+def _move_json_list_entry(entries: list[object], key_name: str, entry_id: str, offset: int) -> bool:
+    if offset == 0:
+        return False
+    for index, entry in enumerate(entries):
+        if isinstance(entry, dict) and entry.get(key_name) == entry_id:
+            new_index = index + offset
+            if new_index < 0 or new_index >= len(entries):
+                return False
+            entries[index], entries[new_index] = entries[new_index], entries[index]
+            return True
+    return False
+
+
+def _move_json_mapping_entry(mapping: dict[object, object], entry_id: str, offset: int) -> bool:
+    if offset == 0 or entry_id not in mapping:
+        return False
+    items = list(mapping.items())
+    index = next((idx for idx, (key, _value) in enumerate(items) if key == entry_id), -1)
+    new_index = index + offset
+    if index < 0 or new_index < 0 or new_index >= len(items):
+        return False
+    items[index], items[new_index] = items[new_index], items[index]
+    mapping.clear()
+    mapping.update(items)
+    return True
+
+
+def _move_json_list_entry_before(entries: list[object], key_name: str, entry_id: str, before_id: str) -> bool:
+    if entry_id == before_id:
+        return False
+    source_index = _json_list_entry_index(entries, key_name, entry_id)
+    target_index = _json_list_entry_index(entries, key_name, before_id)
+    if source_index < 0 or target_index < 0:
+        return False
+    entry = entries.pop(source_index)
+    if source_index < target_index:
+        target_index -= 1
+    entries.insert(target_index, entry)
+    return True
+
+
+def _move_id_before(entries: list[str], entry_id: str, before_id: str) -> bool:
+    return _move_id_relative(entries, entry_id, before_id, after=False)
+
+
+def _move_id_relative(entries: list[str], entry_id: str, target_id: str, *, after: bool) -> bool:
+    if entry_id == target_id:
+        return False
+    original = list(entries)
+    try:
+        source_index = entries.index(entry_id)
+        target_index = entries.index(target_id)
+    except ValueError:
+        return False
+    value = entries.pop(source_index)
+    if source_index < target_index:
+        target_index -= 1
+    if after:
+        target_index += 1
+    entries.insert(target_index, value)
+    return entries != original
+
+
+def _task_reorder_order_for_drag_edges(
+    order: list[str],
+    source_id: str,
+    target_centers: dict[str, float],
+    *,
+    dragged_left: float,
+    dragged_right: float,
+    moving_right: bool,
+) -> list[str] | None:
+    try:
+        current_slot = order.index(source_id)
+    except ValueError:
+        return None
+    remaining = [item_id for item_id in order if item_id != source_id]
+    if moving_right:
+        next_slot = sum(1 for item_id in remaining if target_centers.get(item_id, float("inf")) <= dragged_right)
+        if next_slot <= current_slot:
+            return None
+    else:
+        next_slot = sum(1 for item_id in remaining if target_centers.get(item_id, float("inf")) < dragged_left)
+        if next_slot >= current_slot:
+            return None
+    next_slot = max(0, min(next_slot, len(remaining)))
+    new_order = list(remaining)
+    new_order.insert(next_slot, source_id)
+    return new_order if new_order != order else None
+
+
+def _reorder_json_list_by_ids(entries: list[object], key_name: str, ordered_ids: list[str]) -> bool:
+    order = {entry_id: position for position, entry_id in enumerate(ordered_ids)}
+    indexed_entries = list(enumerate(entries))
+    reordered = sorted(
+        indexed_entries,
+        key=lambda item: (
+            order.get(item[1].get(key_name), len(order)) if isinstance(item[1], dict) else len(order),
+            item[0],
+        ),
+    )
+    new_entries = [entry for _index, entry in reordered]
+    if new_entries == entries:
+        return False
+    entries[:] = new_entries
+    return True
+
+
+def _reorder_json_list_subset_by_ids(entries: list[object], key_name: str, ordered_ids: list[str]) -> bool:
+    visible_ids = set(ordered_ids)
+    ordered_visible = [
+        entry
+        for entry in sorted(
+            [entry for entry in entries if isinstance(entry, dict) and entry.get(key_name) in visible_ids],
+            key=lambda entry: ordered_ids.index(entry.get(key_name)),
+        )
+    ]
+    if not ordered_visible:
+        return False
+    visible_iter = iter(ordered_visible)
+    new_entries: list[object] = []
+    for entry in entries:
+        if isinstance(entry, dict) and entry.get(key_name) in visible_ids:
+            new_entries.append(next(visible_iter))
+        else:
+            new_entries.append(entry)
+    if new_entries == entries:
+        return False
+    entries[:] = new_entries
+    return True
+
+
+def _reorder_json_mapping_by_ids(mapping: dict[object, object], ordered_ids: list[str]) -> bool:
+    order = {entry_id: position for position, entry_id in enumerate(ordered_ids)}
+    items = list(mapping.items())
+    indexed_items = list(enumerate(items))
+    reordered = [
+        item
+        for _index, item in sorted(indexed_items, key=lambda indexed: (order.get(indexed[1][0], len(order)), indexed[0]))
+    ]
+    if reordered == items:
+        return False
+    mapping.clear()
+    mapping.update(reordered)
+    return True
+
+
+def _json_list_entry_index(entries: list[object], key_name: str, entry_id: str) -> int:
+    for index, entry in enumerate(entries):
+        if isinstance(entry, dict) and entry.get(key_name) == entry_id:
+            return index
+    return -1
+
+
+def _move_action_parameter_entry(data: dict[str, object], action_id: str, parameter_name: str, offset: int) -> bool:
+    actions = data.get("actions")
+    if not isinstance(actions, list):
+        return False
+    for action in actions:
+        if not isinstance(action, dict) or action.get("id") != action_id:
+            continue
+        parameters = action.get("parameters")
+        if not isinstance(parameters, list):
+            return False
+        return _move_json_list_entry(parameters, "name", parameter_name, offset)
+    return False
+
+
+def _reorder_action_parameter_entries(data: dict[str, object], action_id: str, ordered_names: list[str]) -> bool:
+    actions = data.get("actions")
+    if not isinstance(actions, list):
+        return False
+    for action in actions:
+        if not isinstance(action, dict) or action.get("id") != action_id:
+            continue
+        parameters = action.get("parameters")
+        if not isinstance(parameters, list):
+            return False
+        return _reorder_json_list_by_ids(parameters, "name", ordered_names)
+    return False
+
+
+def _set_task_action_drag_selection(selection: object, action_id: str) -> None:
+    selection.set(selection.get_target(), 8, action_id.encode("utf-8"))
+
+
+def _task_action_drag_selection_id(selection: object) -> str:
+    data = selection.get_data()
+    if not data:
+        return ""
+    if isinstance(data, str):
+        return data.strip()
+    return bytes(data).decode("utf-8").strip()
+
+
+def _parameter_field_order(parameter_type: str, fields: set[str]) -> list[str]:
+    preferred_by_type = {
+        "board": ["name", "host", "password_file", "tftp_root", "nfs_root", "user", "deployment_folder_name"],
+        "file": ["name", "path"],
+        "local_file": ["name", "path"],
+        "remote_file": ["name", "path"],
+    }
+    preferred = preferred_by_type.get(parameter_type, ["name"])
+    ordered = [field for field in preferred if field in fields]
+    ordered.extend(sorted(field for field in fields if field not in set(ordered)))
+    return ordered
+
+
+def _parameter_type_fields(data: dict[str, object], parameter_type: str) -> set[str]:
+    parameter_types = data.get("parameter_types")
+    if not isinstance(parameter_types, dict):
+        return set()
+    definition = parameter_types.get(parameter_type)
+    if not isinstance(definition, dict):
+        return set()
+    fields = definition.get("fields")
+    if not isinstance(fields, dict):
+        return set()
+    return {field for field in fields if isinstance(field, str)}
+
+
+def _parameter_field_type(data: dict[str, object], parameter_type: str, field_name: str) -> str:
+    parameter_types = data.get("parameter_types")
+    if not isinstance(parameter_types, dict):
+        return "string"
+    definition = parameter_types.get(parameter_type)
+    if not isinstance(definition, dict):
+        return "string"
+    fields = definition.get("fields")
+    if not isinstance(fields, dict):
+        return "string"
+    field_schema = fields.get(field_name)
+    if isinstance(field_schema, str):
+        return field_schema
+    if isinstance(field_schema, dict):
+        field_type = field_schema.get("type")
+        if isinstance(field_type, str) and field_type:
+            return field_type
+    return "string"
+
+
+def _field_type_enum_values(data: dict[str, object], field_type: str) -> list[str] | None:
+    field_types = data.get("field_types")
+    if not isinstance(field_types, dict):
+        return None
+    definition = field_types.get(field_type)
+    if not isinstance(definition, dict):
+        return None
+    if definition.get("type") != "enum":
+        return None
+    values = definition.get("values")
+    if not isinstance(values, list) or not all(isinstance(value, str) for value in values):
+        return []
+    return values
 
 
 def task_check_shell_command(workspace: Path, task: TaskSummary) -> str:
@@ -3297,6 +4964,23 @@ def open_path(path: Path) -> None:
         subprocess.Popen(command)
     except OSError:
         return
+
+
+def open_text_file(path: Path) -> None:
+    editor = os.environ.get("VISUAL") or os.environ.get("EDITOR")
+    if editor:
+        try:
+            subprocess.Popen([*shlex.split(editor), str(path)])
+            return
+        except (OSError, ValueError):
+            pass
+    for executable in ("gnome-text-editor", "gedit", "kate", "code", "xdg-open"):
+        if shutil.which(executable):
+            try:
+                subprocess.Popen([executable, str(path)])
+                return
+            except OSError:
+                continue
 
 
 def open_containing_folder(path: Path) -> None:

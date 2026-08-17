@@ -43,6 +43,25 @@ def test_nested_worktree_manifests_do_not_make_task_runtime_product(tmp_path: Pa
     assert _has_check(checks, "PASS", "artifact-manifest-not-required")
 
 
+def test_task_check_uses_only_task_owned_dev_manifests(tmp_path: Path) -> None:
+    task_dir = tmp_path / "tasks" / "sample-task"
+    initialize_task_layout(task_dir, workspace=tmp_path)
+    deep_manifest = task_dir / "dev" / "large-checkout" / "nested" / "product-artifacts.yaml"
+    deep_manifest.parent.mkdir(parents=True)
+    deep_manifest.write_text("product:\nartifacts:\ndomains:\nvalidation:\n", encoding="utf-8")
+
+    checks = check_task(task_dir, workspace=tmp_path)
+
+    assert _has_check(checks, "PASS", "artifact-manifest-not-required")
+
+    shallow_manifest = task_dir / "dev" / "product-artifacts.yaml"
+    shallow_manifest.write_text("product:\nartifacts:\ndomains:\nvalidation:\n", encoding="utf-8")
+
+    checks = check_task(task_dir, workspace=tmp_path)
+
+    assert _has_check(checks, "PASS", "artifact-manifest")
+
+
 def test_missing_task_description_is_warning_for_existing_task(tmp_path: Path) -> None:
     task_dir = tmp_path / "tasks" / "sample-task"
     initialize_task_layout(task_dir, workspace=tmp_path)

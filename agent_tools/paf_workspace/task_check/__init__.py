@@ -449,7 +449,7 @@ def _check_artifact_manifests(task_dir: Path, manifests: list[Path]) -> list[Che
             Check(
                 "WARN",
                 "artifact-manifest-missing",
-                "no dev/**/product-artifacts.yaml found; required for multi-artifact runtime products",
+                "no task-owned product-artifacts.yaml found under dev/ or dev/*/",
                 str(task_dir / "dev"),
             )
         ]
@@ -478,11 +478,27 @@ def _find_artifact_manifests(task_dir: Path) -> list[Path]:
     if not dev_dir.exists():
         return []
     manifests: list[Path] = []
-    for path in dev_dir.rglob("product-artifacts.yaml"):
+    for path in _task_owned_manifest_candidates(dev_dir):
         if _is_inside_nested_repo(path, dev_dir):
             continue
-        manifests.append(path)
+        if path.is_file():
+            manifests.append(path)
     return sorted(manifests)
+
+
+def _task_owned_manifest_candidates(dev_dir: Path) -> list[Path]:
+    candidates = [dev_dir / "product-artifacts.yaml"]
+    try:
+        children = list(dev_dir.iterdir())
+    except OSError:
+        return candidates
+    for child in children:
+        if not child.is_dir():
+            continue
+        if (child / ".git").exists():
+            continue
+        candidates.append(child / "product-artifacts.yaml")
+    return candidates
 
 
 def _is_inside_nested_repo(path: Path, root: Path) -> bool:
