@@ -84,6 +84,13 @@ class ReportTocGroup:
 
 
 @dataclass(frozen=True)
+class RelationshipGraph:
+    title: str
+    nodes: tuple[dict[str, Any], ...]
+    edges: tuple[dict[str, Any], ...]
+
+
+@dataclass(frozen=True)
 class GenericReport:
     title: str
     comments: ReviewComments
@@ -94,6 +101,7 @@ class GenericReport:
     timeline: tuple[ReportTimelineItem, ...] = ()
     artifacts: tuple[ReportArtifact, ...] = ()
     toc_groups: tuple[ReportTocGroup, ...] = ()
+    relationship_graph: RelationshipGraph | None = None
 
 
 def load_report_json(report_file: Path) -> GenericReport:
@@ -122,6 +130,7 @@ def report_from_payload(
         timeline=timeline_from_payload(payload.get("timeline", [])),
         artifacts=artifacts_from_payload(payload.get("artifacts", [])),
         toc_groups=toc_groups_from_payload(payload.get("toc_groups", [])),
+        relationship_graph=relationship_graph_from_payload(payload.get("relationship_graph")),
     )
 
 
@@ -146,6 +155,8 @@ def render_report_json_html(report: GenericReport) -> str:
         parts.append(_render_status_cards_section(report.status_cards))
     if report.heatmaps:
         parts.append(_render_heatmaps_section(report.heatmaps))
+    if report.relationship_graph:
+        parts.append(_render_relationship_graph_section(report.relationship_graph))
     if report.tables:
         parts.append(_render_tables_section(report.tables, comments))
     if report.timeline:
@@ -164,6 +175,9 @@ def render_report_json_html(report: GenericReport) -> str:
         parts.append(_render_diagram_modal(comments))
     parts.append(copy_selection_script())
     parts.append(_report_filter_script())
+    if report.relationship_graph:
+        parts.append(_cytoscape_vendor_script())
+        parts.append(_relationship_graph_script())
     parts.append(story_script())
     parts.append(theme_script())
     parts.append("</main>\n</body>\n</html>\n")
@@ -335,6 +349,47 @@ def toc_groups_from_payload(raw_groups: Any) -> tuple[ReportTocGroup, ...]:
     return tuple(groups)
 
 
+def relationship_graph_from_payload(raw_graph: Any) -> RelationshipGraph | None:
+    if raw_graph is None:
+        return None
+    if not isinstance(raw_graph, dict):
+        raise DiffReportError("report.relationship_graph must be an object")
+    raw_nodes = raw_graph.get("nodes", [])
+    raw_edges = raw_graph.get("edges", [])
+    if not isinstance(raw_nodes, list) or not raw_nodes:
+        raise DiffReportError("report.relationship_graph.nodes must be a non-empty list")
+    if not isinstance(raw_edges, list):
+        raise DiffReportError("report.relationship_graph.edges must be a list")
+    nodes: list[dict[str, Any]] = []
+    seen_ids: set[str] = set()
+    for index, raw_node in enumerate(raw_nodes):
+        node = _object_row(raw_node, "report.relationship_graph.nodes")
+        node_id = _required_text(node, "id", f"report.relationship_graph.nodes[{index}]")
+        if node_id in seen_ids:
+            raise DiffReportError(f"report.relationship_graph.nodes[{index}].id duplicates {node_id}")
+        seen_ids.add(node_id)
+        _required_text(node, "label", f"report.relationship_graph.nodes[{index}]")
+        node.setdefault("type", "entity")
+        node.setdefault("status", "unknown")
+        nodes.append(node)
+    edges: list[dict[str, Any]] = []
+    for index, raw_edge in enumerate(raw_edges):
+        edge = _object_row(raw_edge, "report.relationship_graph.edges")
+        source = _required_text(edge, "source", f"report.relationship_graph.edges[{index}]")
+        target = _required_text(edge, "target", f"report.relationship_graph.edges[{index}]")
+        if source not in seen_ids:
+            raise DiffReportError(f"report.relationship_graph.edges[{index}].source references missing node {source}")
+        if target not in seen_ids:
+            raise DiffReportError(f"report.relationship_graph.edges[{index}].target references missing node {target}")
+        edge.setdefault("relation", "related_to")
+        edges.append(edge)
+    return RelationshipGraph(
+        title=str(raw_graph.get("title", "Relationship Graph")),
+        nodes=tuple(nodes),
+        edges=tuple(edges),
+    )
+
+
 def links_from_payload(raw_links: Any, field: str) -> tuple[dict[str, str], ...]:
     if raw_links is None:
         return ()
@@ -476,6 +531,43 @@ def _render_artifacts_section(artifacts: tuple[ReportArtifact, ...]) -> str:
     return "".join(parts)
 
 
+def _render_relationship_graph_section(graph: RelationshipGraph) -> str:
+    graph_payload = {
+        "nodes": list(graph.nodes),
+        "edges": list(graph.edges),
+    }
+    graph_json = json.dumps(graph_payload, ensure_ascii=False).replace("</", "<\\/")
+    return f"""
+  <section class="report-relationship-section" id="report-relationship-graph">
+    <h2>{_esc(graph.title)}</h2>
+    <div class="relationship-browser" data-relationship-browser>
+      <script type="application/json" data-relationship-graph-data>{graph_json}</script>
+      <div class="relationship-toolbar">
+        <label><span class="label">Find node</span><input type="search" data-relationship-search placeholder="VSR, HAL, CTS, CDD"></label>
+        <select data-relationship-node-select aria-label="Select graph node"></select>
+        <div class="relationship-depth-controls" aria-label="Graph depth">
+          <button type="button" data-relationship-depth="1">Depth 1</button>
+          <button type="button" data-relationship-depth="2">Depth 2</button>
+        </div>
+        <div class="relationship-nav-controls" aria-label="Graph history">
+          <button type="button" data-relationship-fit>Fit</button>
+          <button type="button" data-relationship-back>Back</button>
+          <button type="button" data-relationship-forward>Forward</button>
+        </div>
+      </div>
+      <div class="relationship-layout">
+        <div class="relationship-canvas-wrap">
+          <div class="relationship-canvas" data-relationship-canvas role="img" aria-label="{_esc(graph.title)}"></div>
+        </div>
+        <aside class="relationship-detail" data-relationship-detail>
+          <p>Select a node to inspect related requirements, CDD, HALs, tests, evidence, gaps, and notes.</p>
+        </aside>
+      </div>
+    </div>
+  </section>
+"""
+
+
 def _render_table_value(value: Any, comments: ReviewComments) -> str:
     if isinstance(value, dict):
         text = str(value.get("text", value.get("value", "")))
@@ -546,6 +638,8 @@ def _report_toc_items(report: GenericReport) -> list[tuple[str, str]]:
         items.append(("Status Cards", "#report-status-cards"))
     if report.heatmaps:
         items.append(("Heatmaps", "#report-heatmaps"))
+    if report.relationship_graph:
+        items.append((report.relationship_graph.title, "#report-relationship-graph"))
     for index, table in enumerate(report.tables):
         items.append((table.title, f"#report-table-{index + 1}"))
     if report.timeline:
@@ -730,6 +824,471 @@ def _report_filter_script() -> str:
       location.hash = href;
     }
   }, true);
+})();
+</script>
+"""
+
+
+def _cytoscape_vendor_script() -> str:
+    script_path = Path(__file__).with_name("vendor") / "cytoscape.min.js"
+    try:
+        script = script_path.read_text(encoding="utf-8")
+    except OSError as exc:
+        raise DiffReportError(f"missing Cytoscape.js vendor bundle: {script_path}") from exc
+    script = script.replace("</script", "<\\/script")
+    return f"<script>\n{script}\n</script>\n"
+
+
+def _relationship_graph_script() -> str:
+    return r"""
+<script>
+(() => {
+  const TYPE_ORDER = ["domain", "vsr", "cdd", "hal", "feature", "property", "test", "artifact", "evidence", "gap", "decision"];
+  const TYPE_LABELS = {
+    vsr: "VSR",
+    cdd: "CDD",
+    hal: "HAL",
+    test: "CTS/VTS",
+    artifact: "Artifact",
+    evidence: "Evidence",
+    gap: "Gap",
+    decision: "Decision",
+    domain: "Domain",
+    feature: "Feature",
+    property: "Property"
+  };
+
+  function cssStatus(status) {
+    return "status-" + String(status || "unknown").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+  }
+
+  function esc(value) {
+    return String(value == null ? "" : value).replace(/[&<>"']/g, (char) => ({
+      "&": "&amp;",
+      "<": "&lt;",
+      ">": "&gt;",
+      '"': "&quot;",
+      "'": "&#39;"
+    }[char]));
+  }
+
+  function shortText(value, limit) {
+    const text = String(value || "");
+    return text.length > limit ? text.slice(0, limit - 1) + "…" : text;
+  }
+
+  function nodeTypeLabel(node) {
+    return TYPE_LABELS[node.type] || node.type || "Entity";
+  }
+
+  function parseGraph(browser) {
+    const script = browser.querySelector("[data-relationship-graph-data]");
+    if (!script) return {nodes: [], edges: []};
+    try {
+      const parsed = JSON.parse(script.textContent || "{}");
+      return {
+        nodes: Array.isArray(parsed.nodes) ? parsed.nodes : [],
+        edges: Array.isArray(parsed.edges) ? parsed.edges : []
+      };
+    } catch (_error) {
+      return {nodes: [], edges: []};
+    }
+  }
+
+  function buildNeighborhood(selectedId, depth, nodesById, edges) {
+    const visible = new Set([selectedId]);
+    let frontier = new Set([selectedId]);
+    for (let step = 0; step < depth; step += 1) {
+      const next = new Set();
+      for (const edge of edges) {
+        if (frontier.has(edge.source) && !visible.has(edge.target)) {
+          next.add(edge.target);
+        }
+        if (frontier.has(edge.target) && !visible.has(edge.source)) {
+          next.add(edge.source);
+        }
+      }
+      for (const id of next) visible.add(id);
+      frontier = next;
+      if (!frontier.size) break;
+    }
+    const visibleEdges = edges.filter((edge) => visible.has(edge.source) && visible.has(edge.target));
+    const visibleNodes = Array.from(visible).map((id) => nodesById.get(id)).filter(Boolean);
+    return {nodes: visibleNodes, edges: visibleEdges};
+  }
+
+  function nodeDistanceMap(selectedId, edges) {
+    const distances = new Map([[selectedId, 0]]);
+    let frontier = new Set([selectedId]);
+    for (let distance = 1; distance <= 2; distance += 1) {
+      const next = new Set();
+      for (const edge of edges) {
+        if (frontier.has(edge.source) && !distances.has(edge.target)) next.add(edge.target);
+        if (frontier.has(edge.target) && !distances.has(edge.source)) next.add(edge.source);
+      }
+      for (const id of next) distances.set(id, distance);
+      frontier = next;
+    }
+    return distances;
+  }
+
+  function typeRank(node) {
+    const index = TYPE_ORDER.indexOf(node.type || "entity");
+    return index === -1 ? 99 : index;
+  }
+
+  function layoutNodes(nodes, width, height, selectedId, edges) {
+    const positions = new Map();
+    const center = {x: width / 2, y: height / 2};
+    positions.set(selectedId, center);
+    const distances = nodeDistanceMap(selectedId, edges);
+    const others = nodes
+      .filter((node) => node.id !== selectedId)
+      .sort((left, right) => {
+        const dl = distances.get(left.id) || 9;
+        const dr = distances.get(right.id) || 9;
+        return dl - dr || typeRank(left) - typeRank(right) || String(left.label || left.id).localeCompare(String(right.label || right.id));
+      });
+    const inner = others.filter((node) => (distances.get(node.id) || 9) <= 1);
+    const outer = others.filter((node) => (distances.get(node.id) || 9) > 1);
+    const placeRing = (ringNodes, radiusX, radiusY, startAngle) => {
+      if (!ringNodes.length) return;
+      const count = ringNodes.length;
+      ringNodes.forEach((node, index) => {
+        const angle = startAngle + (Math.PI * 2 * index) / count;
+        const x = Math.max(86, Math.min(width - 86, center.x + Math.cos(angle) * radiusX));
+        const y = Math.max(36, Math.min(height - 36, center.y + Math.sin(angle) * radiusY));
+        positions.set(node.id, {x, y});
+      });
+    };
+    placeRing(inner, Math.min(width * 0.31, 260), Math.min(height * 0.30, 170), -Math.PI / 2);
+    placeRing(outer, Math.min(width * 0.43, 360), Math.min(height * 0.41, 245), -Math.PI / 2 + Math.PI / Math.max(outer.length, 2));
+    for (const node of others) {
+      if (positions.has(node.id)) continue;
+      positions.set(node.id, {
+        x: 86 + Math.random() * Math.max(1, width - 172),
+        y: 36 + Math.random() * Math.max(1, height - 72)
+      });
+    }
+    return positions;
+  }
+
+  function visibleEdgesForCanvas(selectedId, graph) {
+    return graph.edges.filter((edge) => {
+      if (edge.source === selectedId || edge.target === selectedId) return true;
+      const source = graph.nodes.find((node) => node.id === edge.source);
+      const target = graph.nodes.find((node) => node.id === edge.target);
+      return source && target && source.type !== "artifact" && target.type !== "artifact";
+    });
+  }
+
+  function wrapLabel(value) {
+    const text = String(value || "");
+    const tokens = text.split(/([@./:_-])/).filter(Boolean);
+    const lines = [];
+    let line = "";
+    for (const token of tokens) {
+      const candidate = line + token;
+      if (candidate.length > 22 && line) {
+        lines.push(line);
+        line = token.trimStart();
+      } else {
+        line = candidate;
+      }
+      if (lines.length >= 3) break;
+    }
+    if (line && lines.length < 4) lines.push(line);
+    return lines.slice(0, 4).join("\n");
+  }
+
+  function cssValue(name, fallback) {
+    const value = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+    return value || fallback;
+  }
+
+  function cytoscapeStyle() {
+    const text = cssValue("--text", "#d8dee9");
+    const panel = cssValue("--panel", "#202124");
+    const metaPanel = cssValue("--meta-panel", "#1b1c1f");
+    const border = cssValue("--meta-border", "#3a3f46");
+    const link = cssValue("--link", "#2f81f7");
+    const muted = cssValue("--muted", "#8b949e");
+    const risk = cssValue("--comment-border", "#d0a800");
+    const fail = cssValue("--stat-del", "#ff6b6b");
+    const pass = cssValue("--stat-add", "#6bd97c");
+    return [
+      {
+        selector: "node",
+        style: {
+          "label": "data(displayLabel)",
+          "text-wrap": "wrap",
+          "text-max-width": 150,
+          "text-valign": "center",
+          "text-halign": "center",
+          "font-size": 12,
+          "font-weight": 700,
+          "color": text,
+          "background-color": panel,
+          "border-color": border,
+          "border-width": 2,
+          "width": 170,
+          "height": 66,
+          "padding": 8,
+          "overlay-opacity": 0
+        }
+      },
+      {selector: 'node[type = "domain"]', style: {"shape": "ellipse", "background-color": metaPanel}},
+      {selector: 'node[type = "vsr"]', style: {"shape": "round-rectangle"}},
+      {selector: 'node[type = "cdd"]', style: {"shape": "diamond", "width": 130, "height": 86}},
+      {selector: 'node[type = "hal"]', style: {"shape": "hexagon"}},
+      {selector: 'node[type = "test"]', style: {"shape": "barrel"}},
+      {selector: 'node[type = "artifact"]', style: {"shape": "tag", "background-color": metaPanel}},
+      {selector: 'node[type = "evidence"]', style: {"shape": "round-tag", "background-color": metaPanel}},
+      {selector: "edge", style: {"width": 1.4, "line-color": muted, "target-arrow-color": muted, "target-arrow-shape": "triangle", "curve-style": "bezier", "opacity": .52}},
+      {selector: ".status-covered, .status-covered-candidate, .status-pass", style: {"border-color": pass}},
+      {selector: ".status-risk, .status-needs-evidence, .status-not-applicable-candidate", style: {"border-color": risk}},
+      {selector: ".status-gap, .status-fail, .status-blocked", style: {"border-color": fail}},
+      {selector: ".is-selected", style: {"border-color": link, "border-width": 4, "background-color": cssValue("--button-hover-bg", "#143d66")}},
+      {selector: "node:selected", style: {"border-color": link, "border-width": 4}}
+    ];
+  }
+
+  function cytoscapeElements(graph) {
+    const nodes = graph.nodes.map((node) => ({
+      group: "nodes",
+      data: {
+        id: node.id,
+        label: node.label || node.id,
+        displayLabel: `${nodeTypeLabel(node)}\n${wrapLabel(node.label || node.id)}`,
+        type: node.type || "entity",
+        status: node.status || "unknown"
+      },
+      classes: `${cssStatus(node.status)} ${node.id === graph.selectedId ? "is-selected" : ""}`
+    }));
+    const edges = visibleEdgesForCanvas(graph.selectedId, graph).map((edge, index) => ({
+      group: "edges",
+      data: {
+        id: `edge:${index}:${edge.source}:${edge.target}`,
+        source: edge.source,
+        target: edge.target,
+        relation: edge.relation || "related_to"
+      }
+    }));
+    return [...nodes, ...edges];
+  }
+
+  function renderGraph(browser, state) {
+    const canvas = browser.querySelector("[data-relationship-canvas]");
+    if (!canvas || !state.selectedId) return;
+    if (typeof cytoscape !== "function") {
+      canvas.textContent = "Cytoscape.js is not available.";
+      return;
+    }
+    const graph = buildNeighborhood(state.selectedId, state.depth, state.nodesById, state.edges);
+    graph.selectedId = state.selectedId;
+    if (state.cy) {
+      state.cy.destroy();
+      state.cy = null;
+    }
+    state.cy = cytoscape({
+      container: canvas,
+      elements: cytoscapeElements(graph),
+      style: cytoscapeStyle(),
+      wheelSensitivity: .18,
+      minZoom: .25,
+      maxZoom: 3,
+      boxSelectionEnabled: false
+    });
+    state.cy.on("tap", "node", (event) => selectNode(browser, state, event.target.id(), true));
+    const layout = state.cy.layout({
+      name: "cose",
+      animate: false,
+      fit: true,
+      padding: 48,
+      nodeRepulsion: 9000,
+      idealEdgeLength: 150,
+      edgeElasticity: 120,
+      nestingFactor: .8,
+      gravity: .18,
+      numIter: 900
+    });
+    layout.run();
+    const selected = state.cy.getElementById(state.selectedId);
+    if (selected.length) selected.select();
+  }
+
+  function relatedGroups(nodeId, state) {
+    const groups = new Map();
+    for (const edge of state.edges) {
+      let relatedId = "";
+      let direction = "";
+      if (edge.source === nodeId) {
+        relatedId = edge.target;
+        direction = "out";
+      } else if (edge.target === nodeId) {
+        relatedId = edge.source;
+        direction = "in";
+      } else {
+        continue;
+      }
+      const node = state.nodesById.get(relatedId);
+      if (!node) continue;
+      const relation = edge.relation || "related_to";
+      const key = direction === "out" ? relation : `${relation} (incoming)`;
+      if (!groups.has(key)) groups.set(key, []);
+      groups.get(key).push(node);
+    }
+    return groups;
+  }
+
+  function renderDetail(browser, state) {
+    const detail = browser.querySelector("[data-relationship-detail]");
+    if (!detail || !state.selectedId) return;
+    const node = state.nodesById.get(state.selectedId);
+    if (!node) return;
+    const details = node.details && typeof node.details === "object" ? node.details : {};
+    const groups = relatedGroups(node.id, state);
+    const detailRows = Object.entries(details).filter(([, value]) => value != null && String(value).trim());
+    let html = `<div class="relationship-detail-head"><span class="relationship-node-pill">${esc(nodeTypeLabel(node))}</span>`;
+    html += `<span class="report-status-badge ${cssStatus(node.status)}">${esc(node.status || "unknown")}</span></div>`;
+    html += `<h3>${esc(node.label || node.id)}</h3>`;
+    if (node.summary) html += `<p>${esc(node.summary)}</p>`;
+    if (detailRows.length) {
+      html += '<dl class="relationship-detail-fields">';
+      for (const [key, value] of detailRows) {
+        html += `<dt>${esc(key.replaceAll("_", " "))}</dt><dd>${esc(value)}</dd>`;
+      }
+      html += "</dl>";
+    }
+    if (groups.size) {
+      html += '<div class="relationship-related">';
+      for (const [relation, nodes] of groups) {
+        html += `<section><h4>${esc(relation.replaceAll("_", " "))}</h4><div class="relationship-related-list">`;
+        for (const related of nodes.sort((a, b) => String(a.label || a.id).localeCompare(String(b.label || b.id)))) {
+          html += `<button type="button" data-relationship-jump="${esc(related.id)}"><span>${esc(related.label || related.id)}</span><small>${esc(nodeTypeLabel(related))}</small></button>`;
+        }
+        html += "</div></section>";
+      }
+      html += "</div>";
+    }
+    detail.innerHTML = html;
+  }
+
+  function selectNode(browser, state, nodeId, recordHistory) {
+    if (!state.nodesById.has(nodeId)) return;
+    if (recordHistory && state.selectedId && state.selectedId !== nodeId) {
+      state.backStack.push(state.selectedId);
+      state.forwardStack.length = 0;
+    }
+    state.selectedId = nodeId;
+    const select = browser.querySelector("[data-relationship-node-select]");
+    if (select) select.value = nodeId;
+    renderGraph(browser, state);
+    renderDetail(browser, state);
+  }
+
+  function initBrowser(browser) {
+    const graph = parseGraph(browser);
+    const nodesById = new Map(graph.nodes.map((node) => [node.id, node]));
+    if (!nodesById.size) return;
+    const preferred =
+      graph.nodes.find((node) => node.type === "vsr" && ["gap", "risk"].includes(String(node.status || ""))) ||
+      graph.nodes.find((node) => node.type === "vsr" && String(node.status || "") === "needs_evidence") ||
+      graph.nodes.find((node) => node.type !== "artifact" && ["gap", "risk", "needs_evidence"].includes(String(node.status || ""))) ||
+      graph.nodes[0];
+    const state = {
+      nodes: graph.nodes,
+      edges: graph.edges,
+      nodesById,
+      selectedId: preferred.id,
+      depth: 1,
+      cy: null,
+      backStack: [],
+      forwardStack: []
+    };
+    const select = browser.querySelector("[data-relationship-node-select]");
+    if (select) {
+      const sortedNodes = [...graph.nodes].sort((a, b) => String(a.label || a.id).localeCompare(String(b.label || b.id)));
+      const groups = new Map();
+      for (const node of sortedNodes) {
+        const label = nodeTypeLabel(node);
+        if (!groups.has(label)) {
+          const group = document.createElement("optgroup");
+          group.label = label;
+          groups.set(label, group);
+          select.appendChild(group);
+        }
+        const option = document.createElement("option");
+        option.value = node.id;
+        option.textContent = node.label || node.id;
+        groups.get(label).appendChild(option);
+      }
+      select.addEventListener("change", () => selectNode(browser, state, select.value, true));
+    }
+    const search = browser.querySelector("[data-relationship-search]");
+    if (search && select) {
+      search.addEventListener("input", () => {
+        const query = search.value.trim().toLowerCase();
+        for (const option of select.options) {
+          option.hidden = query && !option.textContent.toLowerCase().includes(query);
+        }
+      });
+    }
+    browser.querySelectorAll("[data-relationship-depth]").forEach((button) => {
+      button.addEventListener("click", () => {
+        state.depth = Number(button.getAttribute("data-relationship-depth") || "1") || 1;
+        browser.querySelectorAll("[data-relationship-depth]").forEach((item) => item.classList.toggle("is-active", item === button));
+        renderGraph(browser, state);
+      });
+    });
+    const defaultDepth = browser.querySelector('[data-relationship-depth="1"]');
+    if (defaultDepth) defaultDepth.classList.add("is-active");
+    const back = browser.querySelector("[data-relationship-back]");
+    const forward = browser.querySelector("[data-relationship-forward]");
+    const fit = browser.querySelector("[data-relationship-fit]");
+    if (fit) {
+      fit.addEventListener("click", () => {
+        if (state.cy) state.cy.fit(undefined, 48);
+      });
+    }
+    if (back) {
+      back.addEventListener("click", () => {
+        const previous = state.backStack.pop();
+        if (!previous) return;
+        state.forwardStack.push(state.selectedId);
+        selectNode(browser, state, previous, false);
+      });
+    }
+    if (forward) {
+      forward.addEventListener("click", () => {
+        const next = state.forwardStack.pop();
+        if (!next) return;
+        state.backStack.push(state.selectedId);
+        selectNode(browser, state, next, false);
+      });
+    }
+    browser.addEventListener("click", (event) => {
+      const nodeElement = event.target.closest && event.target.closest("[data-node-id]");
+      if (nodeElement) {
+        selectNode(browser, state, nodeElement.getAttribute("data-node-id"), true);
+        return;
+      }
+      const jump = event.target.closest && event.target.closest("[data-relationship-jump]");
+      if (jump) {
+        selectNode(browser, state, jump.getAttribute("data-relationship-jump"), true);
+      }
+    });
+    browser.addEventListener("keydown", (event) => {
+      const nodeElement = event.target.closest && event.target.closest("[data-node-id]");
+      if (!nodeElement || (event.key !== "Enter" && event.key !== " ")) return;
+      event.preventDefault();
+      selectNode(browser, state, nodeElement.getAttribute("data-node-id"), true);
+    });
+    window.addEventListener("resize", () => renderGraph(browser, state), {passive: true});
+    selectNode(browser, state, state.selectedId, false);
+  }
+
+  document.querySelectorAll("[data-relationship-browser]").forEach(initBrowser);
 })();
 </script>
 """

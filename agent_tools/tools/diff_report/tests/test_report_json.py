@@ -65,6 +65,32 @@ class ReportJsonTests(unittest.TestCase):
                 "timeline": [
                     {"time": "2026-08-17", "title": "Security pass created", "status": "risk"}
                 ],
+                "relationship_graph": {
+                    "title": "Requirement Traceability",
+                    "nodes": [
+                        {
+                            "id": "vsr:VSR-1",
+                            "type": "vsr",
+                            "label": "AIDL for HALs",
+                            "status": "risk",
+                            "summary": "HALs must use AIDL.",
+                            "details": {"current_status": "HIDL remains."},
+                        },
+                        {
+                            "id": "hal:audio@6.0",
+                            "type": "hal",
+                            "label": "audio@6.0",
+                            "status": "risk",
+                        },
+                    ],
+                    "edges": [
+                        {
+                            "source": "vsr:VSR-1",
+                            "target": "hal:audio@6.0",
+                            "relation": "maps_to_hal",
+                        }
+                    ],
+                },
                 "artifacts": [
                     {
                         "title": "Product architecture",
@@ -106,6 +132,17 @@ class ReportJsonTests(unittest.TestCase):
             'data-report-table-filter="report-table-1"',
             "VSR-3.10-023",
             "Security pass created",
+            "Requirement Traceability",
+            'id="report-relationship-graph"',
+            'data-relationship-browser',
+            'data-relationship-graph-data',
+            'data-relationship-fit',
+            "AIDL for HALs",
+            "maps_to_hal",
+            "The Cytoscape Consortium",
+            "cytoscape({",
+            "wheelSensitivity",
+            'document.createElement("optgroup")',
             "Product architecture",
             'data-diagram-id="flow"',
             'id="diagram-template-flow"',
@@ -121,6 +158,7 @@ class ReportJsonTests(unittest.TestCase):
             'id="report-status-cards"',
             'id="report-heatmaps"',
             'id="report-timeline"',
+            'id="report-relationship-graph"',
             'id="report-artifacts"',
             'id="report-diagrams"',
             'id="report-logs"',
@@ -133,6 +171,8 @@ class ReportJsonTests(unittest.TestCase):
             'window.addEventListener("scroll", scheduleActiveTocUpdate, {passive: true});',
             'setActiveToc(href.slice(1), true);',
             'target.scrollIntoView({block: "start", inline: "nearest"});',
+            "function buildNeighborhood(selectedId, depth, nodesById, edges)",
+            "data-relationship-jump",
         ]
         for fragment in expected:
             with self.subTest(fragment=fragment):
@@ -158,6 +198,21 @@ class ReportJsonTests(unittest.TestCase):
             (
                 {"title": "Broken", "toc_groups": [{"title": "Overview", "items": [{"label": "Top", "href": "top"}]}]},
                 "report.toc_groups[0].items[0].href must start with #",
+            ),
+            ({"title": "Broken", "relationship_graph": []}, "report.relationship_graph must be an object"),
+            (
+                {"title": "Broken", "relationship_graph": {"nodes": [], "edges": []}},
+                "report.relationship_graph.nodes must be a non-empty list",
+            ),
+            (
+                {
+                    "title": "Broken",
+                    "relationship_graph": {
+                        "nodes": [{"id": "a", "label": "A"}],
+                        "edges": [{"source": "a", "target": "missing"}],
+                    },
+                },
+                "report.relationship_graph.edges[0].target references missing node missing",
             ),
         ]
         for payload, message in invalid_payloads:

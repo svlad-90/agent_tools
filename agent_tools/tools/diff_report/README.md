@@ -282,6 +282,37 @@ It also supports dashboard-oriented widgets:
   "timeline": [
     {"time": "2026-08-17", "title": "Security pass created", "status": "risk"}
   ],
+  "relationship_graph": {
+    "title": "Requirement Traceability",
+    "nodes": [
+      {
+        "id": "vsr:GAS-VSR-3.2-001.006",
+        "type": "vsr",
+        "label": "AIDL for partner HALs",
+        "status": "risk",
+        "summary": "Partner-owned HAL implementations must use AIDL, not HIDL.",
+        "details": {
+          "rule": "MUST",
+          "trigger": "A17+, api_level 202404+",
+          "current_status": "Vendor manifests still expose HIDL audio/effect/VHAL.",
+          "analysis_notes": "FCM 7 may still tolerate some HIDL rows, but VSR is stricter."
+        }
+      },
+      {
+        "id": "hal:android.hardware.audio@6.0",
+        "type": "hal",
+        "label": "audio@6.0 HIDL",
+        "status": "risk"
+      }
+    ],
+    "edges": [
+      {
+        "source": "vsr:GAS-VSR-3.2-001.006",
+        "target": "hal:android.hardware.audio@6.0",
+        "relation": "maps_to_hal"
+      }
+    ]
+  },
   "artifacts": [
     {"title": "Product architecture", "path": "../analysis/product/architecture/PRODUCT_ARCHITECTURE.md", "kind": "markdown"}
   ],
@@ -313,6 +344,17 @@ Tables are filterable by default. Set `"filterable": false` on a table to omit
 the search box. Table cell values may be strings or objects. Object cells can
 use `text`, `status`, `href`, `diagram`, or `log` to combine badges, links,
 and artifact previews.
+
+`relationship_graph` renders an offline Cytoscape.js traceability browser. Each
+node must have `id` and `label`; common optional fields are `type`, `status`,
+`summary`, and a `details` object. Each edge must have `source` and `target`
+pointing to existing node ids, plus an optional `relation`. The browser shows a
+selected node neighborhood at depth 1 or 2, supports zoom, pan, and node drag,
+keeps back/forward navigation, groups the selector by node type, and renders a
+detail panel with related entities grouped by relation. Node types are rendered
+with different shapes so a VSR, CDD, HAL, CTS/VTS module, and evidence artifact
+are visually distinct. This is intended for requirement graphs such as
+`VSR -> CDD -> HAL -> CTS/VTS -> Evidence -> Gap`.
 
 The table of contents is flat by default. Add `toc_groups` to render it as a
 grouped tree. Each item `href` must point to a section id in the rendered page,
