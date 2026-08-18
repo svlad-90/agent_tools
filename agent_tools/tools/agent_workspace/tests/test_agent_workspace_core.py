@@ -1062,7 +1062,7 @@ def test_codex_console_command_uses_model_and_reasoning(tmp_path: Path) -> None:
     assert command[:5] == [command[0], "--model", "gpt-5.5", "-c", 'model_reasoning_effort="low"']
 
 
-def test_codex_console_command_resume_last_keeps_model_options_and_omits_prompt(tmp_path: Path) -> None:
+def test_codex_console_command_resume_without_session_starts_new_task_context(tmp_path: Path) -> None:
     task = tmp_path / "tasks" / "sample-task"
     task.mkdir(parents=True)
     summary = discover_tasks_with_context(task, tmp_path)
@@ -1070,8 +1070,12 @@ def test_codex_console_command_resume_last_keeps_model_options_and_omits_prompt(
     command = codex_console_command(tmp_path, summary, resume=True, model="gpt-5.5", reasoning_effort="medium")
 
     assert command[:5] == [command[0], "--model", "gpt-5.5", "-c", 'model_reasoning_effort="medium"']
-    assert command[-5:] == ["resume", "--cd", str(tmp_path), "--no-alt-screen", "--last"]
-    assert codex_task_context_message(summary, tmp_path) not in command
+    assert command[-4:] == [
+        "--cd",
+        str(tmp_path),
+        "--no-alt-screen",
+        codex_task_context_message(summary, tmp_path),
+    ]
 
 
 def test_gtk_and_tk_codex_command_builders_match(tmp_path: Path) -> None:

@@ -575,9 +575,9 @@ def build_ai_agent_console_command(
 
     command = [codex_executable]
     append_ai_agent_model_options(command, agent, model=model, reasoning_effort=reasoning_effort)
-    if resume:
+    if resume and resume_session_id:
         command.extend(["resume", "--cd", str(workspace), "--no-alt-screen"])
-        command.append(resume_session_id or "--last")
+        command.append(resume_session_id)
         return command
     command.extend(["--cd", str(workspace), "--no-alt-screen", prompt])
     return command

@@ -224,6 +224,8 @@ class WorkspaceGtkGui:
         self.selected_task_action_bindings: dict[str, str] = {}
         self.task_action_buttons: dict[str, Gtk.Button] = {}
         self.task_action_play_buttons: dict[str, Gtk.Button] = {}
+        self.task_action_item_widgets: dict[str, Gtk.Widget] = {}
+        self.task_action_reflow_source_id: int | None = None
         self.global_task_parameter_box: Gtk.FlowBox | None = None
         self.task_action_errors: list[str] = []
         self.status_message = ""
@@ -432,7 +434,7 @@ class WorkspaceGtkGui:
         controls_box.pack_start(top_row, False, False, 0)
 
         self.task_actions_box = self._add_framed_action_group(top_row, self._s("actions.group"), expand=True)
-        self.task_actions_box.set_sort_func(self._task_action_flow_sort)
+        self.task_actions_box.connect("size-allocate", self._on_task_actions_box_size_allocate)
         self._connect_task_reorder_box(self.task_actions_box, "action")
 
         parameter_frame = Gtk.Frame(label=self._s("action.parameters"))
@@ -543,10 +545,11 @@ class WorkspaceGtkGui:
         self.ai_agent_terminal_box.pack_start(self.ai_agent_placeholder, True, True, 0)
         self.ai_agent_terminal_box.show_all()
 
-    def _add_framed_action_group(self, parent: Gtk.Box, title: str, *, expand: bool) -> Gtk.FlowBox:
+    def _add_framed_action_group(self, parent: Gtk.Box, title: str, *, expand: bool) -> Gtk.Box:
         frame = Gtk.Frame(label=title)
         parent.pack_start(frame, expand, expand, 0)
-        content = _flow_box(border_width=2)
+        content = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
+        content.set_border_width(2)
         frame.add(content)
         return content
 
@@ -1289,6 +1292,7 @@ class WorkspaceGtkGui:
     def _clear_task_action_buttons(self) -> None:
         for child in self.task_actions_box.get_children():
             self.task_actions_box.remove(child)
+        self.task_action_item_widgets = {}
         if self.global_task_parameter_box is not None:
             for child in self.global_task_parameter_box.get_children():
                 self.global_task_parameter_box.remove(child)
@@ -1319,11 +1323,13 @@ class WorkspaceGtkGui:
         self.task_shortcuts = [action for action in config.actions if action.is_shortcut]
         self.task_action_buttons = {}
         self.task_action_play_buttons = {}
+        self.task_action_item_widgets = {}
         self.task_actions_signature = _task_actions_signature(task)
         self.task_action_errors = config.errors
         self._update_actions_message()
         for action in self.task_base_actions:
-            _flow_box_add(self.task_actions_box, self._task_action_button(action, shortcut=False))
+            self.task_action_item_widgets[action.action_id] = self._task_action_button(action, shortcut=False)
+        self._schedule_task_action_reflow()
         self._render_global_task_parameters()
         selected_action = next(
             (action for action in self.task_base_actions if action.action_id == selected_action_id),
@@ -1350,6 +1356,47 @@ class WorkspaceGtkGui:
             self.global_task_parameter_box.show_all()
         self.task_shortcuts_box.show_all()
         self.task_action_parameter_box.show_all()
+
+    def _on_task_actions_box_size_allocate(self, *_args: object) -> None:
+        self._schedule_task_action_reflow()
+
+    def _schedule_task_action_reflow(self) -> None:
+        if self.task_action_reflow_source_id is None:
+            self.task_action_reflow_source_id = GLib.idle_add(self._reflow_task_action_buttons)
+
+    def _reflow_task_action_buttons(self) -> bool:
+        self.task_action_reflow_source_id = None
+        if not hasattr(self, "task_actions_box"):
+            return False
+        for widget in self.task_action_item_widgets.values():
+            parent = widget.get_parent()
+            if isinstance(parent, Gtk.Container):
+                parent.remove(widget)
+        for row in self.task_actions_box.get_children():
+            self.task_actions_box.remove(row)
+        width = max(1, self.task_actions_box.get_allocated_width() - self.task_actions_box.get_border_width() * 2)
+        row: Gtk.Box | None = None
+        row_width = 0
+        for widget in self._task_action_reorder_children():
+            _minimum_width, natural_width = widget.get_preferred_width()
+            next_width = natural_width if row_width == 0 else row_width + 3 + natural_width
+            if row is not None and next_width > width:
+                row = None
+                row_width = 0
+            if row is None:
+                row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=3)
+                row.set_halign(Gtk.Align.START)
+                self.task_actions_box.pack_start(row, False, False, 0)
+            row.pack_start(widget, False, False, 0)
+            row_width = natural_width if row_width == 0 else row_width + 3 + natural_width
+        self.task_actions_box.show_all()
+        self._update_task_action_button_selection()
+        return False
+
+    def _task_action_reorder_children(self) -> list[Gtk.Widget]:
+        order = self.task_action_reorder_preview if self.task_reorder_group == "action" else None
+        action_ids = order or self._task_action_order()
+        return [self.task_action_item_widgets[action_id] for action_id in action_ids if action_id in self.task_action_item_widgets]
 
     def _task_action_button(self, action: TaskAction, *, shortcut: bool) -> Gtk.Widget:
         button = _compact_button(action.label, lambda _button, item=action: self._on_task_action_clicked(item))
@@ -1419,8 +1466,8 @@ class WorkspaceGtkGui:
         order = self.task_action_reorder_preview if self.task_reorder_group == group else default_order
         order = order or default_order
         index = {item_id: position for position, item_id in enumerate(order)}
-        item_a = getattr(child_a.get_child(), "_task_reorder_id", "")
-        item_b = getattr(child_b.get_child(), "_task_reorder_id", "")
+        item_a = _reorder_child_id(child_a)
+        item_b = _reorder_child_id(child_b)
         return index.get(item_a, len(index)) - index.get(item_b, len(index))
 
     def _task_action_order(self) -> list[str]:
@@ -1606,18 +1653,22 @@ class WorkspaceGtkGui:
 
     def _task_reorder_box_target_centers(self, box: Gtk.FlowBox, y: int) -> dict[str, float]:
         rows: list[tuple[float, dict[str, float]]] = []
-        for child in box.get_children():
-            widget = child.get_child()
-            item_id = getattr(widget, "_task_reorder_id", "")
+        children = self._task_action_reorder_children() if box is self.task_actions_box else _reorder_box_children(box)
+        for child in children:
+            item_id = _reorder_child_id(child)
             if not item_id or item_id == self.task_action_drag_source_id:
                 continue
             allocation = child.get_allocation()
-            center_y = allocation.y + allocation.height / 2
+            parent = child.get_parent()
+            parent_allocation = parent.get_allocation() if isinstance(parent, Gtk.Widget) and parent is not box else None
+            allocation_x = allocation.x + (parent_allocation.x if parent_allocation is not None else 0)
+            allocation_y = allocation.y + (parent_allocation.y if parent_allocation is not None else 0)
+            center_y = allocation_y + allocation.height / 2
             row = next((entry for entry in rows if abs(entry[0] - center_y) <= max(1, allocation.height / 2)), None)
             if row is None:
                 row = (center_y, {})
                 rows.append(row)
-            row[1][item_id] = allocation.x + allocation.width / 2
+            row[1][item_id] = allocation_x + allocation.width / 2
         if not rows:
             return {}
         _row_y, centers = min(rows, key=lambda row: abs(y - row[0]))
@@ -2064,7 +2115,7 @@ class WorkspaceGtkGui:
 
     def _invalidate_task_reorder_group_sort(self, group: str) -> None:
         if group == "action":
-            self.task_actions_box.invalidate_sort()
+            self._schedule_task_action_reflow()
         elif group == "parameter":
             self.task_action_parameter_box.invalidate_sort()
         elif group == "global_parameter" and self.global_task_parameter_box is not None:
@@ -3679,6 +3730,27 @@ def _notebook_tab_rects(notebook: Gtk.Notebook) -> list[tuple[float, float, floa
 def _rect_contains(rect: tuple[float, float, float, float], x: float, y: float) -> bool:
     rect_x, rect_y, width, height = rect
     return rect_x <= x < rect_x + width and rect_y <= y < rect_y + height
+
+
+def _reorder_box_children(box: Gtk.Widget) -> list[Gtk.Widget]:
+    reorder_children = getattr(box, "reorder_children", None)
+    if callable(reorder_children):
+        return list(reorder_children())
+    if isinstance(box, Gtk.Container):
+        return list(box.get_children())
+    return []
+
+
+def _reorder_child_id(child: Gtk.Widget) -> str:
+    item_id = getattr(child, "_task_reorder_id", "")
+    if isinstance(item_id, str) and item_id:
+        return item_id
+    get_child = getattr(child, "get_child", None)
+    if callable(get_child):
+        inner_id = getattr(get_child(), "_task_reorder_id", "")
+        if isinstance(inner_id, str):
+            return inner_id
+    return ""
 
 
 def _update_text_tag(tag: Gtk.TextTag | None, **properties: object) -> None:
