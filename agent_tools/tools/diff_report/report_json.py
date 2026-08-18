@@ -1077,6 +1077,15 @@ def _relationship_graph_script() -> str:
     return [...nodes, ...edges];
   }
 
+  function fitGraph(state, padding) {
+    if (!state.cy) return;
+    requestAnimationFrame(() => {
+      if (!state.cy) return;
+      state.cy.resize();
+      state.cy.fit(undefined, padding || 72);
+    });
+  }
+
   function renderGraph(browser, state) {
     const canvas = browser.querySelector("[data-relationship-canvas]");
     if (!canvas || !state.selectedId) return;
@@ -1104,7 +1113,7 @@ def _relationship_graph_script() -> str:
       name: "cose",
       animate: false,
       fit: true,
-      padding: 48,
+      padding: 80,
       nodeRepulsion: 9000,
       idealEdgeLength: 150,
       edgeElasticity: 120,
@@ -1115,6 +1124,7 @@ def _relationship_graph_script() -> str:
     layout.run();
     const selected = state.cy.getElementById(state.selectedId);
     if (selected.length) selected.select();
+    fitGraph(state, 88);
   }
 
   function relatedGroups(nodeId, state) {
@@ -1248,7 +1258,7 @@ def _relationship_graph_script() -> str:
     const fit = browser.querySelector("[data-relationship-fit]");
     if (fit) {
       fit.addEventListener("click", () => {
-        if (state.cy) state.cy.fit(undefined, 48);
+        fitGraph(state, 88);
       });
     }
     if (back) {
@@ -1284,7 +1294,7 @@ def _relationship_graph_script() -> str:
       event.preventDefault();
       selectNode(browser, state, nodeElement.getAttribute("data-node-id"), true);
     });
-    window.addEventListener("resize", () => renderGraph(browser, state), {passive: true});
+    window.addEventListener("resize", () => fitGraph(state, 88), {passive: true});
     selectNode(browser, state, state.selectedId, false);
   }
 

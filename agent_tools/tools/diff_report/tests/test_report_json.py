@@ -142,6 +142,7 @@ class ReportJsonTests(unittest.TestCase):
             "The Cytoscape Consortium",
             "cytoscape({",
             "wheelSensitivity",
+            "function fitGraph(state, padding)",
             'document.createElement("optgroup")',
             "Product architecture",
             'data-diagram-id="flow"',

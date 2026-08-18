@@ -299,10 +299,10 @@ def stylesheet() -> str:
     .relationship-depth-controls, .relationship-nav-controls { display: flex; flex-wrap: wrap; gap: 6px; }
     .relationship-toolbar button { min-height: 36px; padding: 0 10px; border: 1px solid var(--border); border-radius: 6px; background: var(--button-bg); color: var(--text); font: 750 .9em/1.1 var(--font-stack); cursor: pointer; }
     .relationship-toolbar button:hover, .relationship-toolbar button.is-active { border-color: var(--link); background: var(--button-hover-bg); color: var(--link); }
-    .relationship-layout { display: grid; grid-template-columns: minmax(0, 1.7fr) minmax(360px, .8fr); gap: 12px; align-items: stretch; min-width: 0; }
-    .relationship-canvas-wrap, .relationship-detail { min-width: 0; min-height: 650px; border: 1px solid var(--border); border-radius: 8px; background: var(--meta-panel); }
+    .relationship-layout { display: grid; grid-template-columns: minmax(0, 1.7fr) minmax(360px, .8fr); gap: 12px; align-items: start; min-width: 0; }
+    .relationship-canvas-wrap, .relationship-detail { min-width: 0; height: min(760px, calc(100vh - 180px)); min-height: 560px; max-height: 760px; border: 1px solid var(--border); border-radius: 8px; background: var(--meta-panel); }
     .relationship-canvas-wrap { overflow: hidden; position: relative; }
-    .relationship-canvas { display: block; width: 100%; height: 650px; cursor: grab; }
+    .relationship-canvas { display: block; width: 100%; height: 100%; cursor: grab; }
     .relationship-canvas:active { cursor: grabbing; }
     .relationship-edge { stroke: color-mix(in srgb, var(--muted) 42%, transparent); stroke-width: 1.2; }
     .relationship-node { cursor: pointer; outline: none; }
@@ -314,7 +314,7 @@ def stylesheet() -> str:
     .relationship-node.status-gap rect, .relationship-node.status-fail rect, .relationship-node.status-blocked rect { stroke: color-mix(in srgb, var(--stat-del) 76%, var(--meta-border)); }
     .relationship-node-type { fill: var(--meta-label); font: 800 9px/1 ui-monospace, SFMono-Regular, Consolas, monospace; text-anchor: middle; text-transform: uppercase; letter-spacing: .04em; }
     .relationship-node-label { fill: var(--text); font: 760 12px/1.15 var(--font-stack); text-anchor: middle; }
-    .relationship-detail { overflow: auto; padding: 14px; }
+    .relationship-detail { overflow: auto; overscroll-behavior: contain; padding: 14px; }
     .relationship-detail-head { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; justify-content: space-between; }
     .relationship-node-pill { display: inline-flex; align-items: center; min-height: 24px; padding: 3px 8px; border: 1px solid var(--border); border-radius: 999px; color: var(--meta-label); background: var(--button-bg); font: 800 12px/1 ui-monospace, SFMono-Regular, Consolas, monospace; }
     .relationship-detail h3 { margin: 12px 0 8px; overflow-wrap: anywhere; }
