@@ -1411,6 +1411,7 @@ class WorkspaceGtkGui:
         button.get_style_context().add_class("task-action-label-button")
         self.task_action_buttons[action.action_id] = button
         row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=1)
+        setattr(row, "_task_reorder_id", action.action_id)
         row.pack_start(button, False, False, 0)
         play = Gtk.Button.new_from_icon_name("media-playback-start-symbolic", Gtk.IconSize.MENU)
         play.set_size_request(20, 20)
@@ -1427,21 +1428,22 @@ class WorkspaceGtkGui:
         self.task_action_play_buttons[action.action_id] = play
         row.pack_start(play, False, False, 0)
         row.show_all()
+        if not self.task_action_reorder_mode:
+            return row
         event_box = Gtk.EventBox()
         event_box.set_visible_window(False)
         setattr(event_box, "_task_reorder_id", action.action_id)
         event_box.add(row)
-        if self.task_action_reorder_mode:
-            event_box.add_events(Gdk.EventMask.BUTTON_PRESS_MASK)
-            event_box.connect("button-press-event", self._on_task_reorder_button_press, action.action_id)
-            button.connect("button-press-event", self._on_task_reorder_button_press, action.action_id)
-            target = Gtk.TargetEntry.new(_TASK_ACTION_DRAG_TARGET, Gtk.TargetFlags.SAME_APP, 0)
-            for source_widget in (event_box, button):
-                source_widget.drag_source_set(Gdk.ModifierType.BUTTON1_MASK, [target], Gdk.DragAction.MOVE)
-                source_widget.connect("drag-begin", self._on_task_reorder_drag_begin, "action", action.action_id, action.label)
-                source_widget.connect("drag-end", self._on_task_reorder_drag_end)
-                source_widget.connect("drag-data-get", self._on_task_reorder_drag_data_get, "action", action.action_id)
-            event_box.get_style_context().add_class("task-action-reorder")
+        event_box.add_events(Gdk.EventMask.BUTTON_PRESS_MASK)
+        event_box.connect("button-press-event", self._on_task_reorder_button_press, action.action_id)
+        button.connect("button-press-event", self._on_task_reorder_button_press, action.action_id)
+        target = Gtk.TargetEntry.new(_TASK_ACTION_DRAG_TARGET, Gtk.TargetFlags.SAME_APP, 0)
+        for source_widget in (event_box, button):
+            source_widget.drag_source_set(Gdk.ModifierType.BUTTON1_MASK, [target], Gdk.DragAction.MOVE)
+            source_widget.connect("drag-begin", self._on_task_reorder_drag_begin, "action", action.action_id, action.label)
+            source_widget.connect("drag-end", self._on_task_reorder_drag_end)
+            source_widget.connect("drag-data-get", self._on_task_reorder_drag_data_get, "action", action.action_id)
+        event_box.get_style_context().add_class("task-action-reorder")
         return event_box
 
     def _task_action_flow_sort(self, child_a: Gtk.FlowBoxChild, child_b: Gtk.FlowBoxChild) -> int:
@@ -1552,6 +1554,12 @@ class WorkspaceGtkGui:
                 event,
             )
             return True
+        if (
+            not self.task_action_reorder_mode
+            and event.type == Gdk.EventType.BUTTON_PRESS
+            and event.button == 1
+        ):
+            self._on_task_action_clicked(action)
         return False
 
     def _on_task_reorder_button_press(
@@ -1764,6 +1772,13 @@ class WorkspaceGtkGui:
                 Gdk.Gravity.NORTH_WEST,
                 event,
             )
+            return True
+        if (
+            not self.task_action_reorder_mode
+            and event.type == Gdk.EventType.BUTTON_PRESS
+            and event.button == 1
+        ):
+            self._on_task_action_play_clicked(button, action)
             return True
         return False
 

@@ -235,6 +235,13 @@ class FakeGtkKeyEvent:
         self.hardware_keycode = hardware_keycode
 
 
+class FakeGtkButtonEvent:
+    def __init__(self, button: int, event_type: object | None = None) -> None:
+        self.button = button
+        self.type = event_type if event_type is not None else Gdk.EventType.BUTTON_PRESS
+        self.x = 0
+
+
 class FakeTkKeyEvent:
     def __init__(
         self,
@@ -3231,6 +3238,63 @@ def test_gtk_task_action_selection_shows_only_selected_play_button(tmp_path: Pat
     assert not build_play.sensitive
     assert test_play.visible
     assert test_play.sensitive
+
+
+def test_gtk_task_action_left_press_selects_in_normal_mode(tmp_path: Path) -> None:
+    action = TaskAction(
+        action_id="build",
+        label="Build",
+        command=("scripts/build.sh",),
+        cwd=tmp_path,
+        env={},
+    )
+    calls: list[str] = []
+    gui = WorkspaceGtkGui.__new__(WorkspaceGtkGui)
+    gui.task_action_reorder_mode = False
+    gui._on_task_action_clicked = lambda item: calls.append(item.action_id)  # type: ignore[method-assign]
+
+    result = gui._on_task_action_button_press(FakeGtkButton(), FakeGtkButtonEvent(1), action)  # type: ignore[arg-type]
+
+    assert result is False
+    assert calls == ["build"]
+
+
+def test_gtk_task_action_left_press_does_not_select_in_reorder_mode(tmp_path: Path) -> None:
+    action = TaskAction(
+        action_id="build",
+        label="Build",
+        command=("scripts/build.sh",),
+        cwd=tmp_path,
+        env={},
+    )
+    calls: list[str] = []
+    gui = WorkspaceGtkGui.__new__(WorkspaceGtkGui)
+    gui.task_action_reorder_mode = True
+    gui._on_task_action_clicked = lambda item: calls.append(item.action_id)  # type: ignore[method-assign]
+
+    result = gui._on_task_action_button_press(FakeGtkButton(), FakeGtkButtonEvent(1), action)  # type: ignore[arg-type]
+
+    assert result is False
+    assert calls == []
+
+
+def test_gtk_task_action_play_left_press_runs_button_handler(tmp_path: Path) -> None:
+    action = TaskAction(
+        action_id="build",
+        label="Build",
+        command=("scripts/build.sh",),
+        cwd=tmp_path,
+        env={},
+    )
+    calls: list[str] = []
+    gui = WorkspaceGtkGui.__new__(WorkspaceGtkGui)
+    gui.task_action_reorder_mode = False
+    gui._on_task_action_play_clicked = lambda _button, item: calls.append(item.action_id)  # type: ignore[method-assign]
+
+    result = gui._on_task_action_play_button_press(FakeGtkButton(), FakeGtkButtonEvent(1), action)  # type: ignore[arg-type]
+
+    assert result is True
+    assert calls == ["build"]
 
 
 def test_gtk_main_notebook_switch_loads_artifacts_lazily(tmp_path: Path) -> None:
