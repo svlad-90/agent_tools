@@ -89,6 +89,7 @@ class RelationshipGraph:
     title: str
     nodes: tuple[dict[str, Any], ...]
     edges: tuple[dict[str, Any], ...]
+    traversal: dict[str, Any] | None = None
 
 
 @dataclass(frozen=True)
@@ -388,7 +389,33 @@ def relationship_graph_from_payload(raw_graph: Any) -> RelationshipGraph | None:
         title=str(raw_graph.get("title", "Relationship Graph")),
         nodes=tuple(nodes),
         edges=tuple(edges),
+        traversal=_relationship_graph_traversal_from_payload(raw_graph.get("traversal")),
     )
+
+
+def _relationship_graph_traversal_from_payload(raw_traversal: Any) -> dict[str, Any] | None:
+    if raw_traversal is None:
+        return None
+    if not isinstance(raw_traversal, dict):
+        raise DiffReportError("report.relationship_graph.traversal must be an object")
+    traversal = dict(raw_traversal)
+    for key in ("terminal_types", "pass_through_types"):
+        if key not in traversal:
+            continue
+        value = traversal[key]
+        if not isinstance(value, list) or not all(isinstance(item, str) for item in value):
+            raise DiffReportError(f"report.relationship_graph.traversal.{key} must be a string list")
+    relation_traversal = traversal.get("relation_traversal")
+    if relation_traversal is not None:
+        if not isinstance(relation_traversal, dict) or not all(isinstance(key, str) and isinstance(value, str) for key, value in relation_traversal.items()):
+            raise DiffReportError("report.relationship_graph.traversal.relation_traversal must be a string mapping")
+        invalid_values = sorted(set(relation_traversal.values()).difference({"both", "forward", "reverse", "none", "fallback"}))
+        if invalid_values:
+            raise DiffReportError("report.relationship_graph.traversal.relation_traversal values must be both, forward, reverse, none, or fallback")
+    edge_direction = traversal.get("edge_direction")
+    if edge_direction is not None and edge_direction not in {"both", "forward", "reverse"}:
+        raise DiffReportError("report.relationship_graph.traversal.edge_direction must be both, forward, or reverse")
+    return traversal
 
 
 def links_from_payload(raw_links: Any, field: str) -> tuple[dict[str, str], ...]:
@@ -537,6 +564,8 @@ def _render_relationship_graph_section(graph: RelationshipGraph) -> str:
         "nodes": list(graph.nodes),
         "edges": list(graph.edges),
     }
+    if graph.traversal:
+        graph_payload["traversal"] = graph.traversal
     graph_json = json.dumps(graph_payload, ensure_ascii=False).replace("</", "<\\/")
     node_count = len(graph.nodes)
     edge_count = len(graph.edges)
@@ -567,10 +596,7 @@ def _render_relationship_graph_section(graph: RelationshipGraph) -> str:
     <div class="relationship-modal" data-relationship-modal hidden role="dialog" aria-modal="true" aria-labelledby="report-relationship-graph-modal-title">
       <div class="relationship-modal-panel">
         <div class="relationship-modal-head">
-          <div>
-            <span class="label">Traceability graph</span>
-            <h3 id="report-relationship-graph-modal-title">{_esc(graph.title)}</h3>
-          </div>
+          <h3 id="report-relationship-graph-modal-title">{_esc(graph.title)}</h3>
           <button type="button" data-relationship-close aria-label="Close graph">Close</button>
         </div>
         <div class="relationship-browser" data-relationship-browser data-relationship-defer>
@@ -581,9 +607,14 @@ def _render_relationship_graph_section(graph: RelationshipGraph) -> str:
               <label><span class="label">Focus <small data-relationship-node-count></small></span><select data-relationship-node-select aria-label="Select graph node"></select></label>
             </div>
             <div class="relationship-view-controls">
-              <fieldset class="relationship-type-filter" data-relationship-type-filter>
-                <legend>Entity types</legend>
-              </fieldset>
+              <div class="relationship-traversal-mode" data-relationship-traversal-mode>
+                <span class="relationship-control-label">Traversal</span>
+                <button type="button" data-relationship-traversal="scoped">Scoped</button>
+                <button type="button" data-relationship-traversal="raw">Raw links</button>
+              </div>
+              <div class="relationship-type-filter" data-relationship-type-filter>
+                <span class="relationship-control-label">Entity types</span>
+              </div>
             </div>
           </div>
           <div class="relationship-layout">
@@ -937,6 +968,7 @@ def _relationship_graph_script() -> str:
     feature: "Feature",
     property: "Property"
   };
+  const DEFAULT_TERMINAL_TYPES = ["artifact", "evidence", "test", "cdd", "property", "feature", "gap", "decision"];
 
   function cssStatus(status) {
     return "status-" + String(status || "unknown").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
@@ -968,7 +1000,8 @@ def _relationship_graph_script() -> str:
       const parsed = JSON.parse(script.textContent || "{}");
       return {
         nodes: Array.isArray(parsed.nodes) ? parsed.nodes : [],
-        edges: Array.isArray(parsed.edges) ? parsed.edges : []
+        edges: Array.isArray(parsed.edges) ? parsed.edges : [],
+        traversal: parsed.traversal && typeof parsed.traversal === "object" ? parsed.traversal : {}
       };
     } catch (_error) {
       return {nodes: [], edges: []};
@@ -980,33 +1013,115 @@ def _relationship_graph_script() -> str:
     return enabledTypes.has(node.type || "entity");
   }
 
-  function buildNeighborhood(selectedId, depth, nodesById, edges, enabledTypes) {
+  function traversalConfig(rawTraversal) {
+    const raw = rawTraversal && typeof rawTraversal === "object" ? rawTraversal : {};
+    const terminalTypes = Array.isArray(raw.terminal_types) ? raw.terminal_types : DEFAULT_TERMINAL_TYPES;
+    const passThroughTypes = Array.isArray(raw.pass_through_types) ? raw.pass_through_types : [];
+    const relationTraversal = raw.relation_traversal && typeof raw.relation_traversal === "object" ? raw.relation_traversal : {};
+    return {
+      terminalTypes: new Set(terminalTypes),
+      passThroughTypes: new Set(passThroughTypes),
+      relationTraversal,
+      edgeDirection: raw.edge_direction || "both"
+    };
+  }
+
+  function rawTraversalConfig(types) {
+    return {
+      terminalTypes: new Set(),
+      passThroughTypes: new Set(types || []),
+      relationTraversal: {},
+      edgeDirection: "both"
+    };
+  }
+
+  function activeTraversal(state) {
+    return state.traversalMode === "raw" ? rawTraversalConfig(graphTypes(state.nodes)) : state.traversal;
+  }
+
+  function canExpandNode(node, selectedId, traversal) {
+    if (!node) return false;
+    if (node.id === selectedId) return true;
+    const type = node.type || "entity";
+    if (traversal.passThroughTypes.has(type)) return true;
+    return !traversal.terminalTypes.has(type);
+  }
+
+  function edgeTraversalMode(edge, traversal) {
+    const relationMode = traversal.relationTraversal && traversal.relationTraversal[edge.relation || "related_to"];
+    return edge.traverse || relationMode || traversal.edgeDirection || "both";
+  }
+
+  function edgeAllowsTraversal(edge, fromId, toId, traversal) {
+    const mode = edgeTraversalMode(edge, traversal);
+    if (mode === "none") return false;
+    if (mode === "fallback") return false;
+    if (mode === "both") return true;
+    const forward = edge.source === fromId && edge.target === toId;
+    const reverse = edge.target === fromId && edge.source === toId;
+    return (mode === "forward" && forward) || (mode === "reverse" && reverse);
+  }
+
+  function edgeFallbackCandidate(edge, fromId, toId, traversal) {
+    const mode = edgeTraversalMode(edge, traversal);
+    if (mode !== "fallback") return false;
+    return (edge.source === fromId && edge.target === toId) || (edge.target === fromId && edge.source === toId);
+  }
+
+  function buildNeighborhood(selectedId, depth, nodesById, edges, enabledTypes, traversal) {
     const selected = nodesById.get(selectedId);
     if (!isTypeEnabled(selected, selectedId, enabledTypes)) {
       return {nodes: [], edges: [], distances: new Map()};
     }
     const distances = new Map([[selectedId, 0]]);
+    const fallbackCandidates = [];
+    const fallbackEdgeKeys = new Set();
     let frontier = new Set([selectedId]);
     for (let step = 0; step < depth; step += 1) {
       const next = new Set();
-      for (const edge of edges) {
-        const sourceNode = nodesById.get(edge.source);
-        const targetNode = nodesById.get(edge.target);
-        if (frontier.has(edge.source) && !distances.has(edge.target) && isTypeEnabled(targetNode, selectedId, enabledTypes)) {
-          next.add(edge.target);
-        }
-        if (frontier.has(edge.target) && !distances.has(edge.source) && isTypeEnabled(sourceNode, selectedId, enabledTypes)) {
-          next.add(edge.source);
+      for (const fromId of frontier) {
+        const fromNode = nodesById.get(fromId);
+        if (!canExpandNode(fromNode, selectedId, traversal)) continue;
+        for (const edge of edges) {
+          let toId = "";
+          if (edge.source === fromId) {
+            toId = edge.target;
+          } else if (edge.target === fromId) {
+            toId = edge.source;
+          } else {
+            continue;
+          }
+          if (distances.has(toId)) continue;
+          if (edgeFallbackCandidate(edge, fromId, toId, traversal)) {
+            if (isTypeEnabled(nodesById.get(toId), selectedId, enabledTypes)) {
+              fallbackCandidates.push({fromId, toId, edge, distance: step + 1});
+            }
+            continue;
+          }
+          if (!edgeAllowsTraversal(edge, fromId, toId, traversal)) continue;
+          if (isTypeEnabled(nodesById.get(toId), selectedId, enabledTypes)) {
+            next.add(toId);
+          }
         }
       }
       for (const id of next) distances.set(id, step + 1);
       frontier = next;
       if (!frontier.size) break;
     }
+    for (const candidate of fallbackCandidates) {
+      if (candidate.distance > depth || distances.has(candidate.toId)) continue;
+      distances.set(candidate.toId, candidate.distance);
+      fallbackEdgeKeys.add(`${candidate.edge.source}\u0000${candidate.edge.target}\u0000${candidate.edge.relation || "related_to"}`);
+    }
     const visibleEdges = edges.filter((edge) => {
       const sourceDistance = distances.get(edge.source);
       const targetDistance = distances.get(edge.target);
       if (sourceDistance == null || targetDistance == null) return false;
+      const mode = edgeTraversalMode(edge, traversal);
+      if (mode === "none") return false;
+      if (mode === "fallback") {
+        return fallbackEdgeKeys.has(`${edge.source}\u0000${edge.target}\u0000${edge.relation || "related_to"}`);
+      }
       if (edge.source === selectedId || edge.target === selectedId) return true;
       return Math.abs(sourceDistance - targetDistance) === 1 && Math.min(sourceDistance, targetDistance) < depth;
     });
@@ -1302,7 +1417,7 @@ def _relationship_graph_script() -> str:
     }
     const hasSearch = String(state.searchQuery || "").trim();
     const graph = capGraph(graphMatchesSearch(
-      buildNeighborhood(state.selectedId, state.depth, state.nodesById, state.edges, state.enabledTypes),
+      buildNeighborhood(state.selectedId, state.depth, state.nodesById, state.edges, state.enabledTypes, activeTraversal(state)),
       state.searchQuery
     ), state.selectedId, hasSearch ? 0 : 80);
     if (!graph.nodes.some((node) => node.id === state.activeId)) {
@@ -1516,6 +1631,12 @@ def _relationship_graph_script() -> str:
     if (active.length) active.addClass("is-active");
   }
 
+  function refreshGraphTheme(state) {
+    if (!state.cy) return;
+    state.cy.style(cytoscapeStyle());
+    state.cy.resize();
+  }
+
   function updateActiveTableRow(browser, state) {
     browser.querySelectorAll("[data-relationship-table-node]").forEach((row) => {
       row.classList.toggle("is-active", row.getAttribute("data-relationship-table-node") === state.activeId);
@@ -1588,9 +1709,9 @@ def _relationship_graph_script() -> str:
         const leftDegree = visibleNodeDegree(left, state);
         const rightDegree = visibleNodeDegree(right, state);
         return searchRank(left, query) - searchRank(right, query) ||
+          typeRank(left) - typeRank(right) ||
           Number(leftDegree === 0) - Number(rightDegree === 0) ||
           rightDegree - leftDegree ||
-          typeRank(left) - typeRank(right) ||
           String(left.label || left.id).localeCompare(String(right.label || right.id));
       });
   }
@@ -1745,9 +1866,24 @@ def _relationship_graph_script() -> str:
       graphInteractive: false,
       canvasControlsFrame: 0,
       canvasControlsSignature: "",
+      traversalMode: "scoped",
+      traversal: traversalConfig(graph.traversal),
       enabledTypes: new Set(graphTypes(graph.nodes))
     };
     renderTypeFilters(browser, state);
+    browser.querySelectorAll("[data-relationship-traversal]").forEach((button) => {
+      const mode = button.getAttribute("data-relationship-traversal") || "scoped";
+      button.classList.toggle("is-active", mode === state.traversalMode);
+      button.addEventListener("click", () => {
+        state.traversalMode = mode;
+        browser.querySelectorAll("[data-relationship-traversal]").forEach((item) => {
+          item.classList.toggle("is-active", item === button);
+        });
+        renderNodeSelect(browser, state);
+        renderGraph(browser, state);
+        renderDetail(browser, state);
+      });
+    });
     const select = browser.querySelector("[data-relationship-node-select]");
     if (select) {
       select.addEventListener("change", () => selectNode(browser, state, select.value, true));
@@ -1840,6 +1976,9 @@ def _relationship_graph_script() -> str:
       updateCanvasControlsPosition(browser, state);
       window.addEventListener("resize", () => scheduleCanvasControlsPosition(browser, state));
     }
+    const themeObserver = new MutationObserver(() => refreshGraphTheme(state));
+    themeObserver.observe(document.documentElement, {attributes: true, attributeFilter: ["data-theme"]});
+    state.themeObserver = themeObserver;
     if (back) {
       back.addEventListener("click", () => {
         const previous = state.backStack.pop();

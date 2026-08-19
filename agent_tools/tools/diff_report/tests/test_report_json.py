@@ -67,6 +67,12 @@ class ReportJsonTests(unittest.TestCase):
                 ],
                 "relationship_graph": {
                     "title": "Requirement Traceability",
+                    "traversal": {
+                        "terminal_types": ["cdd", "test", "artifact"],
+                        "pass_through_types": ["domain", "vsr", "hal"],
+                        "edge_direction": "both",
+                        "relation_traversal": {"domain_has_test_result": "fallback"},
+                    },
                     "nodes": [
                         {
                             "id": "vsr:VSR-1",
@@ -148,6 +154,11 @@ class ReportJsonTests(unittest.TestCase):
             "relationship-preview",
             'data-relationship-type-filter',
             'data-relationship-type-all',
+            'data-relationship-traversal-mode',
+            'data-relationship-traversal="scoped"',
+            'data-relationship-traversal="raw"',
+            "relationship-control-label",
+            "Raw links",
             'data-relationship-fit',
             "AIDL for HALs",
             "maps_to_hal",
@@ -173,9 +184,22 @@ class ReportJsonTests(unittest.TestCase):
             "function refreshTypeFilterState(container, state, types)",
             "function graphMatchesSearch(graph, query)",
             "function capGraph(graph, selectedId, limit)",
+            "function traversalConfig(rawTraversal)",
+            "function rawTraversalConfig(types)",
+            "function activeTraversal(state)",
+            "function canExpandNode(node, selectedId, traversal)",
+            "function edgeAllowsTraversal(edge, fromId, toId, traversal)",
+            "function edgeFallbackCandidate(edge, fromId, toId, traversal)",
+            "DEFAULT_TERMINAL_TYPES",
+            "terminal_types",
+            "pass_through_types",
+            "edge_direction",
+            "relation_traversal",
+            "relationTraversal",
             "function openRelationshipModal(modal)",
             "function closeRelationshipModal(modal)",
             "enabledTypes: new Set(graphTypes(graph.nodes))",
+            'traversalMode: "scoped"',
             "graphInteractive: false",
             'canvas.addEventListener("pointerdown"',
             'canvasWrap.addEventListener("pointerdown"',
@@ -243,7 +267,7 @@ class ReportJsonTests(unittest.TestCase):
             'document.documentElement.dataset.tocLockUntil = String(Date.now() + 1800);',
             'setActiveToc(id, true);',
             'target.scrollIntoView({block: "start", inline: "nearest"});',
-            "function buildNeighborhood(selectedId, depth, nodesById, edges, enabledTypes)",
+            "function buildNeighborhood(selectedId, depth, nodesById, edges, enabledTypes, traversal)",
             "Math.abs(sourceDistance - targetDistance) === 1",
             "data-relationship-jump",
             "data-relationship-jump-visible",
@@ -288,6 +312,39 @@ class ReportJsonTests(unittest.TestCase):
                     },
                 },
                 "report.relationship_graph.edges[0].target references missing node missing",
+            ),
+            (
+                {
+                    "title": "Broken",
+                    "relationship_graph": {
+                        "nodes": [{"id": "a", "label": "A"}],
+                        "edges": [],
+                        "traversal": {"terminal_types": "cdd"},
+                    },
+                },
+                "report.relationship_graph.traversal.terminal_types must be a string list",
+            ),
+            (
+                {
+                    "title": "Broken",
+                    "relationship_graph": {
+                        "nodes": [{"id": "a", "label": "A"}],
+                        "edges": [],
+                        "traversal": {"edge_direction": "sideways"},
+                    },
+                },
+                "report.relationship_graph.traversal.edge_direction must be both, forward, or reverse",
+            ),
+            (
+                {
+                    "title": "Broken",
+                    "relationship_graph": {
+                        "nodes": [{"id": "a", "label": "A"}],
+                        "edges": [],
+                        "traversal": {"relation_traversal": {"related_to": "sideways"}},
+                    },
+                },
+                "report.relationship_graph.traversal.relation_traversal values must be both, forward, reverse, none, or fallback",
             ),
         ]
         for payload, message in invalid_payloads:

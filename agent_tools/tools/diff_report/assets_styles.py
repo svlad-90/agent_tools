@@ -84,6 +84,8 @@ def stylesheet() -> str:
       --graph-status-risk-border: #d97706;
       --graph-status-fail-bg: #fef2f2;
       --graph-status-fail-border: #dc2626;
+      --graph-isolated-option-text: #475569;
+      --graph-isolated-option-bg: #e8edf3;
       --overlay-bg: rgba(31,35,40,.42);
       --page-gutter: 8px;
       --nav-width: 430px;
@@ -193,6 +195,8 @@ def stylesheet() -> str:
       --graph-status-risk-border: #d6b73d;
       --graph-status-fail-bg: #3d171d;
       --graph-status-fail-border: #ff7b72;
+      --graph-isolated-option-text: #a8b3c2;
+      --graph-isolated-option-bg: #20242c;
       --overlay-bg: rgba(0,0,0,.68);
     }
     * { box-sizing: border-box; }
@@ -342,24 +346,24 @@ def stylesheet() -> str:
     .relationship-modal { position: fixed; inset: 0; z-index: 2000; display: block; padding: 22px; background: color-mix(in srgb, #000 68%, transparent); overflow: hidden; overscroll-behavior: contain; }
     .relationship-modal-panel { display: grid; grid-template-rows: auto minmax(0, 1fr); gap: 12px; min-width: 0; width: 100%; height: calc(100vh - 44px); min-height: 0; padding: 16px; border: 1px solid var(--border); border-radius: 10px; background: var(--panel); box-shadow: 0 20px 70px color-mix(in srgb, #000 54%, transparent); }
     .relationship-modal-head { display: flex; gap: 12px; align-items: center; justify-content: space-between; min-width: 0; }
-    .relationship-modal-head h3 { margin: 0; overflow-wrap: anywhere; }
+    .relationship-modal-head h3 { margin: 0; color: var(--text); font: 850 1.15em/1.2 var(--font-stack); overflow-wrap: anywhere; }
     .relationship-browser { display: grid; grid-template-rows: auto minmax(0, 1fr); gap: 12px; min-width: 0; min-height: 0; }
     .relationship-toolbar { display: grid; gap: 10px; align-items: stretch; }
     .relationship-search-controls { display: grid; grid-template-columns: minmax(220px, .9fr) minmax(320px, 1.35fr); gap: 10px; align-items: end; }
-    .relationship-view-controls { display: grid; grid-template-columns: minmax(0, 1fr); gap: 10px; align-items: center; }
+    .relationship-view-controls { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; min-width: 0; }
     .relationship-toolbar label { display: grid; gap: 5px; min-width: 0; }
     .relationship-toolbar .label small { margin-left: 6px; color: var(--muted); font: 700 .92em/1 var(--font-stack); text-transform: none; letter-spacing: 0; }
     .relationship-toolbar input, .relationship-toolbar select { min-height: 36px; min-width: 0; padding: 0 10px; border: 1px solid var(--border); border-radius: 6px; background: var(--button-bg); color: var(--text); font: inherit; }
-    .relationship-toolbar select option.relationship-option-isolated { color: color-mix(in srgb, var(--muted) 72%, var(--text)); background: color-mix(in srgb, var(--meta-panel) 88%, var(--comment-bg)); }
-    .relationship-type-filter { min-width: 0; margin: 0; padding: 7px 10px; border: 1px solid var(--border); border-radius: 6px; background: var(--button-bg); }
-    .relationship-type-filter legend { padding: 0 4px; color: var(--meta-label); font: 800 12px/1 ui-monospace, SFMono-Regular, Consolas, monospace; text-transform: uppercase; letter-spacing: .04em; }
-    .relationship-type-filter-actions { display: flex; align-items: center; gap: 6px; margin-bottom: 6px; padding-bottom: 6px; border-bottom: 1px solid color-mix(in srgb, var(--border) 72%, transparent); }
+    .relationship-toolbar select option.relationship-option-isolated { color: var(--graph-isolated-option-text); background: var(--graph-isolated-option-bg); }
+    .relationship-traversal-mode, .relationship-type-filter { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; min-width: 0; margin: 0; padding: 5px 7px; border: 1px solid var(--border); border-radius: 999px; background: var(--button-bg); }
+    .relationship-control-label { color: var(--meta-label); font: 800 11px/1 ui-monospace, SFMono-Regular, Consolas, monospace; text-transform: uppercase; letter-spacing: .04em; white-space: nowrap; }
+    .relationship-type-filter-actions { display: flex; align-items: center; gap: 6px; margin: 0; padding: 0; border-bottom: 0; }
     .relationship-type-filter-list { display: flex; flex-wrap: wrap; gap: 6px; overflow: visible; }
-    .relationship-type-filter label { display: inline-flex; align-items: center; gap: 5px; min-height: 26px; padding: 0 7px; border: 1px solid color-mix(in srgb, var(--border) 70%, transparent); border-radius: 999px; background: var(--meta-panel); color: var(--meta-text); font: 750 12px/1.1 var(--font-stack); white-space: nowrap; }
+    .relationship-type-filter label { display: inline-flex; align-items: center; gap: 5px; min-height: 24px; padding: 0 7px; border: 1px solid color-mix(in srgb, var(--border) 70%, transparent); border-radius: 999px; background: var(--meta-panel); color: var(--meta-text); font: 750 12px/1.1 var(--font-stack); white-space: nowrap; }
     .relationship-type-filter-all { border-color: color-mix(in srgb, var(--link) 62%, var(--border)) !important; color: var(--text) !important; background: color-mix(in srgb, var(--button-hover-bg) 64%, var(--meta-panel)) !important; }
     .relationship-type-filter input { width: 14px; height: 14px; min-height: 0; padding: 0; accent-color: var(--link); }
     .relationship-depth-controls, .relationship-nav-controls { display: flex; flex-wrap: nowrap; gap: 6px; align-items: center; }
-    .relationship-toolbar button { min-height: 36px; padding: 0 10px; border: 1px solid var(--border); border-radius: 6px; background: var(--button-bg); color: var(--text); font: 750 .9em/1.1 var(--font-stack); cursor: pointer; }
+    .relationship-toolbar button { min-height: 28px; padding: 0 9px; border: 1px solid var(--border); border-radius: 999px; background: var(--button-bg); color: var(--text); font: 750 .86em/1.1 var(--font-stack); cursor: pointer; }
     .relationship-toolbar button:hover, .relationship-toolbar button.is-active { border-color: var(--link); background: var(--button-hover-bg); color: var(--link); }
     .relationship-layout { display: grid; grid-template-columns: minmax(0, 1.7fr) minmax(360px, .8fr); gap: 12px; align-items: start; min-width: 0; }
     .relationship-canvas-wrap, .relationship-detail { min-width: 0; height: min(760px, calc(100vh - 180px)); min-height: 560px; max-height: 760px; border: 1px solid var(--border); border-radius: 8px; background: var(--meta-panel); }
