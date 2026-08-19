@@ -1095,6 +1095,7 @@ class AgentWorkspace:
             claude_effort=self.default_claude_effort,
             codex_executable=_codex_executable(),
             claude_executable=_claude_executable(),
+            include_task_check=True,
         )
         self._update_ai_agent_button_label()
         self._refresh_task_session_indicators()

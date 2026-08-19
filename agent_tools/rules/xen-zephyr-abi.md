@@ -17,8 +17,9 @@ validation.
    `domctl` or `sysctl` calls before domain creation and policy logic run, so
    errors such as `-EACCES` may be ABI drift rather than a policy or feature
    bug.
-4. Record the checked ABI values and the Xen version or header source in the
-   task `TASK_CONTEXT.md` when runtime debugging depends on Dom0 control calls.
+4. Record the checked ABI values and the Xen version or header source through
+   the task context journal when runtime debugging depends on Dom0 control
+   calls.
 5. Before editing or validating a Zephyr/Xen runtime harness, verify which
    Zephyr module repositories the build actually uses. Do not infer this from
    the task's review repository name. Inspect the build directory's
@@ -34,7 +35,7 @@ validation.
    to the checkout used by the relevant build, or reconfigure the build with an
    explicit `EXTRA_ZEPHYR_MODULES` value before drawing runtime conclusions.
 6. When a task has both a review checkout and a harness/build checkout, record
-   the mapping in the task `TASK_CONTEXT.md`: which repository is reviewed,
+   the mapping through the task context journal: which repository is reviewed,
    which repository builds Dom0, which repository builds DomU, and which
    `compile_commands.json` belongs to each side. Treat a mismatch between the
    edited file and the compiled file as a hard validation blocker.
@@ -44,7 +45,8 @@ validation.
    of the Xen image, QEMU selection, Zephyr Dom0/DomU images, generated device
    trees, initramfs images, launch scripts, and runtime helpers used by the
    task. Use direct ad hoc build directories only for explicitly scoped
-   one-off experiments, and record that exception in `TASK_CONTEXT.md`.
+   one-off experiments, and record that exception through the task context
+   journal.
 8. Build and run that Moulin product inside a reusable Docker-backed
    environment from the `environments` PAF domain. If no suitable environment
    exists, extend the closest matching environment or create a new one before
@@ -62,7 +64,7 @@ validation.
 11. When a runtime investigation needs additional domains such as a Linux
    control/service domain, XenStore domain, driver domain, PV disk backend, or
    console collection domain, model those domains as explicit product
-   components instead of modifying an unrelated Zephyr Dom0 harness. Record in
-   `TASK_CONTEXT.md` which domain owns each role: control/toolstack,
-   hardware, XenStore server, console collector, backend provider, and tested
-   client.
+   components instead of modifying an unrelated Zephyr Dom0 harness. Record
+   through the task context journal which domain owns each role:
+   control/toolstack, hardware, XenStore server, console collector, backend
+   provider, and tested client.

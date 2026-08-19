@@ -58,6 +58,8 @@ Moulin CI or local workflow validation -> moulin-local-validation
 Diff or patch review reports -> diff-review-report
 Commit message formatting -> commit-message-format
 Task layout and workflow metadata checks -> python -m agent_tools.paf_workspace.task_check
+Task context, handoff notes, decisions, blockers, validation notes, or context
+compaction -> task-context-journal
 ```
 
 When more than one row applies, read the rules first, then the minimal matching

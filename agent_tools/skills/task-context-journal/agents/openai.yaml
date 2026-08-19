@@ -1,0 +1,4 @@
+interface:
+  display_name: "Task Context Journal"
+  short_description: "Keep task context compact and queryable"
+  default_prompt: "Use $task-context-journal to add a task finding, query relevant history, and compact TASK_CONTEXT.md."

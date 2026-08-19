@@ -4,11 +4,16 @@ import argparse
 import json
 import subprocess
 import sys
+import sqlite3
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 import yaml
+
+from agent_tools.tools.task_context import DATABASE_FILENAME as TASK_CONTEXT_DATABASE_FILE
+from agent_tools.tools.task_context import ensure_database as ensure_task_context_database
+from agent_tools.tools.task_context import load_entries as load_task_context_entries
 
 
 REQUIRED_DIRS = ("dev", "Dockerfile", "scripts", "report", "report/diff", "report/puml")
@@ -88,7 +93,7 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help=(
             "Create missing task directories, TASK_DESCRIPTION.md, and "
-            "TASK_CONTEXT.md from workspace templates."
+            "TASK_CONTEXT.md plus TASK_CONTEXT.sqlite3."
         ),
     )
     parser.add_argument(
@@ -247,6 +252,13 @@ def initialize_task_layout(task_dir: Path, *, workspace: Path, privacy: str = "p
         template = TASK_CONTEXT_TEMPLATE.read_text(encoding="utf-8")
         context_path.write_text(template, encoding="utf-8")
         checks.append(Check("PASS", "init-task-context", "created TASK_CONTEXT.md from template", str(context_path)))
+
+    database_path = task_dir / TASK_CONTEXT_DATABASE_FILE
+    if database_path.exists():
+        checks.append(Check("PASS", "init-task-context-database-existing", f"{TASK_CONTEXT_DATABASE_FILE} already exists", str(database_path)))
+    else:
+        ensure_task_context_database(task_dir)
+        checks.append(Check("PASS", "init-task-context-database", f"created {TASK_CONTEXT_DATABASE_FILE}", str(database_path)))
 
     metadata_path = task_dir / TASK_METADATA_FILE
     if metadata_path.exists():
@@ -429,6 +441,34 @@ def _read_task_context(task_dir: Path, checks: list[Check]) -> str | None:
 def _check_task_context(task_dir: Path, text: str) -> list[Check]:
     checks: list[Check] = []
     context_path = str(task_dir / "TASK_CONTEXT.md")
+    database_path = task_dir / TASK_CONTEXT_DATABASE_FILE
+    if database_path.is_file():
+        checks.append(Check("PASS", "task-context-database", f"{TASK_CONTEXT_DATABASE_FILE} exists", str(database_path)))
+        try:
+            load_task_context_entries(task_dir)
+            checks.append(Check("PASS", "task-context-database-valid", f"{TASK_CONTEXT_DATABASE_FILE} is valid", str(database_path)))
+        except (ValueError, OSError, sqlite3.DatabaseError) as exc:
+            checks.append(Check("FAIL", "task-context-database-invalid", str(exc), str(database_path)))
+    else:
+        checks.append(
+            Check(
+                "FAIL",
+                "task-context-database-missing",
+                f"{TASK_CONTEXT_DATABASE_FILE} is missing; use agent_tools.tools.task_context migrate for legacy task context",
+                str(database_path),
+            )
+        )
+    if f"Generated from `{TASK_CONTEXT_DATABASE_FILE}`" in text:
+        checks.append(Check("PASS", "task-context-compact", "TASK_CONTEXT.md is generated from the task context database", context_path))
+        return checks
+    checks.append(
+        Check(
+            "FAIL",
+            "task-context-format-old",
+            f"TASK_CONTEXT.md must be generated from {TASK_CONTEXT_DATABASE_FILE}; run agent_tools.tools.task_context compact",
+            context_path,
+        )
+    )
     for section in TASK_CONTEXT_SECTIONS:
         if section in text:
             checks.append(Check("PASS", "task-context-section", f"section present: {section}", context_path))

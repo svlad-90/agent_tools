@@ -13,7 +13,10 @@ Launch from the workspace root:
 Main capabilities:
 
 - browse task directories under `tasks/`;
-- render `TASK_DESCRIPTION.md` and `TASK_CONTEXT.md`;
+- render `TASK_DESCRIPTION.md`;
+- render `TASK_CONTEXT.sqlite3` as a newest-first context journal with date,
+  severity, status, and label filters, falling back to `TASK_CONTEXT.md` when
+  no structured database exists;
 - edit task descriptions from the details context menu;
 - run compact `task_check` checks through the built-in action runner;
 - load task-declared actions from `TASK_ACTIONS.json` and run them in the
@@ -31,11 +34,12 @@ session has to be closed before the new one starts with the same task context.
 Closing the Agent Workspace window also asks for confirmation while any AI
 agent sessions are still running.
 When a task's AI agent is launched again after the window was restarted, Codex
-resumes the saved session id when one can be matched to that task and falls
-back to the latest Codex session otherwise. Claude Code launches with the task
-context prompt, but Agent Workspace does not invent Claude conversation ids;
-without a real Claude Code conversation id, the UI keeps the action as a new
-launch instead of showing a restore action.
+resumes only a saved session id that can be matched to that task. If no
+task-bound session id is known, Codex starts a fresh session with the selected
+task context instead of resuming an unrelated global latest session. Claude
+Code launches with the task context prompt, but Agent Workspace does not invent
+Claude conversation ids; without a real Claude Code conversation id, the UI
+keeps the action as a new launch instead of showing a restore action.
 The settings dialog can also set default models and reasoning effort for each
 agent. Model fields are combo boxes: Codex choices are loaded from the local
 Codex model cache with a built-in fallback list, and Claude Code choices use
@@ -50,6 +54,14 @@ The reset-session button forgets only the selected task's selected AI-agent
 session in `.agent-workspace-state.json`; it does not delete the underlying
 Codex or Claude Code conversation data, and it does not affect another agent
 type saved for the same task.
+The Actions view remembers the selected console page per task. Returning from
+Details or Artifacts restores the previous AI-agent or shell tab; on first
+task setup the AI-agent tab is shown by default while a shell tab is still
+created for quick manual commands.
+Before a new AI session starts, Agent Workspace runs the task check once and
+adds only its error report to the initial agent message. The pre-commit hook
+runs the strict task check before a commit; the pre-push hook does not use the
+task check as a push blocker.
 Task actions are declared by writing `TASK_ACTIONS.json` at the task root. The
 GUI watches that file and refreshes its action buttons when it changes.
 Task actions launched from the GUI set `PAF_HIDE_TASK_ENV=1`, so PAF does not

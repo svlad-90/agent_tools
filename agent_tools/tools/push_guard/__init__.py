@@ -29,6 +29,7 @@ FORBIDDEN_ARTIFACT_SUFFIXES = {
     ".log",
     ".rar",
     ".sqlite",
+    ".sqlite3",
     ".tar",
     ".tgz",
     ".xz",
@@ -195,6 +196,29 @@ def _pushed_paths(repo: Path, commits: Sequence[str]) -> set[str]:
 def _staged_paths(repo: Path) -> list[str]:
     output = _run_git(["diff", "--cached", "--name-only", "--diff-filter=ACMRT"], cwd=repo)
     return [path for path in output.splitlines() if path]
+
+
+def _task_check_report_for_repo(repo: Path) -> str | None:
+    workspace_value = os.environ.get("AGENT_TOOLS_WORKSPACE_ROOT")
+    if not workspace_value:
+        return None
+    workspace = Path(workspace_value).resolve()
+    try:
+        relative_repo = repo.resolve().relative_to(workspace / "tasks")
+    except ValueError:
+        return None
+    if not relative_repo.parts:
+        return None
+    task_dir = workspace / "tasks" / relative_repo.parts[0]
+    if not (task_dir / "TASK_DESCRIPTION.md").is_file():
+        return None
+    from agent_tools.paf_workspace.task_check import check_task
+    from agent_tools.paf_workspace.task_check import render_text
+
+    checks = check_task(task_dir, workspace=workspace)
+    if not any(check.status in {"FAIL", "WARN"} for check in checks):
+        return None
+    return render_text(task_dir, checks, errors_only=False)
 
 
 def _forbidden_pushed_paths(repo: Path, commits: Sequence[str]) -> list[str]:
@@ -372,11 +396,18 @@ def check(args: argparse.Namespace) -> int:
 def check_staged(args: argparse.Namespace) -> int:
     repo = _repo_root(Path.cwd())
     findings = _guarded_staged_file_findings(repo)
-    if not findings:
-        return 0
-    _print_guarded_findings(findings, action="commit")
+    task_check_report = _task_check_report_for_repo(repo)
+    if findings:
+        _print_guarded_findings(findings, action="commit")
+    if task_check_report:
+        print("push_guard: commit blocked by task_check:", file=sys.stderr)
+        print(task_check_report, file=sys.stderr)
     if args.allow_override:
-        print("push_guard: override enabled; allowing commit", file=sys.stderr)
+        if findings or task_check_report:
+            print("push_guard: override enabled; allowing commit", file=sys.stderr)
+            return 0
+        return 0
+    if not findings and not task_check_report:
         return 0
     return 1
 

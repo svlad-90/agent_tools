@@ -8,6 +8,7 @@ python -m agent_tools.tools.code_map
 python -m agent_tools.tools.cpp_code_map
 python -m agent_tools.tools.yaml_map
 python -m agent_tools.tools.diff_report
+python -m agent_tools.tools.task_context
 python -m agent_tools.tools.commit_msg
 python -m agent_tools.tools.push_guard
 python -m agent_tools.tools.agent_workspace
@@ -15,6 +16,46 @@ python -m agent_tools.tools.agent_workspace
 
 Keep PAF orchestration under `agent_tools/paf_workspace/`; this directory is
 for reusable tool implementations that are not PAF domains.
+
+## Task Context
+
+Use `task_context` to keep long-running tasks compact without losing history.
+It stores durable context in `TASK_CONTEXT.sqlite3` and regenerates a short
+active `TASK_CONTEXT.md` for the next session.
+
+Add a dated finding:
+
+```sh
+python -m agent_tools.tools.task_context add \
+  --task tasks/my-task \
+  --severity high \
+  --label validation \
+  --label build \
+  "Docker pytest passed for the Agent Workspace suite"
+```
+
+Legacy tasks can be imported once with:
+
+```sh
+python -m agent_tools.tools.task_context migrate --task tasks/my-task
+```
+
+Query the journal by date, severity, status, or labels:
+
+```sh
+python -m agent_tools.tools.task_context query \
+  --task tasks/my-task \
+  --since 2026-08-19 \
+  --severity mid..critical \
+  --label validation \
+  --format markdown
+```
+
+Regenerate compact active context:
+
+```sh
+python -m agent_tools.tools.task_context compact --task tasks/my-task
+```
 
 ## Commit Message
 
@@ -96,17 +137,19 @@ running.
 ./agent-workspace
 ```
 
-It lists workspace tasks, renders `TASK_DESCRIPTION.md` and `TASK_CONTEXT.md`,
-opens task and `dev/` folders, edits task descriptions on demand, runs
-compact `task_check`, discovers repositories under `dev/`, runs task-declared
-actions from `TASK_ACTIONS.json` in the active console, manages per-task
-terminal tabs, starts one interactive AI agent session per task, and shows task
-artifacts from `report/`, `report/diff/`, and `report/puml/` with open and
-cleanup actions. GUI settings persist theme, language, text size, button text
-size, window geometry, and the default AI agent. The selected agent is saved per
-task; switching between running AI agents requires confirmation, and missing
-agent commands show an installation prompt. Closing the window warns when AI
-agent sessions are still running. Tasks with agent sessions that appear to be
-waiting for permission or approval are marked with `⚠` in the task list.
-GUI-launched task actions set `PAF_HIDE_TASK_ENV=1` to keep PAF parameter dumps
-out of the console.
+It lists workspace tasks, renders `TASK_DESCRIPTION.md`, shows
+`TASK_CONTEXT.sqlite3` as a newest-first context journal with date, severity,
+status, and label filters, and falls back to `TASK_CONTEXT.md` when no
+structured database exists. It opens task and `dev/` folders, edits task
+descriptions on demand, runs compact `task_check`, discovers repositories under
+`dev/`, runs task-declared actions from `TASK_ACTIONS.json` in the active
+console, manages per-task terminal tabs, starts one interactive AI agent
+session per task, and shows task artifacts from `report/`, `report/diff/`, and
+`report/puml/` with open and cleanup actions. GUI settings persist theme,
+language, text size, button text size, window geometry, and the default AI
+agent. The selected agent is saved per task; switching between running AI
+agents requires confirmation, and missing agent commands show an installation
+prompt. Closing the window warns when AI agent sessions are still running.
+Tasks with agent sessions that appear to be waiting for permission or approval
+are marked with `⚠` in the task list. GUI-launched task actions set
+`PAF_HIDE_TASK_ENV=1` to keep PAF parameter dumps out of the console.

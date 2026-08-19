@@ -171,6 +171,9 @@ class AgentWorkspaceRuntimeSettings:
     default_claude_model: str
     default_claude_effort: str
     window_geometry: str
+    main_split_ratio: float
+    details_split_ratio: float
+    actions_split_ratio: float
 
 
 @dataclass(frozen=True)
@@ -596,6 +599,17 @@ def ai_agent_task_context_prompt(task: TaskSummary, workspace: Path, suffix: str
     return message
 
 
+def task_check_prompt_suffix(task: TaskSummary, workspace: Path) -> str:
+    report = run_task_check(task, workspace)
+    if "FAIL " not in report:
+        return ""
+    return (
+        "Task check reported errors before this AI session. Resolve these task "
+        "workflow errors before implementing the requested change:\n"
+        f"{report}"
+    )
+
+
 def prepare_ai_agent_launch_command(
     task: TaskSummary,
     workspace: Path,
@@ -608,6 +622,7 @@ def prepare_ai_agent_launch_command(
     codex_executable: str,
     claude_executable: str,
     prompt_suffix: str = "",
+    include_task_check: bool = False,
 ) -> AgentLaunchCommand:
     agent = normalize_agent(agent)
     session_state = prepare_task_agent_session(task, workspace, agent)
@@ -618,6 +633,9 @@ def prepare_ai_agent_launch_command(
         claude_model=claude_model,
         claude_effort=claude_effort,
     )
+    if include_task_check:
+        task_check_suffix = task_check_prompt_suffix(task, workspace)
+        prompt_suffix = " ".join(value for value in (prompt_suffix, task_check_suffix) if value)
     prompt = ai_agent_task_context_prompt(task, workspace, prompt_suffix)
     return AgentLaunchCommand(
         command=build_ai_agent_console_command(
@@ -636,7 +654,7 @@ def prepare_ai_agent_launch_command(
     )
 
 
-def agent_workspace_setting_or_default(settings: dict[str, int | str], key: str, default: str) -> str:
+def agent_workspace_setting_or_default(settings: dict[str, int | float | str], key: str, default: str) -> str:
     value = settings.get(key)
     if not isinstance(value, str):
         return default
@@ -645,7 +663,7 @@ def agent_workspace_setting_or_default(settings: dict[str, int | str], key: str,
 
 
 def agent_workspace_runtime_settings(
-    settings: dict[str, int | str],
+    settings: dict[str, int | float | str],
     *,
     default_font_size: int,
     default_language: str = "ru",
@@ -670,6 +688,9 @@ def agent_workspace_runtime_settings(
             settings, "default_claude_effort", AGENT_WORKSPACE_DEFAULT_CLAUDE_EFFORT
         ),
         window_geometry=_str_setting(settings, "geometry", default_geometry),
+        main_split_ratio=_float_setting(settings, "main_split_ratio", 0.25),
+        details_split_ratio=_float_setting(settings, "details_split_ratio", 0.25),
+        actions_split_ratio=_float_setting(settings, "actions_split_ratio", 0.38),
     )
 
 
@@ -792,15 +813,31 @@ def session_marks_task_pending_permission(
     )
 
 
-def _int_setting(settings: dict[str, int | str], key: str, default: int) -> int:
+def _int_setting(settings: dict[str, int | float | str], key: str, default: int) -> int:
     value = settings.get(key)
     if isinstance(value, int):
         return value
     return default
 
 
+def _float_setting(settings: dict[str, int | float | str], key: str, default: float) -> float:
+    value = settings.get(key)
+    if isinstance(value, int | float):
+        ratio = float(value)
+    elif isinstance(value, str):
+        try:
+            ratio = float(value)
+        except ValueError:
+            return default
+    else:
+        return default
+    if 0.05 <= ratio <= 0.95:
+        return ratio
+    return default
+
+
 def _choice_setting(
-    settings: dict[str, int | str],
+    settings: dict[str, int | float | str],
     key: str,
     choices: tuple[str, ...],
     default: str,
@@ -811,7 +848,7 @@ def _choice_setting(
     return default
 
 
-def _str_setting(settings: dict[str, int | str], key: str, default: str) -> str:
+def _str_setting(settings: dict[str, int | float | str], key: str, default: str) -> str:
     value = settings.get(key)
     if isinstance(value, str):
         return value
@@ -1406,7 +1443,7 @@ def _claude_session_id_from_file(path: Path) -> str | None:
     return None
 
 
-def load_agent_workspace_settings(path: Path | None = None) -> dict[str, int | str]:
+def load_agent_workspace_settings(path: Path | None = None) -> dict[str, int | float | str]:
     settings_path = path or agent_workspace_settings_path()
     if not settings_path.is_file():
         return {}
@@ -1416,7 +1453,7 @@ def load_agent_workspace_settings(path: Path | None = None) -> dict[str, int | s
         return {}
     if not isinstance(data, dict):
         return {}
-    settings: dict[str, int | str] = {}
+    settings: dict[str, int | float | str] = {}
     text_font_size = data.get("text_font_size", data.get("font_size"))
     button_font_size = data.get("button_font_size")
     theme = data.get("theme")
@@ -1427,6 +1464,9 @@ def load_agent_workspace_settings(path: Path | None = None) -> dict[str, int | s
     default_codex_reasoning = data.get("default_codex_reasoning")
     default_claude_model = data.get("default_claude_model")
     default_claude_effort = data.get("default_claude_effort")
+    main_split_ratio = data.get("main_split_ratio")
+    details_split_ratio = data.get("details_split_ratio")
+    actions_split_ratio = data.get("actions_split_ratio")
     if isinstance(text_font_size, int):
         settings["text_font_size"] = max(8, min(28, text_font_size))
     if isinstance(button_font_size, int):
@@ -1447,10 +1487,17 @@ def load_agent_workspace_settings(path: Path | None = None) -> dict[str, int | s
         settings["default_claude_model"] = default_claude_model.strip()
     if isinstance(default_claude_effort, str) and default_claude_effort in AGENT_WORKSPACE_REASONING_EFFORTS:
         settings["default_claude_effort"] = default_claude_effort
+    for key, value in (
+        ("main_split_ratio", main_split_ratio),
+        ("details_split_ratio", details_split_ratio),
+        ("actions_split_ratio", actions_split_ratio),
+    ):
+        if isinstance(value, int | float) and 0.05 <= float(value) <= 0.95:
+            settings[key] = float(value)
     return settings
 
 
-def save_agent_workspace_settings(settings: dict[str, int | str], path: Path | None = None) -> None:
+def save_agent_workspace_settings(settings: dict[str, int | float | str], path: Path | None = None) -> None:
     settings_path = path or agent_workspace_settings_path()
     try:
         settings_path.parent.mkdir(parents=True, exist_ok=True)
