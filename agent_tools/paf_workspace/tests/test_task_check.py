@@ -16,8 +16,11 @@ def test_initialize_task_layout_creates_description_and_context(tmp_path: Path) 
 
     assert (task_dir / "TASK_DESCRIPTION.md").is_file()
     assert (task_dir / "TASK_CONTEXT.md").is_file()
+    assert (task_dir / "TASK_CONTEXT_LOG.jsonl").is_file()
     assert _has_check(initialize_checks, "PASS", "init-task-description")
+    assert _has_check(initialize_checks, "PASS", "init-task-context-log")
     assert _has_check(checks, "PASS", "task-description")
+    assert _has_check(checks, "PASS", "task-context-log")
 
 
 def test_initialize_task_layout_records_task_privacy(tmp_path: Path) -> None:
@@ -71,6 +74,20 @@ def test_missing_task_description_is_warning_for_existing_task(tmp_path: Path) -
 
     assert _has_check(checks, "WARN", "task-description-missing")
     assert not any(check.status == "FAIL" for check in checks)
+
+
+def test_compact_generated_task_context_uses_journal_checks(tmp_path: Path) -> None:
+    task_dir = tmp_path / "tasks" / "sample-task"
+    initialize_task_layout(task_dir, workspace=tmp_path)
+    (task_dir / "TASK_CONTEXT.md").write_text(
+        "# Task Context\n\n_Generated from `TASK_CONTEXT_LOG.jsonl` at 2026-08-19T10:00:00._\n",
+        encoding="utf-8",
+    )
+
+    checks = check_task(task_dir, workspace=tmp_path)
+
+    assert _has_check(checks, "PASS", "task-context-compact")
+    assert not _has_check(checks, "WARN", "task-context-section-missing")
 
 
 def test_render_text_errors_only_keeps_summary_and_failures(tmp_path: Path) -> None:

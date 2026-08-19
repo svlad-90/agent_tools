@@ -33,8 +33,13 @@ Every task in this workspace must live in its own directory under
 - `TASK_DESCRIPTION.md` - stable task description: original request, intended
   scope, acceptance criteria, important links, and non-status background that
   should remain useful for the whole task.
-- `TASK_CONTEXT.md` - active task context, decisions, branches, repositories,
-  validation status, discovered constraints, and remaining work.
+- `TASK_CONTEXT.md` - compact active task context generated from the task
+  journal: current goal, decisions, branches, repositories, validation status,
+  active constraints, and remaining work.
+- `TASK_CONTEXT_LOG.jsonl` - append-only structured task journal. Record dated
+  findings here through `python3 -m agent_tools.tools.task_context add` with
+  severity, status, and labels; query it when older or lower-signal history is
+  needed.
 - `dev/` - repositories, reproducers, workspaces, build files, and other
   development inputs for the task.
 - `Dockerfile/` - task-specific Dockerfiles, container build context files,
@@ -71,11 +76,15 @@ not scan every neighboring `TASK_CONTEXT.md` during normal task discovery:
 those files are working state and may be token-heavy.
 
 Keep `TASK_CONTEXT.md` as active working context, not an indefinite historical
-log. By default it should contain the current goal, current repository state,
-important decisions, validation status, blockers, and enough recent detail from
-roughly the last 2-3 days to continue work reliably. Move long history,
-superseded attempts, and old investigation details into `report/` artifacts
-when they still need to be preserved.
+log. Use `TASK_CONTEXT_LOG.jsonl` as the durable journal and regenerate compact
+context with `python3 -m agent_tools.tools.task_context compact --task
+tasks/<task-name>`. By default `TASK_CONTEXT.md` should contain the current
+goal, current repository state, important active decisions, validation status,
+blockers, and enough recent detail to continue work reliably. Query the journal
+by date, severity, status, and labels instead of reading or pasting all
+history into the model context. Move large logs, reports, diagrams, and old
+investigation details into `report/` artifacts when they still need to be
+preserved.
 
 Move repeated routine work into `scripts/` when doing so is useful. The decision
 to create or use a script is left to the model's judgment; prefer scripts when

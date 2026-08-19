@@ -8,6 +8,7 @@ python -m agent_tools.tools.code_map
 python -m agent_tools.tools.cpp_code_map
 python -m agent_tools.tools.yaml_map
 python -m agent_tools.tools.diff_report
+python -m agent_tools.tools.task_context
 python -m agent_tools.tools.commit_msg
 python -m agent_tools.tools.push_guard
 python -m agent_tools.tools.agent_workspace
@@ -15,6 +16,40 @@ python -m agent_tools.tools.agent_workspace
 
 Keep PAF orchestration under `agent_tools/paf_workspace/`; this directory is
 for reusable tool implementations that are not PAF domains.
+
+## Task Context
+
+Use `task_context` to keep long-running tasks compact without losing history.
+It stores durable context in `TASK_CONTEXT_LOG.jsonl` and regenerates a short
+active `TASK_CONTEXT.md` for the next session.
+
+Add a dated finding:
+
+```sh
+python -m agent_tools.tools.task_context add \
+  --task tasks/my-task \
+  --severity high \
+  --label validation \
+  --label build \
+  "Docker pytest passed for the Agent Workspace suite"
+```
+
+Query the journal by date, severity, status, or labels:
+
+```sh
+python -m agent_tools.tools.task_context query \
+  --task tasks/my-task \
+  --since 2026-08-19 \
+  --severity mid..critical \
+  --label validation \
+  --format markdown
+```
+
+Regenerate compact active context:
+
+```sh
+python -m agent_tools.tools.task_context compact --task tasks/my-task
+```
 
 ## Commit Message
 

@@ -13,6 +13,7 @@ import yaml
 
 REQUIRED_DIRS = ("dev", "Dockerfile", "scripts", "report", "report/diff", "report/puml")
 TASK_METADATA_FILE = "TASK_METADATA.json"
+TASK_CONTEXT_LOG_FILE = "TASK_CONTEXT_LOG.jsonl"
 TASK_CONTEXT_SECTIONS = (
     "## Goal",
     "## Repositories",
@@ -88,7 +89,7 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help=(
             "Create missing task directories, TASK_DESCRIPTION.md, and "
-            "TASK_CONTEXT.md from workspace templates."
+            "TASK_CONTEXT.md plus TASK_CONTEXT_LOG.jsonl."
         ),
     )
     parser.add_argument(
@@ -247,6 +248,13 @@ def initialize_task_layout(task_dir: Path, *, workspace: Path, privacy: str = "p
         template = TASK_CONTEXT_TEMPLATE.read_text(encoding="utf-8")
         context_path.write_text(template, encoding="utf-8")
         checks.append(Check("PASS", "init-task-context", "created TASK_CONTEXT.md from template", str(context_path)))
+
+    journal_path = task_dir / TASK_CONTEXT_LOG_FILE
+    if journal_path.exists():
+        checks.append(Check("PASS", "init-task-context-log-existing", f"{TASK_CONTEXT_LOG_FILE} already exists", str(journal_path)))
+    else:
+        journal_path.write_text("", encoding="utf-8")
+        checks.append(Check("PASS", "init-task-context-log", f"created {TASK_CONTEXT_LOG_FILE}", str(journal_path)))
 
     metadata_path = task_dir / TASK_METADATA_FILE
     if metadata_path.exists():
@@ -429,6 +437,21 @@ def _read_task_context(task_dir: Path, checks: list[Check]) -> str | None:
 def _check_task_context(task_dir: Path, text: str) -> list[Check]:
     checks: list[Check] = []
     context_path = str(task_dir / "TASK_CONTEXT.md")
+    journal_path = task_dir / TASK_CONTEXT_LOG_FILE
+    if journal_path.is_file():
+        checks.append(Check("PASS", "task-context-log", f"{TASK_CONTEXT_LOG_FILE} exists", str(journal_path)))
+    else:
+        checks.append(
+            Check(
+                "WARN",
+                "task-context-log-missing",
+                f"{TASK_CONTEXT_LOG_FILE} is missing; use agent_tools.tools.task_context for durable task history",
+                str(journal_path),
+            )
+        )
+    if f"Generated from `{TASK_CONTEXT_LOG_FILE}`" in text:
+        checks.append(Check("PASS", "task-context-compact", "TASK_CONTEXT.md is generated from structured journal", context_path))
+        return checks
     for section in TASK_CONTEXT_SECTIONS:
         if section in text:
             checks.append(Check("PASS", "task-context-section", f"section present: {section}", context_path))

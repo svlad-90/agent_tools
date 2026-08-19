@@ -28,7 +28,9 @@ same facts.
 Agent Workspace Tools turns that loose interaction into a structured local
 workflow:
 
-- every unit of work has a task directory with durable context;
+- every unit of work has a task directory with durable, queryable context;
+- long task history is kept in a structured journal while the active context
+  stays compact;
 - repeated commands are exposed as task actions instead of ad hoc shell text;
 - validations produce receipts that can be enforced before push;
 - reusable Docker/PAF environments make builds and tests reproducible;
@@ -51,8 +53,8 @@ The usual flow is:
 1. Create a task and give it a name.
 2. Open Codex, Claude Code, or a shell session from that task.
 3. Describe the work in the AI window.
-4. Let the agent create or update the task description, context, scripts,
-   actions, and validation notes as the work becomes concrete.
+4. Let the agent create or update the task description, context journal,
+   scripts, actions, and validation notes as the work becomes concrete.
 5. Use the GUI to run known actions, switch terminals, inspect context, and
    open artifacts while the agent handles the engineering work.
 6. Review the result, run validation, and commit when the repository is ready.
@@ -72,7 +74,8 @@ Each task gets a predictable layout:
 ```text
 tasks/<task-name>/
   TASK_DESCRIPTION.md   The request, scope, acceptance criteria, useful links.
-  TASK_CONTEXT.md       Current state, decisions, repositories, validation.
+  TASK_CONTEXT.md       Compact active context for the next session.
+  TASK_CONTEXT_LOG.jsonl Structured journal of dated task findings.
   dev/                  Checkouts, reproducers, generated build inputs.
   scripts/              Repeatable helper commands.
   report/               Logs, diagrams, reviews, validation evidence.
@@ -82,10 +85,27 @@ tasks/<task-name>/
 task to the agent and ask it to capture the goal, boundaries, and acceptance
 criteria there.
 
-`TASK_CONTEXT.md` is the working handoff. The agent should keep it short but
-current: active branch, important decisions, blockers, validation status, and
-the next useful step. This is the file a fresh agent session reads to avoid
-starting from zero.
+`TASK_CONTEXT_LOG.jsonl` is the durable journal. The agent records dated
+findings there with severity, status, and labels: build notes, validation
+results, decisions, blockers, environment facts, reports, and next steps.
+
+`TASK_CONTEXT.md` is the compact working handoff generated from that journal.
+It should stay short: active branch, important current decisions, blockers,
+validation status, and the next useful step. A fresh agent session starts from
+this file and queries the journal only when older or lower-signal history is
+needed.
+
+You can ask for filtered history directly:
+
+```text
+Show me high-severity validation and blocker notes from the last week.
+```
+
+or ask the agent to compact the context before a handoff:
+
+```text
+Compact the task context and keep only active mid-to-critical findings.
+```
 
 ### Add Actions
 
@@ -174,6 +194,27 @@ A practical session usually looks like this:
 The split is intentional. The agent should reason about the work. The GUI
 should make the repeated mechanics cheap and visible.
 
+## Compact Context
+
+Long AI-assisted tasks create a lot of facts, but not every fact deserves to be
+loaded into every future session. Agent Workspace separates task memory into
+two layers:
+
+- `TASK_CONTEXT_LOG.jsonl`: append-only history with timestamps, severity,
+  labels, status, details, and artifact links.
+- `TASK_CONTEXT.md`: compact active context generated from the journal.
+
+This makes context searchable without making it noisy. You can ask the agent
+for slices such as "active blockers", "validation notes since Monday",
+"critical build facts", or "resolved environment issues", and the tool can
+filter the journal instead of forcing the model to reread a long Markdown log.
+
+The underlying command is:
+
+```sh
+python -m agent_tools.tools.task_context
+```
+
 ## The Desktop Workspace
 
 The desktop app is the fastest way to operate the workspace day to day:
@@ -198,6 +239,8 @@ Detailed GUI documentation lives in
 The workspace treats important process rules as enforceable tooling:
 
 - `task_check` validates task structure and workflow metadata.
+- `task_context` keeps long-running task memory compact, structured, and
+  queryable.
 - `code_map`, `cpp_code_map`, and `yaml_map` help inspect and edit source with
   structural awareness.
 - `validate` records validation receipts for changed files or tasks.
