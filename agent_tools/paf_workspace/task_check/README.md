@@ -64,6 +64,13 @@ the task should be complete before a long build or runtime run:
 python -m agent_tools.paf_workspace.task_check task-name --strict-warnings
 ```
 
+`--strict-warnings` uses `warning-policy.yaml` for intentionally non-critical
+warnings. At the moment, auto-detected runtime/product readiness reminders such
+as a missing `product-artifacts.yaml` or missing Xen runtime YAML do not make
+strict mode fail when they were enabled only by context hints. They do become
+strict-fatal when the corresponding check is explicitly requested with
+`--runtime-product`, `--xen-runtime`, or `--init-runtime-product`.
+
 Runtime-product and Xen runtime YAML checks are enabled automatically when
 `TASK_CONTEXT.md` contains Xen/QEMU/Moulin hints or matching files already
 exist. Force those checks explicitly before setting up a new runtime task:

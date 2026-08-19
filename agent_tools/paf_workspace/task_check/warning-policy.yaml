@@ -1,0 +1,24 @@
+# Warning codes listed here are intentionally ignored by --strict-warnings
+# unless one of their strict_when_flags was requested explicitly.
+#
+# Keep this file as an allowlist. Warning codes not listed here are treated as
+# strict-fatal by default so newly added checks do not become soft by accident.
+non_strict_warnings:
+  artifact-manifest-missing:
+    reason: >
+      Runtime/product artifact manifests are required for build/runtime product
+      validation. When this check is enabled only because task context mentions
+      Xen/QEMU/Moulin, the missing manifest is a readiness reminder rather than
+      a blocker for analysis-only work.
+    strict_when_flags:
+      - runtime_product
+      - init_runtime_product
+
+  xen-runtime-yaml-missing:
+    reason: >
+      Xen runtime YAML is required for executable Xen/QEMU runtime validation.
+      When this check is enabled only by context hints, the missing YAML is a
+      readiness reminder rather than a blocker for analysis-only work.
+    strict_when_flags:
+      - xen_runtime
+      - init_runtime_product

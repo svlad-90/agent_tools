@@ -5,6 +5,7 @@ from pathlib import Path
 from paf_workspace.task_check import Check
 from paf_workspace.task_check import check_task
 from paf_workspace.task_check import initialize_task_layout
+from paf_workspace.task_check import main
 from paf_workspace.task_check import render_text
 from agent_tools.tools.task_context import DATABASE_FILENAME
 from agent_tools.tools.task_context import migrate_legacy_journal
@@ -76,6 +77,40 @@ def test_missing_task_description_is_warning_for_existing_task(tmp_path: Path) -
 
     assert _has_check(checks, "WARN", "task-description-missing")
     assert not any(check.status == "FAIL" for check in checks)
+
+
+def test_strict_warnings_ignores_auto_runtime_readiness_warnings(tmp_path: Path) -> None:
+    task_dir = tmp_path / "tasks" / "sample-task"
+    initialize_task_layout(task_dir, workspace=tmp_path)
+    (task_dir / "TASK_CONTEXT.md").write_text(
+        "# Task Context\n\n"
+        "_Generated from `TASK_CONTEXT.sqlite3` at 2026-08-19T10:00:00._\n\n"
+        "This analysis task mentions Xen and QEMU, but it is not a runtime validation task yet.\n",
+        encoding="utf-8",
+    )
+
+    result = main([str(task_dir), "--workspace", str(tmp_path), "--strict-warnings", "--errors-only"])
+
+    assert result == 0
+
+
+def test_strict_warnings_fails_for_scope_metadata_warning(tmp_path: Path) -> None:
+    task_dir = tmp_path / "tasks" / "sample-task"
+    initialize_task_layout(task_dir, workspace=tmp_path)
+    (task_dir / "TASK_DESCRIPTION.md").unlink()
+
+    result = main([str(task_dir), "--workspace", str(tmp_path), "--strict-warnings", "--errors-only"])
+
+    assert result == 1
+
+
+def test_strict_warnings_honors_explicit_runtime_product_flag(tmp_path: Path) -> None:
+    task_dir = tmp_path / "tasks" / "sample-task"
+    initialize_task_layout(task_dir, workspace=tmp_path)
+
+    result = main([str(task_dir), "--workspace", str(tmp_path), "--strict-warnings", "--runtime-product", "--errors-only"])
+
+    assert result == 1
 
 
 def test_compact_generated_task_context_uses_journal_checks(tmp_path: Path) -> None:

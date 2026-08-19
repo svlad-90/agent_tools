@@ -39,6 +39,7 @@ TASK_DESCRIPTION_TEMPLATE = PAF_WORKSPACE_ROOT / "templates" / "TASK_DESCRIPTION
 PRODUCT_ARTIFACTS_TEMPLATE = PAF_WORKSPACE_ROOT / "templates" / "product-artifacts.yaml"
 DEFAULT_RUNTIME_YAML_NAME = "xen-zephyr-runtime.yaml"
 TASKS_DIR_NAME = "tasks"
+WARNING_POLICY_FILE = Path(__file__).with_name("warning-policy.yaml")
 
 
 @dataclass(frozen=True)
@@ -142,10 +143,54 @@ def main(argv: list[str] | None = None) -> int:
         print(render_text(task_dir, checks, errors_only=args.errors_only))
 
     has_failures = any(check.status == "FAIL" for check in checks)
-    has_warnings = any(check.status == "WARN" for check in checks)
-    if has_failures or (args.strict_warnings and has_warnings):
+    strict_warning_checks = []
+    if args.strict_warnings:
+        strict_warning_checks = _strict_warning_checks(
+            checks,
+            explicit_flags=_strict_warning_explicit_flags(args),
+        )
+    if has_failures or (args.strict_warnings and strict_warning_checks):
         return 1
     return 0
+
+
+def _strict_warning_explicit_flags(args: argparse.Namespace) -> set[str]:
+    flags: set[str] = set()
+    for flag in ("runtime_product", "xen_runtime", "init_runtime_product", "run_env_check"):
+        if getattr(args, flag, False):
+            flags.add(flag)
+    return flags
+
+
+def _strict_warning_checks(checks: list[Check], *, explicit_flags: set[str]) -> list[Check]:
+    non_strict_warnings = _load_non_strict_warning_policy()
+    strict_checks: list[Check] = []
+    for check in checks:
+        if check.status != "WARN":
+            continue
+        policy = non_strict_warnings.get(check.code)
+        if policy is None or policy.intersection(explicit_flags):
+            strict_checks.append(check)
+    return strict_checks
+
+
+def _load_non_strict_warning_policy() -> dict[str, set[str]]:
+    data = yaml.safe_load(WARNING_POLICY_FILE.read_text(encoding="utf-8"))
+    if not isinstance(data, dict):
+        raise ValueError(f"{WARNING_POLICY_FILE} must contain a mapping")
+    entries = data.get("non_strict_warnings", {})
+    if not isinstance(entries, dict):
+        raise ValueError("warning policy non_strict_warnings must be a mapping")
+
+    policy: dict[str, set[str]] = {}
+    for code, entry in entries.items():
+        if not isinstance(code, str) or not isinstance(entry, dict):
+            raise ValueError("warning policy entries must map warning codes to objects")
+        strict_when_flags = entry.get("strict_when_flags", [])
+        if not isinstance(strict_when_flags, list) or not all(isinstance(flag, str) for flag in strict_when_flags):
+            raise ValueError(f"warning policy {code} strict_when_flags must be a string list")
+        policy[code] = set(strict_when_flags)
+    return policy
 
 
 def check_task(
