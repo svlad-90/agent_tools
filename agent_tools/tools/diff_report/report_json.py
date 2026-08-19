@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from collections import Counter
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -537,31 +538,88 @@ def _render_relationship_graph_section(graph: RelationshipGraph) -> str:
         "edges": list(graph.edges),
     }
     graph_json = json.dumps(graph_payload, ensure_ascii=False).replace("</", "<\\/")
+    node_count = len(graph.nodes)
+    edge_count = len(graph.edges)
+    type_counts = Counter(str(node.get("type") or "entity") for node in graph.nodes)
+    status_counts = Counter(str(node.get("status") or "unknown") for node in graph.nodes)
+    type_preview = "".join(
+        f'<span>{_esc(item)} <strong>{count}</strong></span>'
+        for item, count in type_counts.most_common(8)
+    )
+    status_preview = "".join(
+        f'<span class="{_status_class(item)}">{_esc(item)} <strong>{count}</strong></span>'
+        for item, count in status_counts.most_common(6)
+    )
     return f"""
   <section class="report-relationship-section" id="report-relationship-graph">
     <h2>{_esc(graph.title)}</h2>
-    <div class="relationship-browser" data-relationship-browser>
-      <script type="application/json" data-relationship-graph-data>{graph_json}</script>
-      <div class="relationship-toolbar">
-        <label><span class="label">Find node</span><input type="search" data-relationship-search placeholder="VSR, HAL, CTS, CDD"></label>
-        <select data-relationship-node-select aria-label="Select graph node"></select>
-        <div class="relationship-depth-controls" aria-label="Graph depth">
-          <button type="button" data-relationship-depth="1">Depth 1</button>
-          <button type="button" data-relationship-depth="2">Depth 2</button>
-        </div>
-        <div class="relationship-nav-controls" aria-label="Graph history">
-          <button type="button" data-relationship-fit>Fit</button>
-          <button type="button" data-relationship-back>Back</button>
-          <button type="button" data-relationship-forward>Forward</button>
+    <div class="relationship-launcher">
+      <button type="button" data-relationship-open>Open graph</button>
+      <div>
+        <strong>{_esc(graph.title)}</strong>
+        <p>{node_count} nodes, {edge_count} links. Open the graph in a larger workspace to inspect requirement, domain, CDD, HAL, CTS/VTS, and evidence relationships.</p>
+        <div class="relationship-preview" aria-label="Graph preview">
+          <div><span class="label">Types</span><div class="relationship-preview-row">{type_preview}</div></div>
+          <div><span class="label">Statuses</span><div class="relationship-preview-row">{status_preview}</div></div>
         </div>
       </div>
-      <div class="relationship-layout">
-        <div class="relationship-canvas-wrap">
-          <div class="relationship-canvas" data-relationship-canvas role="img" aria-label="{_esc(graph.title)}"></div>
+    </div>
+    <div class="relationship-modal" data-relationship-modal hidden role="dialog" aria-modal="true" aria-labelledby="report-relationship-graph-modal-title">
+      <div class="relationship-modal-panel">
+        <div class="relationship-modal-head">
+          <div>
+            <span class="label">Traceability graph</span>
+            <h3 id="report-relationship-graph-modal-title">{_esc(graph.title)}</h3>
+          </div>
+          <button type="button" data-relationship-close aria-label="Close graph">Close</button>
         </div>
-        <aside class="relationship-detail" data-relationship-detail>
-          <p>Select a node to inspect related requirements, CDD, HALs, tests, evidence, gaps, and notes.</p>
-        </aside>
+        <div class="relationship-browser" data-relationship-browser data-relationship-defer>
+          <script type="application/json" data-relationship-graph-data>{graph_json}</script>
+          <div class="relationship-toolbar">
+            <div class="relationship-search-controls">
+              <label><span class="label">Find node</span><input type="search" data-relationship-search placeholder="VSR, HAL, CTS, CDD"></label>
+              <label><span class="label">Focus <small data-relationship-node-count></small></span><select data-relationship-node-select aria-label="Select graph node"></select></label>
+            </div>
+            <div class="relationship-view-controls">
+              <fieldset class="relationship-type-filter" data-relationship-type-filter>
+                <legend>Entity types</legend>
+              </fieldset>
+            </div>
+          </div>
+          <div class="relationship-layout">
+            <div class="relationship-explorer-main">
+              <div class="relationship-canvas-wrap">
+                <div class="relationship-canvas-controls" aria-label="Graph view controls">
+                  <div class="relationship-depth-controls" aria-label="Graph depth">
+                    <button type="button" data-relationship-depth="1">Depth 1</button>
+                    <button type="button" data-relationship-depth="2">Depth 2</button>
+                  </div>
+                  <div class="relationship-nav-controls" aria-label="Graph history">
+                    <button type="button" data-relationship-fit title="Fit graph" aria-label="Fit graph">Fit</button>
+                    <button type="button" data-relationship-back title="Back" aria-label="Back">←</button>
+                    <button type="button" data-relationship-forward title="Forward" aria-label="Forward">→</button>
+                  </div>
+                </div>
+                <div class="relationship-canvas" data-relationship-canvas role="img" aria-label="{_esc(graph.title)}"></div>
+              </div>
+              <div class="relationship-selection-table" data-relationship-selection-table>
+                <div class="relationship-selection-table-head">
+                  <span>Selection table</span>
+                  <small data-relationship-selection-count></small>
+                </div>
+                <div class="relationship-selection-table-scroll">
+                  <table>
+                    <thead><tr><th>Type</th><th>Node</th><th>Status</th><th>Links</th><th>Summary</th></tr></thead>
+                    <tbody data-relationship-selection-body></tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+            <aside class="relationship-detail" data-relationship-detail>
+              <p>Select a node to inspect related requirements, CDD, HALs, tests, evidence, gaps, and notes.</p>
+            </aside>
+          </div>
+        </div>
       </div>
     </div>
   </section>
@@ -744,9 +802,11 @@ def _report_filter_script() -> str:
   }).filter((entry) => entry.id && entry.section);
   let activeTocId = "";
   let tocScrollRaf = 0;
+  let pendingTocId = "";
+  let pendingTocSince = 0;
 
   function setActiveToc(id, reveal) {
-    if (!id || id === activeTocId) {
+    if (!id) {
       return;
     }
     activeTocId = id;
@@ -789,7 +849,23 @@ def _report_filter_script() -> str:
 
   function updateActiveTocFromScroll() {
     tocScrollRaf = 0;
-    setActiveToc(currentReadableTocId(), true);
+    if (pendingTocId) {
+      const pending = tocEntries.find((entry) => entry.id === pendingTocId);
+      const pendingTop = pending ? pending.section.getBoundingClientRect().top : 0;
+      if (pending && Math.abs(pendingTop) > 18 && Date.now() - pendingTocSince < 1800) {
+        setActiveToc(pendingTocId, false);
+        window.setTimeout(scheduleActiveTocUpdate, 120);
+        return;
+      }
+      pendingTocId = "";
+      pendingTocSince = 0;
+    }
+    const lockUntil = Number(document.documentElement.dataset.tocLockUntil || "0");
+    if (Date.now() < lockUntil) {
+      window.setTimeout(scheduleActiveTocUpdate, Math.max(0, lockUntil - Date.now()));
+      return;
+    }
+    setActiveToc(currentReadableTocId(), false);
   }
 
   function scheduleActiveTocUpdate() {
@@ -816,7 +892,11 @@ def _report_filter_script() -> str:
     if (!target) return;
     event.preventDefault();
     event.stopPropagation();
-    setActiveToc(href.slice(1), true);
+    const id = decodeURIComponent(href.slice(1));
+    pendingTocId = id;
+    pendingTocSince = Date.now();
+    document.documentElement.dataset.tocLockUntil = String(Date.now() + 1800);
+    setActiveToc(id, true);
     target.scrollIntoView({block: "start", inline: "nearest"});
     if (history.pushState) {
       history.pushState(null, "", href);
@@ -895,26 +975,88 @@ def _relationship_graph_script() -> str:
     }
   }
 
-  function buildNeighborhood(selectedId, depth, nodesById, edges) {
-    const visible = new Set([selectedId]);
+  function isTypeEnabled(node, selectedId, enabledTypes) {
+    if (!node) return false;
+    return enabledTypes.has(node.type || "entity");
+  }
+
+  function buildNeighborhood(selectedId, depth, nodesById, edges, enabledTypes) {
+    const selected = nodesById.get(selectedId);
+    if (!isTypeEnabled(selected, selectedId, enabledTypes)) {
+      return {nodes: [], edges: [], distances: new Map()};
+    }
+    const distances = new Map([[selectedId, 0]]);
     let frontier = new Set([selectedId]);
     for (let step = 0; step < depth; step += 1) {
       const next = new Set();
       for (const edge of edges) {
-        if (frontier.has(edge.source) && !visible.has(edge.target)) {
+        const sourceNode = nodesById.get(edge.source);
+        const targetNode = nodesById.get(edge.target);
+        if (frontier.has(edge.source) && !distances.has(edge.target) && isTypeEnabled(targetNode, selectedId, enabledTypes)) {
           next.add(edge.target);
         }
-        if (frontier.has(edge.target) && !visible.has(edge.source)) {
+        if (frontier.has(edge.target) && !distances.has(edge.source) && isTypeEnabled(sourceNode, selectedId, enabledTypes)) {
           next.add(edge.source);
         }
       }
-      for (const id of next) visible.add(id);
+      for (const id of next) distances.set(id, step + 1);
       frontier = next;
       if (!frontier.size) break;
     }
-    const visibleEdges = edges.filter((edge) => visible.has(edge.source) && visible.has(edge.target));
-    const visibleNodes = Array.from(visible).map((id) => nodesById.get(id)).filter(Boolean);
-    return {nodes: visibleNodes, edges: visibleEdges};
+    const visibleEdges = edges.filter((edge) => {
+      const sourceDistance = distances.get(edge.source);
+      const targetDistance = distances.get(edge.target);
+      if (sourceDistance == null || targetDistance == null) return false;
+      if (edge.source === selectedId || edge.target === selectedId) return true;
+      return Math.abs(sourceDistance - targetDistance) === 1 && Math.min(sourceDistance, targetDistance) < depth;
+    });
+    const visibleNodes = Array.from(distances.keys()).map((id) => nodesById.get(id)).filter(Boolean);
+    return {nodes: visibleNodes, edges: visibleEdges, distances};
+  }
+
+  function graphMatchesSearch(graph, query) {
+    const normalized = String(query || "").trim().toLowerCase();
+    if (!normalized) return graph;
+    const nodes = graph.nodes.filter((node) => searchableText(node).includes(normalized));
+    const visible = new Set(nodes.map((node) => node.id));
+    return {
+      nodes,
+      edges: graph.edges.filter((edge) => visible.has(edge.source) && visible.has(edge.target)),
+      distances: graph.distances
+    };
+  }
+
+  function capGraph(graph, selectedId, limit) {
+    if (!limit || graph.nodes.length <= limit) return graph;
+    const score = (node) => {
+      const status = String(node.status || "");
+      const distance = graph.distances && graph.distances.get(node.id);
+      const statusScore = ["gap", "risk", "needs_evidence", "fail", "blocked"].includes(status) ? 0 : 1;
+      return [
+        node.id === selectedId ? -1 : 0,
+        distance == null ? 9 : distance,
+        statusScore,
+        typeRank(node),
+        String(node.label || node.id)
+      ];
+    };
+    const sorted = [...graph.nodes].sort((left, right) => {
+      const leftScore = score(left);
+      const rightScore = score(right);
+      for (let index = 0; index < leftScore.length; index += 1) {
+        if (leftScore[index] < rightScore[index]) return -1;
+        if (leftScore[index] > rightScore[index]) return 1;
+      }
+      return 0;
+    });
+    const nodes = sorted.slice(0, limit);
+    const visible = new Set(nodes.map((node) => node.id));
+    return {
+      nodes,
+      edges: graph.edges.filter((edge) => visible.has(edge.source) && visible.has(edge.target)),
+      distances: graph.distances,
+      omitted: graph.nodes.length - nodes.length
+    };
   }
 
   function nodeDistanceMap(selectedId, edges) {
@@ -974,12 +1116,7 @@ def _relationship_graph_script() -> str:
   }
 
   function visibleEdgesForCanvas(selectedId, graph) {
-    return graph.edges.filter((edge) => {
-      if (edge.source === selectedId || edge.target === selectedId) return true;
-      const source = graph.nodes.find((node) => node.id === edge.source);
-      const target = graph.nodes.find((node) => node.id === edge.target);
-      return source && target && source.type !== "artifact" && target.type !== "artifact";
-    });
+    return graph.edges || [];
   }
 
   function wrapLabel(value) {
@@ -1007,15 +1144,20 @@ def _relationship_graph_script() -> str:
   }
 
   function cytoscapeStyle() {
-    const text = cssValue("--text", "#d8dee9");
-    const panel = cssValue("--panel", "#202124");
-    const metaPanel = cssValue("--meta-panel", "#1b1c1f");
-    const border = cssValue("--meta-border", "#3a3f46");
-    const link = cssValue("--link", "#2f81f7");
-    const muted = cssValue("--muted", "#8b949e");
-    const risk = cssValue("--comment-border", "#d0a800");
-    const fail = cssValue("--stat-del", "#ff6b6b");
-    const pass = cssValue("--stat-add", "#6bd97c");
+    const text = cssValue("--graph-node-text", "#111827");
+    const panel = cssValue("--graph-node-bg", "#ffffff");
+    const metaPanel = cssValue("--graph-artifact-bg", "#f1f5f9");
+    const domainPanel = cssValue("--graph-domain-bg", "#e0f2fe");
+    const border = cssValue("--graph-node-border", "#94a3b8");
+    const link = cssValue("--graph-focus", "#2563eb");
+    const active = cssValue("--graph-active", "#0f766e");
+    const muted = cssValue("--graph-edge", "#64748b");
+    const risk = cssValue("--graph-status-risk-border", "#d97706");
+    const riskBg = cssValue("--graph-status-risk-bg", "#fffbeb");
+    const fail = cssValue("--graph-status-fail-border", "#dc2626");
+    const failBg = cssValue("--graph-status-fail-bg", "#fef2f2");
+    const pass = cssValue("--graph-status-pass-border", "#16a34a");
+    const passBg = cssValue("--graph-status-pass-bg", "#f0fdf4");
     return [
       {
         selector: "node",
@@ -1037,7 +1179,7 @@ def _relationship_graph_script() -> str:
           "overlay-opacity": 0
         }
       },
-      {selector: 'node[type = "domain"]', style: {"shape": "ellipse", "background-color": metaPanel}},
+      {selector: 'node[type = "domain"]', style: {"shape": "ellipse", "background-color": domainPanel}},
       {selector: 'node[type = "vsr"]', style: {"shape": "round-rectangle"}},
       {selector: 'node[type = "cdd"]', style: {"shape": "diamond", "width": 130, "height": 86}},
       {selector: 'node[type = "hal"]', style: {"shape": "hexagon"}},
@@ -1045,10 +1187,11 @@ def _relationship_graph_script() -> str:
       {selector: 'node[type = "artifact"]', style: {"shape": "tag", "background-color": metaPanel}},
       {selector: 'node[type = "evidence"]', style: {"shape": "round-tag", "background-color": metaPanel}},
       {selector: "edge", style: {"width": 1.4, "line-color": muted, "target-arrow-color": muted, "target-arrow-shape": "triangle", "curve-style": "bezier", "opacity": .52}},
-      {selector: ".status-covered, .status-covered-candidate, .status-pass", style: {"border-color": pass}},
-      {selector: ".status-risk, .status-needs-evidence, .status-not-applicable-candidate", style: {"border-color": risk}},
-      {selector: ".status-gap, .status-fail, .status-blocked", style: {"border-color": fail}},
-      {selector: ".is-selected", style: {"border-color": link, "border-width": 4, "background-color": cssValue("--button-hover-bg", "#143d66")}},
+      {selector: ".status-covered, .status-covered-candidate, .status-pass", style: {"border-color": pass, "background-color": passBg}},
+      {selector: ".status-risk, .status-needs-evidence, .status-not-applicable-candidate, .status-warning", style: {"border-color": risk, "background-color": riskBg}},
+      {selector: ".status-gap, .status-fail, .status-blocked", style: {"border-color": fail, "background-color": failBg}},
+      {selector: ".is-selected", style: {"border-color": link, "border-width": 5, "outline-color": link, "outline-width": 3, "outline-opacity": .52}},
+      {selector: ".is-active", style: {"border-color": active, "border-width": 4}},
       {selector: "node:selected", style: {"border-color": link, "border-width": 4}}
     ];
   }
@@ -1063,7 +1206,7 @@ def _relationship_graph_script() -> str:
         type: node.type || "entity",
         status: node.status || "unknown"
       },
-      classes: `${cssStatus(node.status)} ${node.id === graph.selectedId ? "is-selected" : ""}`
+      classes: `${cssStatus(node.status)} ${node.id === graph.selectedId ? "is-selected" : ""} ${node.id === graph.activeId ? "is-active" : ""}`
     }));
     const edges = visibleEdgesForCanvas(graph.selectedId, graph).map((edge, index) => ({
       group: "edges",
@@ -1086,6 +1229,18 @@ def _relationship_graph_script() -> str:
     });
   }
 
+  function setGraphInteractive(browser, state, interactive) {
+    state.graphInteractive = Boolean(interactive);
+    const canvas = browser.querySelector("[data-relationship-canvas]");
+    if (canvas) {
+      canvas.setAttribute("data-graph-interactive", state.graphInteractive ? "true" : "false");
+    }
+    if (!state.cy) return;
+    state.cy.userZoomingEnabled(state.graphInteractive);
+    state.cy.userPanningEnabled(state.graphInteractive);
+    state.cy.autoungrabify(!state.graphInteractive);
+  }
+
   function renderGraph(browser, state) {
     const canvas = browser.querySelector("[data-relationship-canvas]");
     if (!canvas || !state.selectedId) return;
@@ -1093,8 +1248,18 @@ def _relationship_graph_script() -> str:
       canvas.textContent = "Cytoscape.js is not available.";
       return;
     }
-    const graph = buildNeighborhood(state.selectedId, state.depth, state.nodesById, state.edges);
+    const hasSearch = String(state.searchQuery || "").trim();
+    const graph = capGraph(graphMatchesSearch(
+      buildNeighborhood(state.selectedId, state.depth, state.nodesById, state.edges, state.enabledTypes),
+      state.searchQuery
+    ), state.selectedId, hasSearch ? 0 : 80);
+    if (!graph.nodes.some((node) => node.id === state.activeId)) {
+      state.activeId = state.selectedId;
+    }
     graph.selectedId = state.selectedId;
+    graph.activeId = state.activeId;
+    state.visibleGraph = graph;
+    state.visibleNodeIds = new Set(graph.nodes.map((node) => node.id));
     if (state.cy) {
       state.cy.destroy();
       state.cy = null;
@@ -1106,9 +1271,43 @@ def _relationship_graph_script() -> str:
       wheelSensitivity: .18,
       minZoom: .25,
       maxZoom: 3,
+      userZoomingEnabled: Boolean(state.graphInteractive),
+      userPanningEnabled: Boolean(state.graphInteractive),
+      autoungrabify: !state.graphInteractive,
       boxSelectionEnabled: false
     });
-    state.cy.on("tap", "node", (event) => selectNode(browser, state, event.target.id(), true));
+    setGraphInteractive(browser, state, state.graphInteractive);
+    state.cy.on("tap", "node", (event) => {
+      const nodeId = event.target.id();
+      if (state.tapTimer && state.tapTarget === nodeId) {
+        window.clearTimeout(state.tapTimer);
+        state.tapTimer = 0;
+        state.tapTarget = "";
+        selectNode(browser, state, nodeId, true);
+        return;
+      }
+      if (state.tapTimer) {
+        window.clearTimeout(state.tapTimer);
+      }
+      state.tapTarget = nodeId;
+      state.tapTimer = window.setTimeout(() => {
+        state.tapTimer = 0;
+        state.tapTarget = "";
+        activateNode(browser, state, nodeId);
+      }, 240);
+    });
+    if (!graph.nodes.length) {
+      canvas.setAttribute("data-empty-graph", "true");
+      canvas.setAttribute("data-graph-message", hasSearch ? "No matching nodes in the current neighborhood." : "No entity types selected.");
+      renderSelectionTable(browser, state);
+      return;
+    }
+    canvas.removeAttribute("data-empty-graph");
+    if (graph.omitted) {
+      canvas.setAttribute("data-graph-message", `${graph.omitted} more nodes hidden. Use search or entity filters to narrow the graph.`);
+    } else {
+      canvas.removeAttribute("data-graph-message");
+    }
     const layout = state.cy.layout({
       name: "cose",
       animate: false,
@@ -1124,7 +1323,54 @@ def _relationship_graph_script() -> str:
     layout.run();
     const selected = state.cy.getElementById(state.selectedId);
     if (selected.length) selected.select();
+    renderSelectionTable(browser, state);
     fitGraph(state, 88);
+  }
+
+  function visibleGraphDegree(nodeId, graph) {
+    if (!graph || !Array.isArray(graph.edges)) return 0;
+    return graph.edges.filter((edge) => edge.source === nodeId || edge.target === nodeId).length;
+  }
+
+  function renderSelectionTable(browser, state) {
+    const body = browser.querySelector("[data-relationship-selection-body]");
+    const count = browser.querySelector("[data-relationship-selection-count]");
+    if (!body) return;
+    const graph = state.visibleGraph || {nodes: [], edges: []};
+    const nodes = [...(graph.nodes || [])].sort((left, right) =>
+      typeRank(left) - typeRank(right) ||
+      String(left.label || left.id).localeCompare(String(right.label || right.id))
+    );
+    if (count) {
+      count.textContent = `${nodes.length} nodes, ${(graph.edges || []).length} links`;
+    }
+    body.replaceChildren();
+    for (const node of nodes) {
+      const row = document.createElement("tr");
+      row.setAttribute("data-relationship-table-node", node.id);
+      row.classList.toggle("is-focus", node.id === state.selectedId);
+      row.classList.toggle("is-active", node.id === state.activeId);
+      const cells = [
+        {text: nodeTypeLabel(node)},
+        {text: node.label || node.id},
+        {text: node.status || "unknown", status: node.status || "unknown"},
+        {text: String(visibleGraphDegree(node.id, graph))},
+        {text: shortText(node.summary || "", 180)}
+      ];
+      for (const value of cells) {
+        const cell = document.createElement("td");
+        if (value.status) {
+          const badge = document.createElement("span");
+          badge.className = `report-status-badge ${cssStatus(value.status)}`;
+          badge.textContent = value.text;
+          cell.appendChild(badge);
+        } else {
+          cell.textContent = value.text;
+        }
+        row.appendChild(cell);
+      }
+      body.appendChild(row);
+    }
   }
 
   function relatedGroups(nodeId, state) {
@@ -1143,6 +1389,7 @@ def _relationship_graph_script() -> str:
       }
       const node = state.nodesById.get(relatedId);
       if (!node) continue;
+      if (!isTypeEnabled(node, nodeId, state.enabledTypes)) continue;
       const relation = edge.relation || "related_to";
       const key = direction === "out" ? relation : `${relation} (incoming)`;
       if (!groups.has(key)) groups.set(key, []);
@@ -1153,9 +1400,18 @@ def _relationship_graph_script() -> str:
 
   function renderDetail(browser, state) {
     const detail = browser.querySelector("[data-relationship-detail]");
-    if (!detail || !state.selectedId) return;
-    const node = state.nodesById.get(state.selectedId);
+    const nodeId = state.activeId || state.selectedId;
+    if (!detail || !nodeId) return;
+    const node = state.nodesById.get(nodeId);
     if (!node) return;
+    if (!isTypeEnabled(node, state.selectedId, state.enabledTypes)) {
+      detail.innerHTML = "<p>No entity types selected. Enable at least one type or use All.</p>";
+      return;
+    }
+    if (state.searchQuery && !searchableText(node).includes(String(state.searchQuery).trim().toLowerCase())) {
+      detail.innerHTML = "<p>The selected node is outside the current search filter. Pick a matching Focus item or clear the search.</p>";
+      return;
+    }
     const details = node.details && typeof node.details === "object" ? node.details : {};
     const groups = relatedGroups(node.id, state);
     const detailRows = Object.entries(details).filter(([, value]) => value != null && String(value).trim());
@@ -1172,10 +1428,14 @@ def _relationship_graph_script() -> str:
     }
     if (groups.size) {
       html += '<div class="relationship-related">';
+      const visibleNodeIds = state.visibleNodeIds || new Set();
       for (const [relation, nodes] of groups) {
         html += `<section><h4>${esc(relation.replaceAll("_", " "))}</h4><div class="relationship-related-list">`;
         for (const related of nodes.sort((a, b) => String(a.label || a.id).localeCompare(String(b.label || b.id)))) {
-          html += `<button type="button" data-relationship-jump="${esc(related.id)}"><span>${esc(related.label || related.id)}</span><small>${esc(nodeTypeLabel(related))}</small></button>`;
+          const isVisible = visibleNodeIds.has(related.id);
+          const className = isVisible ? "is-visible" : "is-outside-view";
+          const visibility = isVisible ? "shown on current graph" : "focus to show";
+          html += `<button type="button" class="${className}" data-relationship-jump="${esc(related.id)}" data-relationship-jump-visible="${isVisible ? "true" : "false"}"><span>${esc(related.label || related.id)}</span><small>${esc(nodeTypeLabel(related))} · ${visibility}</small></button>`;
         }
         html += "</div></section>";
       }
@@ -1191,10 +1451,221 @@ def _relationship_graph_script() -> str:
       state.forwardStack.length = 0;
     }
     state.selectedId = nodeId;
-    const select = browser.querySelector("[data-relationship-node-select]");
-    if (select) select.value = nodeId;
+    state.activeId = nodeId;
+    renderNodeSelect(browser, state);
     renderGraph(browser, state);
     renderDetail(browser, state);
+  }
+
+  function updateActiveGraphNode(state) {
+    if (!state.cy) return;
+    state.cy.nodes().removeClass("is-active");
+    const active = state.cy.getElementById(state.activeId || "");
+    if (active.length) active.addClass("is-active");
+  }
+
+  function updateActiveTableRow(browser, state) {
+    browser.querySelectorAll("[data-relationship-table-node]").forEach((row) => {
+      row.classList.toggle("is-active", row.getAttribute("data-relationship-table-node") === state.activeId);
+      row.classList.toggle("is-focus", row.getAttribute("data-relationship-table-node") === state.selectedId);
+    });
+  }
+
+  function activateNode(browser, state, nodeId) {
+    if (!state.nodesById.has(nodeId)) return;
+    state.activeId = nodeId;
+    updateActiveGraphNode(state);
+    updateActiveTableRow(browser, state);
+    renderDetail(browser, state);
+  }
+
+  function graphTypes(nodes) {
+    const seen = new Set(nodes.map((node) => node.type || "entity"));
+    return TYPE_ORDER.filter((type) => seen.has(type)).concat(
+      Array.from(seen).filter((type) => !TYPE_ORDER.includes(type)).sort()
+    );
+  }
+
+  function searchableText(node) {
+    const details = node.details && typeof node.details === "object" ? Object.values(node.details).join(" ") : "";
+    return `${node.id} ${nodeTypeLabel(node)} ${node.type || ""} ${node.label || ""} ${node.summary || ""} ${details}`.toLowerCase();
+  }
+
+  function searchRank(node, query) {
+    const normalized = String(query || "").trim().toLowerCase();
+    if (!normalized) return 0;
+    const type = String(node.type || "entity").toLowerCase();
+    const typeLabel = nodeTypeLabel(node).toLowerCase();
+    const id = String(node.id || "").toLowerCase();
+    const label = String(node.label || "").toLowerCase();
+    if (type === normalized || typeLabel === normalized) return 0;
+    if (id === normalized || label === normalized) return 1;
+    if (id.startsWith(normalized) || label.startsWith(normalized)) return 2;
+    if (id.includes(normalized) || label.includes(normalized)) return 3;
+    return 4;
+  }
+
+  function visibleNodeDegree(node, state) {
+    if (!node || !isTypeEnabled(node, state.selectedId, state.enabledTypes)) return 0;
+    let degree = 0;
+    for (const edge of state.edges) {
+      let otherId = "";
+      if (edge.source === node.id) {
+        otherId = edge.target;
+      } else if (edge.target === node.id) {
+        otherId = edge.source;
+      } else {
+        continue;
+      }
+      if (isTypeEnabled(state.nodesById.get(otherId), state.selectedId, state.enabledTypes)) {
+        degree += 1;
+      }
+    }
+    return degree;
+  }
+
+  function selectableNodes(state, includeSelected) {
+    const query = String(state.searchQuery || "").trim().toLowerCase();
+    return state.nodes
+      .filter((node) => {
+        if (includeSelected && node.id === state.selectedId) return state.enabledTypes.has(node.type || "entity");
+        return state.enabledTypes.has(node.type || "entity");
+      })
+      .filter((node) => !query || searchableText(node).includes(query))
+      .sort((left, right) => {
+        const leftDegree = visibleNodeDegree(left, state);
+        const rightDegree = visibleNodeDegree(right, state);
+        return searchRank(left, query) - searchRank(right, query) ||
+          Number(leftDegree === 0) - Number(rightDegree === 0) ||
+          rightDegree - leftDegree ||
+          typeRank(left) - typeRank(right) ||
+          String(left.label || left.id).localeCompare(String(right.label || right.id));
+      });
+  }
+
+  function renderNodeSelect(browser, state) {
+    const select = browser.querySelector("[data-relationship-node-select]");
+    if (!select) return [];
+    const includeSelected = !String(state.searchQuery || "").trim();
+    const nodes = selectableNodes(state, includeSelected);
+    const count = browser.querySelector("[data-relationship-node-count]");
+    const degrees = new Map(nodes.map((node) => [node.id, visibleNodeDegree(node, state)]));
+    const linkedCount = nodes.filter((node) => degrees.get(node.id)).length;
+    const isolatedCount = nodes.length - linkedCount;
+    if (count) {
+      count.textContent = nodes.length ? `(${linkedCount} linked, ${isolatedCount} isolated, ${nodes.length} shown)` : "(0 shown)";
+    }
+    select.replaceChildren();
+    if (!nodes.length) {
+      const option = document.createElement("option");
+      option.value = "";
+      option.textContent = "No matching nodes";
+      option.disabled = true;
+      select.appendChild(option);
+      return nodes;
+    }
+    const groupCounts = new Map();
+    for (const node of nodes) {
+      const degree = degrees.get(node.id) || 0;
+      const key = `${nodeTypeLabel(node)} · ${degree ? "linked" : "no visible links"}`;
+      groupCounts.set(key, (groupCounts.get(key) || 0) + 1);
+    }
+    const groups = new Map();
+    for (const node of nodes) {
+      const degree = degrees.get(node.id) || 0;
+      const key = `${nodeTypeLabel(node)} · ${degree ? "linked" : "no visible links"}`;
+      const label = `${key} (${groupCounts.get(key) || 0})`;
+      if (!groups.has(label)) {
+        const group = document.createElement("optgroup");
+        group.label = label;
+        groups.set(label, group);
+        select.appendChild(group);
+      }
+      const option = document.createElement("option");
+      option.value = node.id;
+      option.textContent = degree ? (node.label || node.id) : `${node.label || node.id} · no visible links`;
+      option.className = degree ? "" : "relationship-option-isolated";
+      option.setAttribute("data-relationship-visible-links", String(degree));
+      groups.get(label).appendChild(option);
+    }
+    if (nodes.some((node) => node.id === state.selectedId)) {
+      select.value = state.selectedId;
+    }
+    return nodes;
+  }
+
+  function firstSelectableNode(state) {
+    return selectableNodes(state, false)[0] || selectableNodes(state, true)[0] || null;
+  }
+
+  function ensureSelectableFocus(state) {
+    const selected = state.nodesById.get(state.selectedId);
+    if (!selected || !state.enabledTypes.size || state.enabledTypes.has(selected.type || "entity")) return;
+    const next = firstSelectableNode(state);
+    if (next) state.selectedId = next.id;
+  }
+
+  function refreshTypeFilterState(container, state, types) {
+    container.querySelectorAll("[data-relationship-type]").forEach((checkbox) => {
+      checkbox.checked = state.enabledTypes.has(checkbox.value);
+    });
+    const allCheckbox = container.querySelector("[data-relationship-type-all]");
+    if (!allCheckbox) return;
+    const selectedCount = types.filter((type) => state.enabledTypes.has(type)).length;
+    allCheckbox.checked = selectedCount === types.length;
+    allCheckbox.indeterminate = selectedCount > 0 && selectedCount < types.length;
+  }
+
+  function renderTypeFilters(browser, state) {
+    const container = browser.querySelector("[data-relationship-type-filter]");
+    if (!container) return;
+    const types = graphTypes(state.nodes);
+    const actions = document.createElement("div");
+    actions.className = "relationship-type-filter-actions";
+    const allLabel = document.createElement("label");
+    allLabel.className = "relationship-type-filter-all";
+    const allCheckbox = document.createElement("input");
+    allCheckbox.type = "checkbox";
+    allCheckbox.setAttribute("data-relationship-type-all", "");
+    allCheckbox.addEventListener("change", () => {
+      state.enabledTypes = allCheckbox.checked ? new Set(types) : new Set();
+      ensureSelectableFocus(state);
+      refreshTypeFilterState(container, state, types);
+      renderNodeSelect(browser, state);
+      renderGraph(browser, state);
+      renderDetail(browser, state);
+    });
+    allLabel.appendChild(allCheckbox);
+    allLabel.appendChild(document.createTextNode("All"));
+    actions.appendChild(allLabel);
+    const list = document.createElement("div");
+    list.className = "relationship-type-filter-list";
+    for (const type of types) {
+      const label = document.createElement("label");
+      const checkbox = document.createElement("input");
+      checkbox.type = "checkbox";
+      checkbox.value = type;
+      checkbox.setAttribute("data-relationship-type", type);
+      checkbox.checked = state.enabledTypes.has(type);
+      checkbox.addEventListener("change", () => {
+        if (checkbox.checked) {
+          state.enabledTypes.add(type);
+        } else {
+          state.enabledTypes.delete(type);
+        }
+        ensureSelectableFocus(state);
+        refreshTypeFilterState(container, state, types);
+        renderNodeSelect(browser, state);
+        renderGraph(browser, state);
+        renderDetail(browser, state);
+      });
+      label.appendChild(checkbox);
+      label.appendChild(document.createTextNode(TYPE_LABELS[type] || type));
+      list.appendChild(label);
+    }
+    container.appendChild(actions);
+    container.appendChild(list);
+    refreshTypeFilterState(container, state, types);
   }
 
   function initBrowser(browser) {
@@ -1211,36 +1682,42 @@ def _relationship_graph_script() -> str:
       edges: graph.edges,
       nodesById,
       selectedId: preferred.id,
+      activeId: preferred.id,
       depth: 1,
       cy: null,
+      tapTimer: 0,
+      tapTarget: "",
       backStack: [],
-      forwardStack: []
+      forwardStack: [],
+      searchQuery: "",
+      graphInteractive: false,
+      enabledTypes: new Set(graphTypes(graph.nodes))
     };
+    renderTypeFilters(browser, state);
     const select = browser.querySelector("[data-relationship-node-select]");
     if (select) {
-      const sortedNodes = [...graph.nodes].sort((a, b) => String(a.label || a.id).localeCompare(String(b.label || b.id)));
-      const groups = new Map();
-      for (const node of sortedNodes) {
-        const label = nodeTypeLabel(node);
-        if (!groups.has(label)) {
-          const group = document.createElement("optgroup");
-          group.label = label;
-          groups.set(label, group);
-          select.appendChild(group);
-        }
-        const option = document.createElement("option");
-        option.value = node.id;
-        option.textContent = node.label || node.id;
-        groups.get(label).appendChild(option);
-      }
       select.addEventListener("change", () => selectNode(browser, state, select.value, true));
+      renderNodeSelect(browser, state);
     }
     const search = browser.querySelector("[data-relationship-search]");
     if (search && select) {
       search.addEventListener("input", () => {
-        const query = search.value.trim().toLowerCase();
-        for (const option of select.options) {
-          option.hidden = query && !option.textContent.toLowerCase().includes(query);
+        state.searchQuery = search.value;
+        const matches = renderNodeSelect(browser, state);
+        const normalized = String(state.searchQuery || "").trim();
+        if (normalized && matches.length && matches[0].id !== state.selectedId) {
+          selectNode(browser, state, matches[0].id, false);
+        } else {
+          renderGraph(browser, state);
+          renderDetail(browser, state);
+        }
+      });
+      search.addEventListener("keydown", (event) => {
+        if (event.key !== "Enter") return;
+        const match = selectableNodes(state, false)[0];
+        if (match) {
+          event.preventDefault();
+          selectNode(browser, state, match.id, true);
         }
       });
     }
@@ -1258,8 +1735,17 @@ def _relationship_graph_script() -> str:
     const fit = browser.querySelector("[data-relationship-fit]");
     if (fit) {
       fit.addEventListener("click", () => {
+        setGraphInteractive(browser, state, true);
         fitGraph(state, 88);
       });
+    }
+    const canvas = browser.querySelector("[data-relationship-canvas]");
+    if (canvas) {
+      canvas.addEventListener("pointerdown", () => {
+        if (!state.graphInteractive) {
+          setGraphInteractive(browser, state, true);
+        }
+      }, {capture: true});
     }
     if (back) {
       back.addEventListener("click", () => {
@@ -1278,27 +1764,81 @@ def _relationship_graph_script() -> str:
       });
     }
     browser.addEventListener("click", (event) => {
+      const tableRow = event.target.closest && event.target.closest("[data-relationship-table-node]");
+      if (tableRow) {
+        activateNode(browser, state, tableRow.getAttribute("data-relationship-table-node"));
+        return;
+      }
       const nodeElement = event.target.closest && event.target.closest("[data-node-id]");
       if (nodeElement) {
-        selectNode(browser, state, nodeElement.getAttribute("data-node-id"), true);
+        activateNode(browser, state, nodeElement.getAttribute("data-node-id"));
         return;
       }
       const jump = event.target.closest && event.target.closest("[data-relationship-jump]");
       if (jump) {
-        selectNode(browser, state, jump.getAttribute("data-relationship-jump"), true);
+        const nodeId = jump.getAttribute("data-relationship-jump");
+        if (jump.getAttribute("data-relationship-jump-visible") === "true") {
+          activateNode(browser, state, nodeId);
+        } else {
+          selectNode(browser, state, nodeId, true);
+        }
       }
+    });
+    browser.addEventListener("dblclick", (event) => {
+      const tableRow = event.target.closest && event.target.closest("[data-relationship-table-node]");
+      if (!tableRow) return;
+      event.preventDefault();
+      selectNode(browser, state, tableRow.getAttribute("data-relationship-table-node"), true);
     });
     browser.addEventListener("keydown", (event) => {
       const nodeElement = event.target.closest && event.target.closest("[data-node-id]");
       if (!nodeElement || (event.key !== "Enter" && event.key !== " ")) return;
       event.preventDefault();
-      selectNode(browser, state, nodeElement.getAttribute("data-node-id"), true);
+      activateNode(browser, state, nodeElement.getAttribute("data-node-id"));
     });
     window.addEventListener("resize", () => fitGraph(state, 88), {passive: true});
     selectNode(browser, state, state.selectedId, false);
+    browser.__relationshipState = state;
   }
 
-  document.querySelectorAll("[data-relationship-browser]").forEach(initBrowser);
+  function openRelationshipModal(modal) {
+    if (!modal) return;
+    modal.hidden = false;
+    document.body.classList.add("relationship-modal-open");
+    const browser = modal.querySelector("[data-relationship-browser]");
+    if (browser && !browser.dataset.relationshipInitialized) {
+      initBrowser(browser);
+      browser.dataset.relationshipInitialized = "true";
+    } else if (browser && browser.__relationshipState) {
+      fitGraph(browser.__relationshipState, 88);
+    }
+    const close = modal.querySelector("[data-relationship-close]");
+    if (close) close.focus({preventScroll: true});
+  }
+
+  function closeRelationshipModal(modal) {
+    if (!modal) return;
+    modal.hidden = true;
+    document.body.classList.remove("relationship-modal-open");
+  }
+
+  document.querySelectorAll("[data-relationship-open]").forEach((button) => {
+    button.addEventListener("click", () => {
+      openRelationshipModal(button.closest(".report-relationship-section").querySelector("[data-relationship-modal]"));
+    });
+  });
+  document.querySelectorAll("[data-relationship-modal]").forEach((modal) => {
+    modal.addEventListener("click", (event) => {
+      if (event.target === modal) closeRelationshipModal(modal);
+    });
+    const close = modal.querySelector("[data-relationship-close]");
+    if (close) close.addEventListener("click", () => closeRelationshipModal(modal));
+  });
+  document.addEventListener("keydown", (event) => {
+    if (event.key !== "Escape") return;
+    document.querySelectorAll("[data-relationship-modal]:not([hidden])").forEach(closeRelationshipModal);
+  });
+  document.querySelectorAll("[data-relationship-browser]:not([data-relationship-defer])").forEach(initBrowser);
 })();
 </script>
 """

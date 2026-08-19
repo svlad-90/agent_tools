@@ -69,6 +69,21 @@ def stylesheet() -> str:
       --diagram-note-text: #111827;
       --diagram-note-link: #2563eb;
       --diagram-note-marker-bg: #eff6ff;
+      --graph-bg: #f8fafc;
+      --graph-node-bg: #ffffff;
+      --graph-node-border: #94a3b8;
+      --graph-node-text: #111827;
+      --graph-domain-bg: #e0f2fe;
+      --graph-artifact-bg: #f1f5f9;
+      --graph-edge: #64748b;
+      --graph-focus: #2563eb;
+      --graph-active: #0f766e;
+      --graph-status-pass-bg: #f0fdf4;
+      --graph-status-pass-border: #16a34a;
+      --graph-status-risk-bg: #fffbeb;
+      --graph-status-risk-border: #d97706;
+      --graph-status-fail-bg: #fef2f2;
+      --graph-status-fail-border: #dc2626;
       --overlay-bg: rgba(31,35,40,.42);
       --page-gutter: 8px;
       --nav-width: 430px;
@@ -163,6 +178,21 @@ def stylesheet() -> str:
       --diagram-note-text: #d4d4d4;
       --diagram-note-link: #3794ff;
       --diagram-note-marker-bg: #173f5f;
+      --graph-bg: #161b22;
+      --graph-node-bg: #21262d;
+      --graph-node-border: #6e7681;
+      --graph-node-text: #f0f6fc;
+      --graph-domain-bg: #0f2f4a;
+      --graph-artifact-bg: #262c36;
+      --graph-edge: #8b949e;
+      --graph-focus: #58a6ff;
+      --graph-active: #39c5bb;
+      --graph-status-pass-bg: #12331f;
+      --graph-status-pass-border: #7ee787;
+      --graph-status-risk-bg: #332b13;
+      --graph-status-risk-border: #d6b73d;
+      --graph-status-fail-bg: #3d171d;
+      --graph-status-fail-border: #ff7b72;
       --overlay-bg: rgba(0,0,0,.68);
     }
     * { box-sizing: border-box; }
@@ -292,23 +322,66 @@ def stylesheet() -> str:
     .report-artifact { display: grid; gap: 3px; padding: 11px 12px; }
     .report-artifact span { font-weight: 800; overflow-wrap: anywhere; }
     .report-artifact small { color: var(--muted); overflow-wrap: anywhere; }
-    .relationship-browser { display: grid; gap: 12px; min-width: 0; }
-    .relationship-toolbar { display: grid; grid-template-columns: minmax(220px, 1fr) minmax(260px, 1.4fr) auto auto; gap: 10px; align-items: end; }
+    body.relationship-modal-open { overflow: hidden; }
+    .relationship-launcher { display: flex; gap: 14px; align-items: center; justify-content: flex-start; min-width: 0; padding: 14px 16px; border: 1px solid var(--border); border-radius: 8px; background: var(--meta-panel); }
+    .relationship-launcher strong { display: block; margin-bottom: 4px; font-size: 1.02em; overflow-wrap: anywhere; }
+    .relationship-launcher p { margin: 0; color: var(--meta-text); overflow-wrap: anywhere; }
+    .relationship-preview { display: grid; gap: 7px; margin-top: 12px; }
+    .relationship-preview-row { display: flex; flex-wrap: wrap; gap: 6px; }
+    .relationship-preview-row span { display: inline-flex; align-items: center; gap: 5px; min-height: 24px; padding: 0 8px; border: 1px solid var(--border); border-radius: 999px; background: var(--panel); color: var(--meta-text); font-size: .86em; }
+    .relationship-preview-row strong { display: inline; margin: 0; font-size: inherit; color: var(--text); }
+    .relationship-preview-row span.status-risk, .relationship-preview-row span.status-needs-evidence { border-color: color-mix(in srgb, var(--comment-border) 72%, var(--border)); }
+    .relationship-preview-row span.status-gap, .relationship-preview-row span.status-fail { border-color: color-mix(in srgb, var(--stat-del) 72%, var(--border)); }
+    .relationship-preview-row span.status-covered, .relationship-preview-row span.status-covered-candidate, .relationship-preview-row span.status-pass { border-color: color-mix(in srgb, var(--stat-add) 72%, var(--border)); }
+    .relationship-launcher button, .relationship-modal-head button { min-height: 36px; padding: 0 12px; border: 1px solid var(--border); border-radius: 6px; background: var(--button-bg); color: var(--text); font: 800 .92em/1 var(--font-stack); cursor: pointer; white-space: nowrap; }
+    .relationship-launcher button { min-height: 44px; padding: 0 18px; border-color: color-mix(in srgb, var(--link) 72%, var(--border)); background: var(--link); color: #fff; box-shadow: 0 0 0 1px color-mix(in srgb, var(--link) 28%, transparent), 0 10px 28px color-mix(in srgb, var(--link) 26%, transparent); }
+    .relationship-launcher button:hover { border-color: color-mix(in srgb, var(--link) 82%, #fff); background: color-mix(in srgb, var(--link) 84%, #fff); color: #fff; }
+    .relationship-modal-head button:hover { border-color: var(--link); background: var(--button-hover-bg); color: var(--link); }
+    .relationship-modal[hidden] { display: none; }
+    .relationship-modal { position: fixed; inset: 0; z-index: 2000; display: block; padding: 22px; background: color-mix(in srgb, #000 68%, transparent); overflow: hidden; overscroll-behavior: contain; }
+    .relationship-modal-panel { display: grid; grid-template-rows: auto minmax(0, 1fr); gap: 12px; min-width: 0; width: 100%; height: calc(100vh - 44px); min-height: 0; padding: 16px; border: 1px solid var(--border); border-radius: 10px; background: var(--panel); box-shadow: 0 20px 70px color-mix(in srgb, #000 54%, transparent); }
+    .relationship-modal-head { display: flex; gap: 12px; align-items: center; justify-content: space-between; min-width: 0; }
+    .relationship-modal-head h3 { margin: 0; overflow-wrap: anywhere; }
+    .relationship-browser { display: grid; grid-template-rows: auto minmax(0, 1fr); gap: 12px; min-width: 0; min-height: 0; }
+    .relationship-toolbar { display: grid; gap: 10px; align-items: stretch; }
+    .relationship-search-controls { display: grid; grid-template-columns: minmax(220px, .9fr) minmax(320px, 1.35fr); gap: 10px; align-items: end; }
+    .relationship-view-controls { display: grid; grid-template-columns: minmax(0, 1fr); gap: 10px; align-items: center; }
     .relationship-toolbar label { display: grid; gap: 5px; min-width: 0; }
+    .relationship-toolbar .label small { margin-left: 6px; color: var(--muted); font: 700 .92em/1 var(--font-stack); text-transform: none; letter-spacing: 0; }
     .relationship-toolbar input, .relationship-toolbar select { min-height: 36px; min-width: 0; padding: 0 10px; border: 1px solid var(--border); border-radius: 6px; background: var(--button-bg); color: var(--text); font: inherit; }
-    .relationship-depth-controls, .relationship-nav-controls { display: flex; flex-wrap: wrap; gap: 6px; }
+    .relationship-toolbar select option.relationship-option-isolated { color: color-mix(in srgb, var(--muted) 72%, var(--text)); background: color-mix(in srgb, var(--meta-panel) 88%, var(--comment-bg)); }
+    .relationship-type-filter { min-width: 0; margin: 0; padding: 7px 10px; border: 1px solid var(--border); border-radius: 6px; background: var(--button-bg); }
+    .relationship-type-filter legend { padding: 0 4px; color: var(--meta-label); font: 800 12px/1 ui-monospace, SFMono-Regular, Consolas, monospace; text-transform: uppercase; letter-spacing: .04em; }
+    .relationship-type-filter-actions { display: flex; align-items: center; gap: 6px; margin-bottom: 6px; padding-bottom: 6px; border-bottom: 1px solid color-mix(in srgb, var(--border) 72%, transparent); }
+    .relationship-type-filter-list { display: flex; flex-wrap: wrap; gap: 6px; overflow: visible; }
+    .relationship-type-filter label { display: inline-flex; align-items: center; gap: 5px; min-height: 26px; padding: 0 7px; border: 1px solid color-mix(in srgb, var(--border) 70%, transparent); border-radius: 999px; background: var(--meta-panel); color: var(--meta-text); font: 750 12px/1.1 var(--font-stack); white-space: nowrap; }
+    .relationship-type-filter-all { border-color: color-mix(in srgb, var(--link) 62%, var(--border)) !important; color: var(--text) !important; background: color-mix(in srgb, var(--button-hover-bg) 64%, var(--meta-panel)) !important; }
+    .relationship-type-filter input { width: 14px; height: 14px; min-height: 0; padding: 0; accent-color: var(--link); }
+    .relationship-depth-controls, .relationship-nav-controls { display: flex; flex-wrap: nowrap; gap: 6px; align-items: center; }
     .relationship-toolbar button { min-height: 36px; padding: 0 10px; border: 1px solid var(--border); border-radius: 6px; background: var(--button-bg); color: var(--text); font: 750 .9em/1.1 var(--font-stack); cursor: pointer; }
     .relationship-toolbar button:hover, .relationship-toolbar button.is-active { border-color: var(--link); background: var(--button-hover-bg); color: var(--link); }
     .relationship-layout { display: grid; grid-template-columns: minmax(0, 1.7fr) minmax(360px, .8fr); gap: 12px; align-items: start; min-width: 0; }
     .relationship-canvas-wrap, .relationship-detail { min-width: 0; height: min(760px, calc(100vh - 180px)); min-height: 560px; max-height: 760px; border: 1px solid var(--border); border-radius: 8px; background: var(--meta-panel); }
-    .relationship-canvas-wrap { overflow: hidden; position: relative; }
-    .relationship-canvas { display: block; width: 100%; height: 100%; cursor: grab; }
+    .relationship-modal .relationship-browser { min-height: 0; }
+    .relationship-modal .relationship-layout { grid-template-columns: minmax(0, 2fr) minmax(380px, .72fr); align-items: stretch; min-height: 0; height: 100%; overflow: hidden; }
+    .relationship-modal .relationship-canvas-wrap { height: clamp(620px, 72vh, 920px); min-height: 620px; max-height: none; }
+    .relationship-modal .relationship-detail { position: static; height: 100%; min-height: 0; max-height: none; }
+    .relationship-explorer-main { display: grid; grid-template-rows: auto auto; gap: 10px; min-width: 0; min-height: 0; max-height: 100%; overflow: auto; overscroll-behavior: contain; padding-right: 8px; }
+    .relationship-canvas-wrap { overflow: hidden; position: relative; background: var(--graph-bg); }
+    .relationship-canvas-controls { position: absolute; top: 12px; left: 12px; z-index: 3; display: flex; flex-wrap: wrap; gap: 8px; align-items: center; max-width: calc(100% - 24px); padding: 8px; border: 1px solid color-mix(in srgb, var(--border) 76%, transparent); border-radius: 8px; background: color-mix(in srgb, var(--panel) 82%, transparent); box-shadow: 0 8px 20px color-mix(in srgb, #000 28%, transparent); backdrop-filter: blur(8px); }
+    .relationship-canvas-controls button { min-height: 34px; padding: 0 10px; border: 1px solid var(--border); border-radius: 6px; background: var(--button-bg); color: var(--text); font: 780 .88em/1 var(--font-stack); cursor: pointer; }
+    .relationship-canvas-controls [data-relationship-back], .relationship-canvas-controls [data-relationship-forward] { min-width: 36px; padding: 0; font-size: 1.1em; }
+    .relationship-canvas-controls button:hover, .relationship-canvas-controls button.is-active { border-color: var(--link); background: var(--button-hover-bg); color: var(--link); }
+    .relationship-canvas { position: relative; display: block; width: 100%; height: 100%; cursor: grab; }
+    .relationship-canvas[data-graph-interactive="false"] { cursor: default; }
+    .relationship-canvas[data-graph-message]::after { content: attr(data-graph-message); position: absolute; left: 16px; right: 16px; bottom: 14px; z-index: 2; padding: 8px 10px; border: 1px solid var(--border); border-radius: 6px; background: color-mix(in srgb, var(--panel) 88%, transparent); color: var(--meta-text); font-size: .9em; pointer-events: none; }
+    .relationship-canvas[data-empty-graph="true"]::after { top: 50%; bottom: auto; transform: translateY(-50%); text-align: center; }
     .relationship-canvas:active { cursor: grabbing; }
     .relationship-edge { stroke: color-mix(in srgb, var(--muted) 42%, transparent); stroke-width: 1.2; }
     .relationship-node { cursor: pointer; outline: none; }
     .relationship-node rect { fill: var(--panel); stroke: var(--meta-border); stroke-width: 1.4; filter: drop-shadow(0 2px 4px color-mix(in srgb, var(--shadow) 24%, transparent)); }
     .relationship-node:hover rect, .relationship-node:focus rect { stroke: var(--link); stroke-width: 2; }
-    .relationship-node.is-selected rect { stroke: var(--link); stroke-width: 2.6; fill: color-mix(in srgb, var(--button-hover-bg) 74%, var(--panel)); }
+    .relationship-node.is-selected rect { stroke: var(--link); stroke-width: 3; }
     .relationship-node.status-covered rect, .relationship-node.status-covered-candidate rect, .relationship-node.status-pass rect { stroke: color-mix(in srgb, var(--stat-add) 72%, var(--meta-border)); }
     .relationship-node.status-risk rect, .relationship-node.status-needs-evidence rect, .relationship-node.status-not-applicable-candidate rect { stroke: color-mix(in srgb, var(--comment-border) 72%, var(--meta-border)); }
     .relationship-node.status-gap rect, .relationship-node.status-fail rect, .relationship-node.status-blocked rect { stroke: color-mix(in srgb, var(--stat-del) 76%, var(--meta-border)); }
@@ -329,8 +402,24 @@ def stylesheet() -> str:
     .relationship-related-list { display: grid; gap: 6px; }
     .relationship-related-list button { display: grid; gap: 2px; width: 100%; min-width: 0; padding: 8px 10px; border: 1px solid var(--border); border-radius: 6px; background: var(--button-bg); color: var(--text); text-align: left; cursor: pointer; }
     .relationship-related-list button:hover { border-color: var(--link); background: var(--button-hover-bg); }
+    .relationship-related-list button.is-outside-view { border-style: dashed; background: color-mix(in srgb, var(--button-bg) 74%, var(--panel)); color: color-mix(in srgb, var(--text) 68%, var(--muted)); opacity: .76; }
+    .relationship-related-list button.is-outside-view:hover { opacity: 1; border-color: var(--link); background: var(--button-hover-bg); }
     .relationship-related-list span { font-weight: 780; overflow-wrap: anywhere; }
     .relationship-related-list small { color: var(--muted); overflow-wrap: anywhere; }
+    .relationship-selection-table { display: grid; grid-template-rows: auto auto; min-width: 0; min-height: 360px; border: 1px solid var(--border); border-radius: 8px; background: var(--meta-panel); overflow: visible; }
+    .relationship-selection-table-head { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; justify-content: space-between; padding: 8px 10px; border-bottom: 1px solid var(--border); color: var(--meta-label); font-size: .8em; font-weight: 850; text-transform: uppercase; letter-spacing: .04em; }
+    .relationship-selection-table-head small { color: var(--muted); font: 700 .92em/1 var(--font-stack); text-transform: none; letter-spacing: 0; }
+    .relationship-selection-table-scroll { min-height: 0; overflow: visible; overscroll-behavior: auto; }
+    .relationship-selection-table table { width: 100%; border-collapse: collapse; table-layout: fixed; font-size: .86em; }
+    .relationship-selection-table th, .relationship-selection-table td { padding: 7px 8px; border-bottom: 1px solid var(--border); text-align: left; vertical-align: top; overflow-wrap: anywhere; }
+    .relationship-selection-table th { position: sticky; top: 0; z-index: 1; background: var(--header-bg); color: var(--meta-label); font-size: .78em; text-transform: uppercase; letter-spacing: .04em; }
+    .relationship-selection-table tbody tr { cursor: pointer; }
+    .relationship-selection-table tbody tr:hover { background: var(--button-hover-bg); }
+    .relationship-selection-table tbody tr.is-focus { box-shadow: inset 4px 0 0 var(--link); }
+    .relationship-selection-table tbody tr.is-active { background: color-mix(in srgb, var(--comment-bg) 62%, var(--panel)); box-shadow: inset 4px 0 0 var(--comment-border); }
+    .relationship-selection-table td:nth-child(1) { width: 86px; color: var(--meta-label); font-weight: 800; }
+    .relationship-selection-table td:nth-child(3) { width: 120px; }
+    .relationship-selection-table td:nth-child(4) { width: 64px; color: var(--meta-label); font-family: ui-monospace, SFMono-Regular, Consolas, monospace; }
     code { background: rgba(175,184,193,.2); border-radius: 4px; padding: 1px 5px; font-family: ui-monospace, SFMono-Regular, Consolas, monospace; }
     pre.stat { max-width: 100%; margin: 10px 0 0; padding: 12px; background: var(--code-bg); border-radius: 6px; overflow-x: auto; white-space: pre-wrap; overflow-wrap: anywhere; }
     .label { display: block; color: var(--meta-label); font-size: .72rem; text-transform: uppercase; letter-spacing: .04em; margin-bottom: 3px; }
@@ -602,7 +691,16 @@ def stylesheet() -> str:
       header, section, .file, .asset-inventory { width: 100%; margin-left: 0; margin-right: 0; }
       .report-brand { display: none; }
       .report-settings-launcher { right: 14px; bottom: calc(var(--story-nav-height) + 24px); }
-      .relationship-toolbar, .relationship-layout { grid-template-columns: 1fr; }
+      .relationship-launcher, .relationship-modal-head { align-items: stretch; flex-direction: column; }
+      .relationship-modal { padding: 10px; overflow: auto; }
+      .relationship-modal-panel { height: auto; min-height: calc(100vh - 20px); padding: 10px; }
+      .relationship-toolbar, .relationship-search-controls, .relationship-view-controls, .relationship-layout { grid-template-columns: 1fr; }
+      .relationship-modal .relationship-layout { height: auto; overflow: visible; }
+      .relationship-explorer-main { max-height: none; overflow: visible; padding-right: 0; }
+      .relationship-modal .relationship-detail { position: static; height: auto; min-height: 360px; }
+      .relationship-modal .relationship-canvas-wrap { height: 62vh; min-height: 420px; }
+      .relationship-selection-table { min-height: 340px; }
+      .relationship-depth-controls, .relationship-nav-controls { flex-wrap: wrap; }
       .to-top-button { right: 14px; bottom: calc(var(--story-nav-height) + 24px + var(--floating-control-size) + 12px); }
       .review-nav { position: static; width: calc(100% - 16px); max-height: 38vh; margin: 8px auto 16px; }
       .review-nav-resizer { display: none; }
