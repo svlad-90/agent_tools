@@ -1,3 +1,7 @@
+---
+sync: skill
+---
+
 # Workspace skill workflow
 
 These rules apply to Codex skills that support workspace-local tools,
@@ -45,6 +49,50 @@ environments, and recurring workflows.
    Keep PAF entry points in a domain `tasks/` package, plus `scenarios/`,
    `profiles/`, and `templates/`. Put Python implementation used by those
    tasks in the standard `lib/` package, not in ad hoc support directories.
+11. `agent_tools/rules/*.md` and `agent_tools/skills/*/SKILL.md` are the single
+   source of truth for both Codex and any other coding agent working in this
+   workspace. Do not hand-maintain a second, agent-specific copy of this
+   policy. Use `agent_tools/tools/rules_sync` to mirror it into other agents'
+   native conventions (for example Claude Code's `.claude/skills/` and
+   `CLAUDE.md`).
+
+   Every file under `agent_tools/rules/` must start with a frontmatter block
+   declaring how `rules_sync` mirrors it:
+
+   ```text
+   ---
+   sync: always | skill | none
+   ---
+   ```
+
+   - `always`: the rule applies to every task or every repository (matches the
+     rule's own "These rules apply to ..." scope sentence having no
+     condition). Its full body is mirrored into a generated, clearly marked
+     block inside the other agent's always-loaded instructions file. Keep
+     these rules short; their cost is paid on every session regardless of
+     task.
+   - `skill`: the rule is conditional. It is mirrored as a lazily-loaded skill
+     for the other agent, generated either from a paired
+     `agent_tools/skills/<name>/SKILL.md` (see the `rule:` backref below) or,
+     if none exists yet, as a minimal stub built from the rule file itself.
+   - `none`: do not mirror this file at all.
+
+   A `SKILL.md` that fully wraps one `sync: skill` rule file must add a
+   `rule: agent_tools/rules/<file>.md` field to its frontmatter. This tells
+   `rules_sync` that the paired skill already covers the rule, so it must not
+   also generate a duplicate stub for that rule file. Leave `rule:` out for
+   skills that are not a full wrapper of one rule file.
+
+   Every `agent_tools/skills/*/SKILL.md` is mirrored as-is (all of them, with
+   no opt-out) into the other agent's native skill format, regardless of
+   whether it carries a `rule:` backref.
+
+   New rule files, new skill directories, and new tools are picked up
+   automatically the next time `rules_sync` runs; nothing here needs to be
+   hardcoded by filename. Only the frontmatter fields above need to be kept
+   correct. Run `python -m agent_tools.tools.rules_sync sync --check` and fix
+   any reported drift before treating a change under `agent_tools/rules/` or
+   `agent_tools/skills/` as complete.
 
 Use this routing table for common workspace task types:
 
@@ -60,6 +108,8 @@ Commit message formatting -> commit-message-format
 Task layout and workflow metadata checks -> python -m agent_tools.paf_workspace.task_check
 Task context, handoff notes, decisions, blockers, validation notes, or context
 compaction -> task-context-journal
+Mirroring rules/skills into another coding agent's native conventions ->
+rules-sync
 ```
 
 When more than one row applies, read the rules first, then the minimal matching

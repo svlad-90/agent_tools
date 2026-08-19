@@ -1,3 +1,7 @@
+---
+sync: skill
+---
+
 # Python code workflow
 
 These rules apply to all Python code under the workspace root.

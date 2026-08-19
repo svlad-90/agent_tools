@@ -1,3 +1,7 @@
+---
+sync: skill
+---
+
 # C++ code workflow
 
 These rules apply to C and C++ code under the workspace root.

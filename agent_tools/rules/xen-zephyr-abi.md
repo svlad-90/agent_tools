@@ -1,3 +1,7 @@
+---
+sync: skill
+---
+
 # Xen/Zephyr ABI Workflow
 
 These rules apply before working with any Xen and Zephyr runtime combination in

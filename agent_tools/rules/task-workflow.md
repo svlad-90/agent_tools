@@ -1,3 +1,7 @@
+---
+sync: always
+---
+
 # Task workflow
 
 These rules apply to every task directory under the workspace root.

@@ -1,3 +1,7 @@
+---
+sync: always
+---
+
 # Git commit workflow
 
 These rules apply to every repository under the workspace root.

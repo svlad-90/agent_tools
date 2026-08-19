@@ -1,3 +1,7 @@
+---
+sync: skill
+---
+
 # Diff report workflow
 
 These rules apply to diff/review reports generated under task `report/diff/`

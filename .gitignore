@@ -17,6 +17,8 @@
 !.github/workflows/commit-msg.yml
 !agent_tools/
 !agent_tools/**
+!.claude/
+!.claude/**
 !.gitignore
 
 # Private reusable environment overlays live beside the public environments

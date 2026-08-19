@@ -12,10 +12,31 @@ python -m agent_tools.tools.task_context
 python -m agent_tools.tools.commit_msg
 python -m agent_tools.tools.push_guard
 python -m agent_tools.tools.agent_workspace
+python -m agent_tools.tools.rules_sync
 ```
 
 Keep PAF orchestration under `agent_tools/paf_workspace/`; this directory is
 for reusable tool implementations that are not PAF domains.
+
+## Rules Sync
+
+`rules_sync` mirrors `agent_tools/rules/*.md` and `agent_tools/skills/*/SKILL.md`
+(the Codex-facing source of truth) into other agents' native conventions, for
+example Claude Code's `.claude/skills/` and the generated block in
+`CLAUDE.md`. See `agent_tools/rules/workspace-skills.md` for the `sync:` and
+`rule:` frontmatter conventions it depends on.
+
+Regenerate the mirrors after editing any rule or skill file:
+
+```sh
+python -m agent_tools.tools.rules_sync sync
+```
+
+Check for drift without writing (fails if any mirrored file is stale):
+
+```sh
+python -m agent_tools.tools.rules_sync sync --check
+```
 
 ## Task Context
 

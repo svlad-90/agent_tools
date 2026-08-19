@@ -1,3 +1,7 @@
+---
+sync: skill
+---
+
 # Reusable environment workflow
 
 These rules apply when a task depends on a non-trivial local environment such

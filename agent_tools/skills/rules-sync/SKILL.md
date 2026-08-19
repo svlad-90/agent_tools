@@ -1,0 +1,57 @@
+---
+name: rules-sync
+description: Mirror agent_tools/rules/*.md and agent_tools/skills/*/SKILL.md into another coding agent's native conventions using the workspace agent_tools.tools.rules_sync tool. Use when Codex adds or edits a rule file under agent_tools/rules/, adds or edits a workspace skill under agent_tools/skills/, or needs to check whether another agent's mirrored files (for example Claude Code's .claude/skills/ and CLAUDE.md) are in sync.
+---
+
+# Rules Sync
+
+Use the workspace implementation at `agent_tools/tools/rules_sync`. Do not
+hand-edit generated files under `.claude/skills/` or the generated block in
+`CLAUDE.md` — they are regenerated from `agent_tools/rules/*.md` and
+`agent_tools/skills/*/SKILL.md`, which remain the single source of truth.
+
+Also follow `agent_tools/rules/workspace-skills.md`; it documents the
+`sync:` frontmatter field required on every rule file and the optional
+`rule:` backref field on `SKILL.md` files that this tool reads.
+
+## Workflow
+
+1. After adding or editing any file under `agent_tools/rules/` or
+   `agent_tools/skills/*/SKILL.md`, regenerate the mirrors from the workspace
+   root:
+
+   ```sh
+   python -m agent_tools.tools.rules_sync sync
+   ```
+
+2. Before treating that change as complete, verify there is no drift:
+
+   ```sh
+   python -m agent_tools.tools.rules_sync sync --check
+   ```
+
+   A non-zero exit means a mirrored file is stale; run `sync` again and
+   re-check.
+
+3. When adding a new rule file, give it a `sync:` frontmatter field
+   (`always`, `skill`, or `none`) as described in
+   `agent_tools/rules/workspace-skills.md`. The tool refuses to run for a
+   rule file missing this field, by design.
+
+4. When a new `agent_tools/skills/<name>/SKILL.md` fully wraps one
+   `sync: skill` rule file, add `rule: agent_tools/rules/<file>.md` to its
+   frontmatter so `rules_sync` does not also generate a duplicate stub skill
+   for that rule.
+
+## What gets generated
+
+- Every `agent_tools/skills/*/SKILL.md` is mirrored into
+  `.claude/skills/<name>/SKILL.md`.
+- Every `sync: skill` rule file without a `rule:` backref from an existing
+  skill gets an auto-generated stub skill under `.claude/skills/<slug>/`.
+- Every `sync: always` rule file is inlined into the generated block in
+  `CLAUDE.md`, between `<!-- BEGIN GENERATED agent_tools/tools/rules_sync -->`
+  and its matching end marker.
+
+Discovery is by directory scan, not a hardcoded file list, so new rule files
+and new skill directories are picked up automatically on the next `sync` run.
