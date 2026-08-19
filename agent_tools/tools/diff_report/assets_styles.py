@@ -202,9 +202,10 @@ def stylesheet() -> str:
     .report-brand { position: fixed; left: var(--page-gutter); top: var(--page-gutter); z-index: 12; display: flex; align-items: center; justify-content: center; width: var(--nav-width); height: var(--brand-height); padding-top: 0; overflow: hidden; pointer-events: none; color: var(--brand-text); }
     .report-brand::before { content: ""; position: absolute; inset: 0; height: var(--brand-height); border-radius: 10px; background: var(--brand-panel); box-shadow: 0 10px 24px var(--shadow); }
     .report-brand-inner { position: relative; display: grid; grid-template-columns: var(--brand-mark-size) max-content; align-items: center; justify-content: center; gap: var(--brand-gap); width: 430px; max-width: none; min-height: 0; padding: 16px var(--brand-padding-x); transform: scale(var(--brand-scale)); transform-origin: center; font-weight: 800; letter-spacing: 0; }
-    .report-brand-mark { display: flex; align-items: center; justify-content: center; width: var(--brand-mark-size); height: var(--brand-mark-size); border-radius: 10px; background: #0969da; color: #fff; font: 800 calc(var(--brand-mark-size) * .64)/1 ui-monospace, SFMono-Regular, Consolas, monospace; }
+    .report-brand-mark { display: flex; align-items: center; justify-content: center; width: var(--brand-mark-size); height: var(--brand-mark-size); border-radius: 28px; overflow: visible; color: #22d3ee; filter: drop-shadow(0 10px 20px rgba(0,0,0,.34)); }
+    .report-brand-logo { display: block; width: 100%; height: 100%; overflow: visible; }
     .report-brand-text { display: grid; gap: 2px; min-width: 0; line-height: 1.05; }
-    .report-brand-title { color: var(--muted); font-size: calc(var(--brand-title-size) * .62); white-space: nowrap; }
+    .report-brand-title { color: var(--brand-text); font-size: calc(var(--brand-title-size) * .62); font-weight: 850; white-space: nowrap; text-shadow: 0 2px 10px var(--shadow); }
     .report-brand-subtitle { color: var(--muted); font-size: var(--brand-subtitle-size); white-space: nowrap; }
     body.has-diagram-open .report-brand { z-index: 9; }
     .settings-launcher { position: fixed; right: max(8px, calc(var(--floating-content-gutter) - var(--floating-control-size) - var(--floating-control-gap))); bottom: calc(var(--story-nav-height) + 24px); z-index: 32; width: auto; opacity: 1; visibility: visible; pointer-events: auto; transform: translateY(0) scale(1); transition: opacity .18s ease, transform .18s ease, visibility 0s linear .18s, border-color .12s ease, box-shadow .12s ease; }
@@ -373,7 +374,7 @@ def stylesheet() -> str:
     .relationship-canvas-controls [data-relationship-back], .relationship-canvas-controls [data-relationship-forward] { min-width: 36px; padding: 0; font-size: 1.1em; }
     .relationship-canvas-controls button:hover, .relationship-canvas-controls button.is-active { border-color: var(--link); background: var(--button-hover-bg); color: var(--link); }
     .relationship-canvas { position: relative; display: block; width: 100%; height: 100%; cursor: grab; }
-    .relationship-canvas[data-graph-interactive="false"] { cursor: default; }
+    .relationship-canvas[data-graph-interactive="false"] { cursor: default; pointer-events: none; }
     .relationship-canvas[data-graph-message]::after { content: attr(data-graph-message); position: absolute; left: 16px; right: 16px; bottom: 14px; z-index: 2; padding: 8px 10px; border: 1px solid var(--border); border-radius: 6px; background: color-mix(in srgb, var(--panel) 88%, transparent); color: var(--meta-text); font-size: .9em; pointer-events: none; }
     .relationship-canvas[data-empty-graph="true"]::after { top: 50%; bottom: auto; transform: translateY(-50%); text-align: center; }
     .relationship-canvas:active { cursor: grabbing; }

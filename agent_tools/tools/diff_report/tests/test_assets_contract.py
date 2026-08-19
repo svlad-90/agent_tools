@@ -38,6 +38,8 @@ class AssetContractTests(unittest.TestCase):
             "<title>A &lt;report&gt;</title>",
             "<style>",
             "</style>",
+            "report-brand-logo",
+            "<span class=\"report-brand-title\">Report</span>",
             "data-settings-modal",
             "data-theme-value=\"light\"",
             "data-text-scale-reset",
@@ -46,6 +48,7 @@ class AssetContractTests(unittest.TestCase):
         for fragment in expected_fragments:
             with self.subTest(fragment=fragment):
                 self.assertIn(fragment, header)
+        self.assertNotIn(">AI</span>", header)
 
     def test_stylesheet_exposes_layout_theme_and_search_contracts(self) -> None:
         styles = stylesheet()
@@ -72,6 +75,7 @@ class AssetContractTests(unittest.TestCase):
             ".report-table { width: 100%; min-width: 720px; border-collapse: separate; border-spacing: 0; table-layout: auto; }",
             ".report-table thead { position: sticky; top: 0; z-index: 5; }",
             ".report-table th { position: sticky; top: 0; z-index: 5;",
+            '.relationship-canvas[data-graph-interactive="false"] { cursor: default; pointer-events: none; }',
             "background-clip: padding-box;",
             ".report-toc a.is-current",
             "border-left-color: var(--comment-border);",

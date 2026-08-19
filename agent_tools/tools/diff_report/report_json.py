@@ -1241,6 +1241,58 @@ def _relationship_graph_script() -> str:
     state.cy.autoungrabify(!state.graphInteractive);
   }
 
+  function releaseGraphFocus(browser, state) {
+    const hasActiveGraphFocus = state.graphInteractive || Boolean(state.activeId);
+    if (!hasActiveGraphFocus) return;
+    const active = document.activeElement;
+    if (active && typeof active.blur === "function") {
+      active.blur();
+    }
+    setGraphInteractive(browser, state, false);
+    state.activeId = "";
+    if (state.cy) {
+      state.cy.elements().unselect();
+      state.cy.nodes().removeClass("is-active");
+    }
+    updateActiveTableRow(browser, state);
+  }
+
+  function updateCanvasControlsPosition(browser, state) {
+    const scroller = browser.querySelector(".relationship-explorer-main");
+    const wrap = browser.querySelector(".relationship-canvas-wrap");
+    const controls = browser.querySelector(".relationship-canvas-controls");
+    if (!scroller || !wrap || !controls) return;
+    const scrollerRect = scroller.getBoundingClientRect();
+    const wrapRect = wrap.getBoundingClientRect();
+    const inset = 12;
+    const visibleTop = Math.max(scrollerRect.top, wrapRect.top) + inset;
+    const visibleBottom = Math.min(scrollerRect.bottom, wrapRect.bottom) - inset;
+    if (visibleBottom <= visibleTop + controls.offsetHeight) {
+      controls.style.visibility = "hidden";
+      if (state) state.canvasControlsSignature = "";
+      return;
+    }
+    const top = Math.min(visibleTop, visibleBottom - controls.offsetHeight);
+    const left = wrapRect.left + inset;
+    const maxWidth = Math.max(160, wrapRect.width - (inset * 2));
+    const signature = `${top.toFixed(2)}:${left.toFixed(2)}:${maxWidth.toFixed(2)}`;
+    if (state && state.canvasControlsSignature === signature) return;
+    if (state) state.canvasControlsSignature = signature;
+    controls.style.position = "fixed";
+    controls.style.top = `${top.toFixed(2)}px`;
+    controls.style.left = `${left.toFixed(2)}px`;
+    controls.style.maxWidth = `${maxWidth.toFixed(2)}px`;
+    controls.style.visibility = "visible";
+  }
+
+  function scheduleCanvasControlsPosition(browser, state) {
+    if (state.canvasControlsFrame) return;
+    state.canvasControlsFrame = requestAnimationFrame(() => {
+      state.canvasControlsFrame = 0;
+      updateCanvasControlsPosition(browser, state);
+    });
+  }
+
   function renderGraph(browser, state) {
     const canvas = browser.querySelector("[data-relationship-canvas]");
     if (!canvas || !state.selectedId) return;
@@ -1691,6 +1743,8 @@ def _relationship_graph_script() -> str:
       forwardStack: [],
       searchQuery: "",
       graphInteractive: false,
+      canvasControlsFrame: 0,
+      canvasControlsSignature: "",
       enabledTypes: new Set(graphTypes(graph.nodes))
     };
     renderTypeFilters(browser, state);
@@ -1741,11 +1795,50 @@ def _relationship_graph_script() -> str:
     }
     const canvas = browser.querySelector("[data-relationship-canvas]");
     if (canvas) {
-      canvas.addEventListener("pointerdown", () => {
+      const canvasWrap = canvas.closest(".relationship-canvas-wrap");
+      const activateFromCanvasWrap = (event) => {
+        if (event.target.closest(".relationship-canvas-controls")) {
+          return;
+        }
         if (!state.graphInteractive) {
           setGraphInteractive(browser, state, true);
         }
-      }, {capture: true});
+      };
+      canvas.addEventListener("pointerdown", activateFromCanvasWrap, {capture: true});
+      if (canvasWrap) {
+        canvasWrap.addEventListener("pointerdown", activateFromCanvasWrap, {capture: true});
+      }
+    }
+    const detail = browser.querySelector("[data-relationship-detail]");
+    if (detail) {
+      const releaseFromDetail = () => {
+        releaseGraphFocus(browser, state);
+      };
+      const releaseFromBrowserDetail = (event) => {
+        if (detail.contains(event.target)) {
+          releaseGraphFocus(browser, state);
+        }
+      };
+      detail.addEventListener("pointerdown", releaseFromDetail, {capture: true, passive: true});
+      detail.addEventListener("mousedown", releaseFromDetail, {capture: true, passive: true});
+      detail.addEventListener("wheel", releaseFromDetail, {capture: true, passive: true});
+      detail.addEventListener("touchstart", releaseFromDetail, {capture: true, passive: true});
+      detail.addEventListener("touchmove", releaseFromDetail, {capture: true, passive: true});
+      detail.addEventListener("scroll", releaseFromDetail, {passive: true});
+      detail.addEventListener("focusin", releaseFromDetail);
+      browser.addEventListener("wheel", releaseFromBrowserDetail, {capture: true, passive: true});
+      browser.addEventListener("touchmove", releaseFromBrowserDetail, {capture: true, passive: true});
+    }
+    const explorer = browser.querySelector(".relationship-explorer-main");
+    if (explorer) {
+      const handleExplorerScroll = () => {
+        scheduleCanvasControlsPosition(browser, state);
+        releaseGraphFocus(browser, state);
+      };
+      explorer.addEventListener("scroll", handleExplorerScroll, {passive: true});
+      explorer.addEventListener("wheel", () => scheduleCanvasControlsPosition(browser, state), {passive: true});
+      updateCanvasControlsPosition(browser, state);
+      window.addEventListener("resize", () => scheduleCanvasControlsPosition(browser, state));
     }
     if (back) {
       back.addEventListener("click", () => {
