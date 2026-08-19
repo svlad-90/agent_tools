@@ -1,4 +1,4 @@
-"""Structured task context journal and compaction CLI."""
+"""Transactional task context database and compaction CLI."""
 
 from __future__ import annotations
 
@@ -8,12 +8,14 @@ from datetime import date
 from datetime import datetime
 import json
 from pathlib import Path
+import sqlite3
 import sys
 from typing import Iterable
 from typing import Sequence
 
 
-JOURNAL_FILENAME = "TASK_CONTEXT_LOG.jsonl"
+DATABASE_FILENAME = "TASK_CONTEXT.sqlite3"
+LEGACY_JOURNAL_FILENAME = "TASK_CONTEXT_LOG.jsonl"
 CONTEXT_FILENAME = "TASK_CONTEXT.md"
 SEVERITIES = ("note", "low", "mid", "high", "critical")
 STATUSES = ("active", "resolved", "stale")
@@ -35,7 +37,7 @@ class ContextEntry:
     def from_json(cls, data: object) -> "ContextEntry":
         if not isinstance(data, dict):
             raise ValueError("entry must be a JSON object")
-        timestamp = _required_string(data, "timestamp")
+        timestamp = _validate_timestamp(_required_string(data, "timestamp"))
         severity = _validate_choice(_required_string(data, "severity"), SEVERITIES, "severity")
         status = _validate_choice(str(data.get("status", "active")), STATUSES, "status")
         labels = tuple(_string_list(data.get("labels", []), "labels"))
@@ -67,8 +69,24 @@ class ContextEntry:
         return data
 
 
+def database_path(task_dir: Path) -> Path:
+    return task_dir / DATABASE_FILENAME
+
+
+def legacy_journal_path(task_dir: Path) -> Path:
+    return task_dir / LEGACY_JOURNAL_FILENAME
+
+
 def journal_path(task_dir: Path) -> Path:
-    return task_dir / JOURNAL_FILENAME
+    return database_path(task_dir)
+
+
+def ensure_database(task_dir: Path) -> None:
+    task_dir = task_dir.resolve()
+    if not task_dir.is_dir():
+        raise ValueError(f"task directory does not exist: {task_dir}")
+    with sqlite3.connect(database_path(task_dir)) as connection:
+        _create_schema(connection)
 
 
 def context_path(task_dir: Path) -> Path:
@@ -91,7 +109,7 @@ def add_entry(
     if not task_dir.is_dir():
         raise ValueError(f"task directory does not exist: {task_dir}")
     entry = ContextEntry(
-        timestamp=timestamp or datetime.now().astimezone().isoformat(timespec="seconds"),
+        timestamp=_validate_timestamp(timestamp or datetime.now().astimezone().isoformat(timespec="seconds")),
         severity=_validate_choice(severity, SEVERITIES, "severity"),
         labels=tuple(_normalize_token(label, "label") for label in labels),
         status=_validate_choice(status, STATUSES, "status"),
@@ -100,26 +118,53 @@ def add_entry(
         source=_normalize_token(source, "source"),
         artifacts=tuple(artifact.strip() for artifact in artifacts if artifact.strip()),
     )
-    path = journal_path(task_dir)
-    with path.open("a", encoding="utf-8") as stream:
-        stream.write(json.dumps(entry.to_json(), ensure_ascii=False, sort_keys=True))
-        stream.write("\n")
+    ensure_database(task_dir)
+    with sqlite3.connect(database_path(task_dir)) as connection:
+        _insert_entry(connection, entry)
     return entry
 
 
 def load_entries(task_dir: Path) -> list[ContextEntry]:
-    path = journal_path(task_dir)
+    path = database_path(task_dir)
     if not path.exists():
         return []
     entries: list[ContextEntry] = []
-    for line_no, line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
-        if not line.strip():
-            continue
-        try:
-            entries.append(ContextEntry.from_json(json.loads(line)))
-        except (json.JSONDecodeError, ValueError) as exc:
-            raise ValueError(f"{path}:{line_no}: {exc}") from exc
+    with sqlite3.connect(path) as connection:
+        _create_schema(connection)
+        rows = connection.execute(
+            "SELECT timestamp, severity, labels, status, summary, details, source, artifacts "
+            "FROM context_entries ORDER BY timestamp, id"
+        ).fetchall()
+    for row in rows:
+        data = {
+            "timestamp": row[0],
+            "severity": row[1],
+            "labels": json.loads(row[2]),
+            "status": row[3],
+            "summary": row[4],
+            "details": row[5],
+            "source": row[6],
+            "artifacts": json.loads(row[7]),
+        }
+        entries.append(ContextEntry.from_json(data))
     return entries
+
+
+def migrate_legacy_journal(task_dir: Path) -> int:
+    task_dir = task_dir.resolve()
+    legacy_path = legacy_journal_path(task_dir)
+    if database_path(task_dir).exists():
+        raise ValueError(f"{DATABASE_FILENAME} already exists; migration is not needed")
+    if not legacy_path.is_file():
+        raise ValueError(f"{LEGACY_JOURNAL_FILENAME} is missing; there is nothing to migrate")
+    entries = _load_legacy_entries(task_dir)
+    ensure_database(task_dir)
+    with sqlite3.connect(database_path(task_dir)) as connection:
+        for entry in entries:
+            _insert_entry(connection, entry)
+    write_compact_context(task_dir)
+    legacy_path.unlink()
+    return len(entries)
 
 
 def filter_entries(
@@ -127,9 +172,10 @@ def filter_entries(
     *,
     since: str | None = None,
     until: str | None = None,
-    severity: str | None = None,
+    severity: str | Iterable[str] | None = None,
     labels: Iterable[str] = (),
     statuses: Iterable[str] = (),
+    newest_first: bool = False,
 ) -> list[ContextEntry]:
     start = _parse_boundary(since, end_of_day=False) if since else None
     end = _parse_boundary(until, end_of_day=True) if until else None
@@ -150,7 +196,7 @@ def filter_entries(
         if status_values and entry.status not in status_values:
             continue
         filtered.append(entry)
-    return sorted(filtered, key=lambda item: item.timestamp)
+    return sorted(filtered, key=lambda item: item.timestamp, reverse=newest_first)
 
 
 def render_entries(entries: Iterable[ContextEntry], *, format_name: str = "text") -> str:
@@ -188,7 +234,7 @@ def compact_context(
     lines = [
         "# Task Context",
         "",
-        f"_Generated from `{JOURNAL_FILENAME}` at {now}._",
+        f"_Generated from `{DATABASE_FILENAME}` at {now}._",
         "",
         "## Current Working Context",
         "",
@@ -232,9 +278,11 @@ def _entry_markdown(entry: ContextEntry) -> str:
     return "\n".join(parts)
 
 
-def _severity_filter(value: str | None) -> set[str] | None:
+def _severity_filter(value: str | Iterable[str] | None) -> set[str] | None:
     if not value:
         return None
+    if not isinstance(value, str):
+        return {_validate_choice(item, SEVERITIES, "severity") for item in value}
     if ".." in value:
         start, end = value.split("..", 1)
         start_index = SEVERITIES.index(_validate_choice(start, SEVERITIES, "severity"))
@@ -259,6 +307,58 @@ def _entry_datetime(entry: ContextEntry) -> datetime:
     if timestamp.tzinfo is None:
         return timestamp
     return timestamp.replace(tzinfo=None)
+
+
+def _validate_timestamp(value: str) -> str:
+    value = _non_empty(value, "timestamp")
+    try:
+        datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError as exc:
+        raise ValueError("timestamp must be an ISO-8601 date-time") from exc
+    return value
+
+
+def _create_schema(connection: sqlite3.Connection) -> None:
+    connection.execute(
+        "CREATE TABLE IF NOT EXISTS context_entries ("
+        "id INTEGER PRIMARY KEY, timestamp TEXT NOT NULL, severity TEXT NOT NULL, "
+        "labels TEXT NOT NULL, status TEXT NOT NULL, summary TEXT NOT NULL, "
+        "details TEXT NOT NULL, source TEXT NOT NULL, artifacts TEXT NOT NULL)"
+    )
+    connection.execute("CREATE INDEX IF NOT EXISTS context_entries_timestamp ON context_entries(timestamp)")
+    connection.execute("CREATE INDEX IF NOT EXISTS context_entries_severity ON context_entries(severity)")
+    connection.execute("CREATE INDEX IF NOT EXISTS context_entries_status ON context_entries(status)")
+
+
+def _insert_entry(connection: sqlite3.Connection, entry: ContextEntry) -> None:
+    connection.execute(
+        "INSERT INTO context_entries "
+        "(timestamp, severity, labels, status, summary, details, source, artifacts) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+        (
+            entry.timestamp,
+            entry.severity,
+            json.dumps(list(entry.labels), ensure_ascii=False),
+            entry.status,
+            entry.summary,
+            entry.details,
+            entry.source,
+            json.dumps(list(entry.artifacts), ensure_ascii=False),
+        ),
+    )
+
+
+def _load_legacy_entries(task_dir: Path) -> list[ContextEntry]:
+    path = legacy_journal_path(task_dir)
+    entries: list[ContextEntry] = []
+    for line_no, line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
+        if not line.strip():
+            continue
+        try:
+            entries.append(ContextEntry.from_json(json.loads(line)))
+        except (json.JSONDecodeError, ValueError) as exc:
+            raise ValueError(f"{path}:{line_no}: {exc}") from exc
+    return entries
 
 
 def _required_string(data: dict[str, object], key: str) -> str:
@@ -325,6 +425,12 @@ def add_command(args: argparse.Namespace) -> int:
     return 0
 
 
+def migrate_command(args: argparse.Namespace) -> int:
+    count = migrate_legacy_journal(args.task)
+    print(f"task-context: migrated {count} entries to {database_path(args.task)}")
+    return 0
+
+
 def query_command(args: argparse.Namespace) -> int:
     entries = filter_entries(
         load_entries(args.task),
@@ -333,6 +439,7 @@ def query_command(args: argparse.Namespace) -> int:
         severity=args.severity,
         labels=_split_csv(args.label),
         statuses=_split_csv(args.status),
+        newest_first=args.newest_first,
     )
     rendered = render_entries(entries, format_name=args.format)
     if rendered:
@@ -373,17 +480,25 @@ def main(argv: Sequence[str] | None = None) -> int:
     add_parser.add_argument("summary")
     add_parser.set_defaults(func=add_command)
 
-    query_parser = subparsers.add_parser("query", help="Query context journal entries.")
+    migrate_parser = subparsers.add_parser(
+        "migrate",
+        help="Import the legacy TASK_CONTEXT_LOG.jsonl journal into SQLite.",
+    )
+    migrate_parser.add_argument("--task", type=Path, required=True)
+    migrate_parser.set_defaults(func=migrate_command)
+
+    query_parser = subparsers.add_parser("query", help="Query task context database entries.")
     query_parser.add_argument("--task", type=Path, required=True)
     query_parser.add_argument("--since")
     query_parser.add_argument("--until")
     query_parser.add_argument("--severity")
     query_parser.add_argument("--label", action="append", default=[])
     query_parser.add_argument("--status", action="append", default=[])
+    query_parser.add_argument("--newest-first", action="store_true")
     query_parser.add_argument("--format", choices=("text", "markdown", "json"), default="text")
     query_parser.set_defaults(func=query_command)
 
-    compact_parser = subparsers.add_parser("compact", help="Regenerate TASK_CONTEXT.md from the journal.")
+    compact_parser = subparsers.add_parser("compact", help="Regenerate TASK_CONTEXT.md from SQLite.")
     compact_parser.add_argument("--task", type=Path, required=True)
     compact_parser.add_argument("--since")
     compact_parser.add_argument("--until")

@@ -10,6 +10,7 @@ from agent_tools.tools.push_guard import _guarded_staged_file_findings
 from agent_tools.tools.push_guard import _head_commit
 from agent_tools.tools.push_guard import _print_guarded_findings
 from agent_tools.tools.push_guard import _pushed_commits
+from agent_tools.tools.push_guard import _task_check_report_for_repo
 from agent_tools.tools.push_guard import _validated_receipt_source
 from agent_tools.tools.push_guard import PushedFileFinding
 
@@ -159,3 +160,24 @@ def test_guarded_findings_print_validation_command_when_workspace_env_is_set(
 
     err = capsys.readouterr().err
     assert "PYTHONPATH=/workspace/tools python3 -m agent_tools.tools.validate changed" in err
+
+
+def test_task_check_report_is_required_for_repositories_inside_tasks(
+    tmp_path: Path,
+    monkeypatch: object,
+) -> None:
+    workspace = tmp_path / "workspace"
+    repo = workspace / "tasks" / "sample-task" / "dev" / "repo"
+    repo.mkdir(parents=True)
+    task_dir = workspace / "tasks" / "sample-task"
+    (task_dir / "TASK_DESCRIPTION.md").write_text("# Task\n", encoding="utf-8")
+    (task_dir / "TASK_CONTEXT.md").write_text(
+        "# Task Context\n\n_Generated from `TASK_CONTEXT.sqlite3`._\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("AGENT_TOOLS_WORKSPACE_ROOT", str(workspace))
+
+    report = _task_check_report_for_repo(repo)
+
+    assert report is not None
+    assert "task-context-database-missing" in report

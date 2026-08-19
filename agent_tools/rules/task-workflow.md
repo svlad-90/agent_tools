@@ -15,7 +15,7 @@ These rules apply to every task directory under the workspace root.
    tasks. Do not scan every neighboring `TASK_CONTEXT.md` during normal task
    discovery. `TASK_CONTEXT.md` is the compact active working set, not the
    historical log. If it is missing or too sparse to continue safely, query or
-   create `TASK_CONTEXT_LOG.jsonl` with
+   create `TASK_CONTEXT.sqlite3` with
    `python3 -m agent_tools.tools.task_context` and regenerate compact context.
 4. Identify the task topics before deep work. Read
    `agent_tools/knowledge/README.md` and every matching topic file under
@@ -25,7 +25,7 @@ These rules apply to every task directory under the workspace root.
    through the task context journal.
 5. Maintain task context through the structured journal:
 
-   - `TASK_CONTEXT_LOG.jsonl` is the append-only journal of dated findings.
+   - `TASK_CONTEXT.sqlite3` is the transactional journal of dated findings.
    - `TASK_CONTEXT.md` is generated compact active context for the next human
      or agent session.
    - Use `python3 -m agent_tools.tools.task_context add --task <task-dir> ...`
@@ -34,7 +34,8 @@ These rules apply to every task directory under the workspace root.
      ...` to retrieve history by date, severity range, status, or labels.
    - Use `python3 -m agent_tools.tools.task_context compact --task <task-dir>`
      before handoff, after validation, after resolving blockers, and whenever
-     `TASK_CONTEXT.md` is becoming noisy.
+     `TASK_CONTEXT.md` is becoming noisy. Legacy JSONL journals can be imported
+     once with `python3 -m agent_tools.tools.task_context migrate --task <task-dir>`.
 
    Severity values are `note`, `low`, `mid`, `high`, and `critical`. Status
    values are `active`, `resolved`, and `stale`. Prefer stable labels such as
@@ -61,6 +62,10 @@ These rules apply to every task directory under the workspace root.
    hygiene gate when the tool is available. If `task_check` itself is broken or
    blocked by a missing environment, record the exact command, failure, and
    follow-up through the task context journal before continuing.
+   Agent Workspace runs the compact check once immediately before starting a
+   new AI session and includes any failures in the initial agent message.
+   The repository pre-commit hook runs the strict task check at the commit
+   boundary. Do not run it after every individual action.
 
    Use `--init-layout` to create a missing task layout from workspace
    templates. Use `--init-runtime-product` for Xen/QEMU/Moulin runtime tasks

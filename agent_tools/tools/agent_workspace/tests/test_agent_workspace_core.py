@@ -54,6 +54,7 @@ from agent_tools.tools.agent_workspace.core import log_agent_workspace_exception
 from agent_tools.tools.agent_workspace.core import parse_console_output
 from agent_tools.tools.agent_workspace.core import prepare_task_agent_session
 from agent_tools.tools.agent_workspace.core import prepare_ai_agent_launch_command
+from agent_tools.tools.agent_workspace.core import task_check_prompt_suffix
 from agent_tools.tools.agent_workspace.core import render_markdown_chunks
 from agent_tools.tools.agent_workspace.core import reset_task_agent_session
 from agent_tools.tools.agent_workspace.core import rough_token_count
@@ -98,11 +99,14 @@ from agent_tools.tools.agent_workspace.gtk_ui import _artifact_selectable_path a
 from agent_tools.tools.agent_workspace.gtk_ui import _artifact_updated_label as gtk_artifact_updated_label
 from agent_tools.tools.agent_workspace.gtk_ui import _is_pane_separator_event as gtk_is_pane_separator_event
 from agent_tools.tools.agent_workspace.gtk_ui import _notebook_event_in_empty_tab_area as gtk_notebook_event_in_empty_tab_area
+from agent_tools.tools.agent_workspace.gtk_ui import _pane_position_ratio as gtk_pane_position_ratio
 from agent_tools.tools.agent_workspace.gtk_ui import open_containing_folder as gtk_open_containing_folder
 from agent_tools.tools.agent_workspace.gtk_ui import _svg_open_command as gtk_svg_open_command
 from agent_tools.tools.agent_workspace.gtk_ui import _task_artifact_entries as gtk_task_artifact_entries
 from agent_tools.tools.agent_workspace.gtk_ui import _task_init_command as gtk_task_init_command
 from agent_tools.tools.agent_workspace.gtk_ui import _task_actions_signature as gtk_task_actions_signature
+from agent_tools.tools.agent_workspace.gtk_ui import _task_context_cards_markdown as gtk_task_context_cards_markdown
+from agent_tools.tools.task_context import ContextEntry
 from agent_tools.tools.agent_workspace.gtk_ui import _task_path_for_name as gtk_task_path_for_name
 from agent_tools.tools.agent_workspace.gtk_ui import _task_row_style as gtk_task_row_style
 from agent_tools.tools.agent_workspace.gtk_ui import _copy_terminal_selection as gtk_copy_terminal_selection
@@ -211,9 +215,19 @@ class FakeConsoleText:
 
 
 class FakePane:
-    def __init__(self, orientation: object, position: int) -> None:
+    def __init__(
+        self,
+        orientation: object,
+        position: int,
+        width: int = 400,
+        height: int = 300,
+        handle_window: object | None = None,
+    ) -> None:
         self.orientation = orientation
         self.position = position
+        self.width = width
+        self.height = height
+        self.handle_window = handle_window
 
     def get_orientation(self) -> object:
         return self.orientation
@@ -221,11 +235,21 @@ class FakePane:
     def get_position(self) -> int:
         return self.position
 
+    def get_allocated_width(self) -> int:
+        return self.width
+
+    def get_allocated_height(self) -> int:
+        return self.height
+
+    def get_handle_window(self) -> object | None:
+        return self.handle_window
+
 
 class FakePaneEvent:
-    def __init__(self, x: float, y: float) -> None:
+    def __init__(self, x: float, y: float, window: object | None = None) -> None:
         self.x = x
         self.y = y
+        self.window = window
 
 
 class FakeGtkKeyEvent:
@@ -850,6 +874,30 @@ def test_gtk_artifact_updated_label_formats_timestamp() -> None:
     assert gtk_artifact_updated_label(100) == datetime.fromtimestamp(100).strftime("%Y-%m-%d %H:%M")
 
 
+def test_gtk_task_context_cards_markdown_renders_console_cards() -> None:
+    content = gtk_task_context_cards_markdown(
+        [
+            ContextEntry(
+                timestamp="2026-08-19T10:30:00+03:00",
+                severity="critical",
+                labels=("blocker", "validation"),
+                status="active",
+                summary="Release validation is blocked on approval",
+                details="Critical blocker is intentionally active for filter testing.",
+                source="agent",
+                artifacts=("report/validation/latest.json",),
+            )
+        ]
+    )
+
+    assert content.startswith("```text\n+")
+    assert "[CRITICAL] [ACTIVE]  2026-08-19 10:30:00+03:00" in content
+    assert "summary  Release validation is blocked on approval" in content
+    assert "labels   #blocker #validation" in content
+    assert "artifacts report/validation/latest.json" in content
+    assert content.endswith("\n```")
+
+
 def test_gtk_open_containing_folder_falls_back_to_parent_on_linux(
     monkeypatch: object,
     tmp_path: Path,
@@ -930,6 +978,39 @@ def test_core_ai_agent_task_context_prompt_supports_optional_suffix(tmp_path: Pa
     assert plain.endswith("treat them as the active task context.")
     assert "Reply in Russian." not in plain
     assert suffixed.endswith("treat them as the active task context. Reply in Russian.")
+
+
+def test_task_check_errors_are_added_to_new_ai_prompt(tmp_path: Path) -> None:
+    task = tmp_path / "tasks" / "sample-task"
+    task.mkdir(parents=True)
+    summary = discover_tasks_with_context(task, tmp_path)
+
+    suffix = task_check_prompt_suffix(summary, tmp_path)
+
+    assert "Task check reported errors" in suffix
+    assert "task-context-database-missing" in suffix
+
+
+def test_new_ai_launch_includes_task_check_errors(tmp_path: Path) -> None:
+    task = tmp_path / "tasks" / "sample-task"
+    task.mkdir(parents=True)
+    summary = discover_tasks_with_context(task, tmp_path)
+
+    launch = prepare_ai_agent_launch_command(
+        summary,
+        tmp_path,
+        "codex",
+        codex_model="gpt-5.5",
+        codex_reasoning="medium",
+        claude_model="sonnet",
+        claude_effort="low",
+        codex_executable="codex-bin",
+        claude_executable="claude-bin",
+        include_task_check=True,
+    )
+
+    assert "Task check reported errors" in launch.command[-1]
+    assert "task-context-database-missing" in launch.command[-1]
 
 
 def test_codex_console_command_passes_prompt_and_workspace(tmp_path: Path) -> None:
@@ -1292,6 +1373,18 @@ def test_gtk_pane_separator_hit_test_uses_orientation() -> None:
     assert not gtk_is_pane_separator_event(horizontal, FakePaneEvent(120, 100))
     assert gtk_is_pane_separator_event(vertical, FakePaneEvent(40, 205))
     assert not gtk_is_pane_separator_event(vertical, FakePaneEvent(200, 220))
+    handle = object()
+    assert gtk_is_pane_separator_event(FakePane(Gtk.Orientation.VERTICAL, 200, handle_window=handle), FakePaneEvent(0, 0, handle))
+
+
+def test_gtk_pane_position_ratio_uses_orientation() -> None:
+    from gi.repository import Gtk
+
+    horizontal = FakePane(Gtk.Orientation.HORIZONTAL, 100, width=400, height=900)
+    vertical = FakePane(Gtk.Orientation.VERTICAL, 225, width=800, height=300)
+
+    assert gtk_pane_position_ratio(horizontal) == 0.25
+    assert gtk_pane_position_ratio(vertical) == 0.75
 
 
 def test_gtk_task_path_for_name_stays_under_tasks(tmp_path: Path) -> None:
@@ -1355,6 +1448,9 @@ def test_agent_workspace_settings_persist_font_size(tmp_path: Path) -> None:
             "default_claude_model": "sonnet",
             "default_claude_effort": "low",
             "geometry": "1200x800+10+20",
+            "main_split_ratio": 0.3,
+            "details_split_ratio": 0.7,
+            "actions_split_ratio": 0.4,
         },
         settings_path,
     )
@@ -1370,6 +1466,9 @@ def test_agent_workspace_settings_persist_font_size(tmp_path: Path) -> None:
         "default_claude_model": "sonnet",
         "default_claude_effort": "low",
         "geometry": "1200x800+10+20",
+        "main_split_ratio": 0.3,
+        "details_split_ratio": 0.7,
+        "actions_split_ratio": 0.4,
     }
 
 
@@ -1406,6 +1505,9 @@ def test_agent_workspace_runtime_settings_normalizes_ui_defaults() -> None:
             "default_claude_model": "",
             "default_claude_effort": "",
             "geometry": "1280x900+1+2",
+            "main_split_ratio": 0.3,
+            "details_split_ratio": "0.7",
+            "actions_split_ratio": 0.42,
         },
         default_font_size=13,
     )
@@ -1420,6 +1522,9 @@ def test_agent_workspace_runtime_settings_normalizes_ui_defaults() -> None:
     assert settings.default_claude_model == "sonnet"
     assert settings.default_claude_effort == "medium"
     assert settings.window_geometry == "1280x900+1+2"
+    assert settings.main_split_ratio == 0.3
+    assert settings.details_split_ratio == 0.7
+    assert settings.actions_split_ratio == 0.42
 
 
 def test_agent_workspace_runtime_settings_falls_back_for_invalid_values() -> None:
@@ -1431,6 +1536,9 @@ def test_agent_workspace_runtime_settings_falls_back_for_invalid_values() -> Non
             "language": "bad",
             "default_agent": "bad",
             "geometry": 42,
+            "main_split_ratio": 2.0,
+            "details_split_ratio": "bad",
+            "actions_split_ratio": 0.01,
         },
         default_font_size=13,
         default_language="uk",
@@ -1442,6 +1550,9 @@ def test_agent_workspace_runtime_settings_falls_back_for_invalid_values() -> Non
     assert settings.language == "uk"
     assert settings.default_agent == "codex"
     assert settings.window_geometry == "1180x760"
+    assert settings.main_split_ratio == 0.25
+    assert settings.details_split_ratio == 0.25
+    assert settings.actions_split_ratio == 0.38
 
 
 def test_ai_agent_model_settings_selects_per_agent_defaults() -> None:
@@ -3313,6 +3424,119 @@ def test_gtk_main_notebook_switch_loads_artifacts_lazily(tmp_path: Path) -> None
     gui._on_main_notebook_switch_page(object(), gui.artifacts_page, 1)  # type: ignore[arg-type]
 
     assert calls == [("load", summary)]
+
+
+def test_gtk_main_notebook_restores_actions_console_tab_after_details(tmp_path: Path) -> None:
+    task = tmp_path / "tasks" / "sample-task"
+    task.mkdir(parents=True)
+    summary = discover_tasks_with_context(task, tmp_path)
+    page = object()
+    session = TerminalSession(9, summary.path, "shell", object(), page)
+    gui = WorkspaceGtkGui.__new__(WorkspaceGtkGui)
+    gui.selected_task = summary
+    gui.actions_page = object()
+    gui.details_page = object()
+    gui.artifacts_page = object()
+    gui.active_main_page = gui.actions_page
+    gui.terminal_sessions = {session.session_id: session}
+    gui.last_active_terminal_by_task = {}
+    gui.console_notebook = FakeGtkConsoleNotebook([page], current_page=0)
+    calls: list[tuple[str, int | None]] = []
+    gui._load_task_action_buttons = lambda: calls.append(("actions", None))
+    gui._ensure_default_console_for_selected_task = lambda: calls.append(("console", None))
+    gui._load_task_artifacts = lambda _task: calls.append(("artifacts", None))
+    gui._activate_visible_terminal = lambda session_id, *, remember: calls.append(("restore", session_id))
+
+    gui._on_main_notebook_switch_page(object(), gui.details_page, 1)  # type: ignore[arg-type]
+    gui._on_main_notebook_switch_page(object(), gui.actions_page, 0)  # type: ignore[arg-type]
+
+    assert gui.last_active_terminal_by_task == {summary.path: session.session_id}
+    assert calls == [("actions", None), ("console", None), ("restore", session.session_id)]
+
+
+def test_gtk_main_notebook_restores_ai_agent_tab_after_details(tmp_path: Path) -> None:
+    task = tmp_path / "tasks" / "sample-task"
+    task.mkdir(parents=True)
+    summary = discover_tasks_with_context(task, tmp_path)
+    ai_page = object()
+    shell_page = object()
+    gui = WorkspaceGtkGui.__new__(WorkspaceGtkGui)
+    gui.selected_task = summary
+    gui.actions_page = object()
+    gui.details_page = object()
+    gui.artifacts_page = object()
+    gui.active_main_page = gui.actions_page
+    gui.ai_agent_page = ai_page
+    gui.terminal_sessions = {}
+    gui.last_active_terminal_by_task = {summary.path: 12}
+    gui.last_active_console_page_by_task = {}
+    gui.console_notebook = FakeGtkConsoleNotebook([ai_page, shell_page], current_page=0)
+    calls: list[str] = []
+    gui._load_task_action_buttons = lambda: calls.append("actions")
+    gui._ensure_default_console_for_selected_task = lambda: calls.append("console")
+    gui._load_task_artifacts = lambda _task: calls.append("artifacts")
+    gui._activate_visible_terminal = lambda _session_id, *, remember: calls.append("restore")
+
+    gui._on_main_notebook_switch_page(object(), gui.details_page, 1)  # type: ignore[arg-type]
+    gui.console_notebook.set_current_page(1)
+    gui._on_main_notebook_switch_page(object(), gui.actions_page, 0)  # type: ignore[arg-type]
+
+    assert gui.console_notebook.get_current_page() == 0
+    assert gui.last_active_console_page_by_task == {summary.path: "ai-agent"}
+    assert calls == ["actions", "console"]
+
+
+def test_gtk_initial_default_console_keeps_ai_agent_tab_active(tmp_path: Path) -> None:
+    task = tmp_path / "tasks" / "sample-task"
+    task.mkdir(parents=True)
+    summary = discover_tasks_with_context(task, tmp_path)
+    ai_page = object()
+    shell_page = object()
+    gui = WorkspaceGtkGui.__new__(WorkspaceGtkGui)
+    gui.selected_task = summary
+    gui.ai_agent_page = ai_page
+    gui.console_notebook = FakeGtkConsoleNotebook([ai_page, shell_page], current_page=0)
+    gui.last_active_terminal_by_task = {}
+    gui.last_active_console_page_by_task = {}
+    gui._current_task_terminal_sessions = lambda _task: []  # type: ignore[method-assign]
+
+    def new_console(*_args: object, task: TaskSummary | None = None) -> int:
+        gui.console_notebook.set_current_page(1)
+        gui.last_active_terminal_by_task[summary.path] = 42
+        return 42
+
+    gui.new_console = new_console  # type: ignore[method-assign]
+
+    gui._ensure_default_console_for_selected_task()
+
+    assert gui.console_notebook.get_current_page() == 0
+    assert gui.last_active_console_page_by_task == {summary.path: "ai-agent"}
+
+
+def test_gtk_default_console_does_not_override_saved_shell_tab(tmp_path: Path) -> None:
+    task = tmp_path / "tasks" / "sample-task"
+    task.mkdir(parents=True)
+    summary = discover_tasks_with_context(task, tmp_path)
+    ai_page = object()
+    shell_page = object()
+    gui = WorkspaceGtkGui.__new__(WorkspaceGtkGui)
+    gui.selected_task = summary
+    gui.ai_agent_page = ai_page
+    gui.console_notebook = FakeGtkConsoleNotebook([ai_page, shell_page], current_page=0)
+    gui.last_active_terminal_by_task = {summary.path: 41}
+    gui.last_active_console_page_by_task = {summary.path: "session:41"}
+    gui._current_task_terminal_sessions = lambda _task: []  # type: ignore[method-assign]
+
+    def new_console(*_args: object, task: TaskSummary | None = None) -> int:
+        gui.console_notebook.set_current_page(1)
+        return 42
+
+    gui.new_console = new_console  # type: ignore[method-assign]
+
+    gui._ensure_default_console_for_selected_task()
+
+    assert gui.console_notebook.get_current_page() == 1
+    assert gui.last_active_console_page_by_task == {summary.path: "session:41"}
 
 
 def test_gtk_terminal_text_tail_reads_recent_text() -> None:

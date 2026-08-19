@@ -1,6 +1,6 @@
 # Task Context
 
-_Generated from `TASK_CONTEXT_LOG.jsonl`._
+_Generated from `TASK_CONTEXT.sqlite3`._
 
 ## Current Working Context
 

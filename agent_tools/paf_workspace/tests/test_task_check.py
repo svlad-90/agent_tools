@@ -6,6 +6,8 @@ from paf_workspace.task_check import Check
 from paf_workspace.task_check import check_task
 from paf_workspace.task_check import initialize_task_layout
 from paf_workspace.task_check import render_text
+from agent_tools.tools.task_context import DATABASE_FILENAME
+from agent_tools.tools.task_context import migrate_legacy_journal
 
 
 def test_initialize_task_layout_creates_description_and_context(tmp_path: Path) -> None:
@@ -16,11 +18,11 @@ def test_initialize_task_layout_creates_description_and_context(tmp_path: Path) 
 
     assert (task_dir / "TASK_DESCRIPTION.md").is_file()
     assert (task_dir / "TASK_CONTEXT.md").is_file()
-    assert (task_dir / "TASK_CONTEXT_LOG.jsonl").is_file()
+    assert (task_dir / DATABASE_FILENAME).is_file()
     assert _has_check(initialize_checks, "PASS", "init-task-description")
-    assert _has_check(initialize_checks, "PASS", "init-task-context-log")
+    assert _has_check(initialize_checks, "PASS", "init-task-context-database")
     assert _has_check(checks, "PASS", "task-description")
-    assert _has_check(checks, "PASS", "task-context-log")
+    assert _has_check(checks, "PASS", "task-context-database")
 
 
 def test_initialize_task_layout_records_task_privacy(tmp_path: Path) -> None:
@@ -80,7 +82,7 @@ def test_compact_generated_task_context_uses_journal_checks(tmp_path: Path) -> N
     task_dir = tmp_path / "tasks" / "sample-task"
     initialize_task_layout(task_dir, workspace=tmp_path)
     (task_dir / "TASK_CONTEXT.md").write_text(
-        "# Task Context\n\n_Generated from `TASK_CONTEXT_LOG.jsonl` at 2026-08-19T10:00:00._\n",
+        "# Task Context\n\n_Generated from `TASK_CONTEXT.sqlite3` at 2026-08-19T10:00:00._\n",
         encoding="utf-8",
     )
 
@@ -88,6 +90,55 @@ def test_compact_generated_task_context_uses_journal_checks(tmp_path: Path) -> N
 
     assert _has_check(checks, "PASS", "task-context-compact")
     assert not _has_check(checks, "WARN", "task-context-section-missing")
+
+
+def test_old_task_context_format_is_failure(tmp_path: Path) -> None:
+    task_dir = tmp_path / "tasks" / "sample-task"
+    initialize_task_layout(task_dir, workspace=tmp_path)
+    (task_dir / "TASK_CONTEXT.md").write_text(
+        "# Task Context\n\n## Goal\n\n- Legacy context format.\n",
+        encoding="utf-8",
+    )
+
+    checks = check_task(task_dir, workspace=tmp_path)
+
+    assert _has_check(checks, "FAIL", "task-context-format-old")
+
+
+def test_missing_task_context_database_is_failure(tmp_path: Path) -> None:
+    task_dir = tmp_path / "tasks" / "sample-task"
+    initialize_task_layout(task_dir, workspace=tmp_path)
+    (task_dir / DATABASE_FILENAME).unlink()
+
+    checks = check_task(task_dir, workspace=tmp_path)
+
+    assert _has_check(checks, "FAIL", "task-context-database-missing")
+
+
+def test_invalid_task_context_database_is_failure(tmp_path: Path) -> None:
+    task_dir = tmp_path / "tasks" / "sample-task"
+    initialize_task_layout(task_dir, workspace=tmp_path)
+    (task_dir / DATABASE_FILENAME).write_bytes(b"not-a-sqlite-database")
+
+    checks = check_task(task_dir, workspace=tmp_path)
+
+    assert _has_check(checks, "FAIL", "task-context-database-invalid")
+
+
+def test_legacy_task_context_can_be_migrated(tmp_path: Path) -> None:
+    task_dir = tmp_path / "tasks" / "sample-task"
+    initialize_task_layout(task_dir, workspace=tmp_path)
+    (task_dir / DATABASE_FILENAME).unlink()
+    (task_dir / "TASK_CONTEXT_LOG.jsonl").write_text(
+        '{"timestamp":"2026-08-19T10:00:00","severity":"high","labels":["validation"],'
+        '"status":"active","summary":"Legacy entry"}\n',
+        encoding="utf-8",
+    )
+
+    assert migrate_legacy_journal(task_dir) == 1
+    assert not (task_dir / "TASK_CONTEXT_LOG.jsonl").exists()
+    assert "Legacy entry" in (task_dir / "TASK_CONTEXT.md").read_text(encoding="utf-8")
+    assert _has_check(check_task(task_dir, workspace=tmp_path), "PASS", "task-context-database-valid")
 
 
 def test_render_text_errors_only_keeps_summary_and_failures(tmp_path: Path) -> None:

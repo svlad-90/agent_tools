@@ -8,22 +8,15 @@
   A local engineering workspace for human-led AI agent collaboration.
 </p>
 
-Agent Workspace Tools is built for a human-in-the-loop workflow where the
-developer keeps product judgment and final control, while the agent accelerates
-investigation, implementation, refactoring, validation, and routine repository
-work.
-
-The core idea is simple: do not rely on the model alone to remember the whole
-engineering process. Put the process into the workspace. Tasks, rules, actions,
-validation gates, reusable environments, and knowledge files give the agent a
-clear operating model and give the human a repeatable way to steer the work.
+Agent Workspace Tools is built for human-led AI development. The developer
+keeps product judgment and final control; the workspace gives agents tasks,
+rules, actions, validation gates, reusable environments, and knowledge files.
 
 ## What Problem This Solves
 
-AI coding sessions are easy to start and hard to keep disciplined. Context gets
-buried in chat history, commands disappear into terminal scrollback, validation
-evidence is hard to hand off, and the next agent often has to rediscover the
-same facts.
+AI coding sessions are easy to start and hard to keep disciplined. Context
+gets buried in chat, commands disappear into terminal scrollback, validation
+evidence is hard to hand off, and the next agent rediscovers old facts.
 
 Agent Workspace Tools turns that loose interaction into a structured local
 workflow:
@@ -37,9 +30,6 @@ workflow:
 - public and private knowledge are separated;
 - rules and skills tell agents how to work in the repository.
 
-This keeps the feedback loop short without making the agent unbounded or
-opaque.
-
 ## Getting Started
 
 Launch the workspace dashboard from the repository root:
@@ -48,26 +38,23 @@ Launch the workspace dashboard from the repository root:
 ./agent-workspace
 ```
 
-The usual flow is:
+Typical flow:
 
 1. Create a task and give it a name.
 2. Open Codex, Claude Code, or a shell session from that task.
 3. Describe the work in the AI window.
-4. Let the agent create or update the task description, context journal,
-   scripts, actions, and validation notes as the work becomes concrete.
-5. Use the GUI to run known actions, switch terminals, inspect context, and
-   open artifacts while the agent handles the engineering work.
-6. Review the result, run validation, and commit when the repository is ready.
+4. Let the agent capture the brief, update context, add scripts/actions, and
+   record validation as the work becomes concrete.
+5. Use the GUI to run actions, switch terminals, inspect context, and open
+   artifacts.
+6. Review, validate, and commit when the repository is ready.
 
 ### Create A Task
 
-A task is the working unit. Use one task for one investigation, feature,
-refactor, bug fix, review, or release activity.
-
-From the GUI, create a task and choose whether it is public or private. Public
-tasks are safe to use as examples or mergeable metadata. Private tasks are for
-local work that may contain customer details, private paths, credentials in
-logs, or personal notes.
+A task is the working unit: one investigation, feature, refactor, bug fix,
+review, or release activity. From the GUI, create a task and choose whether it
+is public or private. Private tasks stay local; public tasks can be used as
+examples or mergeable metadata when they contain no private data.
 
 Each task gets a predictable layout:
 
@@ -75,35 +62,21 @@ Each task gets a predictable layout:
 tasks/<task-name>/
   TASK_DESCRIPTION.md   The request, scope, acceptance criteria, useful links.
   TASK_CONTEXT.md       Compact active context for the next session.
-  TASK_CONTEXT_LOG.jsonl Structured journal of dated task findings.
+  TASK_CONTEXT.sqlite3   Transactional journal of dated task findings.
   dev/                  Checkouts, reproducers, generated build inputs.
   scripts/              Repeatable helper commands.
   report/               Logs, diagrams, reviews, validation evidence.
 ```
 
-`TASK_DESCRIPTION.md` is the stable brief. In normal use, you describe the
-task to the agent and ask it to capture the goal, boundaries, and acceptance
-criteria there.
+`TASK_DESCRIPTION.md` is the stable brief. `TASK_CONTEXT.sqlite3` is the
+transactional journal with dated findings, severity, status, labels, details,
+and artifact links. `TASK_CONTEXT.md` is the compact active handoff generated
+from the database.
 
-`TASK_CONTEXT_LOG.jsonl` is the durable journal. The agent records dated
-findings there with severity, status, and labels: build notes, validation
-results, decisions, blockers, environment facts, reports, and next steps.
-
-`TASK_CONTEXT.md` is the compact working handoff generated from that journal.
-It should stay short: active branch, important current decisions, blockers,
-validation status, and the next useful step. A fresh agent session starts from
-this file and queries the journal only when older or lower-signal history is
-needed.
-
-You can ask for filtered history directly:
+Useful prompts:
 
 ```text
 Show me high-severity validation and blocker notes from the last week.
-```
-
-or ask the agent to compact the context before a handoff:
-
-```text
 Compact the task context and keep only active mid-to-critical findings.
 ```
 
@@ -113,27 +86,11 @@ Actions are commands worth turning into buttons: builds, tests, flash/copy
 steps, report generation, cleanup, board access, smoke checks, or any command
 you expect to run repeatedly during the task.
 
-Usually, you ask the agent to add an action when a command becomes part of the
-workflow:
+Usually you ask the agent to add an action when a command becomes part of the
+workflow. The agent can create a script and declare it in `TASK_ACTIONS.json`.
 
 ```text
 Add a task action for running the unit tests.
-```
-
-The agent can create the script if needed and declare the action in
-`TASK_ACTIONS.json`:
-
-```json
-{
-  "actions": [
-    {
-      "id": "unit-tests",
-      "label": "Unit tests",
-      "command": ["scripts/run-unit-tests.sh"],
-      "cwd": "."
-    }
-  ]
-}
 ```
 
 Keep actions at the level a human would actually click. A good action is
@@ -151,63 +108,29 @@ In normal use, describe the variation to the agent:
 Make the build action accept board and profile parameters.
 ```
 
-The resulting action metadata can look like this:
-
-```json
-{
-  "id": "build-image",
-  "label": "Build image",
-  "command": ["scripts/build-image.sh", "--board", "{board}", "--profile", "{profile}"],
-  "parameters": [
-    {"name": "board", "label": "Board", "default": "lab-a"},
-    {"name": "profile", "label": "Profile", "default": "debug"}
-  ]
-}
-```
-
 Use global parameters for values shared by several actions, such as `board`,
 `device`, or `build_dir`. Save parameter sets or shortcuts for combinations
 you use often, for example `Board: lab-a` plus `Profile: debug`.
 
 ### Work With The AI Window
 
-The AI terminal is for judgment-heavy work: reading code, explaining tradeoffs,
-investigating failures, planning a refactor, making edits, reviewing diffs,
-and deciding which validation matters.
-
-The GUI is for operating the workspace: selecting the task, opening context,
-running known actions, switching between Codex/Claude/shell, saving shortcuts,
+The AI terminal is for judgment-heavy work: reading code, investigating
+failures, planning refactors, making edits, reviewing diffs, and deciding which
+validation matters. The GUI is for operating the workspace: selecting the task,
+opening context, running known actions, switching terminals, saving shortcuts,
 and opening artifacts.
-
-A practical session usually looks like this:
-
-1. Select a task in the GUI.
-2. Start an AI agent from the task.
-3. Tell the agent what you want changed or investigated.
-4. Let the agent read or create `TASK_DESCRIPTION.md` and `TASK_CONTEXT.md`.
-5. Ask the agent to add useful task actions when repeated commands appear.
-6. Use action buttons for known commands instead of retyping them in chat.
-7. Ask the agent to update context when it discovers something that should
-   survive the current session.
-8. Run validation and review the result before committing.
-
-The split is intentional. The agent should reason about the work. The GUI
-should make the repeated mechanics cheap and visible.
 
 ## Compact Context
 
-Long AI-assisted tasks create a lot of facts, but not every fact deserves to be
-loaded into every future session. Agent Workspace separates task memory into
-two layers:
+Long AI-assisted tasks create a lot of facts. Agent Workspace keeps them in two
+layers:
 
-- `TASK_CONTEXT_LOG.jsonl`: append-only history with timestamps, severity,
+- `TASK_CONTEXT.sqlite3`: transactional history with timestamps, severity,
   labels, status, details, and artifact links.
-- `TASK_CONTEXT.md`: compact active context generated from the journal.
+- `TASK_CONTEXT.md`: compact active context generated from the database.
 
-This makes context searchable without making it noisy. You can ask the agent
-for slices such as "active blockers", "validation notes since Monday",
-"critical build facts", or "resolved environment issues", and the tool can
-filter the journal instead of forcing the model to reread a long Markdown log.
+Ask for slices such as "active blockers", "validation notes since Monday", or
+"resolved environment issues" instead of loading a long Markdown log.
 
 The underlying command is:
 
@@ -223,13 +146,11 @@ The desktop app is the fastest way to operate the workspace day to day:
 ./agent-workspace
 ```
 
-Agent Workspace lists tasks, shows descriptions and active context, opens task
-artifacts, manages per-task terminals, and launches interactive AI sessions
-with the selected task context. It is agent-neutral by design: Codex, Claude
-Code, shell sessions, and task commands all live in the same workspace model.
-
-The GUI keeps the human close to the real task state: source directories,
-reports, validation results, terminals, and actions are visible in one place.
+Agent Workspace lists tasks, shows descriptions, renders the task context
+journal with filters, opens task artifacts, manages per-task terminals, and
+launches interactive AI sessions with the selected task context. It is
+agent-neutral by design: Codex, Claude Code, shell sessions, and task commands
+all live in the same workspace model.
 
 Detailed GUI documentation lives in
 [agent_tools/tools/agent_workspace/README.md](agent_tools/tools/agent_workspace/README.md).
@@ -261,48 +182,26 @@ Commit and push policy is documented in
 
 ## Reports And Reviews
 
-You can also ask the agent to explain work as a report instead of only
-answering in chat. For example:
+You can ask the agent to explain work as a report instead of only answering in
+chat:
 
 ```text
 Prepare a report that explains the investigation results.
-```
-
-or:
-
-```text
 Summarize the validation run as a report with links to the logs.
-```
-
-For code changes, you can ask for a review-oriented diff report:
-
-```text
 Review this branch and generate a report I can read later.
 ```
 
-General reports live under the task's `report/` directory: notes, summaries,
-logs, diagrams, validation evidence, and other artifacts worth keeping. Diff
-reviews live under `report/diff/` and can use the workspace diff-report
-workflow to produce GitHub-style HTML with inline comments tied to files.
-
-This is useful when the answer is too large for chat, when you want to compare
-several artifacts side by side, or when the result should survive the current
-agent session.
+General reports live under `report/`. Diff reviews live under `report/diff/`
+and can produce GitHub-style HTML with inline comments tied to files.
 
 ## Reusable Environments
 
-Many real engineering tasks cannot be validated with a host-side command. They
-need a known Ubuntu image, CI-compatible dependencies, a Yocto or Zephyr build
-environment, a QEMU/Xen runtime harness, or a local reproduction of a GitHub
-Actions workflow.
-
-Agent Tools keeps those repeatable environments under `agent_tools/paf_workspace/`.
-PAF scenarios can prepare Docker images, mount the workspace at known paths,
-run multi-stage builds or tests, collect artifacts, and mark the target
-repository as validated for `push_guard`.
-
-The result is a validation path that an agent can run, a human can inspect, and
-another machine can reproduce.
+Real engineering tasks often need more than a host command: CI-compatible
+dependencies, Yocto or Zephyr builds, QEMU/Xen runtime harnesses, or local
+GitHub Actions reproductions. Agent Tools keeps repeatable environments under
+`agent_tools/paf_workspace/`. PAF scenarios prepare Docker images, run
+multi-stage builds or tests, collect artifacts, and mark the target repository
+as validated for `push_guard`.
 
 See [agent_tools/paf_workspace/README.md](agent_tools/paf_workspace/README.md)
 and
@@ -310,17 +209,13 @@ and
 
 ## Knowledge And Skills
 
-Agent Tools separates durable knowledge from transient task notes.
+`agent_tools/knowledge/` stores repeated failure patterns, environment
+gotchas, diagnostic checklists, and topic-specific lessons. Public knowledge
+must contain no private data; private knowledge stays in ignored local storage.
 
-`agent_tools/knowledge/` stores findings that should help future work:
-repeated failure patterns, environment gotchas, diagnostic checklists, and
-topic-specific lessons. Public knowledge is commit-ready only when it contains
-no private data. Private knowledge stays in ignored local storage.
-
-`agent_tools/skills/` contains agent-facing workflow wrappers. A skill does
-not implement the tool; it points the agent to the checked-in tool, rule, or
-PAF scenario that should be used for a class of tasks. This reduces repeated
-reasoning without stuffing every prompt with all possible instructions.
+`agent_tools/skills/` contains agent-facing workflow wrappers. A skill points
+the agent to the checked-in tool, rule, or PAF scenario for a class of tasks,
+reducing repeated reasoning without stuffing every prompt with all instructions.
 
 See [agent_tools/knowledge/README.md](agent_tools/knowledge/README.md) and
 [agent_tools/rules/workspace-skills.md](agent_tools/rules/workspace-skills.md).

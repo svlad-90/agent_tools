@@ -8,6 +8,7 @@ import os
 import shutil
 import subprocess
 import sys
+import textwrap
 
 import gi
 
@@ -20,6 +21,11 @@ from gi.repository import GLib
 from gi.repository import Gtk
 from gi.repository import Pango
 from gi.repository import Vte
+
+from agent_tools.tools.task_context import ContextEntry
+from agent_tools.tools.task_context import STATUSES as TASK_CONTEXT_STATUSES
+from agent_tools.tools.task_context import filter_entries as _filter_task_context_entries
+from agent_tools.tools.task_context import load_entries as _load_task_context_entries
 
 from .artifacts import ArtifactEntry
 from .artifacts import artifact_context_action as _artifact_context_action
@@ -237,12 +243,14 @@ class WorkspaceGtkGui:
         self.task_agent_session_marker_cache: dict[Path, tuple[str, ...]] = {}
         self.terminal_sessions: dict[int, TerminalSession] = {}
         self.last_active_terminal_by_task: dict[Path, int] = {}
+        self.last_active_console_page_by_task: dict[Path, str] = {}
         self.next_terminal_id = 1
         self._refreshing_console_tabs = False
         self._updating_agent_selection = False
         self._updating_task_selection = False
         self._agent_spinner_index = 0
         self._closing = False
+        self.active_main_page: Gtk.Widget | None = None
 
         settings = agent_workspace_runtime_settings(load_agent_workspace_settings(), default_font_size=13)
         self.text_font_size = settings.text_font_size
@@ -255,6 +263,13 @@ class WorkspaceGtkGui:
         self.default_claude_model = settings.default_claude_model
         self.default_claude_effort = settings.default_claude_effort
         self.window_geometry = settings.window_geometry
+        self.main_split_ratio = settings.main_split_ratio
+        self.details_split_ratio = settings.details_split_ratio
+        self.actions_split_ratio = settings.actions_split_ratio
+        self._updating_pane_positions = False
+        self._pane_layout_ready = False
+        self._initial_pane_layout_source_id: int | None = None
+        self._pane_settings_save_source_id: int | None = None
         self.last_window_width = 1180
         self.last_window_height = 760
         self.last_window_x = 0
@@ -263,6 +278,17 @@ class WorkspaceGtkGui:
         self.detail_editing: dict[Gtk.TextView, bool] = {}
         self.detail_original_text: dict[Gtk.TextView, str] = {}
         self.detail_filenames: dict[Gtk.TextView, str] = {}
+        self.task_context_filter_since: str | None = None
+        self.task_context_filter_until: str | None = None
+        self.task_context_since_button: Gtk.Button | None = None
+        self.task_context_until_button: Gtk.Button | None = None
+        self.task_context_severity_checks: dict[str, Gtk.CheckButton] = {}
+        self.task_context_status_checks: dict[str, Gtk.CheckButton] = {}
+        self.task_context_label_checks: dict[str, Gtk.CheckButton] = {}
+        self.task_context_filter_all_checks: dict[str, Gtk.CheckButton] = {}
+        self.task_context_label_box: Gtk.Box | None = None
+        self.task_context_date_popover: Gtk.Popover | None = None
+        self._updating_task_context_checks = False
         self.ai_agent_page: Gtk.Box | None = None
         self.ai_agent_tab_label: Gtk.Label | None = None
         self.ai_agent_terminal_box: Gtk.Box | None = None
@@ -295,6 +321,7 @@ class WorkspaceGtkGui:
         self.header_bar.set_show_close_button(True)
         self.window.set_titlebar(self.header_bar)
         self.window.connect("configure-event", self._on_window_configure)
+        self.window.connect("map-event", self._on_window_mapped)
         self.window.connect("key-press-event", self._on_window_key_press)
         self.window.connect("delete-event", self._on_window_delete_event)
         self.window.connect("destroy", self.close)
@@ -320,6 +347,8 @@ class WorkspaceGtkGui:
         self.main_pane = main
         main.add_events(Gdk.EventMask.BUTTON_PRESS_MASK)
         main.connect("button-press-event", self._on_main_pane_button_press)
+        main.connect("notify::position", self._on_main_pane_position_changed)
+        main.connect("size-allocate", self._on_main_pane_size_allocate)
         root.pack_start(main, True, True, 0)
 
         self.task_store = Gtk.ListStore(str, str, object, str, bool, str, bool, int, bool)
@@ -364,23 +393,99 @@ class WorkspaceGtkGui:
         self._add_actions_tab()
         self._add_details_tab()
         self._add_artifacts_tab()
+        self.active_main_page = self.actions_page
         self.notebook.connect("switch-page", self._on_main_notebook_switch_page)
-        GLib.idle_add(self._set_main_default_split)
 
     def _add_details_tab(self) -> None:
         pane = Gtk.Paned(orientation=Gtk.Orientation.VERTICAL)
         self.details_pane = pane
         pane.add_events(Gdk.EventMask.BUTTON_PRESS_MASK)
         pane.connect("button-press-event", self._on_details_pane_button_press)
+        pane.connect("notify::position", self._on_details_pane_position_changed)
+        pane.connect("size-allocate", self._on_details_pane_size_allocate)
         self.description_view = _text_view(self.text_font_size, editable=False)
         self.context_view = _text_view(self.text_font_size, editable=False)
         self._register_detail_view(self.description_view, "TASK_DESCRIPTION.md")
         self._register_detail_view(self.context_view, "TASK_CONTEXT.md")
         pane.pack1(_scrolled(self.description_view), resize=True, shrink=False)
-        pane.pack2(_scrolled(self.context_view), resize=True, shrink=False)
-        GLib.idle_add(self._set_details_default_split)
+        context_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
+        context_box.set_border_width(4)
+        context_box.pack_start(self._task_context_filter_bar(), False, False, 0)
+        context_box.pack_start(_scrolled(self.context_view), True, True, 0)
+        pane.pack2(context_box, resize=True, shrink=False)
         self.details_tab_label = Gtk.Label(label=self._tr("details"))
         self.notebook.append_page(pane, self.details_tab_label)
+
+    def _task_context_filter_bar(self) -> Gtk.Widget:
+        box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
+        box.get_style_context().add_class("task-context-filter-bar")
+
+        self.task_context_since_button = self._button("context_filter_since_any", self._choose_task_context_since)
+        self.task_context_until_button = self._button("context_filter_until_any", self._choose_task_context_until)
+        box.pack_start(self.task_context_since_button, False, False, 0)
+        box.pack_start(self.task_context_until_button, False, False, 0)
+
+        box.pack_start(
+            self._task_context_check_menu(
+                "severity",
+                self._tr("context_filter_levels"),
+                ("note", "low", "mid", "high", "critical"),
+                self.task_context_severity_checks,
+            ),
+            False,
+            False,
+            0,
+        )
+        box.pack_start(
+            self._task_context_check_menu(
+                "status",
+                self._tr("context_filter_statuses"),
+                TASK_CONTEXT_STATUSES,
+                self.task_context_status_checks,
+            ),
+            False,
+            False,
+            0,
+        )
+        label_button = Gtk.MenuButton(label=self._tr("context_filter_labels"))
+        label_popover = Gtk.Popover()
+        label_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
+        label_box.set_border_width(8)
+        label_popover.add(label_box)
+        label_button.set_popover(label_popover)
+        self.task_context_label_box = label_box
+        box.pack_start(label_button, False, False, 0)
+
+        box.pack_start(self._button("context_filter_clear", self._clear_task_context_filters), False, False, 0)
+        self._update_task_context_date_buttons()
+        return box
+
+    def _task_context_check_menu(
+        self,
+        group: str,
+        label: str,
+        values: tuple[str, ...],
+        target: dict[str, Gtk.CheckButton],
+    ) -> Gtk.Widget:
+        button = Gtk.MenuButton(label=label)
+        popover = Gtk.Popover()
+        content = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
+        content.set_border_width(8)
+        all_check = Gtk.CheckButton(label=self._tr("context_filter_select_all"))
+        all_check.set_active(True)
+        all_check.connect("toggled", self._on_task_context_all_toggled, group, target)
+        self.task_context_filter_all_checks[group] = all_check
+        content.pack_start(all_check, False, False, 0)
+        for value in values:
+            check = Gtk.CheckButton(label=value)
+            check.set_active(True)
+            check.connect("toggled", self._on_task_context_item_toggled, group, target)
+            target[value] = check
+            content.pack_start(check, False, False, 0)
+        popover.add(content)
+        content.show_all()
+        button.set_popover(popover)
+        return button
 
     def _add_artifacts_tab(self) -> None:
         self.artifact_store = Gtk.TreeStore(str, str, object, bool, str)
@@ -416,7 +521,11 @@ class WorkspaceGtkGui:
         self.notebook.append_page(box, self.actions_tab_label)
 
         actions_pane = Gtk.Paned(orientation=Gtk.Orientation.VERTICAL)
+        self.actions_pane = actions_pane
         actions_pane.set_wide_handle(True)
+        actions_pane.add_events(Gdk.EventMask.BUTTON_PRESS_MASK)
+        actions_pane.connect("button-press-event", self._on_actions_pane_button_press)
+        actions_pane.connect("size-allocate", self._on_actions_pane_size_allocate)
         box.pack_start(actions_pane, True, True, 0)
 
         controls_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=3)
@@ -482,7 +591,6 @@ class WorkspaceGtkGui:
         self.console_notebook.connect("button-press-event", self._on_console_notebook_button_press)
         self.console_notebook.connect("switch-page", self._on_console_notebook_switch_page)
         actions_pane.pack2(self.console_notebook, resize=True, shrink=False)
-        actions_pane.set_position(210)
         self._on_actions_pane_position_changed(actions_pane, None)
         self._ensure_ai_agent_console_page()
 
@@ -492,6 +600,9 @@ class WorkspaceGtkGui:
         position = pane.get_position()
         opacity = max(0.0, min(1.0, position / 90.0))
         self.actions_controls_box.set_opacity(opacity)
+        if self._pane_layout_ready and not self._updating_pane_positions:
+            self.actions_split_ratio = _pane_position_ratio(pane)
+            self._schedule_pane_settings_save()
 
     def _ensure_ai_agent_console_page(self) -> None:
         if not hasattr(self, "ai_agent_page"):
@@ -579,9 +690,8 @@ class WorkspaceGtkGui:
         self._remember_current_console_tab()
         self.selected_task = task
         self._leave_detail_edit_mode(self.description_view)
-        self._leave_detail_edit_mode(self.context_view)
         self._set_markdown(self.description_view, read_task_file(self.selected_task, "TASK_DESCRIPTION.md"))
-        self._set_markdown(self.context_view, read_task_file(self.selected_task, "TASK_CONTEXT.md"))
+        self._render_task_context_details()
         self._reset_actions()
         self._watch_task_actions(self.selected_task)
         if self._artifacts_tab_active():
@@ -642,15 +752,247 @@ class WorkspaceGtkGui:
         if hasattr(self, "run_ai_agent_button"):
             self._update_codex_button_state()
 
+    def _render_task_context_details(self) -> None:
+        if self.selected_task is None:
+            self._set_markdown(self.context_view, "")
+            return
+        try:
+            entries = _load_task_context_entries(self.selected_task.path)
+        except ValueError as exc:
+            fallback = read_task_file(self.selected_task, "TASK_CONTEXT.md")
+            self._set_markdown(self.context_view, f"# {self._tr('context_journal_error')}\n\n{exc}\n\n{fallback}")
+            return
+        self._refresh_task_context_label_filter(entries)
+        if not entries:
+            self._set_markdown(self.context_view, read_task_file(self.selected_task, "TASK_CONTEXT.md"))
+            return
+        try:
+            severity_values = self._task_context_filter_severity_value()
+            status_values = self._task_context_filter_status_values()
+            label_values = self._task_context_filter_label_values()
+            if severity_values == () or status_values == () or label_values == ():
+                filtered = []
+            else:
+                filtered = _filter_task_context_entries(
+                    entries,
+                    since=self._task_context_filter_since_value(),
+                    until=self._task_context_filter_until_value(),
+                    severity=severity_values,
+                    labels=label_values or (),
+                    statuses=status_values or (),
+                    newest_first=True,
+                )
+        except ValueError as exc:
+            self._set_markdown(self.context_view, f"# {self._tr('context_filter_error')}\n\n{exc}\n")
+            return
+        if filtered:
+            body = _task_context_cards_markdown(filtered)
+        else:
+            body = f"- {self._tr('context_filter_no_matches')}"
+        self._set_markdown(self.context_view, f"# {self._tr('context_journal')}\n\n{body}\n")
+
+    def _on_task_context_filter_changed(self, *_args: object) -> None:
+        if self.selected_task is not None:
+            self._render_task_context_details()
+
+    def _clear_task_context_filters(self, *_args: object) -> None:
+        self.task_context_filter_since = None
+        self.task_context_filter_until = None
+        self._update_task_context_date_buttons()
+        for group, checks in (
+            ("severity", self.task_context_severity_checks),
+            ("status", self.task_context_status_checks),
+            ("label", self.task_context_label_checks),
+        ):
+            self._set_task_context_group_checks(group, checks, True)
+        self._on_task_context_filter_changed()
+
+    def _task_context_filter_since_value(self) -> str | None:
+        return self.task_context_filter_since
+
+    def _task_context_filter_until_value(self) -> str | None:
+        return self.task_context_filter_until
+
+    def _task_context_filter_severity_value(self) -> tuple[str, ...] | None:
+        return self._task_context_filter_group_values(self.task_context_severity_checks)
+
+    def _task_context_filter_status_values(self) -> tuple[str, ...] | None:
+        return self._task_context_filter_group_values(self.task_context_status_checks)
+
+    def _task_context_filter_label_values(self) -> tuple[str, ...] | None:
+        return self._task_context_filter_group_values(self.task_context_label_checks)
+
+    def _task_context_filter_group_values(self, checks: dict[str, Gtk.CheckButton]) -> tuple[str, ...] | None:
+        if not checks:
+            return None
+        values = tuple(value for value, check in checks.items() if check.get_active())
+        if len(values) == len(checks):
+            return None
+        return values
+
+    def _refresh_task_context_label_filter(self, entries: object) -> None:
+        label_box = getattr(self, "task_context_label_box", None)
+        if label_box is None:
+            return
+        labels = sorted({label for entry in entries for label in entry.labels}, key=str.casefold)
+        selected_values = self._task_context_filter_label_values()
+        selected = set(labels if selected_values is None else selected_values)
+        if labels == list(self.task_context_label_checks):
+            return
+        for child in list(label_box.get_children()):
+            label_box.remove(child)
+        self.task_context_label_checks.clear()
+        if labels:
+            all_check = Gtk.CheckButton(label=self._tr("context_filter_select_all"))
+            all_check.connect("toggled", self._on_task_context_all_toggled, "label", self.task_context_label_checks)
+            self.task_context_filter_all_checks["label"] = all_check
+            label_box.pack_start(all_check, False, False, 0)
+        if not labels:
+            label = Gtk.Label(label=self._tr("context_filter_no_labels"))
+            label.set_xalign(0)
+            label_box.pack_start(label, False, False, 0)
+        for value in labels:
+            check = Gtk.CheckButton(label=value)
+            check.set_active(value in selected)
+            check.connect("toggled", self._on_task_context_item_toggled, "label", self.task_context_label_checks)
+            self.task_context_label_checks[value] = check
+            label_box.pack_start(check, False, False, 0)
+        self._update_task_context_all_check("label", self.task_context_label_checks)
+        label_box.show_all()
+
+    def _on_task_context_all_toggled(
+        self,
+        check: Gtk.CheckButton,
+        group: str,
+        target: dict[str, Gtk.CheckButton],
+    ) -> None:
+        if self._updating_task_context_checks:
+            return
+        self._set_task_context_group_checks(group, target, check.get_active())
+        self._on_task_context_filter_changed()
+
+    def _on_task_context_item_toggled(
+        self,
+        _check: Gtk.CheckButton,
+        group: str,
+        target: dict[str, Gtk.CheckButton],
+    ) -> None:
+        if self._updating_task_context_checks:
+            return
+        self._update_task_context_all_check(group, target)
+        self._on_task_context_filter_changed()
+
+    def _set_task_context_group_checks(
+        self,
+        group: str,
+        target: dict[str, Gtk.CheckButton],
+        active: bool,
+    ) -> None:
+        self._updating_task_context_checks = True
+        try:
+            for check in target.values():
+                check.set_active(active)
+            self._update_task_context_all_check(group, target)
+        finally:
+            self._updating_task_context_checks = False
+
+    def _update_task_context_all_check(
+        self,
+        group: str,
+        target: dict[str, Gtk.CheckButton],
+    ) -> None:
+        all_check = self.task_context_filter_all_checks.get(group)
+        if all_check is None:
+            return
+        total = len(target)
+        selected = sum(1 for check in target.values() if check.get_active())
+        self._updating_task_context_checks = True
+        try:
+            all_check.set_inconsistent(0 < selected < total)
+            all_check.set_active(total > 0 and selected == total)
+        finally:
+            self._updating_task_context_checks = False
+
+    def _choose_task_context_since(self, *_args: object) -> None:
+        self._choose_task_context_date("since")
+
+    def _choose_task_context_until(self, *_args: object) -> None:
+        self._choose_task_context_date("until")
+
+    def _choose_task_context_date(self, boundary: str) -> None:
+        if self.task_context_date_popover is not None:
+            self.task_context_date_popover.popdown()
+        current = self.task_context_filter_since if boundary == "since" else self.task_context_filter_until
+        parent = self.task_context_since_button if boundary == "since" else self.task_context_until_button
+        if parent is None:
+            return
+        popover = Gtk.Popover.new(parent)
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        box.set_border_width(8)
+        calendar = Gtk.Calendar()
+        if current:
+            year, month, day = (int(part) for part in current.split("-", 2))
+            calendar.select_month(month - 1, year)
+            calendar.select_day(day)
+        box.pack_start(calendar, False, False, 0)
+        buttons = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
+        clear_button = Gtk.Button(label=self._tr("context_filter_clear_date"))
+        ok_button = Gtk.Button(label=self._tr("ok"))
+        buttons.pack_start(clear_button, True, True, 0)
+        buttons.pack_start(ok_button, True, True, 0)
+        box.pack_start(buttons, False, False, 0)
+        popover.add(box)
+
+        def apply_date(*_args: object) -> None:
+            year, month, day = calendar.get_date()
+            value = f"{year:04d}-{month + 1:02d}-{day:02d}"
+            if boundary == "since":
+                self.task_context_filter_since = value
+            else:
+                self.task_context_filter_until = value
+            popover.popdown()
+            self._update_task_context_date_buttons()
+            self._on_task_context_filter_changed()
+
+        def clear_date(*_args: object) -> None:
+            if boundary == "since":
+                self.task_context_filter_since = None
+            else:
+                self.task_context_filter_until = None
+            popover.popdown()
+            self._update_task_context_date_buttons()
+            self._on_task_context_filter_changed()
+
+        ok_button.connect("clicked", apply_date)
+        clear_button.connect("clicked", clear_date)
+        calendar.connect("day-selected-double-click", apply_date)
+        popover.connect("closed", lambda *_args: setattr(self, "task_context_date_popover", None))
+        self.task_context_date_popover = popover
+        popover.show_all()
+        popover.popup()
+
+    def _update_task_context_date_buttons(self) -> None:
+        if self.task_context_since_button is not None:
+            label = self.task_context_filter_since or self._tr("context_filter_any_date")
+            self.task_context_since_button.set_label(self._tr("context_filter_since_value").format(value=label))
+        if self.task_context_until_button is not None:
+            label = self.task_context_filter_until or self._tr("context_filter_any_date")
+            self.task_context_until_button.set_label(self._tr("context_filter_until_value").format(value=label))
+
     def _on_main_notebook_switch_page(
         self,
         _notebook: Gtk.Notebook,
         page: Gtk.Widget,
         _page_num: int,
     ) -> None:
+        previous_page = getattr(self, "active_main_page", None)
+        if previous_page is self.actions_page and page is not self.actions_page:
+            self._remember_current_console_tab()
+        self.active_main_page = page
         if page is self.actions_page:
             self._load_task_action_buttons()
             self._ensure_default_console_for_selected_task()
+            self._restore_last_console_page_for_selected_task()
         elif page is self.artifacts_page and self.selected_task is not None:
             self._load_task_artifacts(self.selected_task)
 
@@ -1094,6 +1436,7 @@ class WorkspaceGtkGui:
         self.detail_filenames[view] = filename
         view.add_events(Gdk.EventMask.BUTTON_PRESS_MASK)
         view.connect("button-press-event", self._on_detail_view_button_press)
+        view.connect("populate-popup", self._on_detail_view_populate_popup)
 
     def _on_detail_view_button_press(self, view: Gtk.TextView, event: Gdk.EventButton) -> bool:
         if event.button != 3:
@@ -1101,21 +1444,45 @@ class WorkspaceGtkGui:
         self._detail_context_menu(view).popup_at_pointer(event)
         return True
 
+    def _on_detail_view_populate_popup(self, view: Gtk.TextView, menu: Gtk.Menu) -> None:
+        for child in menu.get_children():
+            menu.remove(child)
+        self._populate_detail_context_menu(menu, view)
+        menu.show_all()
+
     def _detail_context_menu(self, view: Gtk.TextView) -> Gtk.Menu:
-        editing = self.detail_editing.get(view, False)
         menu = Gtk.Menu()
-        items = (
-            (self._tr("edit"), lambda *_: self._edit_detail_view(view), self.selected_task is not None and not editing),
-            (self._tr("save"), lambda *_: self._save_detail_view(view), editing),
-            (self._tr("cancel"), lambda *_: self._cancel_detail_edit(view), editing),
-        )
-        for label, callback, sensitive in items:
-            item = Gtk.MenuItem(label=label)
-            item.set_sensitive(sensitive)
-            item.connect("activate", callback)
-            menu.append(item)
+        self._populate_detail_context_menu(menu, view)
         menu.show_all()
         return menu
+
+    def _populate_detail_context_menu(self, menu: Gtk.Menu, view: Gtk.TextView) -> None:
+        editing = self.detail_editing.get(view, False)
+        is_description = self.detail_filenames.get(view) == "TASK_DESCRIPTION.md"
+        buffer = view.get_buffer()
+        clipboard = Gtk.Clipboard.get(Gdk.SELECTION_CLIPBOARD)
+        readonly_items = (
+            (self._tr("copy"), lambda *_: buffer.copy_clipboard(clipboard)),
+            (self._tr("select_all"), lambda *_: buffer.select_range(buffer.get_start_iter(), buffer.get_end_iter())),
+        )
+        for label, callback in readonly_items:
+            item = Gtk.MenuItem(label=label)
+            item.connect("activate", callback)
+            menu.append(item)
+        if is_description:
+            menu.append(Gtk.SeparatorMenuItem())
+            if editing:
+                items = (
+                    (self._tr("save"), lambda *_: self._save_detail_view(view)),
+                    (self._tr("cancel"), lambda *_: self._cancel_detail_edit(view)),
+                )
+            else:
+                items = ((self._tr("edit"), lambda *_: self._edit_detail_view(view)),)
+            for label, callback in items:
+                item = Gtk.MenuItem(label=label)
+                item.set_sensitive(self.selected_task is not None)
+                item.connect("activate", callback)
+                menu.append(item)
 
     def _edit_detail_view(self, view: Gtk.TextView) -> None:
         if self.selected_task is None:
@@ -2556,6 +2923,7 @@ class WorkspaceGtkGui:
             codex_executable=_codex_executable(),
             claude_executable=_claude_executable(),
             prompt_suffix=CODEX_LANGUAGE_INSTRUCTIONS.get(self.language, CODEX_LANGUAGE_INSTRUCTIONS["en"]),
+            include_task_check=True,
         )
         for session in self._current_task_terminal_sessions(task):
             if session.kind == agent:
@@ -2797,7 +3165,6 @@ class WorkspaceGtkGui:
         self._refresh_task_row_styles()
 
     def _refresh_console_tabs_for_task(self, task: TaskSummary) -> None:
-        last_active_session_id = self.last_active_terminal_by_task.get(task.path)
         self._refreshing_console_tabs = True
         try:
             while self.console_notebook.get_n_pages() > 0:
@@ -2810,9 +3177,7 @@ class WorkspaceGtkGui:
             self._renumber_terminal_tabs(task)
         finally:
             self._refreshing_console_tabs = False
-        if last_active_session_id is not None:
-            self._activate_visible_terminal(last_active_session_id, remember=False)
-        else:
+        if not self._restore_last_console_page(task):
             page_num = self.console_notebook.get_current_page()
             if page_num >= 0:
                 session = self._session_for_page(self.console_notebook.get_nth_page(page_num))
@@ -2893,25 +3258,83 @@ class WorkspaceGtkGui:
         session.terminal.grab_focus()
 
     def _remember_current_console_tab(self) -> None:
+        task = getattr(self, "selected_task", None)
+        page_memory = getattr(self, "last_active_console_page_by_task", None)
+        if page_memory is None:
+            page_memory = {}
+            self.last_active_console_page_by_task = page_memory
         page_num = self.console_notebook.get_current_page()
         if page_num < 0:
             return
         page = self.console_notebook.get_nth_page(page_num)
+        if task is not None and page is getattr(self, "ai_agent_page", None):
+            page_memory[task.path] = "ai-agent"
+            return
         session = self._session_for_page(page)
         if session is not None:
             self.last_active_terminal_by_task[session.task_path] = session.session_id
+            page_memory[session.task_path] = f"session:{session.session_id}"
+
+    def _restore_last_console_page_for_selected_task(self) -> None:
+        task = self.selected_task
+        if task is None:
+            return
+        self._restore_last_console_page(task)
+
+    def _activate_ai_agent_console_page(self, task: TaskSummary, *, remember: bool) -> bool:
+        ai_agent_page = getattr(self, "ai_agent_page", None)
+        if ai_agent_page is None:
+            return False
+        page_num = self.console_notebook.page_num(ai_agent_page)
+        if page_num < 0:
+            return False
+        self.console_notebook.set_current_page(page_num)
+        if remember:
+            page_memory = getattr(self, "last_active_console_page_by_task", None)
+            if page_memory is None:
+                page_memory = {}
+                self.last_active_console_page_by_task = page_memory
+            page_memory[task.path] = "ai-agent"
+        return True
+
+    def _restore_last_console_page(self, task: TaskSummary) -> bool:
+        page_marker = getattr(self, "last_active_console_page_by_task", {}).get(task.path)
+        if page_marker == "ai-agent":
+            return self._activate_ai_agent_console_page(task, remember=False)
+        elif page_marker is not None and page_marker.startswith("session:"):
+            try:
+                session_id = int(page_marker.removeprefix("session:"))
+            except ValueError:
+                session_id = None
+            if session_id is not None and session_id in self.terminal_sessions:
+                self._activate_visible_terminal(session_id, remember=False)
+                return True
+        session_id = self.last_active_terminal_by_task.get(task.path)
+        if session_id is not None:
+            self._activate_visible_terminal(session_id, remember=False)
+            return session_id in self.terminal_sessions
+        return False
 
     def _on_console_notebook_switch_page(
         self,
         _notebook: Gtk.Notebook,
         page: Gtk.Widget,
         _page_num: int,
-    ) -> None:
+        ) -> None:
         if self._refreshing_console_tabs:
+            return
+        page_memory = getattr(self, "last_active_console_page_by_task", None)
+        if page_memory is None:
+            page_memory = {}
+            self.last_active_console_page_by_task = page_memory
+        task = getattr(self, "selected_task", None)
+        if page is getattr(self, "ai_agent_page", None) and task is not None:
+            page_memory[task.path] = "ai-agent"
             return
         session = self._session_for_page(page)
         if session is not None:
             self.last_active_terminal_by_task[session.task_path] = session.session_id
+            page_memory[session.task_path] = f"session:{session.session_id}"
 
     def _on_console_notebook_button_press(self, notebook: Gtk.Notebook, event: Gdk.EventButton) -> bool:
         if event.type != Gdk.EventType.DOUBLE_BUTTON_PRESS or event.button != 1:
@@ -2948,6 +3371,9 @@ class WorkspaceGtkGui:
         self.terminal_sessions.pop(session.session_id, None)
         if self.last_active_terminal_by_task.get(session.task_path) == session.session_id:
             self.last_active_terminal_by_task.pop(session.task_path, None)
+        page_memory = getattr(self, "last_active_console_page_by_task", {})
+        if page_memory.get(session.task_path) == f"session:{session.session_id}":
+            page_memory.pop(session.task_path, None)
         session.permission_pending = False
         session.permission_signature = None
         session.ignored_permission_signature = None
@@ -3180,7 +3606,13 @@ class WorkspaceGtkGui:
         task = self.selected_task
         if task is None or self._current_task_terminal_sessions(task):
             return
+        had_console_choice = (
+            task.path in getattr(self, "last_active_console_page_by_task", {})
+            or task.path in self.last_active_terminal_by_task
+        )
         self.new_console(task=task)
+        if not had_console_choice:
+            self._activate_ai_agent_console_page(task, remember=True)
 
     def _active_shell_for_task(self, task: TaskSummary) -> TerminalSession | None:
         page_num = self.console_notebook.get_current_page()
@@ -3291,9 +3723,9 @@ class WorkspaceGtkGui:
 
     def _terminal_context_menu(self, terminal: Vte.Terminal) -> Gtk.Menu:
         menu = Gtk.Menu()
-        copy_item = Gtk.MenuItem(label="Copy")
-        paste_item = Gtk.MenuItem(label="Paste")
-        select_all_item = Gtk.MenuItem(label="Select all")
+        copy_item = Gtk.MenuItem(label=self._tr("copy"))
+        paste_item = Gtk.MenuItem(label=self._tr("paste"))
+        select_all_item = Gtk.MenuItem(label=self._tr("select_all"))
         close_item = Gtk.MenuItem(label=self._tr("close"))
         copy_item.set_sensitive(True)
         copy_item.connect("activate", lambda *_: _copy_terminal_selection(terminal))
@@ -3463,20 +3895,98 @@ class WorkspaceGtkGui:
             return True
         return False
 
+    def _on_main_pane_position_changed(self, pane: Gtk.Paned, _param: object | None) -> None:
+        if self._pane_layout_ready and not self._updating_pane_positions:
+            self.main_split_ratio = _pane_position_ratio(pane)
+            self._schedule_pane_settings_save()
+
+    def _on_main_pane_size_allocate(self, pane: Gtk.Paned, _allocation: Gtk.Allocation) -> None:
+        self._set_pane_position_ratio(pane, self.main_split_ratio, minimum=360)
+
     def _on_details_pane_button_press(self, _pane: Gtk.Paned, event: Gdk.EventButton) -> bool:
         if event.type == Gdk.EventType.DOUBLE_BUTTON_PRESS and _is_pane_separator_event(self.details_pane, event):
             self._set_details_default_split()
             return True
         return False
 
+    def _on_details_pane_position_changed(self, pane: Gtk.Paned, _param: object | None) -> None:
+        if self._pane_layout_ready and not self._updating_pane_positions:
+            self.details_split_ratio = _pane_position_ratio(pane)
+            self._schedule_pane_settings_save()
+
+    def _on_details_pane_size_allocate(self, pane: Gtk.Paned, _allocation: Gtk.Allocation) -> None:
+        self._set_pane_position_ratio(pane, self.details_split_ratio)
+
+    def _on_actions_pane_button_press(self, _pane: Gtk.Paned, event: Gdk.EventButton) -> bool:
+        if event.type == Gdk.EventType.DOUBLE_BUTTON_PRESS and _is_pane_separator_event(self.actions_pane, event):
+            self._set_actions_default_split()
+            return True
+        return False
+
+    def _on_actions_pane_size_allocate(self, pane: Gtk.Paned, _allocation: Gtk.Allocation) -> None:
+        self._set_pane_position_ratio(pane, self.actions_split_ratio)
+
     def _set_main_default_split(self) -> bool:
-        width = self.main_pane.get_allocated_width()
-        self.main_pane.set_position(max(360, width // 4))
+        self.main_split_ratio = 0.25
+        self._set_pane_position_ratio(self.main_pane, self.main_split_ratio, minimum=360)
+        return False
+
+    def _apply_main_split_ratio(self) -> bool:
+        self._set_pane_position_ratio(self.main_pane, self.main_split_ratio, minimum=360)
         return False
 
     def _set_details_default_split(self) -> bool:
-        height = self.details_pane.get_allocated_height()
-        self.details_pane.set_position(max(160, height // 4))
+        self.details_split_ratio = 0.25
+        self._set_pane_position_ratio(self.details_pane, self.details_split_ratio)
+        return False
+
+    def _apply_details_split_ratio(self) -> bool:
+        self._set_pane_position_ratio(self.details_pane, self.details_split_ratio)
+        return False
+
+    def _apply_saved_split_ratios(self) -> bool:
+        self._initial_pane_layout_source_id = None
+        self._set_pane_position_ratio(self.main_pane, self.main_split_ratio, minimum=360)
+        self._set_pane_position_ratio(self.details_pane, self.details_split_ratio)
+        self._set_pane_position_ratio(self.actions_pane, self.actions_split_ratio)
+        self._pane_layout_ready = True
+        self._on_actions_pane_position_changed(self.actions_pane, None)
+        return False
+
+    def _schedule_initial_pane_layout(self) -> None:
+        if self._pane_layout_ready:
+            return
+        source_id = getattr(self, "_initial_pane_layout_source_id", None)
+        if source_id is not None:
+            GLib.source_remove(source_id)
+        self._initial_pane_layout_source_id = GLib.idle_add(self._apply_saved_split_ratios)
+
+    def _set_actions_default_split(self) -> bool:
+        self.actions_split_ratio = 0.38
+        self._set_pane_position_ratio(self.actions_pane, self.actions_split_ratio)
+        return False
+
+    def _set_pane_position_ratio(self, pane: Gtk.Paned, ratio: float, *, minimum: int = 1) -> None:
+        size = _pane_allocated_size(pane)
+        if size <= 1:
+            return
+        position = max(minimum, int(round(size * ratio)))
+        self._updating_pane_positions = True
+        try:
+            pane.set_position(position)
+        finally:
+            self._updating_pane_positions = False
+
+    def _schedule_pane_settings_save(self) -> None:
+        source_id = getattr(self, "_pane_settings_save_source_id", None)
+        if source_id is not None:
+            GLib.source_remove(source_id)
+        self._pane_settings_save_source_id = GLib.timeout_add(350, self._save_pane_settings)
+
+    def _save_pane_settings(self) -> bool:
+        self._pane_settings_save_source_id = None
+        if not getattr(self, "_closing", False):
+            self._save_settings()
         return False
 
     def _apply_window_geometry(self) -> None:
@@ -3497,12 +4007,17 @@ class WorkspaceGtkGui:
         except ValueError:
             self.window.set_default_size(1180, 760)
 
+    def _on_window_mapped(self, *_args: object) -> bool:
+        self._schedule_initial_pane_layout()
+        return False
+
     def _on_window_configure(self, _window: Gtk.Window, event: Gdk.EventConfigure) -> bool:
         if event.width > 1 and event.height > 1:
             self.last_window_width = event.width
             self.last_window_height = event.height
             self.last_window_x = event.x
             self.last_window_y = event.y
+            self._schedule_initial_pane_layout()
         return False
 
     def _on_window_key_press(self, _window: Gtk.Window, event: Gdk.EventKey) -> bool:
@@ -3665,7 +4180,7 @@ class WorkspaceGtkGui:
         self.context_view.modify_font(Pango.FontDescription(f"Monospace {self.text_font_size}"))
         if self.selected_task is not None:
             self._set_markdown(self.description_view, read_task_file(self.selected_task, "TASK_DESCRIPTION.md"))
-            self._set_markdown(self.context_view, read_task_file(self.selected_task, "TASK_CONTEXT.md"))
+            self._render_task_context_details()
         for session in self.terminal_sessions.values():
             self._apply_terminal_theme(session.terminal)
         self._refresh_task_row_styles()
@@ -3677,6 +4192,14 @@ class WorkspaceGtkGui:
         if self._closing:
             return
         self._closing = True
+        source_id = getattr(self, "_pane_settings_save_source_id", None)
+        if source_id is not None:
+            GLib.source_remove(source_id)
+            self._pane_settings_save_source_id = None
+        source_id = getattr(self, "_initial_pane_layout_source_id", None)
+        if source_id is not None:
+            GLib.source_remove(source_id)
+            self._initial_pane_layout_source_id = None
         if self.task_actions_monitor is not None:
             self.task_actions_monitor.cancel()
         self._close_all_terminal_sessions()
@@ -3699,15 +4222,39 @@ class WorkspaceGtkGui:
                     f"{self.last_window_width}x{self.last_window_height}"
                     f"+{self.last_window_x}+{self.last_window_y}"
                 ),
+                "main_split_ratio": self.main_split_ratio,
+                "details_split_ratio": self.details_split_ratio,
+                "actions_split_ratio": self.actions_split_ratio,
             }
         )
 
 
 def _is_pane_separator_event(pane: Gtk.Paned, event: Gdk.EventButton, tolerance: int = 8) -> bool:
+    get_handle_window = getattr(pane, "get_handle_window", None)
+    if callable(get_handle_window):
+        try:
+            handle_window = get_handle_window()
+            if handle_window is not None and event.window == handle_window:
+                return True
+        except (AttributeError, TypeError):
+            pass
     position = pane.get_position()
     if pane.get_orientation() == Gtk.Orientation.HORIZONTAL:
         return abs(event.x - position) <= tolerance
     return abs(event.y - position) <= tolerance
+
+
+def _pane_allocated_size(pane: Gtk.Paned) -> int:
+    if pane.get_orientation() == Gtk.Orientation.HORIZONTAL:
+        return pane.get_allocated_width()
+    return pane.get_allocated_height()
+
+
+def _pane_position_ratio(pane: Gtk.Paned) -> float:
+    size = _pane_allocated_size(pane)
+    if size <= 1:
+        return 0.5
+    return max(0.05, min(0.95, pane.get_position() / size))
 
 
 def _notebook_event_in_empty_tab_area(notebook: Gtk.Notebook, event: Gdk.EventButton) -> bool:
@@ -3794,6 +4341,54 @@ def _scrolled(widget: Gtk.Widget) -> Gtk.ScrolledWindow:
     scrolled = Gtk.ScrolledWindow()
     scrolled.add(widget)
     return scrolled
+
+
+def _task_context_cards_markdown(entries: object) -> str:
+    cards = [_task_context_entry_card(entry) for entry in entries]
+    if not cards:
+        return ""
+    return "```text\n" + "\n\n".join(cards) + "\n```"
+
+
+def _task_context_entry_card(entry: ContextEntry, *, width: int = 96) -> str:
+    border = "+" + "-" * (width - 2) + "+"
+    rows = [border]
+    rows.extend(_task_context_card_rows(_task_context_entry_head(entry), width=width))
+    rows.append(_task_context_card_rule(width))
+    rows.extend(_task_context_card_rows(f"summary  {entry.summary}", width=width))
+    if entry.details:
+        rows.extend(_task_context_card_rows(f"details  {entry.details}", width=width))
+    labels = " ".join(f"#{label}" for label in entry.labels) if entry.labels else "unlabeled"
+    rows.extend(_task_context_card_rows(f"labels   {labels}", width=width))
+    rows.extend(_task_context_card_rows(f"source   {entry.source}", width=width))
+    if entry.artifacts:
+        rows.extend(_task_context_card_rows("artifacts " + ", ".join(entry.artifacts), width=width))
+    rows.append(border)
+    return "\n".join(rows)
+
+
+def _task_context_entry_head(entry: ContextEntry) -> str:
+    return f"[{entry.severity.upper()}] [{entry.status.upper()}]  {_task_context_card_timestamp(entry.timestamp)}"
+
+
+def _task_context_card_timestamp(timestamp: str) -> str:
+    return timestamp.replace("T", " ", 1)
+
+
+def _task_context_card_rule(width: int) -> str:
+    inner_width = width - 4
+    return "| " + "-" * inner_width + " |"
+
+
+def _task_context_card_rows(text: str, *, width: int) -> list[str]:
+    inner_width = width - 4
+    wrapped = textwrap.wrap(
+        text,
+        width=inner_width,
+        break_long_words=False,
+        break_on_hyphens=False,
+    ) or [""]
+    return [f"| {line.ljust(inner_width)} |" for line in wrapped]
 
 
 def ai_agent_task_context_message(task: TaskSummary, workspace: Path, language: str = "en") -> str:

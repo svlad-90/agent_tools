@@ -10,9 +10,13 @@ python -m agent_tools.paf_workspace.task_check task-name
 ```
 
 Run from the workspace root. The command checks the standard task layout,
-`TASK_DESCRIPTION.md`, compact `TASK_CONTEXT.md`, `TASK_CONTEXT_LOG.jsonl`,
+`TASK_DESCRIPTION.md`, compact `TASK_CONTEXT.md`, and `TASK_CONTEXT.sqlite3`,
 validation-level tracking for legacy context files, product artifact manifests,
 and Xen/Zephyr runtime YAML metadata.
+The structured context format is mandatory: `TASK_CONTEXT.sqlite3` must exist
+and be readable, and `TASK_CONTEXT.md` must be generated from that database.
+For a task that still has the legacy `TASK_CONTEXT_LOG.jsonl`, run
+`python -m agent_tools.tools.task_context migrate --task tasks/task-name`.
 
 Create a missing task layout without overwriting an existing description or
 context file:
@@ -22,7 +26,7 @@ python -m agent_tools.paf_workspace.task_check task-name --init-layout
 ```
 
 The initialized context file is intentionally compact. Durable task history
-belongs in `TASK_CONTEXT_LOG.jsonl` and should be maintained with:
+belongs in `TASK_CONTEXT.sqlite3` and should be maintained with:
 
 ```sh
 python -m agent_tools.tools.task_context add --task tasks/task-name ...

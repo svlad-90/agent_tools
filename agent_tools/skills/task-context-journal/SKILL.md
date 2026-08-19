@@ -1,6 +1,6 @@
 ---
 name: task-context-journal
-description: Maintain compact workspace task context using the structured agent_tools.tools.task_context journal. Use whenever Codex starts, updates, queries, compacts, or hands off TASK_CONTEXT.md, TASK_CONTEXT_LOG.jsonl, task decisions, validation notes, blockers, build notes, environment notes, or other task working context.
+description: Maintain compact workspace task context using the structured agent_tools.tools.task_context database. Use whenever Codex starts, updates, queries, compacts, or hands off TASK_CONTEXT.md, TASK_CONTEXT.sqlite3, task decisions, validation notes, blockers, build notes, environment notes, or other task working context.
 ---
 
 # Task Context Journal
@@ -13,8 +13,8 @@ for task context policy.
 
 ## Core Idea
 
-`TASK_CONTEXT_LOG.jsonl` is the durable append-only journal.
-`TASK_CONTEXT.md` is the compact active working set generated from that journal.
+`TASK_CONTEXT.sqlite3` is the durable transactional journal.
+`TASK_CONTEXT.md` is the compact active working set generated from that database.
 
 The model decides what is worth recording. The tool owns timestamps, severity,
 labels, filtering, and compaction.
@@ -76,7 +76,7 @@ python3 -m agent_tools.tools.task_context compact \
 
 1. At task start, read `TASK_CONTEXT.md` first. Query the journal only when you
    need older, resolved, lower-severity, or label-specific history.
-2. When a useful fact appears, append it with `task_context add` instead of
+2. When a useful fact appears, add it with `task_context add` instead of
    manually growing `TASK_CONTEXT.md`.
 3. Before handoff, after validation, or after resolving a blocker, run
    `task_context compact` so the next session starts from a short active
