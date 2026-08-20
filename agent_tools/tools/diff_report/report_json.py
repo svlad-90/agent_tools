@@ -412,9 +412,13 @@ def _relationship_graph_traversal_from_payload(raw_traversal: Any) -> dict[str, 
         invalid_values = sorted(set(relation_traversal.values()).difference({"both", "forward", "reverse", "none", "fallback"}))
         if invalid_values:
             raise DiffReportError("report.relationship_graph.traversal.relation_traversal values must be both, forward, reverse, none, or fallback")
+    type_ranks = traversal.get("type_ranks")
+    if type_ranks is not None:
+        if not isinstance(type_ranks, dict) or not all(isinstance(key, str) and isinstance(value, int) for key, value in type_ranks.items()):
+            raise DiffReportError("report.relationship_graph.traversal.type_ranks must be a string to integer mapping")
     edge_direction = traversal.get("edge_direction")
-    if edge_direction is not None and edge_direction not in {"both", "forward", "reverse"}:
-        raise DiffReportError("report.relationship_graph.traversal.edge_direction must be both, forward, or reverse")
+    if edge_direction is not None and edge_direction not in {"both", "forward", "reverse", "focused_context"}:
+        raise DiffReportError("report.relationship_graph.traversal.edge_direction must be both, forward, reverse, or focused_context")
     return traversal
 
 
@@ -489,7 +493,9 @@ def _render_heatmaps_section(heatmaps: tuple[ReportHeatmap, ...]) -> str:
             parts.append(f'        <div role="columnheader">{_esc(_label_for_key(key))}</div>\n')
         parts.append("      </div>\n")
         for row in heatmap.rows:
-            parts.append('      <div class="report-heatmap-row" role="row">\n')
+            focus = str(row.get("__graph_focus", ""))
+            focus_attr = f' data-relationship-open-focus="{_esc(focus)}"' if focus else ""
+            parts.append(f'      <div class="report-heatmap-row" role="row"{focus_attr}>\n')
             for key in keys:
                 value = row.get(key, "")
                 cell_status = str(row.get("status", value if key == "status" else ""))
@@ -607,13 +613,19 @@ def _render_relationship_graph_section(graph: RelationshipGraph) -> str:
               <label><span class="label">Focus <small data-relationship-node-count></small></span><select data-relationship-node-select aria-label="Select graph node"></select></label>
             </div>
             <div class="relationship-view-controls">
-              <div class="relationship-traversal-mode" data-relationship-traversal-mode>
-                <span class="relationship-control-label">Traversal</span>
-                <button type="button" data-relationship-traversal="scoped">Scoped</button>
-                <button type="button" data-relationship-traversal="raw">Raw links</button>
-              </div>
               <div class="relationship-type-filter" data-relationship-type-filter>
                 <span class="relationship-control-label">Entity types</span>
+              </div>
+              <label class="relationship-secondary-toggle">
+                <input type="checkbox" data-relationship-secondary-links>
+                <span>Shortcuts</span>
+              </label>
+            </div>
+            <div class="relationship-page-row">
+              <div class="relationship-page-controls" data-relationship-page-controls>
+                <button type="button" data-relationship-page-prev aria-label="Previous graph page">‹</button>
+                <span data-relationship-page-count>Page 1</span>
+                <button type="button" data-relationship-page-next aria-label="Next graph page">›</button>
               </div>
             </div>
           </div>
@@ -621,10 +633,6 @@ def _render_relationship_graph_section(graph: RelationshipGraph) -> str:
             <div class="relationship-explorer-main">
               <div class="relationship-canvas-wrap">
                 <div class="relationship-canvas-controls" aria-label="Graph view controls">
-                  <div class="relationship-depth-controls" aria-label="Graph depth">
-                    <button type="button" data-relationship-depth="1">Depth 1</button>
-                    <button type="button" data-relationship-depth="2">Depth 2</button>
-                  </div>
                   <div class="relationship-nav-controls" aria-label="Graph history">
                     <button type="button" data-relationship-fit title="Fit graph" aria-label="Fit graph">Fit</button>
                     <button type="button" data-relationship-back title="Back" aria-label="Back">←</button>
@@ -633,16 +641,18 @@ def _render_relationship_graph_section(graph: RelationshipGraph) -> str:
                 </div>
                 <div class="relationship-canvas" data-relationship-canvas role="img" aria-label="{_esc(graph.title)}"></div>
               </div>
-              <div class="relationship-selection-table" data-relationship-selection-table>
+              <div class="relationship-selection-panel" data-relationship-selection-table>
                 <div class="relationship-selection-table-head">
                   <span>Selection table</span>
                   <small data-relationship-selection-count></small>
                 </div>
-                <div class="relationship-selection-table-scroll">
-                  <table>
-                    <thead><tr><th>Type</th><th>Node</th><th>Status</th><th>Links</th><th>Summary</th></tr></thead>
-                    <tbody data-relationship-selection-body></tbody>
-                  </table>
+                <div class="relationship-selection-table">
+                  <div class="relationship-selection-table-scroll">
+                    <table>
+                      <thead><tr><th>Type</th><th>Node</th><th>Status</th><th>Links</th><th>Summary</th></tr></thead>
+                      <tbody data-relationship-selection-body></tbody>
+                    </table>
+                  </div>
                 </div>
               </div>
             </div>
@@ -779,6 +789,8 @@ def _heatmap_keys(rows: tuple[dict[str, Any], ...]) -> tuple[str, ...]:
     keys: list[str] = [key for key in preferred if any(key in row for row in rows)]
     for row in rows:
         for key in row:
+            if key.startswith("__"):
+                continue
             if key not in keys:
                 keys.append(key)
     return tuple(keys)
@@ -954,13 +966,14 @@ def _relationship_graph_script() -> str:
     return r"""
 <script>
 (() => {
-  const TYPE_ORDER = ["domain", "vsr", "cdd", "hal", "feature", "property", "test", "artifact", "evidence", "gap", "decision"];
+  const TYPE_ORDER = ["product", "domain", "vsr", "cdd", "hal", "feature", "property", "cts_module", "vts_module", "gap", "decision"];
   const TYPE_LABELS = {
+    product: "Product",
     vsr: "VSR",
     cdd: "CDD",
     hal: "HAL",
-    test: "CTS/VTS",
-    artifact: "Artifact",
+    cts_module: "CTS module",
+    vts_module: "VTS module",
     evidence: "Evidence",
     gap: "Gap",
     decision: "Decision",
@@ -968,7 +981,8 @@ def _relationship_graph_script() -> str:
     feature: "Feature",
     property: "Property"
   };
-  const DEFAULT_TERMINAL_TYPES = ["artifact", "evidence", "test", "cdd", "property", "feature", "gap", "decision"];
+  const DEFAULT_TYPE_RANKS = {product: 0, domain: 1, vsr: 2, cdd: 2, hal: 3, feature: 3, property: 3, cts_module: 3, vts_module: 3, gap: 4, decision: 4};
+  const DEFAULT_TERMINAL_TYPES = ["cts_module", "vts_module", "cdd", "property", "feature", "gap", "decision"];
 
   function cssStatus(status) {
     return "status-" + String(status || "unknown").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
@@ -1018,11 +1032,13 @@ def _relationship_graph_script() -> str:
     const terminalTypes = Array.isArray(raw.terminal_types) ? raw.terminal_types : DEFAULT_TERMINAL_TYPES;
     const passThroughTypes = Array.isArray(raw.pass_through_types) ? raw.pass_through_types : [];
     const relationTraversal = raw.relation_traversal && typeof raw.relation_traversal === "object" ? raw.relation_traversal : {};
+    const typeRanks = raw.type_ranks && typeof raw.type_ranks === "object" ? raw.type_ranks : DEFAULT_TYPE_RANKS;
     return {
       terminalTypes: new Set(terminalTypes),
       passThroughTypes: new Set(passThroughTypes),
       relationTraversal,
-      edgeDirection: raw.edge_direction || "both"
+      edgeDirection: raw.edge_direction || "focused_context",
+      typeRanks
     };
   }
 
@@ -1031,12 +1047,15 @@ def _relationship_graph_script() -> str:
       terminalTypes: new Set(),
       passThroughTypes: new Set(types || []),
       relationTraversal: {},
-      edgeDirection: "both"
+      edgeDirection: "both",
+      typeRanks: DEFAULT_TYPE_RANKS,
+      ignoreFallback: true
     };
   }
 
   function activeTraversal(state) {
-    return state.traversalMode === "raw" ? rawTraversalConfig(graphTypes(state.nodes)) : state.traversal;
+    if (state.traversalMode === "raw") return rawTraversalConfig(graphTypes(state.nodes));
+    return Object.assign({}, state.traversal, {shortcutMode: state.scopedLinkMode || "nested"});
   }
 
   function canExpandNode(node, selectedId, traversal) {
@@ -1049,7 +1068,14 @@ def _relationship_graph_script() -> str:
 
   function edgeTraversalMode(edge, traversal) {
     const relationMode = traversal.relationTraversal && traversal.relationTraversal[edge.relation || "related_to"];
-    return edge.traverse || relationMode || traversal.edgeDirection || "both";
+    const mode = edge.traverse || relationMode || traversal.edgeDirection || "both";
+    if (traversal.ignoreFallback && mode === "fallback") return "both";
+    return mode;
+  }
+
+  function isShortcutEdge(edge, traversal) {
+    const relationMode = traversal.relationTraversal && traversal.relationTraversal[edge.relation || "related_to"];
+    return (edge.traverse || relationMode || "") === "fallback";
   }
 
   function edgeAllowsTraversal(edge, fromId, toId, traversal) {
@@ -1068,64 +1094,164 @@ def _relationship_graph_script() -> str:
     return (edge.source === fromId && edge.target === toId) || (edge.target === fromId && edge.source === toId);
   }
 
-  function buildNeighborhood(selectedId, depth, nodesById, edges, enabledTypes, traversal) {
+  function edgeKey(edge) {
+    return `${edge.source}\u0000${edge.target}\u0000${edge.relation || "related_to"}`;
+  }
+
+  function isSecondaryEdge(edge) {
+    return String(edge.display || edge.visibility || "").toLowerCase() === "secondary";
+  }
+
+  function buildNeighborhood(selectedId, nodesById, edges, enabledTypes, traversal, includeSecondaryLinks) {
     const selected = nodesById.get(selectedId);
-    if (!isTypeEnabled(selected, selectedId, enabledTypes)) {
+    if (!selected) {
       return {nodes: [], edges: [], distances: new Map()};
     }
-    const distances = new Map([[selectedId, 0]]);
-    const fallbackCandidates = [];
-    const fallbackEdgeKeys = new Set();
-    let frontier = new Set([selectedId]);
-    for (let step = 0; step < depth; step += 1) {
-      const next = new Set();
-      for (const fromId of frontier) {
-        const fromNode = nodesById.get(fromId);
-        if (!canExpandNode(fromNode, selectedId, traversal)) continue;
-        for (const edge of edges) {
-          let toId = "";
-          if (edge.source === fromId) {
-            toId = edge.target;
-          } else if (edge.target === fromId) {
-            toId = edge.source;
-          } else {
-            continue;
-          }
-          if (distances.has(toId)) continue;
-          if (edgeFallbackCandidate(edge, fromId, toId, traversal)) {
-            if (isTypeEnabled(nodesById.get(toId), selectedId, enabledTypes)) {
-              fallbackCandidates.push({fromId, toId, edge, distance: step + 1});
-            }
-            continue;
-          }
-          if (!edgeAllowsTraversal(edge, fromId, toId, traversal)) continue;
-          if (isTypeEnabled(nodesById.get(toId), selectedId, enabledTypes)) {
-            next.add(toId);
-          }
+    const rankOf = (node) => {
+      if (!node) return 99;
+      const ranks = traversal.typeRanks || DEFAULT_TYPE_RANKS;
+      const value = ranks[node.type || "entity"];
+      return Number.isFinite(value) ? value : 99;
+    };
+    const neighbors = (nodeId) => {
+      const result = [];
+      for (const edge of edges) {
+        if (edge.source === nodeId) {
+          result.push({id: edge.target, edge});
+        } else if (edge.target === nodeId) {
+          result.push({id: edge.source, edge});
         }
       }
-      for (const id of next) distances.set(id, step + 1);
-      frontier = next;
-      if (!frontier.size) break;
+      return result;
+    };
+    const distances = new Map([[selectedId, 0]]);
+    const traversedEdgeKeys = new Set();
+    const selectedRank = rankOf(selected);
+    const sortCandidate = (left, right) => {
+      const leftNode = nodesById.get(left.id);
+      const rightNode = nodesById.get(right.id);
+      const leftRank = rankOf(leftNode);
+      const rightRank = rankOf(rightNode);
+      if (left.primary !== right.primary) return left.primary ? -1 : 1;
+      if (left.directed !== right.directed) return left.directed ? -1 : 1;
+      if (leftRank !== rightRank) return rightRank - leftRank;
+      return String(leftNode && (leftNode.label || leftNode.id) || left.id).localeCompare(String(rightNode && (rightNode.label || rightNode.id) || right.id));
+    };
+    const ancestry = new Set([selectedId]);
+    let currentId = selectedId;
+    let step = 1;
+    while (true) {
+      const currentRank = rankOf(nodesById.get(currentId));
+      const candidates = neighbors(currentId).filter((item) => {
+        const node = nodesById.get(item.id);
+        return node && !ancestry.has(item.id) && rankOf(node) < currentRank;
+      }).map((item) => ({
+        id: item.id,
+        edge: item.edge,
+        directed: item.edge.source === item.id && item.edge.target === currentId,
+        primary: !isSecondaryEdge(item.edge)
+      })).sort(sortCandidate);
+      const parent = candidates[0];
+      if (!parent) break;
+      ancestry.add(parent.id);
+      traversedEdgeKeys.add(edgeKey(parent.edge));
+      distances.set(parent.id, step);
+      currentId = parent.id;
+      step += 1;
     }
-    for (const candidate of fallbackCandidates) {
-      if (candidate.distance > depth || distances.has(candidate.toId)) continue;
-      distances.set(candidate.toId, candidate.distance);
-      fallbackEdgeKeys.add(`${candidate.edge.source}\u0000${candidate.edge.target}\u0000${candidate.edge.relation || "related_to"}`);
-    }
-    const visibleEdges = edges.filter((edge) => {
-      const sourceDistance = distances.get(edge.source);
-      const targetDistance = distances.get(edge.target);
-      if (sourceDistance == null || targetDistance == null) return false;
-      const mode = edgeTraversalMode(edge, traversal);
-      if (mode === "none") return false;
-      if (mode === "fallback") {
-        return fallbackEdgeKeys.has(`${edge.source}\u0000${edge.target}\u0000${edge.relation || "related_to"}`);
+    const downQueue = [selectedId];
+    const downSeen = new Set([selectedId]);
+    const downParents = new Map();
+    const visibleDescendants = [];
+    const secondaryDescendants = [];
+    while (downQueue.length) {
+      const fromId = downQueue.shift();
+      const fromRank = rankOf(nodesById.get(fromId));
+      for (const item of neighbors(fromId)) {
+        const toId = item.id;
+        const toNode = nodesById.get(toId);
+        if (!toNode || downSeen.has(toId)) continue;
+        const edgeSecondary = isSecondaryEdge(item.edge);
+        const directedChild = item.edge.source === fromId && item.edge.target === toId;
+        if (!directedChild) continue;
+        if (edgeSecondary && !(includeSecondaryLinks && fromId === selectedId)) continue;
+        const toRank = rankOf(toNode);
+        const rankedChild = toRank > fromRank;
+        const fallbackChild = fromRank === 99 && toRank === fromRank;
+        if (!rankedChild && !fallbackChild) continue;
+        downSeen.add(toId);
+        downParents.set(toId, {parentId: fromId, edge: item.edge});
+        if (edgeSecondary && includeSecondaryLinks && fromId === selectedId) {
+          if (isTypeEnabled(toNode, selectedId, enabledTypes)) secondaryDescendants.push(toId);
+        } else if (isTypeEnabled(toNode, selectedId, enabledTypes)) {
+          visibleDescendants.push(toId);
+        } else if (!edgeSecondary) {
+          downQueue.push(toId);
+        }
       }
-      if (edge.source === selectedId || edge.target === selectedId) return true;
-      return Math.abs(sourceDistance - targetDistance) === 1 && Math.min(sourceDistance, targetDistance) < depth;
+    }
+    if (visibleDescendants.length) {
+      const nearestRank = Math.min(...visibleDescendants.map((id) => rankOf(nodesById.get(id))));
+      const nearestDescendants = visibleDescendants.filter((id) => rankOf(nodesById.get(id)) === nearestRank).concat(secondaryDescendants);
+      for (const targetId of nearestDescendants) {
+        const path = [];
+        let pathId = targetId;
+        while (pathId && pathId !== selectedId) {
+          const parent = downParents.get(pathId);
+          if (!parent) break;
+          path.push({id: pathId, edge: parent.edge});
+          pathId = parent.parentId;
+        }
+        if (pathId !== selectedId) continue;
+        path.reverse();
+        for (let index = 0; index < path.length; index += 1) {
+          const item = path[index];
+          traversedEdgeKeys.add(edgeKey(item.edge));
+          distances.set(item.id, Math.min(distances.get(item.id) ?? index + 1, index + 1));
+        }
+      }
+    }
+    const visibleIds = new Set(Array.from(distances.keys()).filter((id) => isTypeEnabled(nodesById.get(id), selectedId, enabledTypes)));
+    const visibleEdges = edges.filter((edge) => {
+      if (!traversedEdgeKeys.has(edgeKey(edge))) return false;
+      const sourceDistance = visibleIds.has(edge.source) ? distances.get(edge.source) : null;
+      const targetDistance = visibleIds.has(edge.target) ? distances.get(edge.target) : null;
+      if (sourceDistance == null || targetDistance == null) return false;
+      return true;
     });
-    const visibleNodes = Array.from(distances.keys()).map((id) => nodesById.get(id)).filter(Boolean);
+    const derivedEdges = [];
+    const visibleList = Array.from(visibleIds);
+    for (const targetId of visibleList) {
+      if (targetId === selectedId || (distances.get(targetId) ?? 0) <= 0) continue;
+      const queue = [targetId];
+      const seen = new Set([targetId]);
+      let sourceId = "";
+      while (queue.length && !sourceId) {
+        const currentId = queue.shift();
+        const currentDistance = distances.get(currentId) ?? 99;
+        for (const item of neighbors(currentId)) {
+          if (!traversedEdgeKeys.has(edgeKey(item.edge))) continue;
+          if (seen.has(item.id) || !distances.has(item.id)) continue;
+          const itemDistance = distances.get(item.id) ?? 99;
+          if (itemDistance >= currentDistance) continue;
+          seen.add(item.id);
+          if (visibleIds.has(item.id)) {
+            sourceId = item.id;
+            break;
+          }
+          queue.push(item.id);
+        }
+      }
+      if (!sourceId) continue;
+      const hasDirect = visibleEdges.some((edge) =>
+        (edge.source === sourceId && edge.target === targetId) || (edge.source === targetId && edge.target === sourceId)
+      );
+      if (!hasDirect) {
+        derivedEdges.push({source: sourceId, target: targetId, relation: "through_filtered"});
+      }
+    }
+    const visibleNodes = Array.from(visibleIds).map((id) => nodesById.get(id)).filter(Boolean);
+    visibleEdges.push(...derivedEdges);
     return {nodes: visibleNodes, edges: visibleEdges, distances};
   }
 
@@ -1141,21 +1267,22 @@ def _relationship_graph_script() -> str:
     };
   }
 
-  function capGraph(graph, selectedId, limit) {
-    if (!limit || graph.nodes.length <= limit) return graph;
+  function capGraph(graph, selectedId, limit, page) {
+    if (!limit) {
+      return Object.assign({}, graph, {pagination: {enabled: false, page: 0, pageCount: 1, start: 0, end: graph.nodes.length, total: graph.nodes.length}});
+    }
     const score = (node) => {
       const status = String(node.status || "");
       const distance = graph.distances && graph.distances.get(node.id);
       const statusScore = ["gap", "risk", "needs_evidence", "fail", "blocked"].includes(status) ? 0 : 1;
       return [
-        node.id === selectedId ? -1 : 0,
         distance == null ? 9 : distance,
         statusScore,
         typeRank(node),
         String(node.label || node.id)
       ];
     };
-    const sorted = [...graph.nodes].sort((left, right) => {
+    const compare = (left, right) => {
       const leftScore = score(left);
       const rightScore = score(right);
       for (let index = 0; index < leftScore.length; index += 1) {
@@ -1163,14 +1290,64 @@ def _relationship_graph_script() -> str:
         if (leftScore[index] > rightScore[index]) return 1;
       }
       return 0;
+    };
+    const selectedNode = graph.nodes.find((node) => node.id === selectedId);
+    const pageSize = Math.max(1, limit);
+    const buckets = new Map();
+    for (const node of graph.nodes) {
+      if (node.id === selectedId) continue;
+      const distance = graph.distances && graph.distances.get(node.id);
+      const key = `${distance == null ? 9 : distance}\u0000${typeRank(node)}\u0000${node.type || "entity"}`;
+      if (!buckets.has(key)) buckets.set(key, []);
+      buckets.get(key).push(node);
+    }
+    for (const bucket of buckets.values()) bucket.sort(compare);
+    const orderedKeys = Array.from(buckets.keys()).sort((left, right) => {
+      const [leftDistance, leftRank, leftType] = left.split("\u0000");
+      const [rightDistance, rightRank, rightType] = right.split("\u0000");
+      return Number(leftDistance) - Number(rightDistance) ||
+        Number(leftRank) - Number(rightRank) ||
+        String(leftType).localeCompare(String(rightType));
     });
-    const nodes = sorted.slice(0, limit);
+    const orderedNodes = [];
+    while (orderedKeys.length) {
+      let added = false;
+      for (const key of orderedKeys) {
+        const bucket = buckets.get(key) || [];
+        const node = bucket.shift();
+        if (!node) continue;
+        orderedNodes.push(node);
+        added = true;
+      }
+      if (!added) break;
+    }
+    const total = orderedNodes.length;
+    if (total <= pageSize) {
+      return Object.assign({}, graph, {
+        pagination: {enabled: false, page: 0, pageCount: 1, start: total ? 1 : 0, end: total, total, pageSize}
+      });
+    }
+    const pageCount = Math.max(1, Math.ceil(total / pageSize));
+    const currentPage = Math.min(Math.max(Number(page) || 0, 0), pageCount - 1);
+    const startIndex = currentPage * pageSize;
+    const pageNodes = orderedNodes.slice(startIndex, startIndex + pageSize);
+    const nodes = selectedNode ? [selectedNode].concat(pageNodes) : pageNodes;
+    const end = Math.min(startIndex + pageSize, total);
     const visible = new Set(nodes.map((node) => node.id));
     return {
       nodes,
       edges: graph.edges.filter((edge) => visible.has(edge.source) && visible.has(edge.target)),
       distances: graph.distances,
-      omitted: graph.nodes.length - nodes.length
+      omitted: total - pageNodes.length,
+      pagination: {
+        enabled: true,
+        page: currentPage,
+        pageCount,
+        start: startIndex + 1,
+        end,
+        total,
+        pageSize
+      }
     };
   }
 
@@ -1298,7 +1475,9 @@ def _relationship_graph_script() -> str:
       {selector: 'node[type = "vsr"]', style: {"shape": "round-rectangle"}},
       {selector: 'node[type = "cdd"]', style: {"shape": "diamond", "width": 130, "height": 86}},
       {selector: 'node[type = "hal"]', style: {"shape": "hexagon"}},
-      {selector: 'node[type = "test"]', style: {"shape": "barrel"}},
+      {selector: 'node[type = "product"]', style: {"shape": "round-rectangle", "width": 190, "height": 76, "background-color": domainPanel}},
+      {selector: 'node[type = "cts_module"]', style: {"shape": "barrel"}},
+      {selector: 'node[type = "vts_module"]', style: {"shape": "barrel"}},
       {selector: 'node[type = "artifact"]', style: {"shape": "tag", "background-color": metaPanel}},
       {selector: 'node[type = "evidence"]', style: {"shape": "round-tag", "background-color": metaPanel}},
       {selector: "edge", style: {"width": 1.4, "line-color": muted, "target-arrow-color": muted, "target-arrow-shape": "triangle", "curve-style": "bezier", "opacity": .52}},
@@ -1408,6 +1587,49 @@ def _relationship_graph_script() -> str:
     });
   }
 
+  function updateGraphPageControls(browser, state, pagination) {
+    const page = pagination || {enabled: false, start: 0, end: 0, total: 0, page: 0, pageCount: 1};
+    browser.querySelectorAll("[data-relationship-page-controls]").forEach((controls) => {
+      const prev = controls.querySelector("[data-relationship-page-prev]");
+      const next = controls.querySelector("[data-relationship-page-next]");
+      const count = controls.querySelector("[data-relationship-page-count]");
+      controls.classList.toggle("is-disabled", !page.enabled);
+      if (prev) prev.disabled = !page.enabled || page.page <= 0;
+      if (next) next.disabled = !page.enabled || page.page >= page.pageCount - 1;
+      if (count) {
+        count.textContent = page.enabled
+          ? `${page.start}-${page.end} of ${page.total}`
+          : `${page.total || 0} shown`;
+      }
+    });
+    if (page.enabled && state.graphPage !== page.page) {
+      state.graphPage = page.page;
+    }
+  }
+
+  function focusHasSecondaryLinks(state) {
+    if (!state.selectedId) return false;
+    return state.edges.some((edge) =>
+      isSecondaryEdge(edge) && (edge.source === state.selectedId || edge.target === state.selectedId)
+    );
+  }
+
+  function updateSecondaryLinkControl(browser, state) {
+    const secondaryLinks = browser.querySelector("[data-relationship-secondary-links]");
+    if (!secondaryLinks) return;
+    const available = focusHasSecondaryLinks(state);
+    secondaryLinks.disabled = !available;
+    if (!available && state.showSecondaryLinks) {
+      state.showSecondaryLinks = false;
+    }
+    secondaryLinks.checked = available && state.showSecondaryLinks;
+    const label = secondaryLinks.closest(".relationship-secondary-toggle");
+    if (label) {
+      label.classList.toggle("is-disabled", !available);
+      label.title = available ? "" : "No shortcuts for current focus";
+    }
+  }
+
   function renderGraph(browser, state) {
     const canvas = browser.querySelector("[data-relationship-canvas]");
     if (!canvas || !state.selectedId) return;
@@ -1416,10 +1638,19 @@ def _relationship_graph_script() -> str:
       return;
     }
     const hasSearch = String(state.searchQuery || "").trim();
+    updateSecondaryLinkControl(browser, state);
     const graph = capGraph(graphMatchesSearch(
-      buildNeighborhood(state.selectedId, state.depth, state.nodesById, state.edges, state.enabledTypes, activeTraversal(state)),
+      buildNeighborhood(
+        state.selectedId,
+        state.nodesById,
+        state.edges,
+        state.enabledTypes,
+        activeTraversal(state),
+        state.showSecondaryLinks
+      ),
       state.searchQuery
-    ), state.selectedId, hasSearch ? 0 : 80);
+    ), state.selectedId, hasSearch ? 0 : 50, state.graphPage);
+    updateGraphPageControls(browser, state, graph.pagination);
     if (!graph.nodes.some((node) => node.id === state.activeId)) {
       state.activeId = state.selectedId;
     }
@@ -1542,7 +1773,9 @@ def _relationship_graph_script() -> str:
 
   function relatedGroups(nodeId, state) {
     const groups = new Map();
-    for (const edge of state.edges) {
+    const seen = new Set();
+    const addEdge = (edge) => {
+      if (isSecondaryEdge(edge) && !state.showSecondaryLinks) return;
       let relatedId = "";
       let direction = "";
       if (edge.source === nodeId) {
@@ -1552,17 +1785,176 @@ def _relationship_graph_script() -> str:
         relatedId = edge.source;
         direction = "in";
       } else {
-        continue;
+        return;
       }
       const node = state.nodesById.get(relatedId);
-      if (!node) continue;
-      if (!isTypeEnabled(node, nodeId, state.enabledTypes)) continue;
+      if (!node) return;
+      if (!isTypeEnabled(node, nodeId, state.enabledTypes)) return;
       const relation = edge.relation || "related_to";
       const key = direction === "out" ? relation : `${relation} (incoming)`;
+      const dedupeKey = `${key}\u0000${relatedId}`;
+      if (seen.has(dedupeKey)) return;
+      seen.add(dedupeKey);
       if (!groups.has(key)) groups.set(key, []);
       groups.get(key).push(node);
+    };
+    const visibleGraph = state.visibleGraph || {edges: []};
+    for (const edge of visibleGraph.edges || []) {
+      addEdge(edge);
+    }
+    for (const edge of state.edges) {
+      addEdge(edge);
     }
     return groups;
+  }
+
+  function focusRequiredTypes(state, nodeId) {
+    const required = new Set();
+    const selected = state.nodesById.get(nodeId);
+    if (!selected) return required;
+    const rankOf = (node) => {
+      if (!node) return 99;
+      const ranks = state.traversal && state.traversal.typeRanks || DEFAULT_TYPE_RANKS;
+      const value = ranks[node.type || "entity"];
+      return Number.isFinite(value) ? value : typeRank(node);
+    };
+    const neighbors = (id) => {
+      const result = [];
+      for (const edge of state.edges) {
+        if (isSecondaryEdge(edge) && !state.showSecondaryLinks) continue;
+        if (edge.source === id) {
+          result.push({id: edge.target, edge});
+        } else if (edge.target === id) {
+          result.push({id: edge.source, edge});
+        }
+      }
+      return result;
+    };
+    const sortParent = (left, right) => {
+      const leftNode = state.nodesById.get(left.id);
+      const rightNode = state.nodesById.get(right.id);
+      const leftRank = rankOf(leftNode);
+      const rightRank = rankOf(rightNode);
+      const leftDirected = left.edge.source === left.id && left.edge.target === left.currentId;
+      const rightDirected = right.edge.source === right.id && right.edge.target === right.currentId;
+      if (leftDirected !== rightDirected) return leftDirected ? -1 : 1;
+      if (leftRank !== rightRank) return leftRank - rightRank;
+      return String(leftNode && (leftNode.label || leftNode.id) || left.id).localeCompare(String(rightNode && (rightNode.label || rightNode.id) || right.id));
+    };
+    let currentId = nodeId;
+    const seen = new Set();
+    while (currentId && !seen.has(currentId)) {
+      seen.add(currentId);
+      const current = state.nodesById.get(currentId);
+      if (!current) break;
+      required.add(current.type || "entity");
+      const currentRank = rankOf(current);
+      const parent = neighbors(currentId)
+        .filter((item) => {
+          const node = state.nodesById.get(item.id);
+          return node && !seen.has(item.id) && rankOf(node) < currentRank;
+        })
+        .map((item) => Object.assign({currentId}, item))
+        .sort(sortParent)[0];
+      currentId = parent ? parent.id : "";
+    }
+    return required;
+  }
+
+  function ensureFocusFilters(browser, state, nodeId) {
+    const required = focusRequiredTypes(state, nodeId);
+    let changed = false;
+    for (const type of required) {
+      if (state.enabledTypes.has(type)) continue;
+      state.enabledTypes.add(type);
+      changed = true;
+    }
+    if (changed) {
+      refreshTypeFilterState(browser.querySelector("[data-relationship-type-filter]") || browser, state, graphTypes(state.nodes));
+    }
+    return changed;
+  }
+
+  function navigationSnapshot(state) {
+    return {
+      selectedId: state.selectedId,
+      activeId: state.activeId,
+      enabledTypes: Array.from(state.enabledTypes),
+      graphPage: state.graphPage,
+      traversalMode: state.traversalMode,
+      scopedLinkMode: state.scopedLinkMode,
+      showSecondaryLinks: state.showSecondaryLinks,
+      searchQuery: state.searchQuery
+    };
+  }
+
+  function pushNavigationSnapshot(state) {
+    state.backStack.push(navigationSnapshot(state));
+    state.forwardStack.length = 0;
+  }
+
+  function restoreNavigationSnapshot(browser, state, snapshot) {
+    if (!snapshot) return;
+    if (typeof snapshot === "string") {
+      snapshot = {selectedId: snapshot, activeId: snapshot};
+    }
+    if (!state.nodesById.has(snapshot.selectedId)) return;
+    state.selectedId = snapshot.selectedId;
+    state.activeId = state.nodesById.has(snapshot.activeId) ? snapshot.activeId : snapshot.selectedId;
+    state.enabledTypes = new Set(Array.isArray(snapshot.enabledTypes) ? snapshot.enabledTypes : graphTypes(state.nodes));
+    state.graphPage = Number(snapshot.graphPage) || 0;
+    state.traversalMode = snapshot.traversalMode || state.traversalMode;
+    state.scopedLinkMode = snapshot.scopedLinkMode || state.scopedLinkMode;
+    state.showSecondaryLinks = Boolean(snapshot.showSecondaryLinks);
+    state.searchQuery = snapshot.searchQuery || "";
+    syncGraphControls(browser, state);
+    renderNodeSelect(browser, state);
+    renderGraph(browser, state);
+    renderDetail(browser, state);
+  }
+
+  function renderFailureStats(stats) {
+    if (!stats || typeof stats !== "object") return "";
+    const summary = stats.module_summary && typeof stats.module_summary === "object" ? stats.module_summary : {};
+    const clusters = Array.isArray(stats.failure_clusters) ? stats.failure_clusters : [];
+    const cases = Array.isArray(stats.representative_cases) ? stats.representative_cases : [];
+    if (!Object.keys(summary).length && !clusters.length && !cases.length) return "";
+    let html = '<div class="relationship-failure-stats">';
+    html += '<h4>Failed Test Statistics</h4>';
+    if (Object.keys(summary).length) {
+      const fields = ["suite", "module", "domain", "status", "pass", "failed", "skipped", "total"];
+      html += '<table><tbody>';
+      for (const field of fields) {
+        if (summary[field] == null || String(summary[field]).trim() === "") continue;
+        html += `<tr><th>${esc(field.replaceAll("_", " "))}</th><td>${esc(summary[field])}</td></tr>`;
+      }
+      html += '</tbody></table>';
+    }
+    if (clusters.length) {
+      html += '<section><h5>Failure clusters</h5><div class="relationship-failure-list">';
+      for (const cluster of clusters) {
+        html += '<article>';
+        html += `<strong>${esc(cluster.family || "cluster")}</strong>`;
+        html += `<small>${esc(cluster.failed_count || "0")} failed</small>`;
+        if (cluster.sample_case) html += `<p>${esc(cluster.sample_case)}</p>`;
+        if (cluster.sample_message) html += `<code>${esc(cluster.sample_message)}</code>`;
+        html += '</article>';
+      }
+      html += '</div></section>';
+    }
+    if (cases.length) {
+      html += '<section><h5>Representative failed cases</h5><div class="relationship-failure-list">';
+      for (const testCase of cases) {
+        html += '<article>';
+        html += `<strong>${esc(testCase.test || "test case")}</strong>`;
+        if (testCase.family) html += `<small>${esc(testCase.family)}</small>`;
+        if (testCase.details) html += `<code>${esc(testCase.details)}</code>`;
+        html += '</article>';
+      }
+      html += '</div></section>';
+    }
+    html += '</div>';
+    return html;
   }
 
   function renderDetail(browser, state) {
@@ -1589,10 +1981,12 @@ def _relationship_graph_script() -> str:
     if (detailRows.length) {
       html += '<dl class="relationship-detail-fields">';
       for (const [key, value] of detailRows) {
+        if (value && typeof value === "object") continue;
         html += `<dt>${esc(key.replaceAll("_", " "))}</dt><dd>${esc(value)}</dd>`;
       }
       html += "</dl>";
     }
+    html += renderFailureStats(node.failure_stats);
     if (groups.size) {
       html += '<div class="relationship-related">';
       const visibleNodeIds = state.visibleNodeIds || new Set();
@@ -1614,11 +2008,13 @@ def _relationship_graph_script() -> str:
   function selectNode(browser, state, nodeId, recordHistory) {
     if (!state.nodesById.has(nodeId)) return;
     if (recordHistory && state.selectedId && state.selectedId !== nodeId) {
-      state.backStack.push(state.selectedId);
+      state.backStack.push(navigationSnapshot(state));
       state.forwardStack.length = 0;
     }
     state.selectedId = nodeId;
     state.activeId = nodeId;
+    state.graphPage = 0;
+    ensureFocusFilters(browser, state, nodeId);
     renderNodeSelect(browser, state);
     renderGraph(browser, state);
     renderDetail(browser, state);
@@ -1682,6 +2078,7 @@ def _relationship_graph_script() -> str:
     if (!node || !isTypeEnabled(node, state.selectedId, state.enabledTypes)) return 0;
     let degree = 0;
     for (const edge of state.edges) {
+      if (isSecondaryEdge(edge) && !state.showSecondaryLinks) continue;
       let otherId = "";
       if (edge.source === node.id) {
         otherId = edge.target;
@@ -1778,6 +2175,24 @@ def _relationship_graph_script() -> str:
     if (next) state.selectedId = next.id;
   }
 
+  function syncGraphControls(browser, state) {
+    const typeContainer = browser.querySelector("[data-relationship-type-filter]");
+    if (typeContainer) refreshTypeFilterState(typeContainer, state, graphTypes(state.nodes));
+    updateSecondaryLinkControl(browser, state);
+    const search = browser.querySelector("[data-relationship-search]");
+    if (search) search.value = state.searchQuery || "";
+    browser.querySelectorAll("[data-relationship-traversal]").forEach((item) => {
+      item.classList.toggle("is-active", (item.getAttribute("data-relationship-traversal") || "scoped") === state.traversalMode);
+    });
+    browser.querySelectorAll("[data-relationship-scoped-links]").forEach((item) => {
+      const mode = item.getAttribute("data-relationship-scoped-links") || "nested";
+      item.classList.toggle("is-active", mode === state.scopedLinkMode);
+      item.disabled = state.traversalMode !== "scoped";
+    });
+    const scopedMode = browser.querySelector("[data-relationship-scoped-mode]");
+    if (scopedMode) scopedMode.classList.toggle("is-disabled", state.traversalMode !== "scoped");
+  }
+
   function refreshTypeFilterState(container, state, types) {
     container.querySelectorAll("[data-relationship-type]").forEach((checkbox) => {
       checkbox.checked = state.enabledTypes.has(checkbox.value);
@@ -1801,7 +2216,9 @@ def _relationship_graph_script() -> str:
     allCheckbox.type = "checkbox";
     allCheckbox.setAttribute("data-relationship-type-all", "");
     allCheckbox.addEventListener("change", () => {
+      pushNavigationSnapshot(state);
       state.enabledTypes = allCheckbox.checked ? new Set(types) : new Set();
+      state.graphPage = 0;
       ensureSelectableFocus(state);
       refreshTypeFilterState(container, state, types);
       renderNodeSelect(browser, state);
@@ -1821,11 +2238,13 @@ def _relationship_graph_script() -> str:
       checkbox.setAttribute("data-relationship-type", type);
       checkbox.checked = state.enabledTypes.has(type);
       checkbox.addEventListener("change", () => {
+        pushNavigationSnapshot(state);
         if (checkbox.checked) {
           state.enabledTypes.add(type);
         } else {
           state.enabledTypes.delete(type);
         }
+        state.graphPage = 0;
         ensureSelectableFocus(state);
         refreshTypeFilterState(container, state, types);
         renderNodeSelect(browser, state);
@@ -1856,7 +2275,6 @@ def _relationship_graph_script() -> str:
       nodesById,
       selectedId: preferred.id,
       activeId: preferred.id,
-      depth: 1,
       cy: null,
       tapTimer: 0,
       tapTarget: "",
@@ -1867,19 +2285,64 @@ def _relationship_graph_script() -> str:
       canvasControlsFrame: 0,
       canvasControlsSignature: "",
       traversalMode: "scoped",
+      scopedLinkMode: "nested",
+      showSecondaryLinks: false,
+      graphPage: 0,
       traversal: traversalConfig(graph.traversal),
       enabledTypes: new Set(graphTypes(graph.nodes))
     };
     renderTypeFilters(browser, state);
+    const refreshTraversalControls = () => {
+      syncGraphControls(browser, state);
+    };
     browser.querySelectorAll("[data-relationship-traversal]").forEach((button) => {
       const mode = button.getAttribute("data-relationship-traversal") || "scoped";
-      button.classList.toggle("is-active", mode === state.traversalMode);
       button.addEventListener("click", () => {
+        pushNavigationSnapshot(state);
         state.traversalMode = mode;
-        browser.querySelectorAll("[data-relationship-traversal]").forEach((item) => {
-          item.classList.toggle("is-active", item === button);
-        });
+        state.graphPage = 0;
+        refreshTraversalControls();
         renderNodeSelect(browser, state);
+        renderGraph(browser, state);
+        renderDetail(browser, state);
+      });
+    });
+    browser.querySelectorAll("[data-relationship-scoped-links]").forEach((button) => {
+      const mode = button.getAttribute("data-relationship-scoped-links") || "nested";
+      button.addEventListener("click", () => {
+        pushNavigationSnapshot(state);
+        state.scopedLinkMode = mode;
+        state.traversalMode = "scoped";
+        state.graphPage = 0;
+        refreshTraversalControls();
+        renderNodeSelect(browser, state);
+        renderGraph(browser, state);
+        renderDetail(browser, state);
+      });
+    });
+    refreshTraversalControls();
+    const secondaryLinks = browser.querySelector("[data-relationship-secondary-links]");
+    if (secondaryLinks) {
+      secondaryLinks.checked = state.showSecondaryLinks;
+      secondaryLinks.addEventListener("change", () => {
+        pushNavigationSnapshot(state);
+        state.showSecondaryLinks = secondaryLinks.checked;
+        state.graphPage = 0;
+        renderNodeSelect(browser, state);
+        renderGraph(browser, state);
+        renderDetail(browser, state);
+      });
+    }
+    browser.querySelectorAll("[data-relationship-page-prev]").forEach((pagePrev) => {
+      pagePrev.addEventListener("click", () => {
+        state.graphPage = Math.max(0, state.graphPage - 1);
+        renderGraph(browser, state);
+        renderDetail(browser, state);
+      });
+    });
+    browser.querySelectorAll("[data-relationship-page-next]").forEach((pageNext) => {
+      pageNext.addEventListener("click", () => {
+        state.graphPage += 1;
         renderGraph(browser, state);
         renderDetail(browser, state);
       });
@@ -1893,6 +2356,7 @@ def _relationship_graph_script() -> str:
     if (search && select) {
       search.addEventListener("input", () => {
         state.searchQuery = search.value;
+        state.graphPage = 0;
         const matches = renderNodeSelect(browser, state);
         const normalized = String(state.searchQuery || "").trim();
         if (normalized && matches.length && matches[0].id !== state.selectedId) {
@@ -1911,15 +2375,6 @@ def _relationship_graph_script() -> str:
         }
       });
     }
-    browser.querySelectorAll("[data-relationship-depth]").forEach((button) => {
-      button.addEventListener("click", () => {
-        state.depth = Number(button.getAttribute("data-relationship-depth") || "1") || 1;
-        browser.querySelectorAll("[data-relationship-depth]").forEach((item) => item.classList.toggle("is-active", item === button));
-        renderGraph(browser, state);
-      });
-    });
-    const defaultDepth = browser.querySelector('[data-relationship-depth="1"]');
-    if (defaultDepth) defaultDepth.classList.add("is-active");
     const back = browser.querySelector("[data-relationship-back]");
     const forward = browser.querySelector("[data-relationship-forward]");
     const fit = browser.querySelector("[data-relationship-fit]");
@@ -1983,22 +2438,22 @@ def _relationship_graph_script() -> str:
       back.addEventListener("click", () => {
         const previous = state.backStack.pop();
         if (!previous) return;
-        state.forwardStack.push(state.selectedId);
-        selectNode(browser, state, previous, false);
+        state.forwardStack.push(navigationSnapshot(state));
+        restoreNavigationSnapshot(browser, state, previous);
       });
     }
     if (forward) {
       forward.addEventListener("click", () => {
         const next = state.forwardStack.pop();
         if (!next) return;
-        state.backStack.push(state.selectedId);
-        selectNode(browser, state, next, false);
+        state.backStack.push(navigationSnapshot(state));
+        restoreNavigationSnapshot(browser, state, next);
       });
     }
     browser.addEventListener("click", (event) => {
       const tableRow = event.target.closest && event.target.closest("[data-relationship-table-node]");
       if (tableRow) {
-        activateNode(browser, state, tableRow.getAttribute("data-relationship-table-node"));
+        selectNode(browser, state, tableRow.getAttribute("data-relationship-table-node"), true);
         return;
       }
       const nodeElement = event.target.closest && event.target.closest("[data-node-id]");
@@ -2048,6 +2503,18 @@ def _relationship_graph_script() -> str:
     if (close) close.focus({preventScroll: true});
   }
 
+  function openRelationshipFocus(trigger, nodeId) {
+    const section = trigger && trigger.closest ? trigger.closest(".report-root, body") : document;
+    const modal = (section || document).querySelector("[data-relationship-modal]");
+    if (!modal || !nodeId) return;
+    openRelationshipModal(modal);
+    const browser = modal.querySelector("[data-relationship-browser]");
+    const state = browser && browser.__relationshipState;
+    if (state && state.nodesById.has(nodeId)) {
+      selectNode(browser, state, nodeId, true);
+    }
+  }
+
   function closeRelationshipModal(modal) {
     if (!modal) return;
     modal.hidden = true;
@@ -2057,6 +2524,11 @@ def _relationship_graph_script() -> str:
   document.querySelectorAll("[data-relationship-open]").forEach((button) => {
     button.addEventListener("click", () => {
       openRelationshipModal(button.closest(".report-relationship-section").querySelector("[data-relationship-modal]"));
+    });
+  });
+  document.querySelectorAll("[data-relationship-open-focus]").forEach((item) => {
+    item.addEventListener("click", () => {
+      openRelationshipFocus(item, item.getAttribute("data-relationship-open-focus"));
     });
   });
   document.querySelectorAll("[data-relationship-modal]").forEach((modal) => {
