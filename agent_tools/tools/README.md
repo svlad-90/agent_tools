@@ -43,6 +43,8 @@ python -m agent_tools.tools.rules_sync sync --check
 Use `task_context` to keep long-running tasks compact without losing history.
 It stores durable context in `TASK_CONTEXT.sqlite3`. Agents read active entries
 from the database; resolved and stale entries stay queryable history.
+Labels are validated against the fixed vocabulary used by
+`agent_tools.tools.task_context`.
 
 Add a dated finding:
 
@@ -61,7 +63,7 @@ Legacy tasks can be imported once with:
 python -m agent_tools.tools.task_context migrate --task tasks/my-task
 ```
 
-Query the journal by date, severity, status, or labels:
+Query active journal entries by date, severity, or labels:
 
 ```sh
 python -m agent_tools.tools.task_context query \
@@ -71,6 +73,9 @@ python -m agent_tools.tools.task_context query \
   --label validation \
   --format markdown
 ```
+
+`query` defaults to active entries. Use `--all-statuses` or explicit
+`--status resolved` / `--status stale` only when historical context is needed.
 
 Batch edit or delete selected entries:
 

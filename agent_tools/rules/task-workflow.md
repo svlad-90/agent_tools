@@ -36,7 +36,8 @@ These rules apply to every task directory under the workspace root.
    - Use `python3 -m agent_tools.tools.task_context add --task <task-dir> ...`
      to record facts with severity, status, labels, details, and artifacts.
    - Use `python3 -m agent_tools.tools.task_context query --task <task-dir>
-     ...` to retrieve history by date, severity range, status, or labels.
+     ...` to retrieve active context by default, or history by date, severity
+     range, status, or labels when explicitly needed.
    - Use `python3 -m agent_tools.tools.task_context edit --task <task-dir>
      ...` to batch update status, severity, labels, details, artifacts, or to
      delete selected erroneous entries.
@@ -55,10 +56,12 @@ These rules apply to every task directory under the workspace root.
      `python3 -m agent_tools.tools.task_context migrate --task <task-dir>`.
 
    Severity values are `note`, `low`, `mid`, `high`, and `critical`. Status
-   values are `active`, `resolved`, and `stale`. Prefer stable labels such as
-   `goal`, `repo`, `decision`, `blocker`, `validation`, `build`, `runtime`,
-   `env`, `artifact`, `report`, `ui`, `bug`, `test`, `user-preference`, and
-   `next-step`.
+   values are `active`, `resolved`, and `stale`. Labels are a fixed vocabulary:
+   `artifact`, `blocker`, `bug`, `build`, `cli`, `commit`, `decision`, `docs`,
+   `env`, `filter`, `goal`, `gui`, `handoff`, `knowledge`, `legacy`,
+   `migration`, `next-step`, `policy`, `push`, `report`, `repo`, `runtime`,
+   `security`, `superseded`, `task-context`, `test`, `tooling`, `ui`,
+   `user-preference`, and `validation`.
 
 6. Record the task bootstrap through the task context journal before deep work:
 

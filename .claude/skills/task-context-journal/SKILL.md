@@ -41,11 +41,13 @@ queryable but not pollute the active context.
 Use `status=stale` for facts that were useful but are now superseded,
 misleading, or no longer relevant to the active task.
 
-## Common Labels
+## Labels
 
-Prefer a few stable labels: `goal`, `repo`, `decision`, `blocker`,
-`validation`, `build`, `runtime`, `env`, `artifact`, `report`, `ui`, `bug`,
-`test`, `user-preference`, `next-step`.
+Labels are a fixed vocabulary. Use only: `artifact`, `blocker`, `bug`,
+`build`, `cli`, `commit`, `decision`, `docs`, `env`, `filter`, `goal`, `gui`,
+`handoff`, `knowledge`, `legacy`, `migration`, `next-step`, `policy`, `push`,
+`report`, `repo`, `runtime`, `security`, `superseded`, `task-context`, `test`,
+`tooling`, `ui`, `user-preference`, and `validation`.
 
 ## Commands
 
@@ -70,6 +72,10 @@ python3 -m agent_tools.tools.task_context query \
   --label validation \
   --format markdown
 ```
+
+`query` defaults to `--status active` when no status is provided. Query all
+history only with `--all-statuses`, or query specific history with explicit
+`--status resolved` or `--status stale`.
 
 Batch edit or delete selected entries:
 

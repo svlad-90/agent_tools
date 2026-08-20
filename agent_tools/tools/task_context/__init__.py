@@ -19,6 +19,38 @@ DATABASE_FILENAME = "TASK_CONTEXT.sqlite3"
 LEGACY_JOURNAL_FILENAME = "TASK_CONTEXT_LOG.jsonl"
 SEVERITIES = ("note", "low", "mid", "high", "critical")
 STATUSES = ("active", "resolved", "stale")
+LABELS = (
+    "artifact",
+    "blocker",
+    "bug",
+    "build",
+    "cli",
+    "commit",
+    "decision",
+    "docs",
+    "env",
+    "filter",
+    "goal",
+    "gui",
+    "handoff",
+    "knowledge",
+    "legacy",
+    "migration",
+    "next-step",
+    "policy",
+    "push",
+    "report",
+    "repo",
+    "runtime",
+    "security",
+    "superseded",
+    "task-context",
+    "test",
+    "tooling",
+    "ui",
+    "user-preference",
+    "validation",
+)
 DEFAULT_COMPACT_LIMIT = 40
 
 
@@ -112,7 +144,7 @@ def add_entry(
     entry = ContextEntry(
         timestamp=_validate_timestamp(timestamp or datetime.now().astimezone().isoformat(timespec="seconds")),
         severity=_validate_choice(severity, SEVERITIES, "severity"),
-        labels=tuple(_normalize_token(label, "label") for label in labels),
+        labels=_normalized_labels(labels),
         status=_validate_choice(status, STATUSES, "status"),
         summary=_non_empty(summary, "summary"),
         details=details.strip(),
@@ -180,7 +212,7 @@ def edit_entries(
 ) -> list[ContextEntry]:
     task_dir = task_dir.resolve()
     id_values = {_entry_id(entry_id) for entry_id in ids}
-    label_values = tuple(labels)
+    label_values = _normalized_labels(labels)
     status_values = tuple(statuses)
     set_label_values = tuple(set_labels) if set_labels is not None else None
     add_label_values = tuple(add_labels)
@@ -320,13 +352,13 @@ def _edited_entry(
 ) -> ContextEntry:
     labels = entry.labels
     if set_labels is not None:
-        labels = _normalized_tokens(set_labels, "label")
+        labels = _normalized_labels(set_labels)
     elif clear_labels:
         labels = ()
     if add_labels:
-        labels = _unique((*labels, *_normalized_tokens(add_labels, "label")))
+        labels = _unique((*labels, *_normalized_labels(add_labels)))
     if remove_labels:
-        remove_values = set(_normalized_tokens(remove_labels, "label"))
+        remove_values = set(_normalized_labels(remove_labels))
         labels = tuple(label for label in labels if label not in remove_values)
     artifacts = entry.artifacts
     if set_artifacts is not None:
@@ -416,7 +448,7 @@ def filter_entries(
     start = _parse_boundary(since, end_of_day=False) if since else None
     end = _parse_boundary(until, end_of_day=True) if until else None
     severity_values = _severity_filter(severity)
-    label_values = {label.casefold() for label in labels}
+    label_values = {label.casefold() for label in _normalized_labels(labels)}
     status_values = {_validate_choice(status, STATUSES, "status") for status in statuses}
     filtered: list[ContextEntry] = []
     for entry in entries:
@@ -637,6 +669,10 @@ def _normalized_tokens(values: Iterable[str], field: str) -> tuple[str, ...]:
     return _unique(_normalize_token(value, field) for value in values)
 
 
+def _normalized_labels(values: Iterable[str]) -> tuple[str, ...]:
+    return tuple(_validate_choice(label, LABELS, "label") for label in _normalized_tokens(values, "label"))
+
+
 def _normalized_artifacts(values: Iterable[str]) -> tuple[str, ...]:
     return _unique(value.strip() for value in values if value.strip())
 
@@ -702,13 +738,14 @@ def migrate_command(args: argparse.Namespace) -> int:
 
 
 def query_command(args: argparse.Namespace) -> int:
+    statuses = () if args.all_statuses else (_split_csv(args.status) or ("active",))
     entries = filter_entries(
         load_entries(args.task),
         since=args.since,
         until=args.until,
         severity=args.severity,
-        labels=_split_csv(args.label),
-        statuses=_split_csv(args.status),
+        labels=_normalized_labels(_split_csv(args.label)),
+        statuses=statuses,
         newest_first=args.newest_first,
     )
     rendered = render_entries(entries, format_name=args.format)
@@ -811,6 +848,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     query_parser.add_argument("--severity")
     query_parser.add_argument("--label", action="append", default=[])
     query_parser.add_argument("--status", action="append", default=[])
+    query_parser.add_argument("--all-statuses", action="store_true")
     query_parser.add_argument("--newest-first", action="store_true")
     query_parser.add_argument("--format", choices=("text", "markdown", "json"), default="text")
     query_parser.set_defaults(func=query_command)

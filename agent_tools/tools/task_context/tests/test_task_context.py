@@ -20,7 +20,7 @@ def test_add_entry_writes_sqlite_with_metadata(tmp_path: Path) -> None:
         tmp_path,
         timestamp="2026-08-19T10:30:00+03:00",
         severity="high",
-        labels=("validation", "build info"),
+        labels=("validation", "build"),
         status="active",
         summary="Docker validation passed",
         details="195 tests passed.",
@@ -28,11 +28,11 @@ def test_add_entry_writes_sqlite_with_metadata(tmp_path: Path) -> None:
         artifacts=("report/validation/latest.json",),
     )
 
-    assert entry.labels == ("validation", "build-info")
+    assert entry.labels == ("validation", "build")
     assert (tmp_path / DATABASE_FILENAME).is_file()
     data = load_entries(tmp_path)[0].to_json()
     assert data["severity"] == "high"
-    assert data["labels"] == ["validation", "build-info"]
+    assert data["labels"] == ["validation", "build"]
     assert data["artifacts"] == ["report/validation/latest.json"]
     assert isinstance(data["id"], int)
 
@@ -44,6 +44,15 @@ def test_add_entry_rejects_invalid_timestamp(tmp_path: Path) -> None:
         assert str(exc) == "timestamp must be an ISO-8601 date-time"
     else:
         raise AssertionError("invalid timestamp was accepted")
+
+
+def test_add_entry_rejects_unknown_label(tmp_path: Path) -> None:
+    try:
+        add_entry(tmp_path, severity="mid", labels=("surprise-label",), summary="Invalid label")
+    except ValueError as exc:
+        assert "label must be one of:" in str(exc)
+    else:
+        raise AssertionError("unknown label was accepted")
 
 
 def test_migration_rejects_invalid_timestamp(tmp_path: Path) -> None:
@@ -96,6 +105,13 @@ def test_query_filters_by_date_severity_label_and_status(tmp_path: Path) -> None
     )
 
     assert [entry.summary for entry in entries] == ["Current validation failure"]
+
+    try:
+        filter_entries(load_entries(tmp_path), labels=("surprise-label",))
+    except ValueError as exc:
+        assert "label must be one of:" in str(exc)
+    else:
+        raise AssertionError("unknown label filter was accepted")
 
     newest_first_entries = filter_entries(load_entries(tmp_path), newest_first=True)
 
@@ -239,9 +255,27 @@ def test_cli_add_query_and_compact(tmp_path: Path, capsys: object) -> None:
     query_output = capsys.readouterr().out
     assert "Build validation passed" in query_output
 
+    add_entry(
+        tmp_path,
+        timestamp="2026-08-19T11:00:00",
+        severity="high",
+        labels=("validation",),
+        status="resolved",
+        summary="Resolved validation history",
+    )
+
     assert main(["query", "--task", str(tmp_path), "--newest-first"]) == 0
     newest_first_output = capsys.readouterr().out
     assert "Build validation passed" in newest_first_output
+    assert "Resolved validation history" not in newest_first_output
+
+    assert main(["query", "--task", str(tmp_path), "--all-statuses", "--newest-first"]) == 0
+    all_status_output = capsys.readouterr().out
+    assert "Build validation passed" in all_status_output
+    assert "Resolved validation history" in all_status_output
+
+    assert main(["query", "--task", str(tmp_path), "--label", "surprise-label"]) == 1
+    assert "label must be one of:" in capsys.readouterr().err
 
     assert main(["compact", "--task", str(tmp_path), "--print"]) == 0
     compact_output = capsys.readouterr().out
