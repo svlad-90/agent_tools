@@ -89,6 +89,20 @@ Use `--dry-run` before broad edits. Combine selectors such as `--id`, `--all`,
 such as `--set-status`, `--set-label`, `--add-label`, `--remove-label`,
 artifact updates, or `--delete`.
 
+Before handoff, push-ready handoff, validation handoff, blocker resolution, or
+compaction, audit active entries and move completed or superseded context out
+of the active set:
+
+```sh
+python -m agent_tools.tools.task_context query \
+  --task tasks/my-task \
+  --severity mid..critical \
+  --status active \
+  --format text
+```
+
+Only entries that still affect the next session should remain `active`.
+
 Regenerate compact active context:
 
 ```sh

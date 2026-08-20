@@ -105,12 +105,30 @@ python3 -m agent_tools.tools.task_context compact \
    need older, resolved, lower-severity, or label-specific history.
 2. When a useful fact appears, add it with `task_context add` instead of
    manually growing `TASK_CONTEXT.md`.
-3. Before handoff, after validation, or after resolving a blocker, use
-   `task_context edit` to mark superseded active entries `resolved` or `stale`.
-   Do this before compaction so old validation notes, completed implementation
-   notes, and obsolete blockers do not keep reappearing as current context.
-4. Before handoff, after validation, or after resolving a blocker, run
-   `task_context compact` so the next session starts from a short active
-   context.
-5. Keep details concise. Link logs, reports, commits, and artifacts instead of
+3. `active` is a working-set status, not a historical default. Do not leave an
+   entry `active` after the work, validation, decision, blocker, or handoff it
+   describes has been superseded, completed, invalidated, or made historical by
+   a newer entry.
+4. Before handoff, before final responses that change task state, before or
+   after validation handoff, before push-ready handoff, after resolving a
+   blocker, and before every `task_context compact`, you must audit current
+   active entries:
+
+   ```sh
+   python3 -m agent_tools.tools.task_context query \
+     --task tasks/<task-name> \
+     --severity mid..critical \
+     --status active \
+     --format text
+   ```
+
+   For each active entry, either keep it active because it still affects the
+   next session, or update it with `task_context edit`. Mark completed or
+   superseded entries `resolved`; mark obsolete, misleading, or no-longer-useful
+   entries `stale`; add labels such as `superseded` when that clarifies why it
+   left the active set.
+5. Run `task_context compact` only after the active-entry audit and edits. The
+   compact file must be a current working set for the next agent, not a newest
+   slice of old accomplishments.
+6. Keep details concise. Link logs, reports, commits, and artifacts instead of
    pasting long output into journal entries.

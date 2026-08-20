@@ -180,13 +180,19 @@ These rules apply to every task directory under the workspace root.
      ...` to retrieve history by date, severity range, status, or labels.
    - Use `python3 -m agent_tools.tools.task_context edit --task <task-dir>
      ...` to batch update status, severity, labels, details, artifacts, or to
-     delete selected erroneous entries. Before handoff, validation handoff, or
-     blocker resolution, mark superseded active entries `resolved` or `stale`
-     before compacting so old facts stop appearing as current context.
+     delete selected erroneous entries.
+   - Active context is a working set, not an append-only changelog. Before
+     handoff, before final responses that change task state, before or after
+     validation handoff, before push-ready handoff, after resolving blockers,
+     and before every compaction, query active entries and update stale or
+     superseded items with `task_context edit`. Completed or superseded entries
+     must become `resolved`; obsolete or misleading entries must become
+     `stale`; only facts that still affect the next session stay `active`.
    - Use `python3 -m agent_tools.tools.task_context compact --task <task-dir>`
-     before handoff, after validation, after resolving blockers, and whenever
-     `TASK_CONTEXT.md` is becoming noisy. Legacy JSONL journals can be imported
-     once with `python3 -m agent_tools.tools.task_context migrate --task <task-dir>`.
+     only after the active-entry audit, before handoff, after validation, after
+     resolving blockers, and whenever `TASK_CONTEXT.md` is becoming noisy.
+     Legacy JSONL journals can be imported once with
+     `python3 -m agent_tools.tools.task_context migrate --task <task-dir>`.
 
    Severity values are `note`, `low`, `mid`, `high`, and `critical`. Status
    values are `active`, `resolved`, and `stale`. Prefer stable labels such as
