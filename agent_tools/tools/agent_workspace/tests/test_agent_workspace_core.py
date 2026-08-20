@@ -3481,6 +3481,27 @@ def test_gtk_main_notebook_switch_loads_artifacts_lazily(tmp_path: Path) -> None
     assert calls == [("load", summary)]
 
 
+def test_gtk_main_notebook_switch_refreshes_details_tab(tmp_path: Path) -> None:
+    task = tmp_path / "tasks" / "sample-task"
+    task.mkdir(parents=True)
+    summary = discover_tasks_with_context(task, tmp_path)
+    gui = WorkspaceGtkGui.__new__(WorkspaceGtkGui)
+    gui.selected_task = summary
+    gui.actions_page = object()
+    gui.details_page = object()
+    gui.artifacts_page = object()
+    calls: list[str] = []
+    gui._load_task_action_buttons = lambda: calls.append("actions")
+    gui._ensure_default_console_for_selected_task = lambda: calls.append("console")
+    gui._restore_last_console_page_for_selected_task = lambda: calls.append("restore")
+    gui._load_task_artifacts = lambda _task: calls.append("artifacts")
+    gui._refresh_selected_task_details = lambda: calls.append("details")
+
+    gui._on_main_notebook_switch_page(object(), gui.details_page, 1)  # type: ignore[arg-type]
+
+    assert calls == ["details"]
+
+
 def test_gtk_main_notebook_restores_actions_console_tab_after_details(tmp_path: Path) -> None:
     task = tmp_path / "tasks" / "sample-task"
     task.mkdir(parents=True)
@@ -3501,6 +3522,7 @@ def test_gtk_main_notebook_restores_actions_console_tab_after_details(tmp_path: 
     gui._ensure_default_console_for_selected_task = lambda: calls.append(("console", None))
     gui._load_task_artifacts = lambda _task: calls.append(("artifacts", None))
     gui._activate_visible_terminal = lambda session_id, *, remember: calls.append(("restore", session_id))
+    gui._refresh_selected_task_details = lambda: None
 
     gui._on_main_notebook_switch_page(object(), gui.details_page, 1)  # type: ignore[arg-type]
     gui._on_main_notebook_switch_page(object(), gui.actions_page, 0)  # type: ignore[arg-type]
@@ -3531,6 +3553,7 @@ def test_gtk_main_notebook_restores_ai_agent_tab_after_details(tmp_path: Path) -
     gui._ensure_default_console_for_selected_task = lambda: calls.append("console")
     gui._load_task_artifacts = lambda _task: calls.append("artifacts")
     gui._activate_visible_terminal = lambda _session_id, *, remember: calls.append("restore")
+    gui._refresh_selected_task_details = lambda: None
 
     gui._on_main_notebook_switch_page(object(), gui.details_page, 1)  # type: ignore[arg-type]
     gui.console_notebook.set_current_page(1)

@@ -178,6 +178,11 @@ These rules apply to every task directory under the workspace root.
      to record facts with severity, status, labels, details, and artifacts.
    - Use `python3 -m agent_tools.tools.task_context query --task <task-dir>
      ...` to retrieve history by date, severity range, status, or labels.
+   - Use `python3 -m agent_tools.tools.task_context edit --task <task-dir>
+     ...` to batch update status, severity, labels, details, artifacts, or to
+     delete selected erroneous entries. Before handoff, validation handoff, or
+     blocker resolution, mark superseded active entries `resolved` or `stale`
+     before compacting so old facts stop appearing as current context.
    - Use `python3 -m agent_tools.tools.task_context compact --task <task-dir>`
      before handoff, after validation, after resolving blockers, and whenever
      `TASK_CONTEXT.md` is becoming noisy. Legacy JSONL journals can be imported

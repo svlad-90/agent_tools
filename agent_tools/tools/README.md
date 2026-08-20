@@ -72,6 +72,23 @@ python -m agent_tools.tools.task_context query \
   --format markdown
 ```
 
+Batch edit or delete selected entries:
+
+```sh
+python -m agent_tools.tools.task_context edit \
+  --task tasks/my-task \
+  --label validation \
+  --status active \
+  --until 2026-08-19 \
+  --set-status resolved \
+  --add-label superseded
+```
+
+Use `--dry-run` before broad edits. Combine selectors such as `--id`, `--all`,
+`--since`, `--until`, `--severity`, `--label`, and `--status` with operations
+such as `--set-status`, `--set-label`, `--add-label`, `--remove-label`,
+artifact updates, or `--delete`.
+
 Regenerate compact active context:
 
 ```sh

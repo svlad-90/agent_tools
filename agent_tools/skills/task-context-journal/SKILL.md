@@ -32,6 +32,8 @@ Use the lowest severity that still protects future work:
 Use `status=active` for facts that should affect current work. Use
 `status=resolved` for old blockers or completed investigations that should stay
 queryable but not pollute the active context.
+Use `status=stale` for facts that were useful but are now superseded,
+misleading, or no longer relevant to the active task.
 
 ## Common Labels
 
@@ -63,6 +65,26 @@ python3 -m agent_tools.tools.task_context query \
   --format markdown
 ```
 
+Batch edit or delete selected entries:
+
+```sh
+python3 -m agent_tools.tools.task_context edit \
+  --task tasks/<task-name> \
+  --label validation \
+  --status active \
+  --until 2026-08-19 \
+  --set-status resolved \
+  --add-label superseded
+```
+
+Use `edit --dry-run` before broad changes. Selection is explicit: use `--id`,
+`--all`, or filters such as `--since`, `--until`, `--severity`, and `--label`.
+Use `--status active` when cleaning current context without changing already
+resolved or stale history.
+Operations can be combined: `--set-status`, `--set-severity`, `--set-summary`,
+`--set-details`, `--set-source`, `--set-label`, `--add-label`,
+`--remove-label`, `--clear-labels`, equivalent artifact options, or `--delete`.
+
 Regenerate compact active context:
 
 ```sh
@@ -78,8 +100,12 @@ python3 -m agent_tools.tools.task_context compact \
    need older, resolved, lower-severity, or label-specific history.
 2. When a useful fact appears, add it with `task_context add` instead of
    manually growing `TASK_CONTEXT.md`.
-3. Before handoff, after validation, or after resolving a blocker, run
+3. Before handoff, after validation, or after resolving a blocker, use
+   `task_context edit` to mark superseded active entries `resolved` or `stale`.
+   Do this before compaction so old validation notes, completed implementation
+   notes, and obsolete blockers do not keep reappearing as current context.
+4. Before handoff, after validation, or after resolving a blocker, run
    `task_context compact` so the next session starts from a short active
    context.
-4. Keep details concise. Link logs, reports, commits, and artifacts instead of
+5. Keep details concise. Link logs, reports, commits, and artifacts instead of
    pasting long output into journal entries.

@@ -689,9 +689,7 @@ class WorkspaceGtkGui:
             return
         self._remember_current_console_tab()
         self.selected_task = task
-        self._leave_detail_edit_mode(self.description_view)
-        self._set_markdown(self.description_view, read_task_file(self.selected_task, "TASK_DESCRIPTION.md"))
-        self._render_task_context_details()
+        self._refresh_selected_task_details(leave_edit=True)
         self._reset_actions()
         self._watch_task_actions(self.selected_task)
         if self._artifacts_tab_active():
@@ -751,6 +749,16 @@ class WorkspaceGtkGui:
             self._set_selected_agent(self.default_agent)
         if hasattr(self, "run_ai_agent_button"):
             self._update_codex_button_state()
+
+    def _refresh_selected_task_details(self, *, leave_edit: bool = False) -> None:
+        if self.selected_task is None:
+            return
+        editing_description = getattr(self, "detail_editing", {}).get(self.description_view, False)
+        if leave_edit or not editing_description:
+            if leave_edit:
+                self._leave_detail_edit_mode(self.description_view)
+            self._set_markdown(self.description_view, read_task_file(self.selected_task, "TASK_DESCRIPTION.md"))
+        self._render_task_context_details()
 
     def _render_task_context_details(self) -> None:
         if self.selected_task is None:
@@ -993,6 +1001,8 @@ class WorkspaceGtkGui:
             self._load_task_action_buttons()
             self._ensure_default_console_for_selected_task()
             self._restore_last_console_page_for_selected_task()
+        elif page is getattr(self, "details_page", None) and self.selected_task is not None:
+            self._refresh_selected_task_details()
         elif page is self.artifacts_page and self.selected_task is not None:
             self._load_task_artifacts(self.selected_task)
 

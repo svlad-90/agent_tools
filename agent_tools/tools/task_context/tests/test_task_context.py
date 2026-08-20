@@ -8,6 +8,7 @@ from agent_tools.tools.task_context import DATABASE_FILENAME
 from agent_tools.tools.task_context import LEGACY_JOURNAL_FILENAME
 from agent_tools.tools.task_context import add_entry
 from agent_tools.tools.task_context import compact_context
+from agent_tools.tools.task_context import edit_entries
 from agent_tools.tools.task_context import filter_entries
 from agent_tools.tools.task_context import load_entries
 from agent_tools.tools.task_context import main
@@ -35,6 +36,7 @@ def test_add_entry_writes_sqlite_with_metadata(tmp_path: Path) -> None:
     assert data["severity"] == "high"
     assert data["labels"] == ["validation", "build-info"]
     assert data["artifacts"] == ["report/validation/latest.json"]
+    assert isinstance(data["id"], int)
 
 
 def test_add_entry_rejects_invalid_timestamp(tmp_path: Path) -> None:
@@ -110,6 +112,69 @@ def test_query_filters_by_date_severity_label_and_status(tmp_path: Path) -> None
     assert [entry.summary for entry in selected_severity_entries] == ["Old low note", "Resolved blocker"]
 
 
+def test_edit_entries_batches_status_labels_artifacts_and_delete(tmp_path: Path) -> None:
+    old = add_entry(
+        tmp_path,
+        timestamp="2026-08-17T08:00:00",
+        severity="mid",
+        labels=("validation",),
+        status="active",
+        summary="Old validation",
+        artifacts=("report/old.json",),
+    )
+    current = add_entry(
+        tmp_path,
+        timestamp="2026-08-19T10:00:00",
+        severity="high",
+        labels=("validation", "build"),
+        status="active",
+        summary="Current validation",
+    )
+
+    changed = edit_entries(
+        tmp_path,
+        labels=("validation",),
+        until="2026-08-18",
+        set_status="resolved",
+        set_severity="low",
+        add_labels=("superseded",),
+        remove_artifacts=("report/old.json",),
+    )
+
+    assert [entry.id for entry in changed] == [old.id]
+    entries = load_entries(tmp_path)
+    old_entry = next(entry for entry in entries if entry.id == old.id)
+    current_entry = next(entry for entry in entries if entry.id == current.id)
+    assert old_entry.status == "resolved"
+    assert old_entry.severity == "low"
+    assert old_entry.labels == ("validation", "superseded")
+    assert old_entry.artifacts == ()
+    assert current_entry.status == "active"
+
+    deleted = edit_entries(tmp_path, ids=(old.id,), delete=True)
+
+    assert [entry.id for entry in deleted] == [old.id]
+    assert [entry.id for entry in load_entries(tmp_path)] == [current.id]
+
+
+def test_edit_entries_requires_selector_and_operation(tmp_path: Path) -> None:
+    add_entry(tmp_path, timestamp="2026-08-19T10:00:00", severity="mid", summary="Current")
+
+    try:
+        edit_entries(tmp_path, set_status="resolved")
+    except ValueError as exc:
+        assert "without --all, --id, or a non-status filter" in str(exc)
+    else:
+        raise AssertionError("edit without selector was accepted")
+
+    try:
+        edit_entries(tmp_path, all_entries=True)
+    except ValueError as exc:
+        assert "no edit operation" in str(exc)
+    else:
+        raise AssertionError("edit without operation was accepted")
+
+
 def test_compact_context_writes_active_high_signal_markdown(tmp_path: Path) -> None:
     add_entry(
         tmp_path,
@@ -149,7 +214,9 @@ def test_render_entries_supports_text_markdown_and_json(tmp_path: Path) -> None:
     entries = load_entries(tmp_path)
 
     assert "Host has package installed" in render_entries(entries)
+    assert render_entries(entries).split("\t", 1)[0].isdigit()
     assert "**note/active**" in render_entries(entries, format_name="markdown")
+    assert "#1 Host has package installed" in render_entries(entries, format_name="markdown")
     assert json.loads(render_entries(entries, format_name="json"))[0]["labels"] == ["env"]
 
 
@@ -183,3 +250,83 @@ def test_cli_add_query_and_compact(tmp_path: Path, capsys: object) -> None:
     compact_output = capsys.readouterr().out
     assert "Build validation passed" in compact_output
     assert (tmp_path / CONTEXT_FILENAME).is_file()
+
+
+def test_cli_edit_dry_run_update_and_delete(tmp_path: Path, capsys: object) -> None:
+    add_entry(
+        tmp_path,
+        timestamp="2026-08-19T10:00:00",
+        severity="high",
+        labels=("validation",),
+        status="active",
+        summary="Build validation passed",
+    )
+
+    assert (
+        main(
+            [
+                "edit",
+                "--task",
+                str(tmp_path),
+                "--label",
+                "validation",
+                "--set-status",
+                "resolved",
+                "--add-label",
+                "superseded",
+                "--dry-run",
+            ]
+        )
+        == 0
+    )
+    dry_run_output = capsys.readouterr().out
+    assert "would edit 1 entries" in dry_run_output
+    assert load_entries(tmp_path)[0].status == "active"
+
+    assert (
+        main(
+            [
+                "edit",
+                "--task",
+                str(tmp_path),
+                "--label",
+                "validation",
+                "--set-status",
+                "resolved",
+                "--dry-run",
+                "--format",
+                "json",
+            ]
+        )
+        == 0
+    )
+    dry_run_json = json.loads(capsys.readouterr().out)
+    assert dry_run_json["action"] == "would edit"
+    assert dry_run_json["count"] == 1
+
+    assert (
+        main(
+            [
+                "edit",
+                "--task",
+                str(tmp_path),
+                "--label",
+                "validation",
+                "--set-status",
+                "resolved",
+                "--add-label",
+                "superseded",
+            ]
+        )
+        == 0
+    )
+    edit_output = capsys.readouterr().out
+    assert "edited 1 entries" in edit_output
+    edited_entry = load_entries(tmp_path)[0]
+    assert edited_entry.status == "resolved"
+    assert edited_entry.labels == ("validation", "superseded")
+
+    assert main(["edit", "--task", str(tmp_path), "--id", str(edited_entry.id), "--delete"]) == 0
+    delete_output = capsys.readouterr().out
+    assert "deleted 1 entries" in delete_output
+    assert load_entries(tmp_path) == []
