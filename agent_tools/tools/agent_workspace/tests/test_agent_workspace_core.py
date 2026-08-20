@@ -2026,8 +2026,63 @@ def test_gtk_refresh_task_row_styles_uses_batch_store_set(tmp_path: Path) -> Non
     assert len(gui.task_store.set_calls) == 1
     row_iter, columns, values = gui.task_store.set_calls[0]
     assert row_iter == 0
-    assert columns == [0, 1, 3, 4, 5, 6, 7, 8]
-    assert values == ["□", "sample-task", "", False, "", False, int(Pango.Weight.NORMAL), False]
+    assert columns == [0, 1, 7]
+    assert values == ["□", "sample-task", int(Pango.Weight.NORMAL)]
+
+
+def test_gtk_refresh_task_row_styles_skips_unchanged_store_values(tmp_path: Path) -> None:
+    task = tmp_path / "tasks" / "sample-task"
+    task.mkdir(parents=True)
+    summary = discover_tasks_with_context(task, tmp_path)
+    gui = WorkspaceGtkGui.__new__(WorkspaceGtkGui)
+    gui.task_store = FakeGtkTaskStore(
+        [
+            ["□", "sample-task", summary, "", False, "", False, int(Pango.Weight.NORMAL), False],
+        ]
+    )
+    gui.terminal_sessions = {}
+    gui.theme = "dark"
+    gui.selected_task = None
+    gui._task_has_resumable_agent_session = lambda _task: False
+    gui._task_is_external_active = lambda _task: False
+    gui._task_agent_status = lambda _task: "□"
+    gui._task_label = lambda task: task.name
+    gui._ensure_selected_task_is_selectable = lambda: None
+
+    gui._refresh_task_row_styles()
+
+    assert gui.task_store.set_calls == []
+
+
+def test_gtk_animate_agent_status_updates_only_status_column(tmp_path: Path) -> None:
+    task = tmp_path / "tasks" / "sample-task"
+    task.mkdir(parents=True)
+    summary = discover_tasks_with_context(task, tmp_path)
+    gui = WorkspaceGtkGui.__new__(WorkspaceGtkGui)
+    gui.task_store = FakeGtkTaskStore(
+        [
+            ["□", "sample-task", summary, "#111", True, "#eee", True, 700, True],
+        ]
+    )
+    gui.terminal_sessions = {}
+    gui._closing = False
+    gui._agent_spinner_index = 0
+    gui._running_agent_sessions = lambda: [object()]
+    gui._task_agent_status = lambda _task: "▷"
+
+    assert gui._animate_agent_status()
+
+    assert gui.task_store.set_calls == [(0, [0], ["▷"])]
+    assert gui.task_store.rows[0][1:] == [
+        "sample-task",
+        summary,
+        "#111",
+        True,
+        "#eee",
+        True,
+        700,
+        True,
+    ]
 
 
 def test_gtk_animate_agent_status_reuses_session_marker_cache(

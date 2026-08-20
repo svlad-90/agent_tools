@@ -3551,22 +3551,38 @@ class WorkspaceGtkGui:
                 has_external_agent,
                 self.theme,
             )
-            self.task_store.set(
-                row_iter,
-                [0, 1, 3, 4, 5, 6, 7, 8],
-                [
-                    str(self._task_agent_status(task)),
-                    str(self._task_label(task)),
-                    str(background),
-                    bool(background_set),
-                    str(foreground),
-                    bool(foreground_set),
-                    int(weight),
-                    bool(weight_set),
-                ],
-            )
+            updates = [
+                (0, str(self._task_agent_status(task))),
+                (1, str(self._task_label(task))),
+                (3, str(background)),
+                (4, bool(background_set)),
+                (5, str(foreground)),
+                (6, bool(foreground_set)),
+                (7, int(weight)),
+                (8, bool(weight_set)),
+            ]
+            changed = [
+                (column, value)
+                for column, value in updates
+                if self.task_store[row_iter][column] != value
+            ]
+            if changed:
+                self.task_store.set(
+                    row_iter,
+                    [column for column, _value in changed],
+                    [value for _column, value in changed],
+                )
             row_iter = self.task_store.iter_next(row_iter)
         self._ensure_selected_task_is_selectable()
+
+    def _refresh_task_agent_status_cells(self) -> None:
+        row_iter = self.task_store.get_iter_first()
+        while row_iter is not None:
+            task = self.task_store[row_iter][2]
+            status = str(self._task_agent_status(task))
+            if self.task_store[row_iter][0] != status:
+                self.task_store.set(row_iter, [0], [status])
+            row_iter = self.task_store.iter_next(row_iter)
 
     def _task_is_external_active(self, task: TaskSummary) -> bool:
         return task_has_external_active_agent_run(task, self._local_agent_run_ids())
@@ -3587,7 +3603,7 @@ class WorkspaceGtkGui:
             return False
         self._agent_spinner_index = (self._agent_spinner_index + 1) % len(AGENT_RUNNING_SPINNER_FRAMES)
         if self._running_agent_sessions():
-            self._refresh_task_row_styles()
+            self._refresh_task_agent_status_cells()
         return True
 
     def _actions_tab_active(self) -> bool:
