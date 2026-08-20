@@ -25,10 +25,9 @@ and matching topic files before deep investigation.
 Every task lives under `tasks/<task-name>/`:
 
 - `TASK_DESCRIPTION.md` - stable request, scope, criteria, links, background.
-- `TASK_CONTEXT.md` - compact active task context generated from the task
-  journal: current goal, decisions, branches, repositories, validation status,
-  active constraints, and remaining work.
-- `TASK_CONTEXT.sqlite3` - transactional structured task journal.
+- `TASK_CONTEXT.sqlite3` - transactional structured task journal and the only
+  task context source. Active entries are the compact working context; resolved
+  and stale entries are history.
 - `dev/` - repositories, reproducers, workspaces, build files, and other
   development inputs for the task.
 - `Dockerfile/` - task-specific Dockerfiles, container build context files,
@@ -55,10 +54,12 @@ and only then name the exact variable, register, constant, or API. When several
 low-level terms are involved, repeat the role of each term locally instead of
 assuming the reader remembers it from earlier comments.
 
-Before working inside a task, read its `TASK_DESCRIPTION.md`, then
-`TASK_CONTEXT.md`. Keep `TASK_CONTEXT.md` compact; use
-`TASK_CONTEXT.sqlite3` plus `python3 -m agent_tools.tools.task_context` for
-durable history, filtering, and compaction.
+Before working inside a task, read its `TASK_DESCRIPTION.md`, then query active
+task context from `TASK_CONTEXT.sqlite3` with
+`python3 -m agent_tools.tools.task_context query --task <task-dir> --severity
+mid..critical --status active --format markdown`. Do not read resolved or stale
+history by default; query it only when the user asks or active context requires
+historical investigation.
 
 Move repeated routine work into `scripts/` when it reduces repeated reasoning
 or makes commands easier to rerun.

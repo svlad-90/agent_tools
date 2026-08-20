@@ -106,7 +106,9 @@ from agent_tools.tools.agent_workspace.gtk_ui import _task_artifact_entries as g
 from agent_tools.tools.agent_workspace.gtk_ui import _task_init_command as gtk_task_init_command
 from agent_tools.tools.agent_workspace.gtk_ui import _task_actions_signature as gtk_task_actions_signature
 from agent_tools.tools.agent_workspace.gtk_ui import _task_context_cards_markdown as gtk_task_context_cards_markdown
+from agent_tools.tools.task_context import add_entry
 from agent_tools.tools.task_context import ContextEntry
+from agent_tools.tools.task_context import ensure_database as ensure_task_context_database
 from agent_tools.tools.agent_workspace.gtk_ui import _task_path_for_name as gtk_task_path_for_name
 from agent_tools.tools.agent_workspace.gtk_ui import _task_row_style as gtk_task_row_style
 from agent_tools.tools.agent_workspace.gtk_ui import _copy_terminal_selection as gtk_copy_terminal_selection
@@ -521,6 +523,21 @@ class FakeGtkTaskStore:
         return self.rows[row_iter]
 
 
+class FakeGtkCheckButton:
+    def __init__(self, active: bool = False) -> None:
+        self.active = active
+        self.inconsistent = False
+
+    def set_active(self, active: bool) -> None:
+        self.active = active
+
+    def get_active(self) -> bool:
+        return self.active
+
+    def set_inconsistent(self, inconsistent: bool) -> None:
+        self.inconsistent = inconsistent
+
+
 class FakeGtkSelection:
     def __init__(self, model: object, row_iter: object | None) -> None:
         self.model = model
@@ -648,7 +665,13 @@ def test_discover_tasks_reports_description_context_and_budget(tmp_path: Path) -
     task = tmp_path / "tasks" / "sample-task"
     task.mkdir(parents=True)
     (task / "TASK_DESCRIPTION.md").write_text("# Description\n\nshort\n", encoding="utf-8")
-    (task / "TASK_CONTEXT.md").write_text("word " * (TASK_CONTEXT_BUDGET + 1), encoding="utf-8")
+    add_entry(
+        task,
+        severity="high",
+        status="active",
+        summary="Large active context",
+        details="word " * (TASK_CONTEXT_BUDGET + 1),
+    )
 
     tasks = discover_tasks(tmp_path)
 
@@ -663,7 +686,7 @@ def test_discover_tasks_sorts_names_case_insensitively(tmp_path: Path) -> None:
     for name in ("beta", "Alpha"):
         task = tmp_path / "tasks" / name
         task.mkdir(parents=True)
-        (task / "TASK_CONTEXT.md").write_text(_task_context(), encoding="utf-8")
+        ensure_task_context_database(task)
 
     tasks = discover_tasks(tmp_path)
 
@@ -675,7 +698,7 @@ def test_run_task_check_returns_text_report(tmp_path: Path) -> None:
     for rel_path in ("dev", "Dockerfile", "scripts", "report/diff", "report/puml"):
         (task / rel_path).mkdir(parents=True, exist_ok=True)
     (task / "TASK_DESCRIPTION.md").write_text("# Description\n", encoding="utf-8")
-    (task / "TASK_CONTEXT.md").write_text(_task_context(), encoding="utf-8")
+    ensure_task_context_database(task)
 
     report = run_task_check(discover_tasks(tmp_path)[0], tmp_path)
 
@@ -688,7 +711,7 @@ def test_agent_workspace_actions_task_check_uses_compact_output(tmp_path: Path, 
     for rel_path in ("dev", "Dockerfile", "scripts", "report/diff", "report/puml"):
         (task / rel_path).mkdir(parents=True, exist_ok=True)
     (task / "TASK_DESCRIPTION.md").write_text("# Description\n", encoding="utf-8")
-    (task / "TASK_CONTEXT.md").write_text(_task_context(), encoding="utf-8")
+    ensure_task_context_database(task)
 
     exit_code = actions_main(["task-check", "--workspace", str(tmp_path), "--task", str(task)])
 
@@ -898,6 +921,62 @@ def test_gtk_task_context_cards_markdown_renders_console_cards() -> None:
     assert content.endswith("\n```")
 
 
+def test_gtk_task_context_status_filter_defaults_to_active_only() -> None:
+    gui = WorkspaceGtkGui.__new__(WorkspaceGtkGui)
+
+    assert gui._task_context_default_group_values("status", ("active", "resolved", "stale")) == ("active",)
+    assert gui._task_context_default_group_values("severity", ("mid", "high")) == ("mid", "high")
+
+
+def test_gtk_clear_task_context_filters_restores_active_status_default() -> None:
+    gui = WorkspaceGtkGui.__new__(WorkspaceGtkGui)
+    gui.task_context_filter_since = "2026-08-19"
+    gui.task_context_filter_until = "2026-08-20"
+    gui.task_context_severity_checks = {
+        "mid": FakeGtkCheckButton(False),
+        "high": FakeGtkCheckButton(True),
+    }
+    gui.task_context_status_checks = {
+        "active": FakeGtkCheckButton(False),
+        "resolved": FakeGtkCheckButton(True),
+        "stale": FakeGtkCheckButton(True),
+    }
+    gui.task_context_label_checks = {
+        "validation": FakeGtkCheckButton(False),
+        "ui": FakeGtkCheckButton(True),
+    }
+    gui.task_context_filter_all_checks = {
+        "severity": FakeGtkCheckButton(),
+        "status": FakeGtkCheckButton(),
+        "label": FakeGtkCheckButton(),
+    }
+    gui._updating_task_context_checks = False
+    gui._update_task_context_date_buttons = lambda: None
+    changed_calls: list[str] = []
+    gui._on_task_context_filter_changed = lambda: changed_calls.append("changed")
+
+    gui._clear_task_context_filters()
+
+    assert gui.task_context_filter_since is None
+    assert gui.task_context_filter_until is None
+    assert {value: check.get_active() for value, check in gui.task_context_severity_checks.items()} == {
+        "mid": True,
+        "high": True,
+    }
+    assert {value: check.get_active() for value, check in gui.task_context_status_checks.items()} == {
+        "active": True,
+        "resolved": False,
+        "stale": False,
+    }
+    assert {value: check.get_active() for value, check in gui.task_context_label_checks.items()} == {
+        "validation": True,
+        "ui": True,
+    }
+    assert gui.task_context_filter_all_checks["status"].get_active() is False
+    assert gui.task_context_filter_all_checks["status"].inconsistent is True
+    assert changed_calls == ["changed"]
+
+
 def test_gtk_open_containing_folder_falls_back_to_parent_on_linux(
     monkeypatch: object,
     tmp_path: Path,
@@ -964,7 +1043,10 @@ def test_codex_task_context_message_points_at_selected_task(tmp_path: Path) -> N
     assert f"Workspace: {tmp_path}" in message
     assert f"Task directory: {task}" in message
     assert "TASK_DESCRIPTION.md" in message
-    assert "TASK_CONTEXT.md" in message
+    assert "task_context query" in message
+    assert "--status active" in message
+    assert "--format markdown" in message
+    assert "Do not read resolved or stale task context entries" in message
 
 
 def test_core_ai_agent_task_context_prompt_supports_optional_suffix(tmp_path: Path) -> None:
@@ -975,15 +1057,22 @@ def test_core_ai_agent_task_context_prompt_supports_optional_suffix(tmp_path: Pa
     plain = ai_agent_task_context_prompt(summary, tmp_path)
     suffixed = ai_agent_task_context_prompt(summary, tmp_path, "Reply in Russian.")
 
-    assert plain.endswith("treat them as the active task context.")
+    assert plain.endswith(
+        "resolved or stale task context entries unless the user asks or the active context explicitly requires "
+        "historical investigation."
+    )
     assert "Reply in Russian." not in plain
-    assert suffixed.endswith("treat them as the active task context. Reply in Russian.")
+    assert suffixed.endswith(
+        "resolved or stale task context entries unless the user asks or the active context explicitly requires "
+        "historical investigation. Reply in Russian."
+    )
 
 
 def test_task_check_errors_are_added_to_new_ai_prompt(tmp_path: Path) -> None:
     task = tmp_path / "tasks" / "sample-task"
     task.mkdir(parents=True)
-    summary = discover_tasks_with_context(task, tmp_path)
+    (task / "TASK_DESCRIPTION.md").write_text("# Description\n", encoding="utf-8")
+    summary = discover_tasks(tmp_path)[0]
 
     suffix = task_check_prompt_suffix(summary, tmp_path)
 
@@ -994,7 +1083,8 @@ def test_task_check_errors_are_added_to_new_ai_prompt(tmp_path: Path) -> None:
 def test_new_ai_launch_includes_task_check_errors(tmp_path: Path) -> None:
     task = tmp_path / "tasks" / "sample-task"
     task.mkdir(parents=True)
-    summary = discover_tasks_with_context(task, tmp_path)
+    (task / "TASK_DESCRIPTION.md").write_text("# Description\n", encoding="utf-8")
+    summary = discover_tasks(tmp_path)[0]
 
     launch = prepare_ai_agent_launch_command(
         summary,
@@ -1864,9 +1954,9 @@ def test_tk_selectable_task_iid_skips_external_active_tasks(tmp_path: Path, monk
     locked_path.mkdir(parents=True)
     open_path.mkdir(parents=True)
     (locked_path / "TASK_DESCRIPTION.md").write_text("# Description\n", encoding="utf-8")
-    (locked_path / "TASK_CONTEXT.md").write_text(_task_context(), encoding="utf-8")
+    ensure_task_context_database(locked_path)
     (open_path / "TASK_DESCRIPTION.md").write_text("# Description\n", encoding="utf-8")
-    (open_path / "TASK_CONTEXT.md").write_text(_task_context(), encoding="utf-8")
+    ensure_task_context_database(open_path)
     tasks = {task.name: task for task in discover_tasks(tmp_path)}
     locked = tasks["locked-task"]
     open_task = tasks["open-task"]
@@ -1888,9 +1978,9 @@ def test_tk_refresh_tasks_selects_open_task_when_previous_is_locked(tmp_path: Pa
     locked_path.mkdir(parents=True)
     open_path.mkdir(parents=True)
     (locked_path / "TASK_DESCRIPTION.md").write_text("# Description\n", encoding="utf-8")
-    (locked_path / "TASK_CONTEXT.md").write_text(_task_context(), encoding="utf-8")
+    ensure_task_context_database(locked_path)
     (open_path / "TASK_DESCRIPTION.md").write_text("# Description\n", encoding="utf-8")
-    (open_path / "TASK_CONTEXT.md").write_text(_task_context(), encoding="utf-8")
+    ensure_task_context_database(open_path)
     tasks = {task.name: task for task in discover_tasks(tmp_path)}
     locked = tasks["locked-task"]
     open_task = tasks["open-task"]
@@ -1925,9 +2015,9 @@ def test_tk_refresh_tasks_clears_selection_when_all_tasks_locked(tmp_path: Path,
     first_path.mkdir(parents=True)
     second_path.mkdir(parents=True)
     (first_path / "TASK_DESCRIPTION.md").write_text("# Description\n", encoding="utf-8")
-    (first_path / "TASK_CONTEXT.md").write_text(_task_context(), encoding="utf-8")
+    ensure_task_context_database(first_path)
     (second_path / "TASK_DESCRIPTION.md").write_text("# Description\n", encoding="utf-8")
-    (second_path / "TASK_CONTEXT.md").write_text(_task_context(), encoding="utf-8")
+    ensure_task_context_database(second_path)
     tasks = discover_tasks(tmp_path)
     tree = FakeTkTaskTree()
     tree.selection_set("stale")
@@ -1958,9 +2048,9 @@ def test_gtk_selectable_task_iter_skips_external_active_tasks(tmp_path: Path, mo
     locked_path.mkdir(parents=True)
     open_path.mkdir(parents=True)
     (locked_path / "TASK_DESCRIPTION.md").write_text("# Description\n", encoding="utf-8")
-    (locked_path / "TASK_CONTEXT.md").write_text(_task_context(), encoding="utf-8")
+    ensure_task_context_database(locked_path)
     (open_path / "TASK_DESCRIPTION.md").write_text("# Description\n", encoding="utf-8")
-    (open_path / "TASK_CONTEXT.md").write_text(_task_context(), encoding="utf-8")
+    ensure_task_context_database(open_path)
     tasks = {task.name: task for task in discover_tasks(tmp_path)}
     locked = tasks["locked-task"]
     open_task = tasks["open-task"]
@@ -2126,9 +2216,9 @@ def test_gtk_refresh_tasks_selects_open_task_when_previous_is_locked(tmp_path: P
     locked_path.mkdir(parents=True)
     open_path.mkdir(parents=True)
     (locked_path / "TASK_DESCRIPTION.md").write_text("# Description\n", encoding="utf-8")
-    (locked_path / "TASK_CONTEXT.md").write_text(_task_context(), encoding="utf-8")
+    ensure_task_context_database(locked_path)
     (open_path / "TASK_DESCRIPTION.md").write_text("# Description\n", encoding="utf-8")
-    (open_path / "TASK_CONTEXT.md").write_text(_task_context(), encoding="utf-8")
+    ensure_task_context_database(open_path)
     tasks = {task.name: task for task in discover_tasks(tmp_path)}
     locked = tasks["locked-task"]
     open_task = tasks["open-task"]
@@ -2163,9 +2253,9 @@ def test_gtk_refresh_tasks_clears_selection_when_all_tasks_locked(tmp_path: Path
     first_path.mkdir(parents=True)
     second_path.mkdir(parents=True)
     (first_path / "TASK_DESCRIPTION.md").write_text("# Description\n", encoding="utf-8")
-    (first_path / "TASK_CONTEXT.md").write_text(_task_context(), encoding="utf-8")
+    ensure_task_context_database(first_path)
     (second_path / "TASK_DESCRIPTION.md").write_text("# Description\n", encoding="utf-8")
-    (second_path / "TASK_CONTEXT.md").write_text(_task_context(), encoding="utf-8")
+    ensure_task_context_database(second_path)
     tasks = discover_tasks(tmp_path)
     selected_iters: list[object | None] = []
     gui = WorkspaceGtkGui.__new__(WorkspaceGtkGui)
@@ -2194,9 +2284,9 @@ def test_gtk_task_selection_rejects_external_active_task(tmp_path: Path) -> None
     open_path.mkdir(parents=True)
     locked_path.mkdir(parents=True)
     (open_path / "TASK_DESCRIPTION.md").write_text("# Description\n", encoding="utf-8")
-    (open_path / "TASK_CONTEXT.md").write_text(_task_context(), encoding="utf-8")
+    ensure_task_context_database(open_path)
     (locked_path / "TASK_DESCRIPTION.md").write_text("# Description\n", encoding="utf-8")
-    (locked_path / "TASK_CONTEXT.md").write_text(_task_context(), encoding="utf-8")
+    ensure_task_context_database(locked_path)
     tasks = {task.name: task for task in discover_tasks(tmp_path)}
     open_task = tasks["open-task"]
     locked_task = tasks["locked-task"]
@@ -3226,9 +3316,9 @@ def test_gtk_refresh_console_tabs_restores_last_focused_tab_per_task(tmp_path: P
     task_one.mkdir(parents=True)
     task_two.mkdir(parents=True)
     (task_one / "TASK_DESCRIPTION.md").write_text("# Description\n", encoding="utf-8")
-    (task_one / "TASK_CONTEXT.md").write_text(_task_context(), encoding="utf-8")
+    ensure_task_context_database(task_one)
     (task_two / "TASK_DESCRIPTION.md").write_text("# Description\n", encoding="utf-8")
-    (task_two / "TASK_CONTEXT.md").write_text(_task_context(), encoding="utf-8")
+    ensure_task_context_database(task_two)
     tasks = {task.name: task for task in discover_tasks(tmp_path)}
     summary_one = tasks["one"]
     summary_two = tasks["two"]
@@ -3289,9 +3379,9 @@ def test_gtk_task_selection_remembers_current_tab_before_switching(tmp_path: Pat
     task_one.mkdir(parents=True)
     task_two.mkdir(parents=True)
     (task_one / "TASK_DESCRIPTION.md").write_text("# Description\n", encoding="utf-8")
-    (task_one / "TASK_CONTEXT.md").write_text(_task_context(), encoding="utf-8")
+    ensure_task_context_database(task_one)
     (task_two / "TASK_DESCRIPTION.md").write_text("# Description\n", encoding="utf-8")
-    (task_two / "TASK_CONTEXT.md").write_text(_task_context(), encoding="utf-8")
+    ensure_task_context_database(task_two)
     tasks = {task.name: task for task in discover_tasks(tmp_path)}
     summary_one = tasks["one"]
     summary_two = tasks["two"]
@@ -3311,6 +3401,7 @@ def test_gtk_task_selection_remembers_current_tab_before_switching(tmp_path: Pat
     task_two_shell = TerminalSession(3, summary_two.path, "shell", Terminal(), task_two_shell_page)
     gui = WorkspaceGtkGui.__new__(WorkspaceGtkGui)
     gui.workspace = tmp_path
+    gui.language = "en"
     gui.default_agent = "codex"
     gui._updating_task_selection = False
     gui.selected_task = summary_one
@@ -4225,7 +4316,7 @@ def test_load_task_actions_and_run_command(tmp_path: Path) -> None:
     scripts = task / "scripts"
     scripts.mkdir(parents=True)
     (task / "TASK_DESCRIPTION.md").write_text("# Description\n", encoding="utf-8")
-    (task / "TASK_CONTEXT.md").write_text(_task_context(), encoding="utf-8")
+    ensure_task_context_database(task)
     (task / "TASK_ACTIONS.json").write_text(
         json.dumps(
             {
@@ -4462,7 +4553,7 @@ def test_load_task_actions_resolves_parameter_sets_and_shortcuts(tmp_path: Path)
     scripts = task / "scripts"
     scripts.mkdir(parents=True)
     (task / "TASK_DESCRIPTION.md").write_text("# Description\n", encoding="utf-8")
-    (task / "TASK_CONTEXT.md").write_text(_task_context(), encoding="utf-8")
+    ensure_task_context_database(task)
     (task / "TASK_ACTIONS.json").write_text(
         json.dumps(
             {
@@ -4817,7 +4908,7 @@ def test_load_task_actions_rejects_escaping_cwd(tmp_path: Path) -> None:
     task = tmp_path / "tasks" / "sample-task"
     task.mkdir(parents=True)
     (task / "TASK_DESCRIPTION.md").write_text("# Description\n", encoding="utf-8")
-    (task / "TASK_CONTEXT.md").write_text(_task_context(), encoding="utf-8")
+    ensure_task_context_database(task)
     (task / "TASK_ACTIONS.json").write_text(
         json.dumps(
             {
@@ -4842,55 +4933,5 @@ def test_load_task_actions_rejects_escaping_cwd(tmp_path: Path) -> None:
 
 def discover_tasks_with_context(task: Path, workspace: Path) -> TaskSummary:
     (task / "TASK_DESCRIPTION.md").write_text("# Description\n", encoding="utf-8")
-    (task / "TASK_CONTEXT.md").write_text(_task_context(), encoding="utf-8")
+    ensure_task_context_database(task)
     return discover_tasks(workspace)[0]
-
-
-def _task_context() -> str:
-    return """# Task Context
-
-## Goal
-
--
-
-## Repositories
-
--
-
-## Environment
-
--
-
-## Knowledge
-
--
-
-## Build/Product
-
--
-
-## Validation Status
-
-| Level | Status |
-| --- | --- |
-| static | not run |
-| build | not run |
-| runtime | not run |
-| review | not run |
-
-## Tool Failures
-
--
-
-## Decisions
-
--
-
-## Blockers
-
--
-
-## Next Steps
-
--
-"""

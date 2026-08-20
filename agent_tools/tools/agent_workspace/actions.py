@@ -4,6 +4,8 @@ import argparse
 from pathlib import Path
 import sys
 
+from agent_tools.tools.task_context import DATABASE_FILENAME as TASK_CONTEXT_DATABASE_FILE
+
 from .core import TaskSummary
 from .core import run_task_check
 
@@ -36,7 +38,7 @@ def _task_summary(task_path: Path) -> TaskSummary:
         name=task_path.name,
         path=task_path,
         has_description=(task_path / "TASK_DESCRIPTION.md").is_file(),
-        has_context=(task_path / "TASK_CONTEXT.md").is_file(),
+        has_context=(task_path / TASK_CONTEXT_DATABASE_FILE).is_file(),
         description_tokens=0,
         context_tokens=0,
         context_over_budget=False,

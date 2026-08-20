@@ -1,20 +1,21 @@
 ---
 name: task-context-journal
-description: Maintain compact workspace task context using the structured agent_tools.tools.task_context database. Use whenever Codex starts, updates, queries, compacts, or hands off TASK_CONTEXT.md, TASK_CONTEXT.sqlite3, task decisions, validation notes, blockers, build notes, environment notes, or other task working context.
+description: Maintain compact workspace task context using the structured agent_tools.tools.task_context database. Use whenever Codex starts, updates, queries, compacts, or hands off TASK_CONTEXT.sqlite3, task decisions, validation notes, blockers, build notes, environment notes, or other task working context.
 ---
 
 # Task Context Journal
 
 Use the workspace implementation at `agent_tools/tools/task_context`. Do not
-turn `TASK_CONTEXT.md` into an unbounded history file.
+recreate `TASK_CONTEXT.md`; the sqlite database is the task context source.
 
 Also follow `agent_tools/rules/task-workflow.md`; that rule is authoritative
 for task context policy.
 
 ## Core Idea
 
-`TASK_CONTEXT.sqlite3` is the durable transactional journal.
-`TASK_CONTEXT.md` is the compact active working set generated from that database.
+`TASK_CONTEXT.sqlite3` is the durable transactional journal and the task context
+source. Active entries are the compact working set; resolved and stale entries
+are queryable history.
 
 The model decides what is worth recording. The tool owns timestamps, severity,
 labels, filtering, and compaction.
@@ -85,7 +86,7 @@ Operations can be combined: `--set-status`, `--set-severity`, `--set-summary`,
 `--set-details`, `--set-source`, `--set-label`, `--add-label`,
 `--remove-label`, `--clear-labels`, equivalent artifact options, or `--delete`.
 
-Regenerate compact active context:
+Render compact active context:
 
 ```sh
 python3 -m agent_tools.tools.task_context compact \
@@ -96,10 +97,20 @@ python3 -m agent_tools.tools.task_context compact \
 
 ## Workflow
 
-1. At task start, read `TASK_CONTEXT.md` first. Query the journal only when you
-   need older, resolved, lower-severity, or label-specific history.
+1. At task start, query active journal entries first:
+
+   ```sh
+   python3 -m agent_tools.tools.task_context query \
+     --task tasks/<task-name> \
+     --severity mid..critical \
+     --status active \
+     --format markdown
+   ```
+
+   Query resolved, stale, lower-severity, or label-specific history only when
+   the user asks or active context requires historical investigation.
 2. When a useful fact appears, add it with `task_context add` instead of
-   manually growing `TASK_CONTEXT.md`.
+   creating or editing markdown context files.
 3. `active` is a working-set status, not a historical default. Do not leave an
    entry `active` after the work, validation, decision, blocker, or handoff it
    describes has been superseded, completed, invalidated, or made historical by
@@ -122,8 +133,8 @@ python3 -m agent_tools.tools.task_context compact \
    superseded entries `resolved`; mark obsolete, misleading, or no-longer-useful
    entries `stale`; add labels such as `superseded` when that clarifies why it
    left the active set.
-5. Run `task_context compact` only after the active-entry audit and edits. The
-   compact file must be a current working set for the next agent, not a newest
-   slice of old accomplishments.
+5. Run `task_context compact` only after the active-entry audit and edits when
+   a compact rendering is useful. It must describe the current working set, not
+   a newest slice of old accomplishments.
 6. Keep details concise. Link logs, reports, commits, and artifacts instead of
    pasting long output into journal entries.

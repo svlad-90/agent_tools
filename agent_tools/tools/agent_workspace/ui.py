@@ -407,7 +407,7 @@ class AgentWorkspace:
             if not task.has_description:
                 flags.append("missing desc")
             if not task.has_context:
-                flags.append("missing context")
+                flags.append("missing context db")
             if task.context_over_budget:
                 flags.append(f"context > {TASK_CONTEXT_BUDGET}")
             details = f"desc {task.description_tokens}, context {task.context_tokens}"
@@ -439,7 +439,7 @@ class AgentWorkspace:
             return
         self.selected_task = task
         self._set_markdown(self.description_text, read_task_file(task, "TASK_DESCRIPTION.md"))
-        self._set_markdown(self.context_text, read_task_file(task, "TASK_CONTEXT.md"))
+        self._set_markdown(self.context_text, "")
         self._reset_actions_tab(task)
         action_errors = self._load_task_action_buttons(task)
         messages = []

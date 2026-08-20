@@ -21,6 +21,10 @@ import uuid
 
 from agent_tools.paf_workspace.task_check import check_task
 from agent_tools.paf_workspace.task_check import render_text
+from agent_tools.tools.task_context import DATABASE_FILENAME as TASK_CONTEXT_DATABASE_FILE
+from agent_tools.tools.task_context import filter_entries as filter_task_context_entries
+from agent_tools.tools.task_context import load_entries as load_task_context_entries
+from agent_tools.tools.task_context import render_entries as render_task_context_entries
 
 from .workspace_strings import AGENT_STATUS_MANUAL_ENTRIES
 from .workspace_strings import AGENT_STATUS_MANUAL_MENU_LABEL
@@ -417,13 +421,13 @@ def discover_tasks(workspace: Path) -> list[TaskSummary]:
         key=lambda candidate: candidate.name.casefold(),
     ):
         description_path = path / "TASK_DESCRIPTION.md"
-        context_path = path / "TASK_CONTEXT.md"
+        context_path = path / TASK_CONTEXT_DATABASE_FILE
         has_description = description_path.is_file()
         has_context = context_path.is_file()
         if not has_description and not has_context:
             continue
         description_tokens = _file_tokens(description_path) if has_description else 0
-        context_tokens = _file_tokens(context_path) if has_context else 0
+        context_tokens = _active_task_context_tokens(path) if has_context else 0
         tasks.append(
             TaskSummary(
                 name=path.name,
@@ -591,8 +595,13 @@ def ai_agent_task_context_prompt(task: TaskSummary, workspace: Path, suffix: str
         f"We are working in workspace task `{task.name}`. "
         f"Workspace: {workspace}. "
         f"Task directory: {task.path}. "
-        "Before changing files, read that task's TASK_DESCRIPTION.md and "
-        "TASK_CONTEXT.md and treat them as the active task context."
+        "Before changing files, read that task's TASK_DESCRIPTION.md, then read "
+        "only active task context entries with "
+        "`python3 -m agent_tools.tools.task_context query --task "
+        f"{task.path} --severity mid..critical --status active --format markdown`. "
+        "Treat those active entries as the active task context. Do not read "
+        "resolved or stale task context entries unless the user asks or the "
+        "active context explicitly requires historical investigation."
     )
     if suffix:
         return f"{message} {suffix}"
@@ -1944,3 +1953,15 @@ def _command_field(value: object) -> str | tuple[str, ...] | None:
 
 def _file_tokens(path: Path) -> int:
     return rough_token_count(path.read_text(encoding="utf-8", errors="replace"))
+
+
+def _active_task_context_tokens(task_path: Path) -> int:
+    try:
+        entries = filter_task_context_entries(
+            load_task_context_entries(task_path),
+            severity="mid..critical",
+            statuses=("active",),
+        )
+    except (OSError, ValueError):
+        return 0
+    return rough_token_count(render_task_context_entries(entries, format_name="markdown"))

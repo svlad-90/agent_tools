@@ -17,7 +17,6 @@ from typing import Sequence
 
 DATABASE_FILENAME = "TASK_CONTEXT.sqlite3"
 LEGACY_JOURNAL_FILENAME = "TASK_CONTEXT_LOG.jsonl"
-CONTEXT_FILENAME = "TASK_CONTEXT.md"
 SEVERITIES = ("note", "low", "mid", "high", "critical")
 STATUSES = ("active", "resolved", "stale")
 DEFAULT_COMPACT_LIMIT = 40
@@ -93,10 +92,6 @@ def ensure_database(task_dir: Path) -> None:
         raise ValueError(f"task directory does not exist: {task_dir}")
     with sqlite3.connect(database_path(task_dir)) as connection:
         _create_schema(connection)
-
-
-def context_path(task_dir: Path) -> Path:
-    return task_dir / CONTEXT_FILENAME
 
 
 def add_entry(
@@ -404,7 +399,6 @@ def migrate_legacy_journal(task_dir: Path) -> int:
     with sqlite3.connect(database_path(task_dir)) as connection:
         for entry in entries:
             _insert_entry(connection, entry)
-    write_compact_context(task_dir)
     legacy_path.unlink()
     return len(entries)
 
@@ -490,18 +484,17 @@ def compact_context(
             "",
             "## Journal Query",
             "",
-            "Use `python3 -m agent_tools.tools.task_context query --task <task-dir>` ",
-            "to inspect older, resolved, lower-severity, or label-specific entries.",
+            "Default agent context comes from active entries only:",
+            "",
+            "`python3 -m agent_tools.tools.task_context query --task <task-dir> "
+            "--severity mid..critical --status active --format markdown`",
+            "",
+            "Query resolved or stale history only when the user asks or active context "
+            "requires historical investigation.",
             "",
         ]
     )
     return "\n".join(lines)
-
-
-def write_compact_context(task_dir: Path, **kwargs: object) -> str:
-    content = compact_context(task_dir, **kwargs)
-    context_path(task_dir).write_text(content, encoding="utf-8")
-    return content
 
 
 def _entry_text(entry: ContextEntry) -> str:
@@ -783,11 +776,8 @@ def compact_command(args: argparse.Namespace) -> int:
         "statuses": _split_csv(args.status) or ("active",),
         "limit": args.limit,
     }
-    content = compact_context(args.task, **kwargs) if args.dry_run else write_compact_context(args.task, **kwargs)
-    if args.dry_run or args.print:
-        print(content.rstrip())
-    else:
-        print(f"task-context: wrote {context_path(args.task)}")
+    content = compact_context(args.task, **kwargs)
+    print(content.rstrip())
     return 0
 
 
@@ -852,7 +842,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     edit_parser.add_argument("--format", choices=("text", "markdown", "json"), default="text")
     edit_parser.set_defaults(func=edit_command)
 
-    compact_parser = subparsers.add_parser("compact", help="Regenerate TASK_CONTEXT.md from SQLite.")
+    compact_parser = subparsers.add_parser("compact", help="Render compact task context from SQLite.")
     compact_parser.add_argument("--task", type=Path, required=True)
     compact_parser.add_argument("--since")
     compact_parser.add_argument("--until")
@@ -860,8 +850,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     compact_parser.add_argument("--label", action="append", default=[])
     compact_parser.add_argument("--status", action="append", default=["active"])
     compact_parser.add_argument("--limit", type=int, default=DEFAULT_COMPACT_LIMIT)
-    compact_parser.add_argument("--dry-run", action="store_true")
-    compact_parser.add_argument("--print", action="store_true")
+    compact_parser.add_argument("--dry-run", action="store_true", help=argparse.SUPPRESS)
+    compact_parser.add_argument("--print", action="store_true", help=argparse.SUPPRESS)
     compact_parser.set_defaults(func=compact_command)
 
     args = parser.parse_args(argv)

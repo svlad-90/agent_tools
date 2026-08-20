@@ -41,8 +41,8 @@ python -m agent_tools.tools.rules_sync sync --check
 ## Task Context
 
 Use `task_context` to keep long-running tasks compact without losing history.
-It stores durable context in `TASK_CONTEXT.sqlite3` and regenerates a short
-active `TASK_CONTEXT.md` for the next session.
+It stores durable context in `TASK_CONTEXT.sqlite3`. Agents read active entries
+from the database; resolved and stale entries stay queryable history.
 
 Add a dated finding:
 
@@ -191,8 +191,7 @@ running.
 
 It lists workspace tasks, renders `TASK_DESCRIPTION.md`, shows
 `TASK_CONTEXT.sqlite3` as a newest-first context journal with date, severity,
-status, and label filters, and falls back to `TASK_CONTEXT.md` when no
-structured database exists. It opens task and `dev/` folders, edits task
+status, and label filters. It opens task and `dev/` folders, edits task
 descriptions on demand, runs compact `task_check`, discovers repositories under
 `dev/`, runs task-declared actions from `TASK_ACTIONS.json` in the active
 console, manages per-task terminal tabs, starts one interactive AI agent

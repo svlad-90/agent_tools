@@ -15,8 +15,7 @@ Main capabilities:
 - browse task directories under `tasks/`;
 - render `TASK_DESCRIPTION.md`;
 - render `TASK_CONTEXT.sqlite3` as a newest-first context journal with date,
-  severity, status, and label filters, falling back to `TASK_CONTEXT.md` when
-  no structured database exists;
+  severity, status, and label filters;
 - edit task descriptions from the details context menu;
 - run compact `task_check` checks through the built-in action runner;
 - load task-declared actions from `TASK_ACTIONS.json` and run them in the

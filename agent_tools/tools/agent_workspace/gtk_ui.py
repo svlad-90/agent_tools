@@ -192,6 +192,7 @@ _TASK_ACTIONS_MONITOR_EVENTS = {
 }
 
 AGENT_BUSY_IDLE_DELAY_MS = 1800
+TASK_CONTEXT_DEFAULT_STATUS_FILTER = ("active",)
 
 
 @dataclass
@@ -406,7 +407,6 @@ class WorkspaceGtkGui:
         self.description_view = _text_view(self.text_font_size, editable=False)
         self.context_view = _text_view(self.text_font_size, editable=False)
         self._register_detail_view(self.description_view, "TASK_DESCRIPTION.md")
-        self._register_detail_view(self.context_view, "TASK_CONTEXT.md")
         pane.pack1(_scrolled(self.description_view), resize=True, shrink=False)
         context_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
         context_box.set_border_width(4)
@@ -478,10 +478,11 @@ class WorkspaceGtkGui:
         content.pack_start(all_check, False, False, 0)
         for value in values:
             check = Gtk.CheckButton(label=value)
-            check.set_active(True)
+            check.set_active(value in self._task_context_default_group_values(group, values))
             check.connect("toggled", self._on_task_context_item_toggled, group, target)
             target[value] = check
             content.pack_start(check, False, False, 0)
+        self._update_task_context_all_check(group, target)
         popover.add(content)
         content.show_all()
         button.set_popover(popover)
@@ -767,12 +768,11 @@ class WorkspaceGtkGui:
         try:
             entries = _load_task_context_entries(self.selected_task.path)
         except ValueError as exc:
-            fallback = read_task_file(self.selected_task, "TASK_CONTEXT.md")
-            self._set_markdown(self.context_view, f"# {self._tr('context_journal_error')}\n\n{exc}\n\n{fallback}")
+            self._set_markdown(self.context_view, f"# {self._tr('context_journal_error')}\n\n{exc}\n")
             return
         self._refresh_task_context_label_filter(entries)
         if not entries:
-            self._set_markdown(self.context_view, read_task_file(self.selected_task, "TASK_CONTEXT.md"))
+            self._set_markdown(self.context_view, f"# {self._tr('context_journal')}\n\n- {self._tr('context_filter_no_matches')}\n")
             return
         try:
             severity_values = self._task_context_filter_severity_value()
@@ -812,7 +812,7 @@ class WorkspaceGtkGui:
             ("status", self.task_context_status_checks),
             ("label", self.task_context_label_checks),
         ):
-            self._set_task_context_group_checks(group, checks, True)
+            self._set_task_context_group_checks_to_default(group, checks)
         self._on_task_context_filter_changed()
 
     def _task_context_filter_since_value(self) -> str | None:
@@ -903,6 +903,25 @@ class WorkspaceGtkGui:
             self._update_task_context_all_check(group, target)
         finally:
             self._updating_task_context_checks = False
+
+    def _set_task_context_group_checks_to_default(
+        self,
+        group: str,
+        target: dict[str, Gtk.CheckButton],
+    ) -> None:
+        selected = set(self._task_context_default_group_values(group, tuple(target)))
+        self._updating_task_context_checks = True
+        try:
+            for value, check in target.items():
+                check.set_active(value in selected)
+            self._update_task_context_all_check(group, target)
+        finally:
+            self._updating_task_context_checks = False
+
+    def _task_context_default_group_values(self, group: str, values: tuple[str, ...]) -> tuple[str, ...]:
+        if group == "status":
+            return tuple(value for value in values if value in TASK_CONTEXT_DEFAULT_STATUS_FILTER)
+        return values
 
     def _update_task_context_all_check(
         self,

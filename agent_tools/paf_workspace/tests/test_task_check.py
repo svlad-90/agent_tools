@@ -7,7 +7,9 @@ from paf_workspace.task_check import check_task
 from paf_workspace.task_check import initialize_task_layout
 from paf_workspace.task_check import main
 from paf_workspace.task_check import render_text
+from agent_tools.tools.task_context import add_entry
 from agent_tools.tools.task_context import DATABASE_FILENAME
+from agent_tools.tools.task_context import load_entries
 from agent_tools.tools.task_context import migrate_legacy_journal
 
 
@@ -18,7 +20,7 @@ def test_initialize_task_layout_creates_description_and_context(tmp_path: Path) 
     checks = check_task(task_dir, workspace=tmp_path)
 
     assert (task_dir / "TASK_DESCRIPTION.md").is_file()
-    assert (task_dir / "TASK_CONTEXT.md").is_file()
+    assert not (task_dir / "TASK_CONTEXT.md").exists()
     assert (task_dir / DATABASE_FILENAME).is_file()
     assert _has_check(initialize_checks, "PASS", "init-task-description")
     assert _has_check(initialize_checks, "PASS", "init-task-context-database")
@@ -79,14 +81,26 @@ def test_missing_task_description_is_warning_for_existing_task(tmp_path: Path) -
     assert not any(check.status == "FAIL" for check in checks)
 
 
+def test_legacy_task_context_markdown_is_non_strict_warning(tmp_path: Path) -> None:
+    task_dir = tmp_path / "tasks" / "sample-task"
+    initialize_task_layout(task_dir, workspace=tmp_path)
+    (task_dir / "TASK_CONTEXT.md").write_text("# Legacy context\n", encoding="utf-8")
+
+    checks = check_task(task_dir, workspace=tmp_path)
+    result = main([str(task_dir), "--workspace", str(tmp_path), "--strict-warnings", "--errors-only"])
+
+    assert _has_check(checks, "WARN", "task-context-markdown-legacy")
+    assert result == 0
+
+
 def test_strict_warnings_ignores_auto_runtime_readiness_warnings(tmp_path: Path) -> None:
     task_dir = tmp_path / "tasks" / "sample-task"
     initialize_task_layout(task_dir, workspace=tmp_path)
-    (task_dir / "TASK_CONTEXT.md").write_text(
-        "# Task Context\n\n"
-        "_Generated from `TASK_CONTEXT.sqlite3` at 2026-08-19T10:00:00._\n\n"
-        "This analysis task mentions Xen and QEMU, but it is not a runtime validation task yet.\n",
-        encoding="utf-8",
+    add_entry(
+        task_dir,
+        severity="mid",
+        summary="Analysis mentions Xen and QEMU",
+        details="This is not a runtime validation task yet.",
     )
 
     result = main([str(task_dir), "--workspace", str(tmp_path), "--strict-warnings", "--errors-only"])
@@ -111,33 +125,6 @@ def test_strict_warnings_honors_explicit_runtime_product_flag(tmp_path: Path) ->
     result = main([str(task_dir), "--workspace", str(tmp_path), "--strict-warnings", "--runtime-product", "--errors-only"])
 
     assert result == 1
-
-
-def test_compact_generated_task_context_uses_journal_checks(tmp_path: Path) -> None:
-    task_dir = tmp_path / "tasks" / "sample-task"
-    initialize_task_layout(task_dir, workspace=tmp_path)
-    (task_dir / "TASK_CONTEXT.md").write_text(
-        "# Task Context\n\n_Generated from `TASK_CONTEXT.sqlite3` at 2026-08-19T10:00:00._\n",
-        encoding="utf-8",
-    )
-
-    checks = check_task(task_dir, workspace=tmp_path)
-
-    assert _has_check(checks, "PASS", "task-context-compact")
-    assert not _has_check(checks, "WARN", "task-context-section-missing")
-
-
-def test_old_task_context_format_is_failure(tmp_path: Path) -> None:
-    task_dir = tmp_path / "tasks" / "sample-task"
-    initialize_task_layout(task_dir, workspace=tmp_path)
-    (task_dir / "TASK_CONTEXT.md").write_text(
-        "# Task Context\n\n## Goal\n\n- Legacy context format.\n",
-        encoding="utf-8",
-    )
-
-    checks = check_task(task_dir, workspace=tmp_path)
-
-    assert _has_check(checks, "FAIL", "task-context-format-old")
 
 
 def test_missing_task_context_database_is_failure(tmp_path: Path) -> None:
@@ -172,7 +159,8 @@ def test_legacy_task_context_can_be_migrated(tmp_path: Path) -> None:
 
     assert migrate_legacy_journal(task_dir) == 1
     assert not (task_dir / "TASK_CONTEXT_LOG.jsonl").exists()
-    assert "Legacy entry" in (task_dir / "TASK_CONTEXT.md").read_text(encoding="utf-8")
+    assert [entry.summary for entry in load_entries(task_dir)] == ["Legacy entry"]
+    assert not (task_dir / "TASK_CONTEXT.md").exists()
     assert _has_check(check_task(task_dir, workspace=tmp_path), "PASS", "task-context-database-valid")
 
 

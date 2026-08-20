@@ -3,7 +3,6 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from agent_tools.tools.task_context import CONTEXT_FILENAME
 from agent_tools.tools.task_context import DATABASE_FILENAME
 from agent_tools.tools.task_context import LEGACY_JOURNAL_FILENAME
 from agent_tools.tools.task_context import add_entry
@@ -14,7 +13,6 @@ from agent_tools.tools.task_context import load_entries
 from agent_tools.tools.task_context import main
 from agent_tools.tools.task_context import migrate_legacy_journal
 from agent_tools.tools.task_context import render_entries
-from agent_tools.tools.task_context import write_compact_context
 
 
 def test_add_entry_writes_sqlite_with_metadata(tmp_path: Path) -> None:
@@ -175,7 +173,7 @@ def test_edit_entries_requires_selector_and_operation(tmp_path: Path) -> None:
         raise AssertionError("edit without operation was accepted")
 
 
-def test_compact_context_writes_active_high_signal_markdown(tmp_path: Path) -> None:
+def test_compact_context_renders_active_high_signal_markdown(tmp_path: Path) -> None:
     add_entry(
         tmp_path,
         timestamp="2026-08-18T09:00:00",
@@ -191,14 +189,13 @@ def test_compact_context_writes_active_high_signal_markdown(tmp_path: Path) -> N
         labels=("decision",),
         status="active",
         summary="Use journal as source of truth",
-        details="TASK_CONTEXT.md stays compact.",
+        details="Only active sqlite entries are rendered.",
     )
 
-    content = write_compact_context(tmp_path, severity="mid..critical")
+    content = compact_context(tmp_path, severity="mid..critical")
 
-    assert (tmp_path / CONTEXT_FILENAME).read_text(encoding="utf-8") == content
     assert "Use journal as source of truth" in content
-    assert "TASK_CONTEXT.md stays compact." in content
+    assert "Only active sqlite entries are rendered." in content
     assert "Old blocker" not in content
 
 
@@ -249,7 +246,7 @@ def test_cli_add_query_and_compact(tmp_path: Path, capsys: object) -> None:
     assert main(["compact", "--task", str(tmp_path), "--print"]) == 0
     compact_output = capsys.readouterr().out
     assert "Build validation passed" in compact_output
-    assert (tmp_path / CONTEXT_FILENAME).is_file()
+    assert not (tmp_path / "TASK_CONTEXT.md").exists()
 
 
 def test_cli_edit_dry_run_update_and_delete(tmp_path: Path, capsys: object) -> None:

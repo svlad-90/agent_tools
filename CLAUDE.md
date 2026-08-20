@@ -156,13 +156,15 @@ These rules apply to every task directory under the workspace root.
    `TASK_DESCRIPTION.md` for the stable request, intended scope, acceptance
    criteria, and non-status background. If it is missing, create or refresh it
    from `agent_tools/paf_workspace/templates/TASK_DESCRIPTION.md`.
-3. Read `TASK_CONTEXT.md` only after the directory is selected as the target
-   task, or when the user explicitly asks to inspect neighboring or related
-   tasks. Do not scan every neighboring `TASK_CONTEXT.md` during normal task
-   discovery. `TASK_CONTEXT.md` is the compact active working set, not the
-   historical log. If it is missing or too sparse to continue safely, query or
-   create `TASK_CONTEXT.sqlite3` with
-   `python3 -m agent_tools.tools.task_context` and regenerate compact context.
+3. Query active task context from `TASK_CONTEXT.sqlite3` only after the
+   directory is selected as the target task, or when the user explicitly asks
+   to inspect neighboring or related tasks. Use
+   `python3 -m agent_tools.tools.task_context query --task <task-dir>
+   --severity mid..critical --status active --format markdown`. Do not scan every
+   neighboring task context database during normal task discovery. Active
+   entries are the compact working set, not the historical log. If the database
+   is missing or too sparse to continue safely, create or update it with
+   `python3 -m agent_tools.tools.task_context`.
 4. Identify the task topics before deep work. Read
    `agent_tools/knowledge/README.md` and every matching topic file under
    `agent_tools/knowledge/topics/`, for example Xen/QEMU work reads
@@ -171,9 +173,8 @@ These rules apply to every task directory under the workspace root.
    through the task context journal.
 5. Maintain task context through the structured journal:
 
-   - `TASK_CONTEXT.sqlite3` is the transactional journal of dated findings.
-   - `TASK_CONTEXT.md` is generated compact active context for the next human
-     or agent session.
+   - `TASK_CONTEXT.sqlite3` is the transactional journal of dated findings and
+     the only task context source.
    - Use `python3 -m agent_tools.tools.task_context add --task <task-dir> ...`
      to record facts with severity, status, labels, details, and artifacts.
    - Use `python3 -m agent_tools.tools.task_context query --task <task-dir>
@@ -189,8 +190,9 @@ These rules apply to every task directory under the workspace root.
      must become `resolved`; obsolete or misleading entries must become
      `stale`; only facts that still affect the next session stay `active`.
    - Use `python3 -m agent_tools.tools.task_context compact --task <task-dir>`
-     only after the active-entry audit, before handoff, after validation, after
-     resolving blockers, and whenever `TASK_CONTEXT.md` is becoming noisy.
+     only after the active-entry audit when a compact active-context rendering
+     is useful for review. It prints the current active working set; it must not
+     regenerate a markdown task context file.
      Legacy JSONL journals can be imported once with
      `python3 -m agent_tools.tools.task_context migrate --task <task-dir>`.
 

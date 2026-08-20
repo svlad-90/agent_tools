@@ -15,14 +15,6 @@ TRACKED_MARKDOWN_TOTAL_BUDGET = 40_000
 TRACKED_MARKDOWN_FILE_BUDGET = 5_000
 SINGLE_TASK_BOOTSTRAP_TOTAL_BUDGET = 25_000
 SINGLE_TASK_BOOTSTRAP_FILE_BUDGET = 3_000
-TASK_CONTEXT_FILE_BUDGET = 8_000
-LEGACY_OVERSIZED_TASK_CONTEXTS = {
-    Path("tasks/zephyr-xenstore-client/TASK_CONTEXT.md"),
-    Path("tasks/zephyr-hypercalls/TASK_CONTEXT.md"),
-    Path("tasks/zephyr-per-vcpu-events/TASK_CONTEXT.md"),
-}
-
-
 def test_tracked_markdown_stays_within_workspace_token_budget() -> None:
     entries = _markdown_entries(_tracked_markdown_files())
 
@@ -59,22 +51,6 @@ def test_single_task_bootstrap_markdown_stays_within_token_budget() -> None:
         "single task bootstrap markdown per-file",
         oversized[0].tokens if oversized else 0,
         SINGLE_TASK_BOOTSTRAP_FILE_BUDGET,
-        oversized,
-    )
-
-
-def test_task_context_markdown_stays_within_file_budget() -> None:
-    entries = _markdown_entries(_top_level_task_context_files())
-    oversized = [
-        entry
-        for entry in entries
-        if entry.tokens > TASK_CONTEXT_FILE_BUDGET and entry.path not in LEGACY_OVERSIZED_TASK_CONTEXTS
-    ]
-
-    assert not oversized, _budget_message(
-        "task context markdown per-file",
-        oversized[0].tokens if oversized else 0,
-        TASK_CONTEXT_FILE_BUDGET,
         oversized,
     )
 
@@ -120,20 +96,10 @@ def _single_task_bootstrap_markdown_files() -> tuple[Path, ...]:
         )
     )
 
-    for path in (
-        Path("agent_tools/paf_workspace/templates/TASK_DESCRIPTION.md"),
-        Path("agent_tools/paf_workspace/templates/TASK_CONTEXT.md"),
-    ):
+    for path in (Path("agent_tools/paf_workspace/templates/TASK_DESCRIPTION.md"),):
         if (WORKSPACE_ROOT / path).is_file():
             paths.append(path)
     return tuple(dict.fromkeys(paths))
-
-
-def _top_level_task_context_files() -> tuple[Path, ...]:
-    task_root = WORKSPACE_ROOT / "tasks"
-    if task_root.is_dir():
-        return tuple(sorted(path.relative_to(WORKSPACE_ROOT) for path in task_root.glob("*/TASK_CONTEXT.md")))
-    return tuple(sorted(path.relative_to(WORKSPACE_ROOT) for path in WORKSPACE_ROOT.glob("*/TASK_CONTEXT.md")))
 
 
 def _relative_markdown_files(directory: Path) -> list[Path]:

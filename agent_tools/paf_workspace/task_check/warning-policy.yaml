@@ -22,3 +22,9 @@ non_strict_warnings:
     strict_when_flags:
       - xen_runtime
       - init_runtime_product
+
+  task-context-markdown-legacy:
+    reason: >
+      TASK_CONTEXT.md is legacy compatibility noise. It should be removed, but
+      its presence does not block a task when TASK_CONTEXT.sqlite3 is valid.
+    strict_when_flags: []

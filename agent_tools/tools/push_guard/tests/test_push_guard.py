@@ -171,10 +171,6 @@ def test_task_check_report_is_required_for_repositories_inside_tasks(
     repo.mkdir(parents=True)
     task_dir = workspace / "tasks" / "sample-task"
     (task_dir / "TASK_DESCRIPTION.md").write_text("# Task\n", encoding="utf-8")
-    (task_dir / "TASK_CONTEXT.md").write_text(
-        "# Task Context\n\n_Generated from `TASK_CONTEXT.sqlite3`._\n",
-        encoding="utf-8",
-    )
     monkeypatch.setenv("AGENT_TOOLS_WORKSPACE_ROOT", str(workspace))
 
     report = _task_check_report_for_repo(repo)

@@ -12,29 +12,16 @@ from typing import Any
 import yaml
 
 from agent_tools.tools.task_context import DATABASE_FILENAME as TASK_CONTEXT_DATABASE_FILE
+from agent_tools.tools.task_context import ContextEntry
 from agent_tools.tools.task_context import ensure_database as ensure_task_context_database
 from agent_tools.tools.task_context import load_entries as load_task_context_entries
 
 
 REQUIRED_DIRS = ("dev", "Dockerfile", "scripts", "report", "report/diff", "report/puml")
 TASK_METADATA_FILE = "TASK_METADATA.json"
-TASK_CONTEXT_SECTIONS = (
-    "## Goal",
-    "## Repositories",
-    "## Environment",
-    "## Knowledge",
-    "## Build/Product",
-    "## Validation Status",
-    "## Tool Failures",
-    "## Decisions",
-    "## Blockers",
-    "## Next Steps",
-)
-VALIDATION_LEVELS = ("static", "build", "runtime", "review")
 RUNTIME_HINTS = ("xen", "qemu", "moulin", "dom0", "domu", "hypervisor")
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
 PAF_WORKSPACE_ROOT = PROJECT_ROOT / "agent_tools" / "paf_workspace"
-TASK_CONTEXT_TEMPLATE = PAF_WORKSPACE_ROOT / "templates" / "TASK_CONTEXT.md"
 TASK_DESCRIPTION_TEMPLATE = PAF_WORKSPACE_ROOT / "templates" / "TASK_DESCRIPTION.md"
 PRODUCT_ARTIFACTS_TEMPLATE = PAF_WORKSPACE_ROOT / "templates" / "product-artifacts.yaml"
 DEFAULT_RUNTIME_YAML_NAME = "xen-zephyr-runtime.yaml"
@@ -94,7 +81,7 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help=(
             "Create missing task directories, TASK_DESCRIPTION.md, and "
-            "TASK_CONTEXT.md plus TASK_CONTEXT.sqlite3."
+            "TASK_CONTEXT.sqlite3."
         ),
     )
     parser.add_argument(
@@ -208,16 +195,15 @@ def check_task(
 
     checks.extend(_check_layout(task_dir))
     checks.extend(_check_task_description(task_dir))
-    context_text = _read_task_context(task_dir, checks)
-    if context_text is not None:
-        checks.extend(_check_task_context(task_dir, context_text))
+    checks.extend(_check_legacy_task_context_markdown(task_dir))
+    _, context_text = _load_task_context(task_dir, checks)
 
     manifests = _find_artifact_manifests(task_dir)
     harness_profiles = _find_xen_zephyr_harness_profiles(task_dir)
 
-    has_runtime_hints = _has_runtime_hints(context_text or "")
+    has_runtime_hints = _has_runtime_hints(context_text)
     should_check_manifest = require_runtime_product or has_runtime_hints or bool(manifests) or bool(harness_profiles)
-    should_check_scenarios = require_xen_runtime or bool(harness_profiles) or _has_xen_hints(context_text or "")
+    should_check_scenarios = require_xen_runtime or bool(harness_profiles) or _has_xen_hints(context_text)
 
     if should_check_manifest:
         checks.extend(_check_artifact_manifests(task_dir, manifests))
@@ -287,16 +273,6 @@ def initialize_task_layout(task_dir: Path, *, workspace: Path, privacy: str = "p
         checks.append(
             Check("PASS", "init-task-description", "created TASK_DESCRIPTION.md from template", str(description_path))
         )
-
-    context_path = task_dir / "TASK_CONTEXT.md"
-    if context_path.exists():
-        checks.append(
-            Check("PASS", "init-task-context-existing", "TASK_CONTEXT.md already exists", str(context_path))
-        )
-    else:
-        template = TASK_CONTEXT_TEMPLATE.read_text(encoding="utf-8")
-        context_path.write_text(template, encoding="utf-8")
-        checks.append(Check("PASS", "init-task-context", "created TASK_CONTEXT.md from template", str(context_path)))
 
     database_path = task_dir / TASK_CONTEXT_DATABASE_FILE
     if database_path.exists():
@@ -470,62 +446,50 @@ def _check_task_description(task_dir: Path) -> list[Check]:
     return [Check("PASS", "task-description", "TASK_DESCRIPTION.md exists", str(path))]
 
 
-def _read_task_context(task_dir: Path, checks: list[Check]) -> str | None:
+def _check_legacy_task_context_markdown(task_dir: Path) -> list[Check]:
     path = task_dir / "TASK_CONTEXT.md"
     if not path.exists():
-        checks.append(Check("FAIL", "task-context-missing", "TASK_CONTEXT.md is missing", str(path)))
-        return None
+        return []
     if not path.is_file():
-        checks.append(Check("FAIL", "task-context-not-file", "TASK_CONTEXT.md is not a file", str(path)))
-        return None
-    text = path.read_text(encoding="utf-8")
-    checks.append(Check("PASS", "task-context", "TASK_CONTEXT.md exists", str(path)))
-    return text
+        return [Check("FAIL", "task-context-markdown-not-file", "legacy TASK_CONTEXT.md path is not a file", str(path))]
+    return [
+        Check(
+            "WARN",
+            "task-context-markdown-legacy",
+            "legacy TASK_CONTEXT.md is ignored; task context comes from TASK_CONTEXT.sqlite3",
+            str(path),
+        )
+    ]
 
 
-def _check_task_context(task_dir: Path, text: str) -> list[Check]:
-    checks: list[Check] = []
-    context_path = str(task_dir / "TASK_CONTEXT.md")
+def _load_task_context(task_dir: Path, checks: list[Check]) -> tuple[list[ContextEntry], str]:
     database_path = task_dir / TASK_CONTEXT_DATABASE_FILE
     if database_path.is_file():
         checks.append(Check("PASS", "task-context-database", f"{TASK_CONTEXT_DATABASE_FILE} exists", str(database_path)))
         try:
-            load_task_context_entries(task_dir)
+            entries = load_task_context_entries(task_dir)
             checks.append(Check("PASS", "task-context-database-valid", f"{TASK_CONTEXT_DATABASE_FILE} is valid", str(database_path)))
+            return entries, _task_context_search_text(entries)
         except (ValueError, OSError, sqlite3.DatabaseError) as exc:
             checks.append(Check("FAIL", "task-context-database-invalid", str(exc), str(database_path)))
+            return [], ""
     else:
         checks.append(
             Check(
                 "FAIL",
                 "task-context-database-missing",
-                f"{TASK_CONTEXT_DATABASE_FILE} is missing; use agent_tools.tools.task_context migrate for legacy task context",
+                f"{TASK_CONTEXT_DATABASE_FILE} is missing; initialize task context database",
                 str(database_path),
             )
         )
-    if f"Generated from `{TASK_CONTEXT_DATABASE_FILE}`" in text:
-        checks.append(Check("PASS", "task-context-compact", "TASK_CONTEXT.md is generated from the task context database", context_path))
-        return checks
-    checks.append(
-        Check(
-            "FAIL",
-            "task-context-format-old",
-            f"TASK_CONTEXT.md must be generated from {TASK_CONTEXT_DATABASE_FILE}; run agent_tools.tools.task_context compact",
-            context_path,
-        )
-    )
-    for section in TASK_CONTEXT_SECTIONS:
-        if section in text:
-            checks.append(Check("PASS", "task-context-section", f"section present: {section}", context_path))
-        else:
-            checks.append(Check("WARN", "task-context-section-missing", f"section missing: {section}", context_path))
+    return [], ""
 
-    for level in VALIDATION_LEVELS:
-        if level in text:
-            checks.append(Check("PASS", "validation-level", f"validation level mentioned: {level}", context_path))
-        else:
-            checks.append(Check("WARN", "validation-level-missing", f"validation level missing: {level}", context_path))
-    return checks
+
+def _task_context_search_text(entries: list[ContextEntry]) -> str:
+    parts: list[str] = []
+    for entry in entries:
+        parts.extend((entry.summary, entry.details, " ".join(entry.labels), " ".join(entry.artifacts)))
+    return "\n".join(part for part in parts if part)
 
 
 def _check_artifact_manifests(task_dir: Path, manifests: list[Path]) -> list[Check]:

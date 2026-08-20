@@ -10,16 +10,17 @@ python -m agent_tools.paf_workspace.task_check task-name
 ```
 
 Run from the workspace root. The command checks the standard task layout,
-`TASK_DESCRIPTION.md`, compact `TASK_CONTEXT.md`, and `TASK_CONTEXT.sqlite3`,
-validation-level tracking for legacy context files, product artifact manifests,
-and Xen/Zephyr runtime YAML metadata.
-The structured context format is mandatory: `TASK_CONTEXT.sqlite3` must exist
-and be readable, and `TASK_CONTEXT.md` must be generated from that database.
+`TASK_DESCRIPTION.md`, `TASK_CONTEXT.sqlite3`, product artifact manifests, and
+Xen/Zephyr runtime YAML metadata.
+The structured context database is mandatory: `TASK_CONTEXT.sqlite3` must exist
+and be readable.
+Legacy `TASK_CONTEXT.md` files are ignored as context sources and reported as
+non-strict warnings so they can be removed without blocking unrelated work.
 For a task that still has the legacy `TASK_CONTEXT_LOG.jsonl`, run
 `python -m agent_tools.tools.task_context migrate --task tasks/task-name`.
 
 Create a missing task layout without overwriting an existing description or
-context file:
+context database:
 
 ```sh
 python -m agent_tools.paf_workspace.task_check task-name --init-layout
@@ -71,8 +72,8 @@ strict mode fail when they were enabled only by context hints. They do become
 strict-fatal when the corresponding check is explicitly requested with
 `--runtime-product`, `--xen-runtime`, or `--init-runtime-product`.
 
-Runtime-product and Xen runtime YAML checks are enabled automatically when
-`TASK_CONTEXT.md` contains Xen/QEMU/Moulin hints or matching files already
+Runtime-product and Xen runtime YAML checks are enabled automatically when the
+task context database contains Xen/QEMU/Moulin hints or matching files already
 exist. Force those checks explicitly before setting up a new runtime task:
 
 ```sh
