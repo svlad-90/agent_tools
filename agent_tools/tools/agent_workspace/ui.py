@@ -64,6 +64,7 @@ from .core import parse_console_output
 from .core import prepare_ai_agent_launch_command
 from .core import read_task_file
 from .core import render_markdown_chunks
+from .core import render_task_context_details
 from .core import reset_task_agent_session
 from .core import save_agent_workspace_settings
 from .core import save_task_active_agent_run
@@ -84,6 +85,8 @@ from .commands import codex_executable as _codex_executable
 from .commands import sys_executable
 from .commands import task_action_shell_command
 from .commands import task_check_shell_command
+from agent_tools.tools.task_context import filter_entries as _filter_task_context_entries
+from agent_tools.tools.task_context import load_entries as _load_task_context_entries
 from .tk_strings import AI_AGENT_BUTTON_LABELS as _AI_AGENT_BUTTON_LABELS
 from .tk_strings import tk_string
 
@@ -176,6 +179,14 @@ class AgentWorkspace:
         self.default_codex_reasoning = settings.default_codex_reasoning
         self.default_claude_model = settings.default_claude_model
         self.default_claude_effort = settings.default_claude_effort
+        self.inject_task_context_prompt = settings.inject_task_context_prompt
+        self.task_dictionary_auto_discovery = settings.task_dictionary_auto_discovery
+        self.task_dictionary_min_occurrences = settings.task_dictionary_min_occurrences
+        self.task_dictionary_min_saving = settings.task_dictionary_min_saving
+        self.task_dictionary_min_term_length = settings.task_dictionary_min_term_length
+        self.task_dictionary_max_term_words = settings.task_dictionary_max_term_words
+        self.task_dictionary_strip_articles = settings.task_dictionary_strip_articles
+        self.task_dictionary_preview_text = settings.task_dictionary_preview_text
         self.window_geometry = settings.window_geometry
         self.style = ttk.Style(self.root)
         self.text_font = tkfont.Font(
@@ -274,6 +285,7 @@ class AgentWorkspace:
         self.notebook = ttk.Notebook(right)
         self.notebook.pack(fill=tk.BOTH, expand=True)
         self._add_actions_tab()
+        self.encoded_context_var = tk.BooleanVar(value=False)
         self.description_text, self.context_text = self._add_details_tab()
         self.notebook.bind("<<NotebookTabChanged>>", self._on_notebook_tab_changed)
         self.root.after_idle(self._set_main_default_split)
@@ -285,14 +297,36 @@ class AgentWorkspace:
         details.bind("<Double-Button-1>", self._on_details_split_double_clicked)
         details.pack(fill=tk.BOTH, expand=True)
         description_text = self._add_labeled_text_pane(details, "Description")
-        context_text = self._add_labeled_text_pane(details, "Context")
+        context_text = self._add_labeled_text_pane(
+            details,
+            "Context",
+            controls=self._task_context_controls,
+        )
         self.notebook.add(frame, text="Details")
         self.root.after_idle(self._set_details_default_split)
         return description_text, context_text
 
-    def _add_labeled_text_pane(self, parent: ttk.PanedWindow, title: str) -> tk.Text:
+    def _task_context_controls(self, parent: ttk.Frame) -> None:
+        ttk.Checkbutton(
+            parent,
+            text="Encoded",
+            variable=self.encoded_context_var,
+            command=self._refresh_context_details,
+        ).pack(side=tk.RIGHT, padx=2)
+
+    def _add_labeled_text_pane(
+        self,
+        parent: ttk.PanedWindow,
+        title: str,
+        *,
+        controls: object | None = None,
+    ) -> tk.Text:
         frame = ttk.Frame(parent, padding=(0, 0, 0, 4))
-        ttk.Label(frame, text=title).pack(side=tk.TOP, anchor=tk.W, padx=2, pady=(0, 2))
+        header = ttk.Frame(frame)
+        header.pack(side=tk.TOP, fill=tk.X, padx=2, pady=(0, 2))
+        ttk.Label(header, text=title).pack(side=tk.LEFT, anchor=tk.W)
+        if callable(controls):
+            controls(header)
         body = ttk.Frame(frame)
         body.pack(side=tk.TOP, fill=tk.BOTH, expand=True)
         text = tk.Text(body, wrap=tk.WORD, undo=False, font=self.text_font)
@@ -439,7 +473,7 @@ class AgentWorkspace:
             return
         self.selected_task = task
         self._set_markdown(self.description_text, read_task_file(task, "TASK_DESCRIPTION.md"))
-        self._set_markdown(self.context_text, "")
+        self._refresh_context_details()
         self._reset_actions_tab(task)
         action_errors = self._load_task_action_buttons(task)
         messages = []
@@ -456,6 +490,29 @@ class AgentWorkspace:
         self._refresh_tree_selection_style()
         if self._is_console_tab_selected():
             self.activate_console_for_task(task)
+
+    def _refresh_context_details(self) -> None:
+        if self.selected_task is None:
+            if hasattr(self, "context_text"):
+                self._set_markdown(self.context_text, "")
+            return
+        try:
+            entries = _filter_task_context_entries(
+                _load_task_context_entries(self.selected_task.path),
+                severity="mid..critical",
+                statuses=("active",),
+                newest_first=True,
+            )
+            body = render_task_context_details(
+                self.selected_task,
+                entries,
+                encoded=self.encoded_context_var.get(),
+            )
+        except (OSError, ValueError) as exc:
+            body = f"# Context Journal Error\n\n{exc}\n"
+        if not body:
+            body = "- No matching context entries."
+        self._set_markdown(self.context_text, body)
 
     def _selectable_task_iid(
         self,
@@ -665,8 +722,19 @@ class AgentWorkspace:
         close_button.focus_set()
 
     def _on_notebook_tab_changed(self, _event: object) -> None:
-        if self.selected_task is not None and self._is_console_tab_selected():
+        if self.selected_task is None:
+            return
+        if self._is_details_tab_selected():
+            self._set_markdown(self.description_text, read_task_file(self.selected_task, "TASK_DESCRIPTION.md"))
+            self._refresh_context_details()
+        elif self._is_console_tab_selected():
             self.activate_console_for_task(self.selected_task)
+
+    def _is_details_tab_selected(self) -> bool:
+        try:
+            return self.notebook.tab(self.notebook.select(), "text") == "Details"
+        except tk.TclError:
+            return False
 
     def open_task(self) -> None:
         task = self._require_task()
@@ -1095,6 +1163,7 @@ class AgentWorkspace:
             claude_effort=self.default_claude_effort,
             codex_executable=_codex_executable(),
             claude_executable=_claude_executable(),
+            inject_task_context=self.inject_task_context_prompt,
             include_task_check=True,
         )
         self._update_ai_agent_button_label()
@@ -2134,6 +2203,14 @@ class AgentWorkspace:
                 "default_codex_reasoning": self.default_codex_reasoning,
                 "default_claude_model": self.default_claude_model,
                 "default_claude_effort": self.default_claude_effort,
+                "inject_task_context_prompt": self.inject_task_context_prompt,
+                "task_dictionary_auto_discovery": self.task_dictionary_auto_discovery,
+                "task_dictionary_min_occurrences": self.task_dictionary_min_occurrences,
+                "task_dictionary_min_saving": self.task_dictionary_min_saving,
+                "task_dictionary_min_term_length": self.task_dictionary_min_term_length,
+                "task_dictionary_max_term_words": self.task_dictionary_max_term_words,
+                "task_dictionary_strip_articles": self.task_dictionary_strip_articles,
+                "task_dictionary_preview_text": self.task_dictionary_preview_text,
                 "geometry": self.root.geometry(),
             }
         )
@@ -2149,7 +2226,12 @@ class AgentWorkspace:
         self.root.destroy()
 
 def ai_agent_task_context_message(task: TaskSummary, workspace: Path) -> str:
-    return ai_agent_task_context_prompt(task, workspace)
+    settings = agent_workspace_runtime_settings(load_agent_workspace_settings(), default_font_size=13)
+    return ai_agent_task_context_prompt(
+        task,
+        workspace,
+        inject_task_context=settings.inject_task_context_prompt,
+    )
 
 
 def codex_task_context_message(task: TaskSummary, workspace: Path) -> str:

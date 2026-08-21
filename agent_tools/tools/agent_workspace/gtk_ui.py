@@ -23,9 +23,14 @@ from gi.repository import Pango
 from gi.repository import Vte
 
 from agent_tools.tools.task_context import ContextEntry
+from agent_tools.tools.task_context import DICTIONARY_TOKEN_RE
+from agent_tools.tools.task_context import DictionaryPreview
 from agent_tools.tools.task_context import STATUSES as TASK_CONTEXT_STATUSES
+from agent_tools.tools.task_context import TaskDictionaryPolicy
 from agent_tools.tools.task_context import filter_entries as _filter_task_context_entries
+from agent_tools.tools.task_context import load_dictionary as _load_task_context_dictionary
 from agent_tools.tools.task_context import load_entries as _load_task_context_entries
+from agent_tools.tools.task_context import preview_dictionary_compile
 
 from .artifacts import ArtifactEntry
 from .artifacts import artifact_context_action as _artifact_context_action
@@ -263,6 +268,14 @@ class WorkspaceGtkGui:
         self.default_codex_reasoning = settings.default_codex_reasoning
         self.default_claude_model = settings.default_claude_model
         self.default_claude_effort = settings.default_claude_effort
+        self.inject_task_context_prompt = settings.inject_task_context_prompt
+        self.task_dictionary_auto_discovery = settings.task_dictionary_auto_discovery
+        self.task_dictionary_min_occurrences = settings.task_dictionary_min_occurrences
+        self.task_dictionary_min_saving = settings.task_dictionary_min_saving
+        self.task_dictionary_min_term_length = settings.task_dictionary_min_term_length
+        self.task_dictionary_max_term_words = settings.task_dictionary_max_term_words
+        self.task_dictionary_strip_articles = settings.task_dictionary_strip_articles
+        self.task_dictionary_preview_text = settings.task_dictionary_preview_text
         self.window_geometry = settings.window_geometry
         self.main_split_ratio = settings.main_split_ratio
         self.details_split_ratio = settings.details_split_ratio
@@ -456,6 +469,9 @@ class WorkspaceGtkGui:
         self.task_context_label_box = label_box
         box.pack_start(label_button, False, False, 0)
 
+        self.task_context_encoded_check = Gtk.CheckButton(label="Encoded")
+        self.task_context_encoded_check.connect("toggled", self._on_task_context_filter_changed)
+        box.pack_start(self.task_context_encoded_check, False, False, 0)
         box.pack_start(self._button("context_filter_clear", self._clear_task_context_filters), False, False, 0)
         self._update_task_context_date_buttons()
         return box
@@ -794,7 +810,10 @@ class WorkspaceGtkGui:
             self._set_markdown(self.context_view, f"# {self._tr('context_filter_error')}\n\n{exc}\n")
             return
         if filtered:
-            body = _task_context_cards_markdown(filtered)
+            if self.task_context_encoded_check.get_active():
+                body = _encoded_task_context_cards_markdown(self.selected_task, filtered)
+            else:
+                body = _task_context_cards_markdown(filtered)
         else:
             body = f"- {self._tr('context_filter_no_matches')}"
         self._set_markdown(self.context_view, f"# {self._tr('context_journal')}\n\n{body}\n")
@@ -1555,12 +1574,19 @@ class WorkspaceGtkGui:
             transient_for=self.window,
             flags=Gtk.DialogFlags.MODAL,
         )
+        dialog.set_default_size(920, 760)
         dialog.add_button(self._tr("cancel"), Gtk.ResponseType.CANCEL)
         dialog.add_button(self._tr("ok"), Gtk.ResponseType.OK)
         content = dialog.get_content_area()
-        grid = Gtk.Grid(column_spacing=10, row_spacing=10)
-        grid.set_border_width(12)
-        content.add(grid)
+        notebook = Gtk.Notebook()
+        content.add(notebook)
+        general_grid = Gtk.Grid(column_spacing=10, row_spacing=10)
+        general_grid.set_border_width(12)
+        dictionary_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
+        dictionary_box.set_border_width(12)
+        dictionary_grid = Gtk.Grid(column_spacing=10, row_spacing=8)
+        notebook.append_page(general_grid, Gtk.Label(label="General"))
+        notebook.append_page(dictionary_box, Gtk.Label(label="Dictionary"))
 
         text_size = Gtk.SpinButton.new_with_range(8, 28, 1)
         text_size.set_value(self.text_font_size)
@@ -1613,6 +1639,76 @@ class WorkspaceGtkGui:
             if self.default_claude_effort in AGENT_WORKSPACE_REASONING_EFFORTS
             else 0
         )
+        dictionary_auto = Gtk.CheckButton()
+        dictionary_auto.set_active(self.task_dictionary_auto_discovery)
+        dictionary_strip_articles = Gtk.CheckButton()
+        dictionary_strip_articles.set_active(self.task_dictionary_strip_articles)
+        dictionary_min_occurrences = Gtk.SpinButton.new_with_range(1, 20, 1)
+        dictionary_min_occurrences.set_value(self.task_dictionary_min_occurrences)
+        dictionary_min_saving = Gtk.SpinButton.new_with_range(0, 10_000, 1)
+        dictionary_min_saving.set_value(self.task_dictionary_min_saving)
+        dictionary_min_term_length = Gtk.SpinButton.new_with_range(1, 200, 1)
+        dictionary_min_term_length.set_value(self.task_dictionary_min_term_length)
+        dictionary_max_term_words = Gtk.SpinButton.new_with_range(1, 20, 1)
+        dictionary_max_term_words.set_value(self.task_dictionary_max_term_words)
+        preview_input = _text_view(self.text_font_size, editable=True)
+        preview_input.get_buffer().set_text(self.task_dictionary_preview_text)
+        preview_output = _text_view(self.text_font_size, editable=False)
+        preview_metrics = _text_view(self.text_font_size, editable=False)
+        preview_input_scrolled = _scrolled(preview_input)
+        preview_input_scrolled.set_hexpand(True)
+        preview_input_scrolled.set_vexpand(True)
+        preview_input_scrolled.set_min_content_height(360)
+        preview_output_scrolled = _scrolled(preview_output)
+        preview_output_scrolled.set_hexpand(True)
+        preview_output_scrolled.set_vexpand(True)
+        preview_output_scrolled.set_min_content_height(260)
+        preview_metrics_scrolled = _scrolled(preview_metrics)
+        preview_metrics_scrolled.set_hexpand(True)
+        preview_metrics_scrolled.set_vexpand(False)
+        preview_metrics_scrolled.set_min_content_height(130)
+        preview_paned = Gtk.Paned(orientation=Gtk.Orientation.HORIZONTAL)
+        preview_paned.set_hexpand(True)
+        preview_paned.set_vexpand(True)
+        preview_input_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        preview_input_box.set_hexpand(True)
+        preview_input_box.set_vexpand(True)
+        preview_output_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        preview_output_box.set_hexpand(True)
+        preview_output_box.set_vexpand(True)
+        preview_metrics_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        preview_metrics_box.set_hexpand(True)
+        preview_metrics_box.set_vexpand(False)
+        preview_label = Gtk.Label(label="Preview text")
+        preview_label.set_xalign(0)
+        preview_output_label = Gtk.Label(label="Compiler preview")
+        preview_output_label.set_xalign(0)
+        preview_metrics_label = Gtk.Label(label="Savings")
+        preview_metrics_label.set_xalign(0)
+        preview_input_box.pack_start(preview_label, False, False, 0)
+        preview_input_box.pack_start(preview_input_scrolled, True, True, 0)
+        preview_output_box.pack_start(preview_output_label, False, False, 0)
+        preview_output_box.pack_start(preview_output_scrolled, True, True, 0)
+        preview_metrics_box.pack_start(preview_metrics_label, False, False, 0)
+        preview_metrics_box.pack_start(preview_metrics_scrolled, False, False, 0)
+        preview_paned.pack1(preview_input_box, True, False)
+        preview_paned.pack2(preview_output_box, True, False)
+
+        def dictionary_policy() -> TaskDictionaryPolicy:
+            return TaskDictionaryPolicy(
+                auto_discovery=dictionary_auto.get_active(),
+                min_occurrences=int(dictionary_min_occurrences.get_value()),
+                min_saving=int(dictionary_min_saving.get_value()),
+                min_term_length=int(dictionary_min_term_length.get_value()),
+                max_term_words=int(dictionary_max_term_words.get_value()),
+                strip_articles=dictionary_strip_articles.get_active(),
+            )
+
+        def update_dictionary_preview(*_ignored: object) -> None:
+            text = _text_buffer_text(preview_input.get_buffer())
+            preview = preview_dictionary_compile(text, dictionary_policy())
+            preview_output.get_buffer().set_text(_dictionary_preview_text(text, preview))
+            preview_metrics.get_buffer().set_text(_dictionary_preview_metrics_text(text, preview))
 
         for row, (label, widget) in enumerate(
             (
@@ -1629,10 +1725,44 @@ class WorkspaceGtkGui:
         ):
             label_widget = Gtk.Label(label=label)
             label_widget.set_xalign(0)
-            grid.attach(label_widget, 0, row, 1, 1)
-            grid.attach(widget, 1, row, 1, 1)
+            general_grid.attach(label_widget, 0, row, 1, 1)
+            general_grid.attach(widget, 1, row, 1, 1)
+
+        dictionary_box.pack_start(dictionary_grid, False, False, 0)
+        dictionary_box.pack_start(preview_paned, True, True, 0)
+        dictionary_box.pack_start(preview_metrics_box, False, False, 0)
+        row = 0
+        dictionary_heading = Gtk.Label(label="Task dictionary compiler")
+        dictionary_heading.set_xalign(0)
+        dictionary_grid.attach(dictionary_heading, 0, row, 2, 1)
+        for label, widget in (
+            ("Auto-discover aliases", dictionary_auto),
+            ("Strip English articles", dictionary_strip_articles),
+            ("Min occurrences", dictionary_min_occurrences),
+            ("Min saving", dictionary_min_saving),
+            ("Min term length", dictionary_min_term_length),
+            ("Max term words", dictionary_max_term_words),
+        ):
+            row += 1
+            label_widget = Gtk.Label(label=label)
+            label_widget.set_xalign(0)
+            dictionary_grid.attach(label_widget, 0, row, 1, 1)
+            dictionary_grid.attach(widget, 1, row, 1, 1)
+        for widget in (
+            dictionary_auto,
+            dictionary_strip_articles,
+            dictionary_min_occurrences,
+            dictionary_min_saving,
+            dictionary_min_term_length,
+            dictionary_max_term_words,
+        ):
+            signal = "toggled" if isinstance(widget, Gtk.CheckButton) else "value-changed"
+            widget.connect(signal, update_dictionary_preview)
+        preview_input.get_buffer().connect("changed", update_dictionary_preview)
+        update_dictionary_preview()
 
         dialog.show_all()
+        text_size.grab_focus()
         response = dialog.run()
         if response == Gtk.ResponseType.OK:
             self.text_font_size = int(text_size.get_value())
@@ -1644,6 +1774,13 @@ class WorkspaceGtkGui:
             self.default_codex_reasoning = codex_reasoning_combo.get_active_text() or ""
             self.default_claude_model = claude_model_combo.get_active_text() or ""
             self.default_claude_effort = claude_effort_combo.get_active_text() or ""
+            self.task_dictionary_auto_discovery = dictionary_auto.get_active()
+            self.task_dictionary_min_occurrences = int(dictionary_min_occurrences.get_value())
+            self.task_dictionary_min_saving = int(dictionary_min_saving.get_value())
+            self.task_dictionary_min_term_length = int(dictionary_min_term_length.get_value())
+            self.task_dictionary_max_term_words = int(dictionary_max_term_words.get_value())
+            self.task_dictionary_strip_articles = dictionary_strip_articles.get_active()
+            self.task_dictionary_preview_text = _text_buffer_text(preview_input.get_buffer())
             if self.selected_task is None:
                 self._set_selected_agent(self.default_agent)
             self._apply_runtime_style()
@@ -2952,6 +3089,7 @@ class WorkspaceGtkGui:
             codex_executable=_codex_executable(),
             claude_executable=_claude_executable(),
             prompt_suffix=CODEX_LANGUAGE_INSTRUCTIONS.get(self.language, CODEX_LANGUAGE_INSTRUCTIONS["en"]),
+            inject_task_context=self.inject_task_context_prompt,
             include_task_check=True,
         )
         for session in self._current_task_terminal_sessions(task):
@@ -4263,6 +4401,14 @@ class WorkspaceGtkGui:
                 "default_codex_reasoning": self.default_codex_reasoning,
                 "default_claude_model": self.default_claude_model,
                 "default_claude_effort": self.default_claude_effort,
+                "inject_task_context_prompt": self.inject_task_context_prompt,
+                "task_dictionary_auto_discovery": self.task_dictionary_auto_discovery,
+                "task_dictionary_min_occurrences": self.task_dictionary_min_occurrences,
+                "task_dictionary_min_saving": self.task_dictionary_min_saving,
+                "task_dictionary_min_term_length": self.task_dictionary_min_term_length,
+                "task_dictionary_max_term_words": self.task_dictionary_max_term_words,
+                "task_dictionary_strip_articles": self.task_dictionary_strip_articles,
+                "task_dictionary_preview_text": self.task_dictionary_preview_text,
                 "geometry": (
                     f"{self.last_window_width}x{self.last_window_height}"
                     f"+{self.last_window_x}+{self.last_window_y}"
@@ -4388,21 +4534,89 @@ def _scrolled(widget: Gtk.Widget) -> Gtk.ScrolledWindow:
     return scrolled
 
 
-def _task_context_cards_markdown(entries: object) -> str:
-    cards = [_task_context_entry_card(entry) for entry in entries]
+def _task_context_cards_markdown(entries: object, *, encoded: bool = False) -> str:
+    cards = [_task_context_entry_card(entry, encoded=encoded) for entry in entries]
     if not cards:
         return ""
     return "```text\n" + "\n\n".join(cards) + "\n```"
 
 
-def _task_context_entry_card(entry: ContextEntry, *, width: int = 96) -> str:
+def _encoded_task_context_cards_markdown(task: TaskSummary, entries: object) -> str:
+    entries = list(entries)
+    parts: list[str] = []
+    dictionary = _encoded_task_context_dictionary_markdown(task, entries)
+    if dictionary:
+        parts.append(dictionary)
+    cards = _task_context_cards_markdown(entries, encoded=True)
+    if cards:
+        parts.append(cards)
+    return "\n\n".join(parts)
+
+
+def _encoded_task_context_dictionary_markdown(task: TaskSummary, entries: list[ContextEntry]) -> str:
+    used_tokens: set[str] = set()
+    for entry in entries:
+        for value in (entry.encoded_summary, entry.encoded_details):
+            used_tokens.update(match.group(0) for match in DICTIONARY_TOKEN_RE.finditer(value or ""))
+    if not used_tokens:
+        return ""
+    lines = [
+        f"{item.token} = {item.value}"
+        for item in _load_task_context_dictionary(task.path)
+        if item.token in used_tokens
+    ]
+    if not lines:
+        return ""
+    return "## Dictionary\n\n```text\n" + "\n".join(lines) + "\n```"
+
+
+def _dictionary_preview_text(text: str, preview: DictionaryPreview) -> str:
+    dictionary_lines = [f"{entry.token} = {entry.value}" for entry in preview.dictionary]
+    dictionary_body = "\n".join(dictionary_lines)
+    dictionary_text = dictionary_body if dictionary_body else "(empty)"
+    return (
+        "Dictionary\n"
+        f"{dictionary_text}\n\n"
+        "Encoded text\n"
+        f"{preview.encoded_text}"
+    )
+
+
+def _dictionary_preview_metrics_text(text: str, preview: DictionaryPreview) -> str:
+    dictionary_body = "\n".join(f"{entry.token} = {entry.value}" for entry in preview.dictionary)
+    dictionary_chars = len(dictionary_body)
+    encoded_total_chars = len(preview.encoded_text) + dictionary_chars
+    char_saving = len(text) - encoded_total_chars
+    encoded_total_tokens = preview.encoded_tokens + preview.dictionary_tokens
+    token_saving = preview.original_tokens - encoded_total_tokens
+    return (
+        f"Original chars: {len(text)}\n"
+        f"Encoded chars: {encoded_total_chars}\n"
+        f"Char saving: {char_saving}\n"
+        f"% saving: {_dictionary_preview_percent(char_saving, len(text))}\n"
+        f"Original tokens: {preview.original_tokens}\n"
+        f"Encoded tokens: {encoded_total_tokens}\n"
+        f"Saving tokens: {token_saving}\n"
+        f"% saving: {_dictionary_preview_percent(token_saving, preview.original_tokens)}"
+    )
+
+
+def _dictionary_preview_percent(saving: int, original: int) -> str:
+    if original <= 0:
+        return "0.0%"
+    return f"{saving / original * 100:.1f}%"
+
+
+def _task_context_entry_card(entry: ContextEntry, *, width: int = 96, encoded: bool = False) -> str:
     border = "+" + "-" * (width - 2) + "+"
     rows = [border]
     rows.extend(_task_context_card_rows(_task_context_entry_head(entry), width=width))
     rows.append(_task_context_card_rule(width))
-    rows.extend(_task_context_card_rows(f"summary  {entry.summary}", width=width))
-    if entry.details:
-        rows.extend(_task_context_card_rows(f"details  {entry.details}", width=width))
+    summary = entry.encoded_summary if encoded and entry.encoded_summary else entry.summary
+    details = entry.encoded_details if encoded and entry.encoded_details else entry.details
+    rows.extend(_task_context_card_rows(f"summary  {summary}", width=width))
+    if details:
+        rows.extend(_task_context_card_rows(f"details  {details}", width=width))
     labels = " ".join(f"#{label}" for label in entry.labels) if entry.labels else "unlabeled"
     rows.extend(_task_context_card_rows(f"labels   {labels}", width=width))
     rows.extend(_task_context_card_rows(f"source   {entry.source}", width=width))
@@ -4437,8 +4651,14 @@ def _task_context_card_rows(text: str, *, width: int) -> list[str]:
 
 
 def ai_agent_task_context_message(task: TaskSummary, workspace: Path, language: str = "en") -> str:
-    language_instruction = CODEX_LANGUAGE_INSTRUCTIONS.get(language, CODEX_LANGUAGE_INSTRUCTIONS["en"])
-    return ai_agent_task_context_prompt(task, workspace, language_instruction)
+    language_instruction = CODEX_LANGUAGE_INSTRUCTIONS.get(language, CODEX_LANGUAGE_INSTRUCTIONS["en"]) if language else ""
+    settings = agent_workspace_runtime_settings(load_agent_workspace_settings(), default_font_size=13)
+    return ai_agent_task_context_prompt(
+        task,
+        workspace,
+        language_instruction,
+        inject_task_context=settings.inject_task_context_prompt,
+    )
 
 
 def codex_task_context_message(task: TaskSummary, workspace: Path, language: str = "en") -> str:

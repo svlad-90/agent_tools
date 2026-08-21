@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+import io
 import json
 import subprocess
+import sys
 from pathlib import Path
+from types import SimpleNamespace
 
 from agent_tools.tools.push_guard import _forbidden_pushed_paths
 from agent_tools.tools.push_guard import _guarded_pushed_file_findings
@@ -12,6 +15,7 @@ from agent_tools.tools.push_guard import _print_guarded_findings
 from agent_tools.tools.push_guard import _pushed_commits
 from agent_tools.tools.push_guard import _task_check_report_for_repo
 from agent_tools.tools.push_guard import _validated_receipt_source
+from agent_tools.tools.push_guard import check
 from agent_tools.tools.push_guard import PushedFileFinding
 
 
@@ -177,3 +181,27 @@ def test_task_check_report_is_required_for_repositories_inside_tasks(
 
     assert report is not None
     assert "task-context-database-missing" in report
+
+
+def test_pre_push_check_blocks_repositories_inside_tasks_when_task_check_fails(
+    tmp_path: Path,
+    monkeypatch: object,
+    capsys: object,
+) -> None:
+    workspace = tmp_path / "workspace"
+    repo = workspace / "tasks" / "sample-task" / "dev" / "repo"
+    repo.mkdir(parents=True)
+    _init_repo(repo)
+    (repo / "README.md").write_text("repo\n", encoding="utf-8")
+    _git(repo, "add", "README.md")
+    _git(repo, "commit", "-m", "Initial")
+    task_dir = workspace / "tasks" / "sample-task"
+    (task_dir / "TASK_DESCRIPTION.md").write_text("# Task\n", encoding="utf-8")
+    monkeypatch.setenv("AGENT_TOOLS_WORKSPACE_ROOT", str(workspace))
+    monkeypatch.chdir(repo)
+    monkeypatch.setattr(sys, "stdin", io.StringIO(""))
+
+    result = check(SimpleNamespace(allow_override=False))
+
+    assert result == 1
+    assert "push blocked by task_check" in capsys.readouterr().err

@@ -1,0 +1,5 @@
+-r runtime.txt
+
+# GTK/VTE bindings are installed by ../install-agent-tools.py --gui through the
+# host package manager. PyGObject is intentionally not installed from pip here:
+# it needs platform libraries and is not portable as a pure Python dependency.

@@ -7,8 +7,20 @@ used by Codex, Claude Code, plain shell sessions, or another local agent.
 Launch from the workspace root:
 
 ```sh
-./agent-workspace
+./agent-workspace.sh
 ```
+
+Install or refresh the launcher, Python dependencies, desktop entry, and
+workspace-local agent skill mirrors with:
+
+```sh
+python3 install-agent-tools.py
+```
+
+The installer does not pull GTK/VTE by default. Use
+`python3 install-agent-tools.py --gui` only when the legacy GTK UI is needed.
+The Agent Workspace entry point tries GTK, then web, then Tk, so a future web
+UI can become the fallback on hosts without GTK/VTE.
 
 Main capabilities:
 
@@ -57,10 +69,10 @@ The Actions view remembers the selected console page per task. Returning from
 Details or Artifacts restores the previous AI-agent or shell tab; on first
 task setup the AI-agent tab is shown by default while a shell tab is still
 created for quick manual commands.
-Before a new AI session starts, Agent Workspace runs the task check once and
-adds only its error report to the initial agent message. The pre-commit hook
-runs the strict task check before a commit; the pre-push hook does not use the
-task check as a push blocker.
+Before a new or resumed AI session starts, Agent Workspace runs the task check
+once and adds only its error report to the initial agent message. The
+pre-commit and pre-push hooks run task_check for repositories inside
+`tasks/<task>/` and block when it reports task workflow errors.
 Task actions are declared by writing `TASK_ACTIONS.json` at the task root. The
 GUI watches that file and refreshes its action buttons when it changes.
 Task actions launched from the GUI set `PAF_HIDE_TASK_ENV=1`, so PAF does not

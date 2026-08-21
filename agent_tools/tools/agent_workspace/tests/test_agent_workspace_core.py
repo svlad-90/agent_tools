@@ -56,6 +56,7 @@ from agent_tools.tools.agent_workspace.core import prepare_task_agent_session
 from agent_tools.tools.agent_workspace.core import prepare_ai_agent_launch_command
 from agent_tools.tools.agent_workspace.core import task_check_prompt_suffix
 from agent_tools.tools.agent_workspace.core import render_markdown_chunks
+from agent_tools.tools.agent_workspace.core import render_task_context_details
 from agent_tools.tools.agent_workspace.core import reset_task_agent_session
 from agent_tools.tools.agent_workspace.core import rough_token_count
 from agent_tools.tools.agent_workspace.core import save_agent_workspace_settings
@@ -75,12 +76,14 @@ from agent_tools.tools.agent_workspace.core import task_agent_session_markers
 from agent_tools.tools.agent_workspace.core import task_agent_selection_with_resumable_fallback
 from agent_tools.tools.agent_workspace.core import task_agent_has_resumable_state
 from agent_tools.tools.agent_workspace.core import task_agent_session_id_is_valid
+from agent_tools.tools.agent_workspace.core import task_dictionary_policy_from_runtime_settings
 from agent_tools.tools.agent_workspace.core import task_for_path
 from agent_tools.tools.agent_workspace.core import task_has_external_active_agent_run
 from agent_tools.tools.agent_workspace.core import task_has_valid_agent_session
 from agent_tools.tools.agent_workspace.core import task_status_label
 from agent_tools.tools.agent_workspace.core import task_selected_agent_has_resumable_state
 from agent_tools.tools.agent_workspace.core import task_state_path
+from agent_tools.tools.agent_workspace import __main__ as agent_workspace_main_module
 from agent_tools.tools.agent_workspace import core as core_module
 from agent_tools.tools.agent_workspace import gtk_open as gtk_open_module
 from agent_tools.tools.agent_workspace import gtk_terminal_ui as gtk_terminal_ui_module
@@ -106,9 +109,17 @@ from agent_tools.tools.agent_workspace.gtk_ui import _task_artifact_entries as g
 from agent_tools.tools.agent_workspace.gtk_ui import _task_init_command as gtk_task_init_command
 from agent_tools.tools.agent_workspace.gtk_ui import _task_actions_signature as gtk_task_actions_signature
 from agent_tools.tools.agent_workspace.gtk_ui import _task_context_cards_markdown as gtk_task_context_cards_markdown
+from agent_tools.tools.agent_workspace.gtk_ui import _encoded_task_context_cards_markdown as gtk_encoded_task_context_cards_markdown
+from agent_tools.tools.agent_workspace.gtk_ui import _dictionary_preview_text as gtk_dictionary_preview_text
+from agent_tools.tools.agent_workspace.gtk_ui import _dictionary_preview_metrics_text as gtk_dictionary_preview_metrics_text
 from agent_tools.tools.task_context import add_entry
 from agent_tools.tools.task_context import ContextEntry
+from agent_tools.tools.task_context import DICTIONARY_PREVIEW_TEXT
+from agent_tools.tools.task_context import LEGACY_DICTIONARY_PREVIEW_TEXT
 from agent_tools.tools.task_context import ensure_database as ensure_task_context_database
+from agent_tools.tools.task_context import load_entries as load_task_context_entries
+from agent_tools.tools.task_context import preview_dictionary_compile
+from agent_tools.tools.task_context import TaskDictionaryPolicy
 from agent_tools.tools.agent_workspace.gtk_ui import _task_path_for_name as gtk_task_path_for_name
 from agent_tools.tools.agent_workspace.gtk_ui import _task_row_style as gtk_task_row_style
 from agent_tools.tools.agent_workspace.gtk_ui import _copy_terminal_selection as gtk_copy_terminal_selection
@@ -682,6 +693,44 @@ def test_discover_tasks_reports_description_context_and_budget(tmp_path: Path) -
     assert tasks[0].context_over_budget
 
 
+def test_agent_workspace_auto_ui_falls_back_to_web_before_tk(monkeypatch: object) -> None:
+    calls: list[str] = []
+
+    def fake_load_ui_main(name: str):
+        calls.append(name)
+        if name == "gtk":
+            raise ImportError("GTK missing")
+
+        def fake_main(argv: list[str] | None = None) -> int:
+            assert argv == ["--workspace", "/tmp/ws"]
+            return 7
+
+        return fake_main
+
+    monkeypatch.setattr(agent_workspace_main_module, "_load_ui_main", fake_load_ui_main)
+
+    assert agent_workspace_main_module.main(["--workspace", "/tmp/ws"]) == 7
+    assert calls == ["gtk", "web"]
+
+
+def test_agent_workspace_explicit_web_ui_uses_web_backend(monkeypatch: object) -> None:
+    calls: list[str] = []
+
+    def fake_load_ui_main(name: str):
+        calls.append(name)
+
+        def fake_main(argv: list[str] | None = None) -> int:
+            assert argv == ["--workspace", "/tmp/ws"]
+            return 0
+
+        return fake_main
+
+    monkeypatch.setattr(agent_workspace_main_module, "_load_ui_main", fake_load_ui_main)
+
+    assert agent_workspace_main_module.main(["--ui", "web", "--workspace", "/tmp/ws"]) == 0
+    assert calls == ["web"]
+
+
 def test_discover_tasks_sorts_names_case_insensitively(tmp_path: Path) -> None:
     for name in ("beta", "Alpha"):
         task = tmp_path / "tasks" / name
@@ -921,6 +970,58 @@ def test_gtk_task_context_cards_markdown_renders_console_cards() -> None:
     assert content.endswith("\n```")
 
 
+def test_gtk_encoded_task_context_cards_keep_dictionary_above_cards(tmp_path: Path) -> None:
+    task = tmp_path / "tasks" / "sample-task"
+    task.mkdir(parents=True)
+    add_entry(
+        task,
+        timestamp="2026-08-19T10:00:00",
+        severity="high",
+        labels=("bug",),
+        summary="drivers/firmware/scmi/scmi.c has active context",
+        details=(
+            "drivers/firmware/scmi/scmi.c records active context. "
+            "drivers/firmware/scmi/scmi.c appears in the handoff. "
+            "drivers/firmware/scmi/scmi.c remains the target file."
+        ),
+    )
+    summary = discover_tasks_with_context(task, tmp_path)
+
+    content = gtk_encoded_task_context_cards_markdown(summary, load_task_context_entries(task))
+
+    assert content.startswith("## Dictionary\n\n```text\n§00 = drivers/firmware/scmi/scmi.c")
+    assert "```\n\n```text\n+" in content
+    assert "summary  §00 has active context" in content
+    assert "details  §00 records active context." in content
+
+
+def test_gtk_dictionary_preview_shows_char_counts_with_dictionary() -> None:
+    path = "tools/agent_workspace/tests/test_agent_workspace_core.py"
+    text = f"{path} validates settings. {path} validates preview. {path} validates counts."
+    preview = preview_dictionary_compile(
+        text,
+        TaskDictionaryPolicy(min_occurrences=3, min_term_length=7, min_saving=1),
+    )
+    dictionary_chars = len("\n".join(f"{entry.token} = {entry.value}" for entry in preview.dictionary))
+    after_chars = len(preview.encoded_text) + dictionary_chars
+    encoded_tokens = preview.encoded_tokens + preview.dictionary_tokens
+    saving_tokens = preview.original_tokens - encoded_tokens
+
+    preview_content = gtk_dictionary_preview_text(text, preview)
+    metrics_content = gtk_dictionary_preview_metrics_text(text, preview)
+
+    assert "Savings" not in preview_content
+    assert f"Original chars: {len(text)}" in metrics_content
+    assert f"Encoded chars: {after_chars}" in metrics_content
+    assert f"Char saving: {len(text) - after_chars}" in metrics_content
+    assert "Dictionary chars" not in metrics_content
+    assert "Encoded body chars" not in metrics_content
+    assert f"Original tokens: {preview.original_tokens}" in metrics_content
+    assert f"Encoded tokens: {encoded_tokens}" in metrics_content
+    assert f"Saving tokens: {saving_tokens}" in metrics_content
+    assert "% saving:" in metrics_content
+
+
 def test_gtk_task_context_status_filter_defaults_to_active_only() -> None:
     gui = WorkspaceGtkGui.__new__(WorkspaceGtkGui)
 
@@ -1045,7 +1146,11 @@ def test_codex_task_context_message_points_at_selected_task(tmp_path: Path) -> N
     assert "TASK_DESCRIPTION.md" in message
     assert "task_context query" in message
     assert "--status active" in message
-    assert "--format markdown" in message
+    assert "--format agent" in message
+    assert "stable task-local identifiers" in message
+    assert "terse factual engineering prose" in message
+    assert "Active task context preloaded from `TASK_CONTEXT.sqlite3`" in message
+    assert "No dictionary aliases used" in message
     assert "Do not read resolved or stale task context entries" in message
 
 
@@ -1054,18 +1159,74 @@ def test_core_ai_agent_task_context_prompt_supports_optional_suffix(tmp_path: Pa
     task.mkdir(parents=True)
     summary = discover_tasks_with_context(task, tmp_path)
 
-    plain = ai_agent_task_context_prompt(summary, tmp_path)
-    suffixed = ai_agent_task_context_prompt(summary, tmp_path, "Reply in Russian.")
+    plain = ai_agent_task_context_prompt(summary, tmp_path, inject_task_context=False)
+    suffixed = ai_agent_task_context_prompt(
+        summary,
+        tmp_path,
+        "Reply in Russian.",
+        inject_task_context=False,
+    )
 
-    assert plain.endswith(
-        "resolved or stale task context entries unless the user asks or the active context explicitly requires "
-        "historical investigation."
-    )
+    assert "Maintain the task journal as a current working set" in plain
     assert "Reply in Russian." not in plain
-    assert suffixed.endswith(
-        "resolved or stale task context entries unless the user asks or the active context explicitly requires "
-        "historical investigation. Reply in Russian."
+    assert suffixed.endswith("Reply in Russian.")
+    assert "Active task context preloaded" not in plain
+
+
+def test_ai_agent_task_context_prompt_can_inject_active_context(tmp_path: Path) -> None:
+    task = tmp_path / "tasks" / "sample-task"
+    task.mkdir(parents=True)
+    add_entry(
+        task,
+        timestamp="2026-08-19T10:00:00",
+        severity="high",
+        labels=("bug",),
+        summary="drivers/firmware/scmi/scmi.c has active context",
+        details=(
+            "drivers/firmware/scmi/scmi.c records active context. "
+            "drivers/firmware/scmi/scmi.c appears in the handoff. "
+            "drivers/firmware/scmi/scmi.c remains the target file."
+        ),
     )
+    summary = discover_tasks_with_context(task, tmp_path)
+
+    prompt = ai_agent_task_context_prompt(summary, tmp_path)
+
+    assert "Active task context preloaded from `TASK_CONTEXT.sqlite3`" in prompt
+    assert "## Encoded Context" in prompt
+    assert "has active context" in prompt
+
+
+def test_task_context_details_can_render_encoded_dictionary_view(tmp_path: Path) -> None:
+    task = tmp_path / "tasks" / "sample-task"
+    task.mkdir(parents=True)
+    add_entry(
+        task,
+        timestamp="2026-08-19T10:00:00",
+        severity="high",
+        labels=("bug",),
+        summary="drivers/firmware/scmi/scmi.c has active context",
+        details=(
+            "drivers/firmware/scmi/scmi.c records active context. "
+            "drivers/firmware/scmi/scmi.c appears in the handoff. "
+            "drivers/firmware/scmi/scmi.c remains the target file."
+        ),
+    )
+    summary = discover_tasks_with_context(task, tmp_path)
+    entries = load_task_context_entries(task)
+
+    decoded = render_task_context_details(summary, entries, encoded=False)
+    encoded = render_task_context_details(summary, entries, encoded=True)
+
+    assert "## Task Dictionary" not in decoded
+    assert "drivers/firmware/scmi/scmi.c has active context" in decoded
+    assert "## Task Dictionary" not in encoded
+    assert "## Encoded Context" not in encoded
+    assert "drivers/firmware/scmi/scmi.c" in encoded
+    assert encoded.startswith("## Dictionary")
+    assert "§00" in encoded
+    assert "## Dictionary" in encoded
+    assert "- `§00` = drivers/firmware/scmi/scmi.c" in encoded
 
 
 def test_task_check_errors_are_added_to_new_ai_prompt(tmp_path: Path) -> None:
@@ -1099,6 +1260,40 @@ def test_new_ai_launch_includes_task_check_errors(tmp_path: Path) -> None:
         include_task_check=True,
     )
 
+    assert "Task check reported errors" in launch.command[-1]
+    assert "task-context-database-missing" in launch.command[-1]
+
+
+def test_resumed_ai_launch_includes_task_check_errors(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    task = tmp_path / "tasks" / "sample-task"
+    task.mkdir(parents=True)
+    (task / "TASK_DESCRIPTION.md").write_text("# Description\n", encoding="utf-8")
+    summary = discover_tasks(tmp_path)[0]
+    home = tmp_path / "home"
+    monkeypatch.setenv("HOME", str(home))
+    session_id = "019feba2-e25e-76e1-9468-aa399758268f"
+    session_file = home / ".codex" / "sessions" / f"{session_id}.jsonl"
+    session_file.parent.mkdir(parents=True)
+    session_file.write_text("{}", encoding="utf-8")
+    save_task_agent_session(summary, "codex", session_id=session_id)
+
+    launch = prepare_ai_agent_launch_command(
+        summary,
+        tmp_path,
+        "codex",
+        codex_model="gpt-5.5",
+        codex_reasoning="medium",
+        claude_model="sonnet",
+        claude_effort="low",
+        codex_executable="codex-bin",
+        claude_executable="claude-bin",
+        include_task_check=True,
+    )
+
+    assert launch.session_state.resume
     assert "Task check reported errors" in launch.command[-1]
     assert "task-context-database-missing" in launch.command[-1]
 
@@ -1163,6 +1358,7 @@ def test_core_ai_agent_command_builder_handles_codex_and_claude(tmp_path: Path) 
         "low",
         "--resume",
         "019feba2-e25e-76e1-9468-aa399758268f",
+        prompt,
     ]
 
 
@@ -1209,7 +1405,9 @@ def test_prepare_ai_agent_launch_command_builds_command_from_session_and_model_s
         str(tmp_path),
         "--no-alt-screen",
         session_id,
+        launch.command[-1],
     ]
+    assert "Active task context preloaded from `TASK_CONTEXT.sqlite3`" in launch.command[-1]
 
 
 def test_codex_console_command_can_resume_session(tmp_path: Path) -> None:
@@ -1220,14 +1418,15 @@ def test_codex_console_command_can_resume_session(tmp_path: Path) -> None:
 
     command = codex_console_command(tmp_path, summary, resume=True, resume_session_id=session_id)
 
-    assert command[-5:] == [
+    assert command[-6:] == [
         "resume",
         "--cd",
         str(tmp_path),
         "--no-alt-screen",
         session_id,
+        command[-1],
     ]
-    assert codex_task_context_message(summary, tmp_path) not in command
+    assert codex_task_context_message(summary, tmp_path) == command[-1]
 
 
 def test_codex_console_command_uses_model_and_reasoning(tmp_path: Path) -> None:
@@ -1336,7 +1535,15 @@ def test_ai_agent_console_command_can_use_claude_session_id(tmp_path: Path) -> N
 
     assert first_command[:5] == [first_command[0], "--permission-mode", "auto", "--session-id", session_id]
     assert "workspace task `sample-task`" in first_command[-1]
-    assert resume_command == [resume_command[0], "--permission-mode", "auto", "--resume", session_id]
+    assert resume_command == [
+        resume_command[0],
+        "--permission-mode",
+        "auto",
+        "--resume",
+        session_id,
+        resume_command[-1],
+    ]
+    assert "workspace task `sample-task`" in resume_command[-1]
 
 
 def test_gtk_and_tk_claude_command_builders_match(tmp_path: Path) -> None:
@@ -1358,6 +1565,7 @@ def test_gtk_and_tk_claude_command_builders_match(tmp_path: Path) -> None:
         tmp_path,
         summary,
         "claude",
+        "",
         resume=True,
         resume_session_id=session_id,
         model="sonnet",
@@ -1537,6 +1745,14 @@ def test_agent_workspace_settings_persist_font_size(tmp_path: Path) -> None:
             "default_codex_reasoning": "medium",
             "default_claude_model": "sonnet",
             "default_claude_effort": "low",
+            "inject_task_context_prompt": False,
+            "task_dictionary_auto_discovery": False,
+            "task_dictionary_min_occurrences": 3,
+            "task_dictionary_min_saving": 24,
+            "task_dictionary_min_term_length": 10,
+            "task_dictionary_max_term_words": 4,
+            "task_dictionary_strip_articles": False,
+            "task_dictionary_preview_text": "Agent Workspace Agent Workspace",
             "geometry": "1200x800+10+20",
             "main_split_ratio": 0.3,
             "details_split_ratio": 0.7,
@@ -1555,6 +1771,14 @@ def test_agent_workspace_settings_persist_font_size(tmp_path: Path) -> None:
         "default_codex_reasoning": "medium",
         "default_claude_model": "sonnet",
         "default_claude_effort": "low",
+        "inject_task_context_prompt": False,
+        "task_dictionary_auto_discovery": False,
+        "task_dictionary_min_occurrences": 3,
+        "task_dictionary_min_saving": 24,
+        "task_dictionary_min_term_length": 10,
+        "task_dictionary_max_term_words": 4,
+        "task_dictionary_strip_articles": False,
+        "task_dictionary_preview_text": "Agent Workspace Agent Workspace",
         "geometry": "1200x800+10+20",
         "main_split_ratio": 0.3,
         "details_split_ratio": 0.7,
@@ -1594,6 +1818,14 @@ def test_agent_workspace_runtime_settings_normalizes_ui_defaults() -> None:
             "default_codex_reasoning": " ",
             "default_claude_model": "",
             "default_claude_effort": "",
+            "inject_task_context_prompt": False,
+            "task_dictionary_auto_discovery": False,
+            "task_dictionary_min_occurrences": 4,
+            "task_dictionary_min_saving": 32,
+            "task_dictionary_min_term_length": 12,
+            "task_dictionary_max_term_words": 5,
+            "task_dictionary_strip_articles": False,
+            "task_dictionary_preview_text": "Custom preview text",
             "geometry": "1280x900+1+2",
             "main_split_ratio": 0.3,
             "details_split_ratio": "0.7",
@@ -1611,10 +1843,26 @@ def test_agent_workspace_runtime_settings_normalizes_ui_defaults() -> None:
     assert settings.default_codex_reasoning == "medium"
     assert settings.default_claude_model == "sonnet"
     assert settings.default_claude_effort == "medium"
+    assert settings.inject_task_context_prompt is False
+    assert settings.task_dictionary_auto_discovery is False
+    assert settings.task_dictionary_min_occurrences == 4
+    assert settings.task_dictionary_min_saving == 32
+    assert settings.task_dictionary_min_term_length == 12
+    assert settings.task_dictionary_max_term_words == 5
+    assert settings.task_dictionary_strip_articles is False
+    assert settings.task_dictionary_preview_text == "Custom preview text"
     assert settings.window_geometry == "1280x900+1+2"
     assert settings.main_split_ratio == 0.3
     assert settings.details_split_ratio == 0.7
     assert settings.actions_split_ratio == 0.42
+
+    policy = task_dictionary_policy_from_runtime_settings(settings)
+    assert policy.auto_discovery is False
+    assert policy.min_occurrences == 4
+    assert policy.min_saving == 32
+    assert policy.min_term_length == 12
+    assert policy.max_term_words == 5
+    assert policy.strip_articles is False
 
 
 def test_agent_workspace_runtime_settings_falls_back_for_invalid_values() -> None:
@@ -1625,6 +1873,11 @@ def test_agent_workspace_runtime_settings_falls_back_for_invalid_values() -> Non
             "theme": "blue",
             "language": "bad",
             "default_agent": "bad",
+            "task_dictionary_min_occurrences": 0,
+            "task_dictionary_min_saving": -1,
+            "task_dictionary_min_term_length": 0,
+            "task_dictionary_max_term_words": 99,
+            "task_dictionary_preview_text": "",
             "geometry": 42,
             "main_split_ratio": 2.0,
             "details_split_ratio": "bad",
@@ -1639,10 +1892,47 @@ def test_agent_workspace_runtime_settings_falls_back_for_invalid_values() -> Non
     assert settings.theme == "light"
     assert settings.language == "uk"
     assert settings.default_agent == "codex"
+    assert settings.inject_task_context_prompt is True
+    assert settings.task_dictionary_auto_discovery is True
+    assert settings.task_dictionary_min_occurrences == 1
+    assert settings.task_dictionary_min_saving == 0
+    assert settings.task_dictionary_min_term_length == 1
+    assert settings.task_dictionary_max_term_words == 20
+    assert settings.task_dictionary_strip_articles is True
+    assert settings.task_dictionary_preview_text == DICTIONARY_PREVIEW_TEXT
+    assert len(settings.task_dictionary_preview_text) > 5_000
+    assert "tools/agent_workspace/tests/test_agent_workspace_core.py" in settings.task_dictionary_preview_text
+    assert "TASK_CONTEXT.sqlite3" in settings.task_dictionary_preview_text
     assert settings.window_geometry == "1180x760"
     assert settings.main_split_ratio == 0.25
     assert settings.details_split_ratio == 0.25
     assert settings.actions_split_ratio == 0.38
+
+
+def test_agent_workspace_runtime_settings_migrates_legacy_dictionary_preview_text() -> None:
+    settings = agent_workspace_runtime_settings(
+        {"task_dictionary_preview_text": LEGACY_DICTIONARY_PREVIEW_TEXT},
+        default_font_size=13,
+    )
+
+    assert settings.task_dictionary_preview_text == DICTIONARY_PREVIEW_TEXT
+    assert len(settings.task_dictionary_preview_text) > 5_000
+
+
+def test_agent_workspace_runtime_settings_migrates_earliest_short_dictionary_preview_text() -> None:
+    earliest_preview = (
+        "Agent Workspace renders TASK_CONTEXT.sqlite3 entries. "
+        "Agent Workspace Details can show encoded task context. "
+        "tools/agent_workspace/tests/test_agent_workspace_core.py validates Agent Workspace behavior."
+    )
+
+    settings = agent_workspace_runtime_settings(
+        {"task_dictionary_preview_text": earliest_preview},
+        default_font_size=13,
+    )
+
+    assert len(earliest_preview) == 201
+    assert settings.task_dictionary_preview_text == DICTIONARY_PREVIEW_TEXT
 
 
 def test_ai_agent_model_settings_selects_per_agent_defaults() -> None:
@@ -4013,7 +4303,7 @@ def test_agent_workspace_desktop_uses_icon_name() -> None:
 def test_agent_workspace_desktop_entry_uses_current_workspace_path(tmp_path: Path) -> None:
     content = install_desktop_module._desktop_entry(tmp_path)
 
-    assert f"Exec={tmp_path / 'agent-workspace'}\n" in content
+    assert f"Exec={tmp_path / 'agent-workspace.sh'}\n" in content
     assert f"Path={tmp_path}\n" in content
     assert "/Projects/new_dev" not in content
 

@@ -145,6 +145,41 @@ def test_invalid_task_context_database_is_failure(tmp_path: Path) -> None:
     checks = check_task(task_dir, workspace=tmp_path)
 
     assert _has_check(checks, "FAIL", "task-context-database-invalid")
+    assert not _has_check(checks, "PASS", "task-context-active-size")
+
+
+def test_oversized_active_task_context_is_failure(tmp_path: Path) -> None:
+    task_dir = tmp_path / "tasks" / "sample-task"
+    initialize_task_layout(task_dir, workspace=tmp_path)
+    add_entry(
+        task_dir,
+        severity="high",
+        labels=("task-context",),
+        summary="Large active journal entry",
+        details="word " * 30_000,
+    )
+
+    checks = check_task(task_dir, workspace=tmp_path)
+
+    assert _has_check(checks, "FAIL", "task-context-active-size")
+
+
+def test_oversized_resolved_task_context_does_not_fail_active_budget(tmp_path: Path) -> None:
+    task_dir = tmp_path / "tasks" / "sample-task"
+    initialize_task_layout(task_dir, workspace=tmp_path)
+    add_entry(
+        task_dir,
+        severity="high",
+        labels=("task-context",),
+        status="resolved",
+        summary="Large resolved journal entry",
+        details="word " * 30_000,
+    )
+
+    checks = check_task(task_dir, workspace=tmp_path)
+
+    assert _has_check(checks, "PASS", "task-context-active-size")
+    assert not _has_check(checks, "FAIL", "task-context-active-size")
 
 
 def test_legacy_task_context_can_be_migrated(tmp_path: Path) -> None:

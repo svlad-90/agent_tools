@@ -4,6 +4,7 @@
 !AGENTS.md
 !CLAUDE.md
 !README.md
+!install-agent-tools.py
 !agent-workspace
 !agent-workspace.sh
 !agent-workspace.desktop
@@ -13,6 +14,7 @@
 !.github/
 !.github/workflows/
 !.github/workflows/diff-report.yml
+!.github/workflows/install-agent-tools.yml
 !.github/workflows/paf-workspace.yml
 !.github/workflows/commit-msg.yml
 !agent_tools/

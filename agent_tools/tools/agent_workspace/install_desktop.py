@@ -24,7 +24,7 @@ def main() -> int:
 
 
 def _desktop_entry(workspace: Path) -> str:
-    launcher = workspace / "agent-workspace"
+    launcher = workspace / "agent-workspace.sh"
     return "\n".join(
         [
             "[Desktop Entry]",

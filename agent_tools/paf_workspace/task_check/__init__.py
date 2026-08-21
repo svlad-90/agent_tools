@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import subprocess
 import sys
 import sqlite3
@@ -27,6 +28,10 @@ PRODUCT_ARTIFACTS_TEMPLATE = PAF_WORKSPACE_ROOT / "templates" / "product-artifac
 DEFAULT_RUNTIME_YAML_NAME = "xen-zephyr-runtime.yaml"
 TASKS_DIR_NAME = "tasks"
 WARNING_POLICY_FILE = Path(__file__).with_name("warning-policy.yaml")
+TASK_CONTEXT_TOTAL_CONTEXT_BUDGET = 256_000
+TASK_CONTEXT_ACTIVE_BUDGET_FRACTION = 0.10
+TASK_CONTEXT_ACTIVE_TOKEN_BUDGET = int(TASK_CONTEXT_TOTAL_CONTEXT_BUDGET * TASK_CONTEXT_ACTIVE_BUDGET_FRACTION)
+TASK_CONTEXT_ACTIVE_SEVERITIES = ("mid", "high", "critical")
 
 
 @dataclass(frozen=True)
@@ -196,7 +201,9 @@ def check_task(
     checks.extend(_check_layout(task_dir))
     checks.extend(_check_task_description(task_dir))
     checks.extend(_check_legacy_task_context_markdown(task_dir))
-    _, context_text = _load_task_context(task_dir, checks)
+    entries, context_text = _load_task_context(task_dir, checks)
+    if any(check.status == "PASS" and check.code == "task-context-database-valid" for check in checks):
+        checks.extend(_check_task_context_quality(task_dir, entries))
 
     manifests = _find_artifact_manifests(task_dir)
     harness_profiles = _find_xen_zephyr_harness_profiles(task_dir)
@@ -490,6 +497,46 @@ def _task_context_search_text(entries: list[ContextEntry]) -> str:
     for entry in entries:
         parts.extend((entry.summary, entry.details, " ".join(entry.labels), " ".join(entry.artifacts)))
     return "\n".join(part for part in parts if part)
+
+
+def _check_task_context_quality(task_dir: Path, entries: list[ContextEntry]) -> list[Check]:
+    active_entries = [
+        entry
+        for entry in entries
+        if entry.status == "active" and entry.severity in TASK_CONTEXT_ACTIVE_SEVERITIES
+    ]
+    active_text = _task_context_search_text(active_entries)
+    active_tokens = _rough_token_count(active_text)
+    if active_tokens > TASK_CONTEXT_ACTIVE_TOKEN_BUDGET:
+        return [
+            Check(
+                "FAIL",
+                "task-context-active-size",
+                (
+                    "active mid..critical task context is too large: "
+                    f"~{active_tokens} tokens, budget {TASK_CONTEXT_ACTIVE_TOKEN_BUDGET}. "
+                    "Resolve or stale superseded journal entries before continuing."
+                ),
+                str(task_dir / TASK_CONTEXT_DATABASE_FILE),
+            )
+        ]
+    return [
+        Check(
+            "PASS",
+            "task-context-active-size",
+            (
+                "active mid..critical task context fits the journal budget: "
+                f"~{active_tokens}/{TASK_CONTEXT_ACTIVE_TOKEN_BUDGET} tokens"
+            ),
+            str(task_dir / TASK_CONTEXT_DATABASE_FILE),
+        )
+    ]
+
+
+def _rough_token_count(text: str) -> int:
+    lexical_tokens = len(re.findall(r"\w+|[^\w\s]", text, flags=re.UNICODE))
+    char_tokens = (len(text) + 3) // 4
+    return max(lexical_tokens, char_tokens)
 
 
 def _check_artifact_manifests(task_dir: Path, manifests: list[Path]) -> list[Check]:

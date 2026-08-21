@@ -18,6 +18,42 @@ python -m agent_tools.tools.rules_sync
 Keep PAF orchestration under `agent_tools/paf_workspace/`; this directory is
 for reusable tool implementations that are not PAF domains.
 
+## Python Environment
+
+Install Agent Workspace, workspace-local tool dependencies, the launcher,
+desktop entry, and mirrored agent skills from the workspace root:
+
+```sh
+cd /path/to/workspace
+python3 install-agent-tools.py
+```
+
+Install developer/test dependencies too:
+
+```sh
+python3 install-agent-tools.py --dev
+```
+
+Install the legacy GTK/VTE UI dependencies only when that UI is needed:
+
+```sh
+python3 install-agent-tools.py --gui
+```
+
+The default installation does not install GTK/VTE. Agent Workspace tries UI
+backends in order: GTK, web, then Tk. When the web UI exists it can be used as
+the fallback on hosts without GTK/VTE.
+
+```sh
+python3 install-agent-tools.py --venv /path/to/venv --dev
+```
+
+Dependency files live under `requirements/`:
+
+- `runtime.txt`: CLI runtime dependencies, including `PyYAML` and `tiktoken`.
+- `dev.txt`: runtime plus test dependencies.
+- `gui.txt`: runtime plus notes for the optional system GTK/VTE profile.
+
 ## Rules Sync
 
 `rules_sync` mirrors `agent_tools/rules/*.md` and `agent_tools/skills/*/SKILL.md`

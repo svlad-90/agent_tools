@@ -18,10 +18,11 @@ These rules apply to every task directory under the workspace root.
    directory is selected as the target task, or when the user explicitly asks
    to inspect neighboring or related tasks. Use
    `python3 -m agent_tools.tools.task_context query --task <task-dir>
-   --severity mid..critical --status active --format markdown`. Do not scan every
-   neighboring task context database during normal task discovery. Active
-   entries are the compact working set, not the historical log. If the database
-   is missing or too sparse to continue safely, create or update it with
+   --severity mid..critical --status active --format agent` for agent work, or
+   `--format markdown` when rendering for a human. Do not scan every neighboring
+   task context database during normal task discovery. Active entries are the
+   compact working set, not the historical log. If the database is missing or
+   too sparse to continue safely, create or update it with
    `python3 -m agent_tools.tools.task_context`.
 4. Identify the task topics before deep work. Read
    `agent_tools/knowledge/README.md` and every matching topic file under
@@ -33,6 +34,27 @@ These rules apply to every task directory under the workspace root.
 
    - `TASK_CONTEXT.sqlite3` is the transactional journal of dated findings and
      the only task context source.
+   - Human-facing context renders decoded `summary` and `details` by default.
+     Agent-facing context uses `--format agent`, which renders encoded entries
+     plus only the stable task dictionary aliases used by the selected entries.
+     Dictionary aliases are task-local immutable identifiers such as `§00`;
+     agents must reuse them when reading encoded context and must not redefine
+     them. Dictionary ids and values are append-only task history: they must not
+     be deleted, rewritten, or reused for a different entity.
+   - Agents must maintain the active working set instead of only appending new
+     notes. When a new fact supersedes, resolves, or invalidates older active
+     context, update those older entries to `resolved` or `stale` in the same
+     handoff window.
+   - When an agent identifies stable domain terminology that should keep one
+     identity across sessions, add it through
+     `python3 -m agent_tools.tools.task_context dictionary --task <task-dir>
+     --add <term>`. Do not encode terms by hand in journal text; use dictionary
+     aliases returned by `--format agent`.
+   - Durable internal notes, handoffs, reflections, validation notes, and task
+     context details must use terse factual engineering prose. Prefer commands,
+     facts, paths, statuses, risks, and next actions. Avoid praise, motivational
+     phrasing, narrative recap, hedging, and decorative adjectives. Keep
+     technical qualifiers when they change behavior or risk.
    - Use `python3 -m agent_tools.tools.task_context add --task <task-dir> ...`
      to record facts with severity, status, labels, details, and artifacts.
    - Use `python3 -m agent_tools.tools.task_context query --task <task-dir>

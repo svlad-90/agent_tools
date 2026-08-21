@@ -22,8 +22,20 @@ import uuid
 from agent_tools.paf_workspace.task_check import check_task
 from agent_tools.paf_workspace.task_check import render_text
 from agent_tools.tools.task_context import DATABASE_FILENAME as TASK_CONTEXT_DATABASE_FILE
+from agent_tools.tools.task_context import DICTIONARY_TOKEN_RE
+from agent_tools.tools.task_context import DICTIONARY_MAX_TERM_WORDS
+from agent_tools.tools.task_context import DICTIONARY_MIN_OCCURRENCES
+from agent_tools.tools.task_context import DICTIONARY_MIN_SAVING
+from agent_tools.tools.task_context import DICTIONARY_MIN_TERM_LENGTH
+from agent_tools.tools.task_context import DICTIONARY_PREVIEW_TEXT
+from agent_tools.tools.task_context import DICTIONARY_STRIP_ARTICLES_DEFAULT
+from agent_tools.tools.task_context import DICTIONARY_AUTO_DISCOVERY_DEFAULT
+from agent_tools.tools.task_context import LEGACY_DICTIONARY_PREVIEW_TEXT
+from agent_tools.tools.task_context import TaskDictionaryPolicy
 from agent_tools.tools.task_context import filter_entries as filter_task_context_entries
+from agent_tools.tools.task_context import load_dictionary as load_task_context_dictionary
 from agent_tools.tools.task_context import load_entries as load_task_context_entries
+from agent_tools.tools.task_context import render_agent_entries as render_agent_context_entries
 from agent_tools.tools.task_context import render_entries as render_task_context_entries
 
 from .workspace_strings import AGENT_STATUS_MANUAL_ENTRIES
@@ -37,6 +49,7 @@ from .workspace_strings import AGENT_STATUS_TOOLTIPS
 
 
 TASK_CONTEXT_BUDGET = 8_000
+TASK_CONTEXT_PROMPT_INJECTION_DEFAULT = True
 TASKS_DIR_NAME = "tasks"
 MARKDOWN_TABLE_WIDTH = 96
 TASK_ACTIONS_FILE = "TASK_ACTIONS.json"
@@ -174,6 +187,14 @@ class AgentWorkspaceRuntimeSettings:
     default_codex_reasoning: str
     default_claude_model: str
     default_claude_effort: str
+    inject_task_context_prompt: bool
+    task_dictionary_auto_discovery: bool
+    task_dictionary_min_occurrences: int
+    task_dictionary_min_saving: int
+    task_dictionary_min_term_length: int
+    task_dictionary_max_term_words: int
+    task_dictionary_strip_articles: bool
+    task_dictionary_preview_text: str
     window_geometry: str
     main_split_ratio: float
     details_split_ratio: float
@@ -574,6 +595,7 @@ def build_ai_agent_console_command(
         append_ai_agent_model_options(command, agent, model=model, reasoning_effort=reasoning_effort)
         if resume and resume_session_id:
             command.extend(["--resume", resume_session_id])
+            command.append(prompt)
         else:
             if resume_session_id:
                 command.extend(["--session-id", resume_session_id])
@@ -585,12 +607,19 @@ def build_ai_agent_console_command(
     if resume and resume_session_id:
         command.extend(["resume", "--cd", str(workspace), "--no-alt-screen"])
         command.append(resume_session_id)
+        command.append(prompt)
         return command
     command.extend(["--cd", str(workspace), "--no-alt-screen", prompt])
     return command
 
 
-def ai_agent_task_context_prompt(task: TaskSummary, workspace: Path, suffix: str = "") -> str:
+def ai_agent_task_context_prompt(
+    task: TaskSummary,
+    workspace: Path,
+    suffix: str = "",
+    *,
+    inject_task_context: bool = TASK_CONTEXT_PROMPT_INJECTION_DEFAULT,
+) -> str:
     message = (
         f"We are working in workspace task `{task.name}`. "
         f"Workspace: {workspace}. "
@@ -598,14 +627,86 @@ def ai_agent_task_context_prompt(task: TaskSummary, workspace: Path, suffix: str
         "Before changing files, read that task's TASK_DESCRIPTION.md, then read "
         "only active task context entries with "
         "`python3 -m agent_tools.tools.task_context query --task "
-        f"{task.path} --severity mid..critical --status active --format markdown`. "
-        "Treat those active entries as the active task context. Do not read "
-        "resolved or stale task context entries unless the user asks or the "
-        "active context explicitly requires historical investigation."
+        f"{task.path} --severity mid..critical --status active --format agent`. "
+        "Treat the returned dictionary aliases as stable task-local identifiers "
+        "for the encoded context. Do not redefine them. Do not read resolved or "
+        "stale task context entries unless the user asks or the active context "
+        "explicitly requires historical investigation. Write durable task notes, "
+        "handoffs, reflections, and validation notes in terse factual engineering "
+        "prose; avoid praise, narrative recap, hedging, and decorative wording. "
+        "Maintain the task journal as a current working set: update older active "
+        "entries to resolved or stale when newer facts supersede them. Add stable "
+        "domain terms with `task_context dictionary --add <term>` instead of "
+        "hand-encoding aliases."
     )
+    if inject_task_context:
+        message = f"{message}\n\n{active_task_context_prompt(task)}"
     if suffix:
         return f"{message} {suffix}"
     return message
+
+
+def active_task_context_prompt(task: TaskSummary) -> str:
+    command = (
+        "python3 -m agent_tools.tools.task_context query --task "
+        f"{task.path} --severity mid..critical --status active --format agent"
+    )
+    try:
+        entries = filter_task_context_entries(
+            load_task_context_entries(task.path),
+            severity="mid..critical",
+            statuses=("active",),
+        )
+        rendered = render_agent_context_entries(task.path, entries, format_name="markdown")
+    except (OSError, ValueError) as exc:
+        rendered = f"Task context query failed: {exc}"
+    return (
+        "Active task context preloaded from `TASK_CONTEXT.sqlite3`.\n\n"
+        f"Command result of `{command}`:\n\n"
+        f"{rendered.rstrip()}"
+    )
+
+
+def render_task_context_details(task: TaskSummary, entries: Any, *, encoded: bool = False) -> str:
+    entries = list(entries)
+    if encoded:
+        return _render_encoded_task_context_details(task, entries)
+    return render_task_context_entries(entries, format_name="markdown")
+
+
+def _render_encoded_task_context_details(task: TaskSummary, entries: list[Any]) -> str:
+    lines: list[str] = []
+    dictionary = _encoded_task_context_dictionary(task, entries)
+    if dictionary:
+        lines.extend(["## Dictionary", ""])
+        lines.extend(f"- `{item.token}` = {item.value}" for item in dictionary)
+        lines.append("")
+    lines.extend(_encoded_task_context_entry_markdown(entry) for entry in entries)
+    return "\n".join(line for line in lines if line).rstrip()
+
+
+def _encoded_task_context_entry_markdown(entry: Any) -> str:
+    labels = ", ".join(f"`{label}`" for label in entry.labels) if entry.labels else "`unlabeled`"
+    entry_id = f"#{entry.id} " if entry.id is not None else ""
+    summary = entry.encoded_summary or entry.summary
+    head = f"- **{entry.severity}/{entry.status}** {entry_id}{summary} ({entry.timestamp}; {labels})"
+    parts = [head]
+    details = entry.encoded_details or entry.details
+    if details:
+        parts.append(f"  Details: {details}")
+    if entry.artifacts:
+        parts.append("  Artifacts: " + ", ".join(f"`{artifact}`" for artifact in entry.artifacts))
+    return "\n".join(parts)
+
+
+def _encoded_task_context_dictionary(task: TaskSummary, entries: list[Any]) -> list[Any]:
+    used_tokens: set[str] = set()
+    for entry in entries:
+        for value in (entry.encoded_summary, entry.encoded_details):
+            used_tokens.update(match.group(0) for match in DICTIONARY_TOKEN_RE.finditer(value or ""))
+    if not used_tokens:
+        return []
+    return [item for item in load_task_context_dictionary(task.path) if item.token in used_tokens]
 
 
 def task_check_prompt_suffix(task: TaskSummary, workspace: Path) -> str:
@@ -632,6 +733,7 @@ def prepare_ai_agent_launch_command(
     claude_executable: str,
     prompt_suffix: str = "",
     include_task_check: bool = False,
+    inject_task_context: bool = TASK_CONTEXT_PROMPT_INJECTION_DEFAULT,
 ) -> AgentLaunchCommand:
     agent = normalize_agent(agent)
     session_state = prepare_task_agent_session(task, workspace, agent)
@@ -645,7 +747,12 @@ def prepare_ai_agent_launch_command(
     if include_task_check:
         task_check_suffix = task_check_prompt_suffix(task, workspace)
         prompt_suffix = " ".join(value for value in (prompt_suffix, task_check_suffix) if value)
-    prompt = ai_agent_task_context_prompt(task, workspace, prompt_suffix)
+    prompt = ai_agent_task_context_prompt(
+        task,
+        workspace,
+        prompt_suffix,
+        inject_task_context=inject_task_context,
+    )
     return AgentLaunchCommand(
         command=build_ai_agent_console_command(
             workspace,
@@ -663,7 +770,7 @@ def prepare_ai_agent_launch_command(
     )
 
 
-def agent_workspace_setting_or_default(settings: dict[str, int | float | str], key: str, default: str) -> str:
+def agent_workspace_setting_or_default(settings: dict[str, int | float | str | bool], key: str, default: str) -> str:
     value = settings.get(key)
     if not isinstance(value, str):
         return default
@@ -671,8 +778,26 @@ def agent_workspace_setting_or_default(settings: dict[str, int | float | str], k
     return value or default
 
 
+def _task_dictionary_preview_text_setting(settings: dict[str, int | float | str | bool], key: str) -> str:
+    value = settings.get(key)
+    if not isinstance(value, str):
+        return DICTIONARY_PREVIEW_TEXT
+    value = value.strip()
+    if not value or _is_legacy_dictionary_preview_text(value):
+        return DICTIONARY_PREVIEW_TEXT
+    return value
+
+
+def _is_legacy_dictionary_preview_text(value: str) -> bool:
+    return (
+        len(value) < 1_000
+        and value.startswith("Agent Workspace renders TASK_CONTEXT.sqlite3 entries.")
+        and "test_agent_workspace_core.py validates Agent Workspace behavior" in value
+    ) or value == LEGACY_DICTIONARY_PREVIEW_TEXT
+
+
 def agent_workspace_runtime_settings(
-    settings: dict[str, int | float | str],
+    settings: dict[str, int | float | str | bool],
     *,
     default_font_size: int,
     default_language: str = "ru",
@@ -696,10 +821,68 @@ def agent_workspace_runtime_settings(
         default_claude_effort=agent_workspace_setting_or_default(
             settings, "default_claude_effort", AGENT_WORKSPACE_DEFAULT_CLAUDE_EFFORT
         ),
+        inject_task_context_prompt=_bool_setting(
+            settings,
+            "inject_task_context_prompt",
+            TASK_CONTEXT_PROMPT_INJECTION_DEFAULT,
+        ),
+        task_dictionary_auto_discovery=_bool_setting(
+            settings,
+            "task_dictionary_auto_discovery",
+            DICTIONARY_AUTO_DISCOVERY_DEFAULT,
+        ),
+        task_dictionary_min_occurrences=_int_range_setting(
+            settings,
+            "task_dictionary_min_occurrences",
+            DICTIONARY_MIN_OCCURRENCES,
+            1,
+            20,
+        ),
+        task_dictionary_min_saving=_int_range_setting(
+            settings,
+            "task_dictionary_min_saving",
+            DICTIONARY_MIN_SAVING,
+            0,
+            10_000,
+        ),
+        task_dictionary_min_term_length=_int_range_setting(
+            settings,
+            "task_dictionary_min_term_length",
+            DICTIONARY_MIN_TERM_LENGTH,
+            1,
+            200,
+        ),
+        task_dictionary_max_term_words=_int_range_setting(
+            settings,
+            "task_dictionary_max_term_words",
+            DICTIONARY_MAX_TERM_WORDS,
+            1,
+            20,
+        ),
+        task_dictionary_strip_articles=_bool_setting(
+            settings,
+            "task_dictionary_strip_articles",
+            DICTIONARY_STRIP_ARTICLES_DEFAULT,
+        ),
+        task_dictionary_preview_text=_task_dictionary_preview_text_setting(
+            settings,
+            "task_dictionary_preview_text",
+        ),
         window_geometry=_str_setting(settings, "geometry", default_geometry),
         main_split_ratio=_float_setting(settings, "main_split_ratio", 0.25),
         details_split_ratio=_float_setting(settings, "details_split_ratio", 0.25),
         actions_split_ratio=_float_setting(settings, "actions_split_ratio", 0.38),
+    )
+
+
+def task_dictionary_policy_from_runtime_settings(settings: AgentWorkspaceRuntimeSettings) -> TaskDictionaryPolicy:
+    return TaskDictionaryPolicy(
+        auto_discovery=settings.task_dictionary_auto_discovery,
+        min_occurrences=settings.task_dictionary_min_occurrences,
+        min_saving=settings.task_dictionary_min_saving,
+        min_term_length=settings.task_dictionary_min_term_length,
+        max_term_words=settings.task_dictionary_max_term_words,
+        strip_articles=settings.task_dictionary_strip_articles,
     )
 
 
@@ -822,14 +1005,25 @@ def session_marks_task_pending_permission(
     )
 
 
-def _int_setting(settings: dict[str, int | float | str], key: str, default: int) -> int:
+def _int_setting(settings: dict[str, int | float | str | bool], key: str, default: int) -> int:
     value = settings.get(key)
     if isinstance(value, int):
         return value
     return default
 
 
-def _float_setting(settings: dict[str, int | float | str], key: str, default: float) -> float:
+def _int_range_setting(
+    settings: dict[str, int | float | str | bool],
+    key: str,
+    default: int,
+    minimum: int,
+    maximum: int,
+) -> int:
+    value = _int_setting(settings, key, default)
+    return max(minimum, min(maximum, value))
+
+
+def _float_setting(settings: dict[str, int | float | str | bool], key: str, default: float) -> float:
     value = settings.get(key)
     if isinstance(value, int | float):
         ratio = float(value)
@@ -846,7 +1040,7 @@ def _float_setting(settings: dict[str, int | float | str], key: str, default: fl
 
 
 def _choice_setting(
-    settings: dict[str, int | float | str],
+    settings: dict[str, int | float | str | bool],
     key: str,
     choices: tuple[str, ...],
     default: str,
@@ -857,11 +1051,16 @@ def _choice_setting(
     return default
 
 
-def _str_setting(settings: dict[str, int | float | str], key: str, default: str) -> str:
+def _str_setting(settings: dict[str, int | float | str | bool], key: str, default: str) -> str:
     value = settings.get(key)
     if isinstance(value, str):
         return value
     return default
+
+
+def _bool_setting(settings: dict[str, int | float | str | bool], key: str, default: bool) -> bool:
+    value = settings.get(key)
+    return value if isinstance(value, bool) else default
 
 
 def _normalized_agent_output_tail(text: str) -> str:
@@ -1452,7 +1651,7 @@ def _claude_session_id_from_file(path: Path) -> str | None:
     return None
 
 
-def load_agent_workspace_settings(path: Path | None = None) -> dict[str, int | float | str]:
+def load_agent_workspace_settings(path: Path | None = None) -> dict[str, int | float | str | bool]:
     settings_path = path or agent_workspace_settings_path()
     if not settings_path.is_file():
         return {}
@@ -1462,7 +1661,7 @@ def load_agent_workspace_settings(path: Path | None = None) -> dict[str, int | f
         return {}
     if not isinstance(data, dict):
         return {}
-    settings: dict[str, int | float | str] = {}
+    settings: dict[str, int | float | str | bool] = {}
     text_font_size = data.get("text_font_size", data.get("font_size"))
     button_font_size = data.get("button_font_size")
     theme = data.get("theme")
@@ -1473,6 +1672,14 @@ def load_agent_workspace_settings(path: Path | None = None) -> dict[str, int | f
     default_codex_reasoning = data.get("default_codex_reasoning")
     default_claude_model = data.get("default_claude_model")
     default_claude_effort = data.get("default_claude_effort")
+    inject_task_context_prompt = data.get("inject_task_context_prompt")
+    task_dictionary_auto_discovery = data.get("task_dictionary_auto_discovery")
+    task_dictionary_min_occurrences = data.get("task_dictionary_min_occurrences")
+    task_dictionary_min_saving = data.get("task_dictionary_min_saving")
+    task_dictionary_min_term_length = data.get("task_dictionary_min_term_length")
+    task_dictionary_max_term_words = data.get("task_dictionary_max_term_words")
+    task_dictionary_strip_articles = data.get("task_dictionary_strip_articles")
+    task_dictionary_preview_text = data.get("task_dictionary_preview_text")
     main_split_ratio = data.get("main_split_ratio")
     details_split_ratio = data.get("details_split_ratio")
     actions_split_ratio = data.get("actions_split_ratio")
@@ -1496,6 +1703,22 @@ def load_agent_workspace_settings(path: Path | None = None) -> dict[str, int | f
         settings["default_claude_model"] = default_claude_model.strip()
     if isinstance(default_claude_effort, str) and default_claude_effort in AGENT_WORKSPACE_REASONING_EFFORTS:
         settings["default_claude_effort"] = default_claude_effort
+    if isinstance(inject_task_context_prompt, bool):
+        settings["inject_task_context_prompt"] = inject_task_context_prompt
+    if isinstance(task_dictionary_auto_discovery, bool):
+        settings["task_dictionary_auto_discovery"] = task_dictionary_auto_discovery
+    for key, value, minimum, maximum in (
+        ("task_dictionary_min_occurrences", task_dictionary_min_occurrences, 1, 20),
+        ("task_dictionary_min_saving", task_dictionary_min_saving, 0, 10_000),
+        ("task_dictionary_min_term_length", task_dictionary_min_term_length, 1, 200),
+        ("task_dictionary_max_term_words", task_dictionary_max_term_words, 1, 20),
+    ):
+        if isinstance(value, int) and not isinstance(value, bool):
+            settings[key] = max(minimum, min(maximum, value))
+    if isinstance(task_dictionary_strip_articles, bool):
+        settings["task_dictionary_strip_articles"] = task_dictionary_strip_articles
+    if isinstance(task_dictionary_preview_text, str):
+        settings["task_dictionary_preview_text"] = task_dictionary_preview_text
     for key, value in (
         ("main_split_ratio", main_split_ratio),
         ("details_split_ratio", details_split_ratio),
@@ -1506,7 +1729,7 @@ def load_agent_workspace_settings(path: Path | None = None) -> dict[str, int | f
     return settings
 
 
-def save_agent_workspace_settings(settings: dict[str, int | float | str], path: Path | None = None) -> None:
+def save_agent_workspace_settings(settings: dict[str, int | float | str | bool], path: Path | None = None) -> None:
     settings_path = path or agent_workspace_settings_path()
     try:
         settings_path.parent.mkdir(parents=True, exist_ok=True)
@@ -1964,4 +2187,4 @@ def _active_task_context_tokens(task_path: Path) -> int:
         )
     except (OSError, ValueError):
         return 0
-    return rough_token_count(render_task_context_entries(entries, format_name="markdown"))
+    return rough_token_count(render_agent_context_entries(task_path, entries, format_name="markdown"))

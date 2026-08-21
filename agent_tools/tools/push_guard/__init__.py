@@ -361,8 +361,16 @@ def check(args: argparse.Namespace) -> int:
     commits = _pushed_commits(stdin_text, repo)
     ref_tips = _pushed_ref_tips(stdin_text, repo)
     findings = _guarded_pushed_file_findings(repo, commits)
+    task_check_report = _task_check_report_for_repo(repo)
     if findings:
         _print_guarded_findings(findings, action="push")
+    if task_check_report:
+        print("push_guard: push blocked by task_check:", file=sys.stderr)
+        print(task_check_report, file=sys.stderr)
+    if findings or task_check_report:
+        if args.allow_override:
+            print("push_guard: override enabled; allowing push", file=sys.stderr)
+            return 0
         return 1
 
     missing = [

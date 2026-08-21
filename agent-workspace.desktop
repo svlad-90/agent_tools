@@ -2,7 +2,7 @@
 Type=Application
 Name=Agent Workspace
 Comment=Open the local agent workspace task dashboard
-Exec=/home/vladyslav-goncharuk/Documents/Projects/agent-workspace
+Exec=/home/vladyslav-goncharuk/Documents/Projects/agent-workspace.sh
 Path=/home/vladyslav-goncharuk/Documents/Projects
 Icon=agent-workspace
 Terminal=false

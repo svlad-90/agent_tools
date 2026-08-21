@@ -18,7 +18,29 @@ source. Active entries are the compact working set; resolved and stale entries
 are queryable history.
 
 The model decides what is worth recording. The tool owns timestamps, severity,
-labels, filtering, and compaction.
+labels, filtering, dictionary encoding, and compaction.
+
+Human-facing output renders decoded `summary` and `details` by default. Agent
+context should use `--format agent`, which returns encoded entries plus only the
+stable task dictionary aliases used by that query result. Dictionary aliases are
+task-local immutable identifiers such as `§00`; reuse them when reading encoded
+context and do not redefine them. Dictionary ids and values are append-only task
+history: they must not be deleted, rewritten, or reused for a different entity.
+
+Maintain the active working set instead of only appending notes. When a new fact
+supersedes, resolves, or invalidates older active context, update those older
+entries to `resolved` or `stale` in the same handoff window.
+
+When stable domain terminology should keep one identity across sessions, add it
+through `python3 -m agent_tools.tools.task_context dictionary --task <task-dir>
+--add <term>`. Do not encode terms by hand in journal text; use dictionary
+aliases returned by `--format agent`.
+
+Durable internal notes, handoffs, reflections, validation notes, and task
+context details must use terse factual engineering prose. Prefer commands,
+facts, paths, statuses, risks, and next actions. Avoid praise, motivational
+phrasing, narrative recap, hedging, and decorative adjectives. Keep technical
+qualifiers when they change behavior or risk.
 
 ## Severity
 
@@ -110,7 +132,7 @@ python3 -m agent_tools.tools.task_context compact \
      --task tasks/<task-name> \
      --severity mid..critical \
      --status active \
-     --format markdown
+     --format agent
    ```
 
    Query resolved, stale, lower-severity, or label-specific history only when

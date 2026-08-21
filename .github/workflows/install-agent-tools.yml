@@ -1,0 +1,115 @@
+name: install-agent-tools
+
+on:
+  push:
+    paths:
+      - ".github/workflows/install-agent-tools.yml"
+      - "install-agent-tools.py"
+      - "agent-workspace.sh"
+      - "agent_tools/requirements/**"
+      - "agent_tools/tools/agent_workspace/**"
+      - "agent_tools/tools/task_context/**"
+      - "agent_tools/tools/rules_sync/**"
+      - "agent_tools/rules/**"
+      - "agent_tools/skills/**"
+  pull_request:
+    paths:
+      - ".github/workflows/install-agent-tools.yml"
+      - "install-agent-tools.py"
+      - "agent-workspace.sh"
+      - "agent_tools/requirements/**"
+      - "agent_tools/tools/agent_workspace/**"
+      - "agent_tools/tools/task_context/**"
+      - "agent_tools/tools/rules_sync/**"
+      - "agent_tools/rules/**"
+      - "agent_tools/skills/**"
+  workflow_dispatch:
+
+jobs:
+  runtime-install:
+    name: runtime install (${{ matrix.distro }})
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - distro: ubuntu-24.04
+            image: ubuntu:24.04
+            bootstrap: apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y ca-certificates python3 python3-venv
+          - distro: debian-12
+            image: debian:12
+            bootstrap: apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y ca-certificates python3 python3-venv
+          - distro: fedora-latest
+            image: fedora:latest
+            bootstrap: dnf install -y ca-certificates python3 python3-pip
+          - distro: archlinux-latest
+            image: archlinux:latest
+            bootstrap: pacman -Sy --noconfirm ca-certificates python
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Install runtime/dev dependencies in fresh target image
+        env:
+          TARGET_IMAGE: ${{ matrix.image }}
+          TARGET_BOOTSTRAP: ${{ matrix.bootstrap }}
+        run: |
+          docker run --rm \
+            -e TARGET_BOOTSTRAP="$TARGET_BOOTSTRAP" \
+            -v "$PWD:/workspace" \
+            -w /workspace \
+            "$TARGET_IMAGE" \
+            sh -lc '
+              set -eux
+              eval "$TARGET_BOOTSTRAP"
+              ./install-agent-tools.py --dev --skip-system-deps --no-desktop
+              test -x agent-workspace.sh
+              agent_tools/.venv/bin/python -c "import yaml, tiktoken; import agent_tools.tools.task_context as tc; assert tc.token_count(\"Agent Workspace\") > 0"
+              agent_tools/.venv/bin/python -m agent_tools.tools.rules_sync sync --check
+              agent_tools/.venv/bin/python -m pytest -q agent_tools/tools/task_context/tests/test_task_context.py
+            '
+
+  gui-system-packages:
+    name: gui packages (${{ matrix.distro }})
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - distro: ubuntu-24.04
+            image: ubuntu:24.04
+            bootstrap: apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y ca-certificates python3 python3-venv
+          - distro: debian-12
+            image: debian:12
+            bootstrap: apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y ca-certificates python3 python3-venv
+          - distro: fedora-latest
+            image: fedora:latest
+            bootstrap: dnf install -y ca-certificates python3 python3-pip
+          - distro: archlinux-latest
+            image: archlinux:latest
+            bootstrap: pacman -Sy --noconfirm ca-certificates python
+          - distro: opensuse-tumbleweed
+            image: opensuse/tumbleweed:latest
+            bootstrap: zypper --non-interactive install ca-certificates python3 python3-pip
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Install GTK/VTE dependencies through target package manager
+        env:
+          TARGET_IMAGE: ${{ matrix.image }}
+          TARGET_BOOTSTRAP: ${{ matrix.bootstrap }}
+        run: |
+          docker run --rm \
+            -e TARGET_BOOTSTRAP="$TARGET_BOOTSTRAP" \
+            -v "$PWD:/workspace" \
+            -w /workspace \
+            "$TARGET_IMAGE" \
+            sh -lc '
+              set -eux
+              eval "$TARGET_BOOTSTRAP"
+              ./install-agent-tools.py --gui --no-desktop --no-skills
+              agent_tools/.venv/bin/python -c "import gi; gi.require_version(\"Gtk\", \"3.0\"); gi.require_version(\"Vte\", \"2.91\")"
+            '
