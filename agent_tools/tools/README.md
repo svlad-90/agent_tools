@@ -48,7 +48,7 @@ the fallback on hosts without GTK/VTE.
 python3 install-agent-tools.py --venv /path/to/venv --dev
 ```
 
-Dependency files live under `requirements/`:
+Dependency files live under `agent_tools/tools/requirements/`:
 
 - `runtime.txt`: CLI runtime dependencies, including `PyYAML` and `tiktoken`.
 - `dev.txt`: runtime plus test dependencies.

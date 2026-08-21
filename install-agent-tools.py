@@ -15,6 +15,7 @@ import venv
 WORKSPACE_ROOT = Path(__file__).resolve().parent
 AGENT_TOOLS_ROOT = WORKSPACE_ROOT / "agent_tools"
 DEFAULT_VENV = AGENT_TOOLS_ROOT / ".venv"
+REQUIREMENTS_ROOT = AGENT_TOOLS_ROOT / "tools" / "requirements"
 
 APT_GUI_PACKAGES = (
     "python3-gi",
@@ -206,9 +207,9 @@ def _venv_python(venv_path: Path) -> Path:
 def _install_python_dependencies(python: Path, args: argparse.Namespace) -> None:
     if not args.no_upgrade_pip:
         _run([str(python), "-m", "pip", "install", "--upgrade", "pip", "setuptools", "wheel"], args)
-    requirements = [AGENT_TOOLS_ROOT / "requirements" / "runtime.txt"]
+    requirements = [REQUIREMENTS_ROOT / "runtime.txt"]
     if args.dev:
-        requirements.append(AGENT_TOOLS_ROOT / "requirements" / "dev.txt")
+        requirements.append(REQUIREMENTS_ROOT / "dev.txt")
     for requirement in requirements:
         _run([str(python), "-m", "pip", "install", "-r", str(requirement)], args)
 

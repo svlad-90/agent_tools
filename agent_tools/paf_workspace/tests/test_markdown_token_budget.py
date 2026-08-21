@@ -10,6 +10,9 @@ from agent_tools.tools.agent_workspace.core import rough_token_count
 AGENT_TOOLS_ROOT = Path(__file__).resolve().parents[2]
 WORKSPACE_ROOT = AGENT_TOOLS_ROOT.parent
 EXCLUDED_PARTS = {".cache", ".git", "__pycache__", "build", "dev"}
+GENERATED_MARKDOWN_PATHS = {
+    Path("CLAUDE.md"),
+}
 
 TRACKED_MARKDOWN_TOTAL_BUDGET = 40_000
 TRACKED_MARKDOWN_FILE_BUDGET = 5_000
@@ -72,6 +75,10 @@ def _tracked_markdown_files() -> tuple[Path, ...]:
     paths = []
     for line in result.stdout.splitlines():
         path = Path(line)
+        if _is_generated_markdown(path):
+            continue
+        if _is_tool_reference_markdown(path):
+            continue
         if any(part in EXCLUDED_PARTS for part in path.parts):
             continue
         if not (WORKSPACE_ROOT / path).is_file():
@@ -82,7 +89,7 @@ def _tracked_markdown_files() -> tuple[Path, ...]:
 
 def _single_task_bootstrap_markdown_files() -> tuple[Path, ...]:
     paths = []
-    for path in (Path("AGENTS.md"), Path("CLAUDE.md")):
+    for path in (Path("AGENTS.md"),):
         if (WORKSPACE_ROOT / path).is_file():
             paths.append(path)
 
@@ -104,6 +111,17 @@ def _single_task_bootstrap_markdown_files() -> tuple[Path, ...]:
 
 def _relative_markdown_files(directory: Path) -> list[Path]:
     return sorted(path.relative_to(WORKSPACE_ROOT) for path in directory.glob("*.md"))
+
+
+def _is_generated_markdown(path: Path) -> bool:
+    # Source rules/skills are counted directly; generated mirrors are covered by
+    # rules_sync drift checks and would double-count the same bootstrap text.
+    return path in GENERATED_MARKDOWN_PATHS or path.parts[:2] == (".claude", "skills")
+
+
+def _is_tool_reference_markdown(path: Path) -> bool:
+    # Tool README files are on-demand manuals, not default agent context.
+    return path.parts[:2] == ("agent_tools", "tools") and path.name == "README.md"
 
 
 def _markdown_entries(paths: Iterable[Path]) -> list[MarkdownEntry]:

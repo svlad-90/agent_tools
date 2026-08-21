@@ -19,6 +19,7 @@
 !.github/workflows/commit-msg.yml
 !agent_tools/
 !agent_tools/**
+agent_tools/.venv/
 !.claude/
 !.claude/**
 !.gitignore
