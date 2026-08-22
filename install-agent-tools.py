@@ -112,7 +112,7 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
     parser.add_argument(
         "--no-launcher",
         action="store_true",
-        help="Do not write the workspace agent-workspace.sh launcher.",
+        help="Do not write the workspace launcher scripts.",
     )
     parser.add_argument(
         "--no-desktop",
@@ -215,21 +215,69 @@ def _install_python_dependencies(python: Path, args: argparse.Namespace) -> None
 
 
 def _write_launcher(python: Path, args: argparse.Namespace) -> None:
-    target = WORKSPACE_ROOT / "agent-workspace.sh"
-    content = "\n".join(
+    launchers = {
+        WORKSPACE_ROOT / "agent-workspace.sh": _launcher_content(python, ()),
+        WORKSPACE_ROOT / "agent-workspace-web.sh": _launcher_content(python, ("--ui", "web")),
+        WORKSPACE_ROOT / "agent-workspace.command": _launcher_content(python, ("--ui", "web")),
+        WORKSPACE_ROOT / "agent-workspace-web.command": _launcher_content(python, ("--ui", "web")),
+        WORKSPACE_ROOT / "agent-workspace.cmd": _windows_launcher_content(python, ("--ui", "web")),
+        WORKSPACE_ROOT / "agent-workspace-web.cmd": _windows_launcher_content(python, ("--ui", "web")),
+    }
+    if args.dry_run:
+        for target in launchers:
+            print(f"Would write launcher: {target}")
+        return
+    for target, content in launchers.items():
+        target.write_text(content, encoding="utf-8")
+        if target.suffix != ".cmd":
+            target.chmod(target.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
+
+
+def _launcher_content(python: Path, default_args: tuple[str, ...]) -> str:
+    args = " ".join(_shell_quote(arg) for arg in default_args)
+    module_command = f'exec "{python}" -m agent_tools.tools.agent_workspace'
+    if args:
+        module_command = f"{module_command} {args}"
+    return "\n".join(
         [
             "#!/usr/bin/env sh",
             'WORKSPACE_ROOT=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)',
             'export PYTHONPATH="$WORKSPACE_ROOT${PYTHONPATH:+:$PYTHONPATH}"',
-            f'exec "{python}" -m agent_tools.tools.agent_workspace "$@"',
+            f'{module_command} "$@"',
             "",
         ]
     )
-    if args.dry_run:
-        print(f"Would write launcher: {target}")
-        return
-    target.write_text(content, encoding="utf-8")
-    target.chmod(target.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
+
+
+def _windows_launcher_content(python: Path, default_args: tuple[str, ...]) -> str:
+    args = " ".join(_windows_quote(arg) for arg in default_args)
+    module_command = f'"{python}" -m agent_tools.tools.agent_workspace'
+    if args:
+        module_command = f"{module_command} {args}"
+    return "\r\n".join(
+        [
+            "@echo off",
+            "setlocal",
+            'set "WORKSPACE_ROOT=%~dp0"',
+            'cd /d "%WORKSPACE_ROOT%"',
+            'if defined PYTHONPATH (set "PYTHONPATH=%WORKSPACE_ROOT%;%PYTHONPATH%") else (set "PYTHONPATH=%WORKSPACE_ROOT%")',
+            f"{module_command} %*",
+            "exit /b %ERRORLEVEL%",
+            "",
+        ]
+    )
+
+
+def _shell_quote(value: str) -> str:
+    if value and all(ch.isalnum() or ch in "-_./:" for ch in value):
+        return value
+    return "'" + value.replace("'", "'\"'\"'") + "'"
+
+
+def _windows_quote(value: str) -> str:
+    if value and all(ch.isalnum() or ch in "-_./:" for ch in value):
+        return value
+    return '"' + value.replace('"', '""') + '"'
 
 
 def _install_desktop_entry(python: Path, args: argparse.Namespace) -> None:
@@ -262,7 +310,7 @@ def _validate_installation(python: Path, args: argparse.Namespace) -> None:
         [
             str(python),
             "-c",
-            "import yaml, tiktoken; import agent_tools.tools.task_context as tc; tc.token_count('Agent Workspace')",
+            "import yaml, tiktoken; import agent_tools.tools.task_context as tc; import agent_tools.tools.agent_workspace.service; import agent_tools.tools.agent_workspace.web_ui; tc.token_count('Agent Workspace')",
         ],
         args,
         env=_python_env(),

@@ -13,6 +13,7 @@ from pathlib import Path
 import re
 import sqlite3
 import sys
+import textwrap
 from typing import Any
 from typing import Iterable
 from typing import Mapping
@@ -55,7 +56,21 @@ LABELS = (
     "user-preference",
     "validation",
 )
+SLOT_CATEGORIES = (
+    "goal",
+    "env",
+    "decisions",
+    "findings",
+    "validation",
+    "blocker-risk",
+    "operational-memory",
+    "user-preference",
+    "legacy",
+)
+REQUIRED_SLOT_CATEGORIES = ("goal", "operational-memory")
+RECOMMENDED_SLOT_CATEGORIES = ("env", "validation")
 DEFAULT_COMPACT_LIMIT = 40
+SLOT_MARKDOWN_CARD_WIDTH = 94
 DICTIONARY_CODEC_VERSION = 2
 DICTIONARY_ID_ALPHABET = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
 DICTIONARY_AUTO_DISCOVERY_DEFAULT = True
@@ -231,6 +246,20 @@ class ContextEntry:
 
 
 @dataclass(frozen=True)
+class TaskContextSlot:
+    category: str
+    content: str
+    updated_at: str
+
+    def to_json(self) -> dict[str, object]:
+        return {
+            "category": self.category,
+            "content": self.content,
+            "updated_at": self.updated_at,
+        }
+
+
+@dataclass(frozen=True)
 class DictionaryEntry:
     id: int
     value: str
@@ -287,6 +316,59 @@ def ensure_database(task_dir: Path) -> None:
         raise ValueError(f"task directory does not exist: {task_dir}")
     with sqlite3.connect(database_path(task_dir)) as connection:
         _create_schema(connection)
+        _migrate_legacy_inputs_to_slots(task_dir, connection)
+
+
+def load_slots(task_dir: Path, categories: Iterable[str] = ()) -> list[TaskContextSlot]:
+    task_dir = task_dir.resolve()
+    path = database_path(task_dir)
+    ensure_database(task_dir)
+    selected_categories = _normalized_slot_categories(categories)
+    with sqlite3.connect(path) as connection:
+        _create_schema(connection)
+        _migrate_legacy_inputs_to_slots(task_dir, connection)
+        if selected_categories:
+            placeholders = ",".join("?" for _item in selected_categories)
+            rows = connection.execute(
+                f"SELECT category, content, updated_at FROM task_context_slots "
+                f"WHERE category IN ({placeholders})",
+                tuple(selected_categories),
+            ).fetchall()
+        else:
+            rows = connection.execute(
+                "SELECT category, content, updated_at FROM task_context_slots"
+            ).fetchall()
+    slots = [TaskContextSlot(category=row[0], content=row[1], updated_at=row[2]) for row in rows]
+    order = {category: index for index, category in enumerate(SLOT_CATEGORIES)}
+    return sorted(slots, key=lambda slot: order.get(slot.category, len(order)))
+
+
+def set_slot(
+    task_dir: Path,
+    category: str,
+    content: str,
+    *,
+    updated_at: str | None = None,
+) -> TaskContextSlot:
+    task_dir = task_dir.resolve()
+    if not task_dir.is_dir():
+        raise ValueError(f"task directory does not exist: {task_dir}")
+    ensure_database(task_dir)
+    slot = TaskContextSlot(
+        category=_validate_slot_category(category),
+        content=content.strip(),
+        updated_at=_validate_timestamp(updated_at or datetime.now().astimezone().isoformat(timespec="seconds")),
+    )
+    with sqlite3.connect(database_path(task_dir)) as connection:
+        _create_schema(connection)
+        _migrate_legacy_inputs_to_slots(task_dir, connection)
+        connection.execute(
+            "INSERT INTO task_context_slots (category, content, updated_at) VALUES (?, ?, ?) "
+            "ON CONFLICT(category) DO UPDATE SET content = excluded.content, updated_at = excluded.updated_at",
+            (slot.category, slot.content, slot.updated_at),
+        )
+        _compile_dictionary(connection)
+    return slot
 
 
 def add_entry(
@@ -304,19 +386,22 @@ def add_entry(
     task_dir = task_dir.resolve()
     if not task_dir.is_dir():
         raise ValueError(f"task directory does not exist: {task_dir}")
-    entry = ContextEntry(
-        timestamp=_validate_timestamp(timestamp or datetime.now().astimezone().isoformat(timespec="seconds")),
-        severity=_validate_choice(severity, SEVERITIES, "severity"),
-        labels=_normalized_labels(labels),
-        status=_validate_choice(status, STATUSES, "status"),
-        summary=_non_empty(summary, "summary"),
-        details=details.strip(),
-        source=_normalize_token(source, "source"),
-        artifacts=tuple(artifact.strip() for artifact in artifacts if artifact.strip()),
-    )
     ensure_database(task_dir)
     with sqlite3.connect(database_path(task_dir)) as connection:
-        entry_id = _insert_entry(connection, entry)
+        _create_schema(connection)
+        decoded_summary, summary_terms = _decode_input_aliases(connection, _non_empty(summary, "summary"))
+        decoded_details, details_terms = _decode_input_aliases(connection, details.strip())
+        entry = ContextEntry(
+            timestamp=_validate_timestamp(timestamp or datetime.now().astimezone().isoformat(timespec="seconds")),
+            severity=_validate_choice(severity, SEVERITIES, "severity"),
+            labels=_normalized_labels(labels),
+            status=_validate_choice(status, STATUSES, "status"),
+            summary=decoded_summary,
+            details=decoded_details,
+            source=_normalize_token(source, "source"),
+            artifacts=tuple(artifact.strip() for artifact in artifacts if artifact.strip()),
+        )
+        entry_id = _insert_entry(connection, entry, protected_terms=summary_terms | details_terms)
         _compile_dictionary(connection)
     return replace(entry, id=entry_id)
 
@@ -432,13 +517,33 @@ def edit_entries(
             return selected
         _delete_entries(task_dir, selected)
         return selected
+    protected_terms_by_id: dict[int, set[str]] = {}
+    with sqlite3.connect(database_path(task_dir)) as connection:
+        _create_schema(connection)
+        decoded_summary = set_summary
+        summary_terms: set[str] = set()
+        if set_summary is not None:
+            decoded_summary, summary_terms = _decode_input_aliases(connection, _non_empty(set_summary, "summary"))
+        decoded_details = set_details
+        details_terms: set[str] = set()
+        if set_details is not None:
+            decoded_details, details_terms = _decode_input_aliases(connection, set_details.strip())
+        existing_terms = _load_alias_protected_terms(connection, [entry.id for entry in selected if entry.id is not None])
+        for entry in selected:
+            if entry.id is None:
+                continue
+            terms = set(existing_terms.get(entry.id, ()))
+            terms.update(summary_terms)
+            terms.update(details_terms)
+            if set_summary is not None or set_details is not None:
+                protected_terms_by_id[entry.id] = terms
     updated = [
         _edited_entry(
             entry,
             set_status=set_status,
             set_severity=set_severity,
-            set_summary=set_summary,
-            set_details=set_details,
+            set_summary=decoded_summary,
+            set_details=decoded_details,
             set_source=set_source,
             set_labels=set_label_values,
             add_labels=add_label_values,
@@ -452,9 +557,14 @@ def edit_entries(
         for entry in selected
     ]
     changed = [entry for original, entry in zip(selected, updated) if entry != original]
+    changed_ids = {entry.id for entry in changed if entry.id is not None}
+    for entry in updated:
+        if entry.id in protected_terms_by_id and entry.id not in changed_ids:
+            changed.append(entry)
+            changed_ids.add(entry.id)
     if dry_run or not changed:
         return changed
-    _update_entries(task_dir, changed)
+    _update_entries(task_dir, changed, protected_terms_by_id=protected_terms_by_id)
     return changed
 
 
@@ -561,7 +671,12 @@ def _edited_entry(
     )
 
 
-def _update_entries(task_dir: Path, entries: Sequence[ContextEntry]) -> None:
+def _update_entries(
+    task_dir: Path,
+    entries: Sequence[ContextEntry],
+    *,
+    protected_terms_by_id: Mapping[int, set[str]] | None = None,
+) -> None:
     with sqlite3.connect(database_path(task_dir)) as connection:
         _create_schema(connection)
         connection.executemany(
@@ -584,6 +699,18 @@ def _update_entries(task_dir: Path, entries: Sequence[ContextEntry]) -> None:
                 if entry.id is not None
             ],
         )
+        if protected_terms_by_id:
+            connection.executemany(
+                "UPDATE context_entries SET alias_protected_terms = ? WHERE id = ?",
+                [
+                    (
+                        json.dumps(sorted(protected_terms_by_id[entry.id]), ensure_ascii=False),
+                        entry.id,
+                    )
+                    for entry in entries
+                    if entry.id is not None and entry.id in protected_terms_by_id
+                ],
+            )
         _compile_dictionary(connection)
 
 
@@ -775,6 +902,24 @@ def render_agent_entries(task_dir: Path, entries: Iterable[ContextEntry], *, for
     return _agent_markdown(dictionary, entries)
 
 
+def render_slots(
+    slots: Iterable[TaskContextSlot],
+    *,
+    format_name: str = "markdown",
+    task_dir: Path | None = None,
+) -> str:
+    slots = list(slots)
+    if format_name == "json":
+        return json.dumps([slot.to_json() for slot in slots], ensure_ascii=False, indent=2)
+    if format_name == "text":
+        return "\n\n".join(_slot_text(slot) for slot in slots).rstrip()
+    if format_name in {"markdown", "agent"}:
+        if format_name == "agent" and task_dir is not None:
+            return _encoded_slots_markdown(task_dir, slots)
+        return _slots_markdown_cards(slots)
+    raise ValueError(f"unknown format: {format_name}")
+
+
 def compact_context(
     task_dir: Path,
     *,
@@ -786,47 +931,89 @@ def compact_context(
     limit: int = DEFAULT_COMPACT_LIMIT,
     agent_context: bool = False,
 ) -> str:
-    entries = filter_entries(
-        load_entries(task_dir),
-        since=since,
-        until=until,
-        severity=severity,
-        labels=labels,
-        statuses=statuses,
-    )
-    if limit > 0:
-        entries = entries[-limit:]
+    slots = load_slots(task_dir)
     if agent_context:
-        return _agent_compact_context(task_dir, entries)
+        return render_slots(slots, format_name="agent", task_dir=task_dir)
     now = datetime.now().astimezone().isoformat(timespec="seconds")
     lines = [
         "# Task Context",
         "",
-        f"_Generated from `{DATABASE_FILENAME}` at {now}._",
+        f"_Generated from `{DATABASE_FILENAME}` slots at {now}._",
         "",
-        "## Current Working Context",
-        "",
+        render_slots(slots, format_name="markdown", task_dir=task_dir) or "- No task context slots.",
     ]
-    if entries:
-        lines.extend(_entry_markdown(entry) for entry in entries)
-    else:
-        lines.append("- No matching active context entries.")
-    lines.extend(
-        [
-            "",
-            "## Journal Query",
-            "",
-            "Default agent context comes from active entries only:",
-            "",
-            "`python3 -m agent_tools.tools.task_context query --task <task-dir> "
-            "--severity mid..critical --status active --format agent`",
-            "",
-            "Query resolved or stale history only when the user asks or active context "
-            "requires historical investigation.",
-            "",
-        ]
-    )
     return "\n".join(lines)
+
+
+def _slot_text(slot: TaskContextSlot) -> str:
+    content = slot.content or "(empty)"
+    return f"{slot.category}\t{slot.updated_at}\n{content}"
+
+
+def _slot_markdown(slot: TaskContextSlot) -> str:
+    title = slot.category.replace("-", " ").title()
+    content = slot.content.strip() or "- Empty."
+    return f"## {title}\n\n_Updated: {slot.updated_at}_\n\n{content}"
+
+
+def _slot_markdown_card(slot: TaskContextSlot) -> str:
+    title = slot.category.replace("-", " ").title()
+    rows = [
+        (title, slot.updated_at),
+        ("content", slot.content.strip() or "- Empty."),
+    ]
+    return _ascii_card(rows)
+
+
+def _slots_markdown_cards(slots: Sequence[TaskContextSlot]) -> str:
+    if not slots:
+        return ""
+    return "```text\n" + "\n\n".join(_slot_markdown_card(slot) for slot in slots) + "\n```"
+
+
+def _encoded_slots_markdown(task_dir: Path, slots: Sequence[TaskContextSlot]) -> str:
+    if not slots:
+        return ""
+    dictionary = load_dictionary(task_dir)
+    encoded_slots: list[TaskContextSlot] = []
+    used_refs: set[int] = set()
+    for slot in slots:
+        encoded_content, refs = _encode_text(slot.content, dictionary)
+        used_refs.update(refs)
+        encoded_slots.append(replace(slot, content=encoded_content))
+    used_dictionary = [entry for entry in dictionary if entry.id in used_refs]
+    parts: list[str] = []
+    if used_dictionary:
+        parts.append("## Task Dictionary\n\n" + "\n".join(f"- `{item.token}` = {item.value}" for item in used_dictionary))
+    parts.append(_slots_markdown_cards(encoded_slots))
+    return "\n\n".join(parts).rstrip()
+
+
+def _ascii_card(rows: Iterable[tuple[str, str]]) -> str:
+    border = "+" + "-" * (SLOT_MARKDOWN_CARD_WIDTH - 2) + "+"
+    lines = [border]
+    for label, value in rows:
+        if not label and not value:
+            continue
+        prefix = f"{label:<12} "
+        wrapped = _wrap_card_value(value, SLOT_MARKDOWN_CARD_WIDTH - len(prefix) - 4)
+        lines.append(_ascii_card_line(prefix + wrapped[0]))
+        for part in wrapped[1:]:
+            lines.append(_ascii_card_line(" " * len(prefix) + part))
+    lines.append(border)
+    return "\n".join(lines)
+
+
+def _ascii_card_line(text: str) -> str:
+    width = SLOT_MARKDOWN_CARD_WIDTH - 4
+    return f"| {text[:width].ljust(width)} |"
+
+
+def _wrap_card_value(value: str, width: int) -> list[str]:
+    wrapped: list[str] = []
+    for raw_line in value.splitlines() or [""]:
+        wrapped.extend(textwrap.wrap(raw_line, width=width) or [""])
+    return wrapped or [""]
 
 
 def _entry_text(entry: ContextEntry) -> str:
@@ -961,6 +1148,10 @@ def _validate_timestamp(value: str) -> str:
 
 def _create_schema(connection: sqlite3.Connection) -> None:
     connection.execute(
+        "CREATE TABLE IF NOT EXISTS task_context_slots ("
+        "category TEXT PRIMARY KEY, content TEXT NOT NULL, updated_at TEXT NOT NULL)"
+    )
+    connection.execute(
         "CREATE TABLE IF NOT EXISTS context_entries ("
         "id INTEGER PRIMARY KEY, timestamp TEXT NOT NULL, severity TEXT NOT NULL, "
         "labels TEXT NOT NULL, status TEXT NOT NULL, summary TEXT NOT NULL, "
@@ -975,6 +1166,7 @@ def _create_schema(connection: sqlite3.Connection) -> None:
         ("encoded_summary", "TEXT"),
         ("encoded_details", "TEXT"),
         ("codec_version", f"INTEGER NOT NULL DEFAULT {DICTIONARY_CODEC_VERSION}"),
+        ("alias_protected_terms", "TEXT NOT NULL DEFAULT '[]'"),
     ):
         if column not in existing_columns:
             connection.execute(f"ALTER TABLE context_entries ADD COLUMN {column} {definition}")
@@ -1013,12 +1205,60 @@ def _create_schema(connection: sqlite3.Connection) -> None:
     )
 
 
-def _insert_entry(connection: sqlite3.Connection, entry: ContextEntry) -> int:
+def _migrate_legacy_inputs_to_slots(task_dir: Path, connection: sqlite3.Connection) -> None:
+    slot_count = connection.execute("SELECT COUNT(*) FROM task_context_slots").fetchone()[0]
+    if slot_count:
+        return
+    sections: list[str] = []
+    for filename, title in (("TASK_DESCRIPTION.md", "TASK_DESCRIPTION.md"), ("TASK_CONTEXT.md", "TASK_CONTEXT.md")):
+        path = task_dir / filename
+        if path.is_file():
+            content = path.read_text(encoding="utf-8").strip()
+            if content:
+                sections.append(f"## {title}\n\n{content}")
+    rows = connection.execute(
+        "SELECT id, timestamp, severity, labels, status, summary, details, source, artifacts, "
+        "original_summary, original_details "
+        "FROM context_entries WHERE status = 'active' ORDER BY timestamp, id"
+    ).fetchall()
+    if rows:
+        sections.append("## Legacy Active Entries\n\n" + "\n\n".join(_legacy_slot_entry_markdown(row) for row in rows))
+    if not sections:
+        return
+    updated_at = datetime.now().astimezone().isoformat(timespec="seconds")
+    connection.execute(
+        "INSERT INTO task_context_slots (category, content, updated_at) VALUES (?, ?, ?)",
+        ("legacy", "\n\n".join(sections), updated_at),
+    )
+
+
+def _legacy_slot_entry_markdown(row: sqlite3.Row | tuple[object, ...]) -> str:
+    labels = json.loads(str(row[3]))
+    artifacts = json.loads(str(row[8]))
+    label_text = ", ".join(f"`{label}`" for label in labels) if labels else "`unlabeled`"
+    summary = str(row[9] or row[5])
+    details = str(row[10]) if row[10] is not None else str(row[6])
+    parts = [
+        f"- **{row[2]}/{row[4]}** #{row[0]} {summary} ({row[1]}; {label_text})",
+    ]
+    if details:
+        parts.append(f"  Details: {details}")
+    if artifacts:
+        parts.append("  Artifacts: " + ", ".join(f"`{artifact}`" for artifact in artifacts))
+    return "\n".join(parts)
+
+
+def _insert_entry(
+    connection: sqlite3.Connection,
+    entry: ContextEntry,
+    *,
+    protected_terms: Iterable[str] = (),
+) -> int:
     cursor = connection.execute(
         "INSERT INTO context_entries "
         "(timestamp, severity, labels, status, summary, details, source, artifacts, "
-        "original_summary, original_details, encoded_summary, encoded_details, codec_version) "
-        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        "original_summary, original_details, encoded_summary, encoded_details, codec_version, alias_protected_terms) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         (
             entry.timestamp,
             entry.severity,
@@ -1033,6 +1273,7 @@ def _insert_entry(connection: sqlite3.Connection, entry: ContextEntry) -> int:
             entry.encoded_summary or entry.summary,
             entry.encoded_details or entry.details,
             entry.codec_version,
+            json.dumps(sorted(set(protected_terms)), ensure_ascii=False),
         ),
     )
     return int(cursor.lastrowid)
@@ -1088,6 +1329,49 @@ def _load_dictionary(connection: sqlite3.Connection) -> list[DictionaryEntry]:
     ]
 
 
+def _decode_input_aliases(connection: sqlite3.Connection, text: str) -> tuple[str, set[str]]:
+    dictionary = {entry.id: entry.value for entry in _load_dictionary(connection)}
+    used_values: set[str] = set()
+    unknown_tokens: list[str] = []
+
+    def replace_match(match: re.Match[str]) -> str:
+        token = match.group(0)
+        dictionary_id = dictionary_id_from_token(token)
+        value = dictionary.get(dictionary_id)
+        if value is None:
+            unknown_tokens.append(token)
+            return token
+        used_values.add(value)
+        return value
+
+    decoded = DICTIONARY_TOKEN_RE.sub(replace_match, text)
+    if unknown_tokens:
+        raise ValueError(f"unknown dictionary alias: {', '.join(_unique(unknown_tokens))}")
+    return decoded, used_values
+
+
+def _load_alias_protected_terms(connection: sqlite3.Connection, entry_ids: Iterable[int]) -> dict[int, tuple[str, ...]]:
+    ids = [entry_id for entry_id in entry_ids if entry_id is not None]
+    if not ids:
+        return {}
+    placeholders = ",".join("?" for _entry_id_value in ids)
+    rows = connection.execute(
+        f"SELECT id, alias_protected_terms FROM context_entries WHERE id IN ({placeholders})",
+        ids,
+    ).fetchall()
+    result: dict[int, tuple[str, ...]] = {}
+    for row in rows:
+        try:
+            values = json.loads(row[1] or "[]")
+        except json.JSONDecodeError:
+            values = []
+        if isinstance(values, list):
+            result[int(row[0])] = tuple(str(value) for value in values if str(value).strip())
+        else:
+            result[int(row[0])] = ()
+    return result
+
+
 def _dictionary_subset(task_dir: Path, entries: Sequence[ContextEntry]) -> list[DictionaryEntry]:
     entry_ids = [entry.id for entry in entries if entry.id is not None]
     if not entry_ids:
@@ -1113,17 +1397,31 @@ def _compile_dictionary(connection: sqlite3.Connection, policy: TaskDictionaryPo
     policy = policy or load_default_dictionary_policy()
     _create_schema(connection)
     rows = connection.execute(
-        "SELECT id, original_summary, original_details FROM context_entries ORDER BY timestamp, id"
+        "SELECT id, original_summary, original_details, alias_protected_terms "
+        "FROM context_entries ORDER BY timestamp, id"
+    ).fetchall()
+    slot_rows = connection.execute(
+        "SELECT category, content FROM task_context_slots ORDER BY category"
     ).fetchall()
     corpus = [str(row[1] or "") for row in rows]
     corpus.extend(str(row[2] or "") for row in rows)
+    corpus.extend(str(row[0] or "") for row in slot_rows)
+    corpus.extend(str(row[1] or "") for row in slot_rows)
+    protected_values: set[str] = set()
+    for row in rows:
+        try:
+            values = json.loads(row[3] or "[]")
+        except json.JSONDecodeError:
+            values = []
+        if isinstance(values, list):
+            protected_values.update(str(value) for value in values if str(value).strip())
     dictionary = _load_dictionary(connection)
     existing_values = {entry.value for entry in dictionary}
     # Dictionary ids are durable task-local identities. The compiler only appends
     # new values and never deletes, rewrites, or reuses old ids.
     next_id = max((entry.id for entry in dictionary), default=-1) + 1
     now = datetime.now().astimezone().isoformat(timespec="seconds")
-    for value in _profitable_candidates(corpus, dictionary, policy):
+    for value in _profitable_candidates(corpus, dictionary, policy, protected_values=protected_values):
         if value in existing_values:
             continue
         cursor = connection.execute(
@@ -1157,11 +1455,14 @@ def _profitable_candidates(
     corpus: Sequence[str],
     dictionary: Sequence[DictionaryEntry],
     policy: TaskDictionaryPolicy,
+    *,
+    protected_values: Iterable[str] = (),
 ) -> list[str]:
     if not policy.auto_discovery:
         return []
     text = "\n".join(corpus)
     known = {entry.value for entry in dictionary}
+    protected = {value for value in protected_values if value}
     raw_candidates: set[str] = set()
     for pattern in TECHNICAL_PATTERNS:
         raw_candidates.update(match.group(0) for match in pattern.finditer(text))
@@ -1170,7 +1471,12 @@ def _profitable_candidates(
     candidates = {
         value
         for value in (_normalize_candidate(candidate, policy) for candidate in raw_candidates)
-        if value and value not in known and not _looks_like_noise(value, policy)
+        if (
+            value
+            and value not in known
+            and not _looks_like_noise(value, policy)
+            and not _candidate_crosses_protected_value(value, protected)
+        )
     }
     result: list[str] = []
     blocked = set(known)
@@ -1262,6 +1568,15 @@ def _looks_like_noise(value: str, policy: TaskDictionaryPolicy) -> bool:
     if len(words) > 1 and any(word.casefold() in ARTICLE_WORDS for word in words):
         return True
     return len(words) > policy.max_term_words
+
+
+def _candidate_crosses_protected_value(value: str, protected_values: set[str]) -> bool:
+    for protected in protected_values:
+        if value == protected:
+            continue
+        if protected in value:
+            return True
+    return False
 
 
 def _count_occurrences(text: str, value: str) -> int:
@@ -1472,6 +1787,14 @@ def _validate_choice(value: str, choices: Sequence[str], field: str) -> str:
     return value
 
 
+def _validate_slot_category(value: str) -> str:
+    return _validate_choice(value, SLOT_CATEGORIES, "category")
+
+
+def _normalized_slot_categories(values: Iterable[str]) -> tuple[str, ...]:
+    return tuple(_unique(_validate_slot_category(value) for value in values if value.strip()))
+
+
 def _split_csv(values: Sequence[str]) -> list[str]:
     result: list[str] = []
     for value in values:
@@ -1506,22 +1829,16 @@ def migrate_command(args: argparse.Namespace) -> int:
 
 
 def query_command(args: argparse.Namespace) -> int:
-    statuses = () if args.all_statuses else (_split_csv(args.status) or ("active",))
-    entries = filter_entries(
-        load_entries(args.task),
-        since=args.since,
-        until=args.until,
-        severity=args.severity,
-        labels=_normalized_labels(_split_csv(args.label)),
-        statuses=statuses,
-        newest_first=args.newest_first,
-    )
-    if args.format == "agent":
-        rendered = render_agent_entries(args.task, entries, format_name="markdown")
-    else:
-        rendered = render_entries(entries, format_name=args.format)
+    categories = _split_csv(args.category) + _split_csv(args.cats)
+    rendered = render_slots(load_slots(args.task, categories), format_name=args.format, task_dir=args.task)
     if rendered:
         print(rendered)
+    return 0
+
+
+def slot_command(args: argparse.Namespace) -> int:
+    slot = set_slot(args.task, args.category, args.content or "", updated_at=args.updated_at)
+    print(render_slots([slot], format_name=args.format, task_dir=args.task))
     return 0
 
 
@@ -1658,17 +1975,20 @@ def main(argv: Sequence[str] | None = None) -> int:
     dictionary_parser.add_argument("--add", action="append", default=[], help="Append a stable dictionary term.")
     dictionary_parser.set_defaults(func=dictionary_command)
 
-    query_parser = subparsers.add_parser("query", help="Query task context database entries.")
+    query_parser = subparsers.add_parser("query", help="Query current task context slots.")
     query_parser.add_argument("--task", type=Path, required=True)
-    query_parser.add_argument("--since")
-    query_parser.add_argument("--until")
-    query_parser.add_argument("--severity")
-    query_parser.add_argument("--label", action="append", default=[])
-    query_parser.add_argument("--status", action="append", default=[])
-    query_parser.add_argument("--all-statuses", action="store_true")
-    query_parser.add_argument("--newest-first", action="store_true")
+    query_parser.add_argument("--category", action="append", default=[])
+    query_parser.add_argument("--cats", action="append", default=[], help="Comma-separated category list.")
     query_parser.add_argument("--format", choices=("text", "markdown", "json", "agent"), default="text")
     query_parser.set_defaults(func=query_command)
+
+    slot_parser = subparsers.add_parser("slot", help="Create or replace one current task context slot.")
+    slot_parser.add_argument("--task", type=Path, required=True)
+    slot_parser.add_argument("--category", choices=SLOT_CATEGORIES, required=True)
+    slot_parser.add_argument("--content", default="")
+    slot_parser.add_argument("--updated-at")
+    slot_parser.add_argument("--format", choices=("text", "markdown", "json", "agent"), default="markdown")
+    slot_parser.set_defaults(func=slot_command)
 
     edit_parser = subparsers.add_parser("edit", help="Batch edit or delete task context entries.")
     edit_parser.add_argument("--task", type=Path, required=True)

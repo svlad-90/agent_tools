@@ -15,23 +15,29 @@ workspace Python work.
 ## Core Workflow
 
 Run commands from the workspace root or another directory where `agent_tools`
-is importable:
+is importable. Target file paths are resolved relative to the `agent_tools`
+package root, not the current shell directory. For repository files under
+`agent_tools/`, omit the leading `agent_tools/` prefix:
 
 ```sh
 python -m agent_tools.tools.code_map <command> ...
+python -m agent_tools.tools.code_map map tools/agent_workspace/core.py
 ```
+
+Do not pass `agent_tools/tools/...` as the target path; from the workspace root
+that resolves to `agent_tools/agent_tools/tools/...`.
 
 Before reading or changing a Python file, inspect its symbol map:
 
 ```sh
-python -m agent_tools.tools.code_map map path/to/file.py
+python -m agent_tools.tools.code_map map tools/path/to/file.py
 ```
 
 Before changing a function, method, class, or other symbol, get a guarded
 snapshot:
 
 ```sh
-python -m agent_tools.tools.code_map symbol-get path/to/file.py \
+python -m agent_tools.tools.code_map symbol-get tools/path/to/file.py \
   --symbol QualifiedName --json
 ```
 
@@ -42,7 +48,7 @@ Use `hash` for whole-symbol edits and `body_hash` for body-only edits.
 Prefer guarded edits when replacing or inserting Python code:
 
 ```sh
-python -m agent_tools.tools.code_map replace-symbol-body path/to/file.py \
+python -m agent_tools.tools.code_map replace-symbol-body tools/path/to/file.py \
   --symbol function_name \
   --expect-hash <body_hash> \
   --replacement-file /tmp/replacement.py
@@ -51,7 +57,7 @@ python -m agent_tools.tools.code_map replace-symbol-body path/to/file.py \
 Use `imports-add` for imports so duplicate imports are not introduced:
 
 ```sh
-python -m agent_tools.tools.code_map imports-add path/to/file.py \
+python -m agent_tools.tools.code_map imports-add tools/path/to/file.py \
   --import 'from pathlib import Path'
 ```
 
@@ -62,7 +68,7 @@ Use `--check-only` first for risky edits or broad files.
 After every Python edit, run:
 
 ```sh
-python -m agent_tools.tools.code_map parse-check path/to/file.py
+python -m agent_tools.tools.code_map parse-check tools/path/to/file.py
 ```
 
 For larger Python design work, use `class-diagram`, `facade-audit`, or

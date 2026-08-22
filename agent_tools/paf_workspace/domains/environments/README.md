@@ -33,6 +33,9 @@ Environment entries:
 - `agent-tools-act` provides an act driver image for running this repository's
   GitHub Actions workflows locally. It mounts the host Docker socket and the
   workspace.
+- `agent-workspace-tests` provides a GUI-capable test image for Agent
+  Workspace. It includes Python pytest, Tk, GTK, and VTE bindings so the
+  Agent Workspace core test suite can run without remembering host packages.
 - `moulin-act` provides the `ubuntu-22.04` act runner image used by Moulin's
   build workflow.
 - `zephyr-xenlib-act` provides the `ubuntu-22.04` act runner image used by the
@@ -48,6 +51,9 @@ dependency tests and runtime smoke commands:
 - `cpp_source_analysis` is required for images used for C/C++ build or source
   analysis. It requires `clang`, `libclang-dev`, and `python3-clang` so
   `cpp_code_map` can run in the same container as the build.
+- `agent_workspace_tests` is required for images used to run Agent Workspace
+  tests. It requires `python3-pytest`, `python3-tk`, `python3-gi`, GTK, and
+  VTE GIR packages.
 
 Ubuntu 24.04 images should use an explicit virtual environment in `PATH` when
 installing Python packages with `pip`.

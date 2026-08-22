@@ -25,6 +25,7 @@ from agent_tools.tools.task_context import migrate_legacy_journal
 from agent_tools.tools.task_context import preview_dictionary_compile
 from agent_tools.tools.task_context import render_agent_entries
 from agent_tools.tools.task_context import render_entries
+from agent_tools.tools.task_context import load_slots
 from agent_tools.tools.task_context import token_count
 import agent_tools.tools.task_context as task_context_module
 from agent_tools.tools.task_context import _candidate_net_saving
@@ -317,6 +318,89 @@ def test_dictionary_compiler_keeps_decoded_default_and_agent_subset(tmp_path: Pa
     assert "§00" in agent_context
     assert repeated in agent_context
     assert repeated not in _encoded_context_body(agent_context)
+
+
+def test_add_entry_decodes_input_aliases_before_saving_original_fields(tmp_path: Path) -> None:
+    add_dictionary_terms(tmp_path, ("Agent Workspace", "TASK_CONTEXT.sqlite3"))
+
+    entry = add_entry(
+        tmp_path,
+        timestamp="2026-08-19T10:00:00",
+        severity="high",
+        labels=("decision",),
+        summary="§00 reads §01",
+        details="§00 keeps §01 readable.",
+    )
+    loaded = load_entries(tmp_path)[0]
+    decoded = render_entries([loaded], format_name="markdown")
+    encoded = render_agent_entries(tmp_path, [loaded], format_name="markdown")
+
+    assert entry.summary == "Agent Workspace reads TASK_CONTEXT.sqlite3"
+    assert entry.details == "Agent Workspace keeps TASK_CONTEXT.sqlite3 readable."
+    assert loaded.summary == entry.summary
+    assert "§00" not in decoded
+    assert "§01" not in decoded
+    assert "§00 reads §01" in encoded
+    assert "§00 keeps §01 readable." in encoded
+
+
+def test_add_entry_rejects_unknown_input_alias(tmp_path: Path) -> None:
+    add_dictionary_terms(tmp_path, ("Agent Workspace",))
+
+    try:
+        add_entry(tmp_path, severity="high", summary="§zz should fail")
+    except ValueError as exc:
+        assert "unknown dictionary alias: §zz" in str(exc)
+    else:
+        raise AssertionError("unknown dictionary alias was accepted")
+
+
+def test_edit_entries_decodes_input_aliases_before_saving_original_fields(tmp_path: Path) -> None:
+    add_dictionary_terms(tmp_path, ("Agent Workspace", "TASK_CONTEXT.sqlite3"))
+    entry = add_entry(tmp_path, timestamp="2026-08-19T10:00:00", severity="mid", summary="Initial")
+
+    changed = edit_entries(tmp_path, ids=(entry.id,), set_details="§00 updates §01")
+    loaded = load_entries(tmp_path)[0]
+
+    assert changed[0].details == "Agent Workspace updates TASK_CONTEXT.sqlite3"
+    assert loaded.details == "Agent Workspace updates TASK_CONTEXT.sqlite3"
+    assert "§00 updates §01" in render_agent_entries(tmp_path, [loaded], format_name="markdown")
+
+
+def test_edit_entries_records_alias_protection_when_decoded_text_is_unchanged(tmp_path: Path) -> None:
+    add_dictionary_terms(tmp_path, ("Agent Workspace", "TASK_CONTEXT.sqlite3"))
+    entry = add_entry(
+        tmp_path,
+        timestamp="2026-08-19T10:00:00",
+        severity="mid",
+        summary="Agent Workspace backend reads TASK_CONTEXT.sqlite3",
+    )
+
+    changed = edit_entries(tmp_path, ids=(entry.id,), set_summary="§00 backend reads §01")
+
+    assert [item.id for item in changed] == [entry.id]
+    assert load_entries(tmp_path)[0].summary == "Agent Workspace backend reads TASK_CONTEXT.sqlite3"
+
+
+def test_input_alias_compositions_do_not_create_new_phrase_aliases(tmp_path: Path) -> None:
+    add_dictionary_terms(tmp_path, ("Agent Workspace", "TASK_CONTEXT.sqlite3"))
+    details = " ".join("§00 backend reads §01." for _index in range(5))
+
+    add_entry(
+        tmp_path,
+        timestamp="2026-08-19T10:00:00",
+        severity="high",
+        labels=("decision",),
+        summary="§00 backend reads §01",
+        details=details,
+    )
+    values = {entry.value for entry in load_dictionary(tmp_path)}
+    loaded = load_entries(tmp_path)[0]
+
+    assert "Agent Workspace backend" not in values
+    assert "Agent Workspace backend reads TASK_CONTEXT.sqlite3" not in values
+    assert loaded.summary == "Agent Workspace backend reads TASK_CONTEXT.sqlite3"
+    assert "§00 backend reads §01" in render_agent_entries(tmp_path, [loaded], format_name="markdown")
 
 
 def test_dictionary_compiler_skips_unprofitable_candidates(tmp_path: Path) -> None:
@@ -806,96 +890,75 @@ def test_dictionary_recompiles_all_entries_after_edit_and_delete(tmp_path: Path)
     assert "No dictionary aliases used" in after_delete
 
 
-def test_cli_add_query_and_compact(tmp_path: Path, capsys: object) -> None:
+def test_slot_api_sets_queries_and_compacts_current_context(tmp_path: Path, capsys: object) -> None:
     assert (
         main(
             [
-                "add",
+                "slot",
                 "--task",
                 str(tmp_path),
-                "--timestamp",
-                "2026-08-19T10:00:00",
-                "--severity",
-                "high",
-                "--label",
-                "validation,build",
-                "Build validation passed",
-            ]
-        )
-        == 0
-    )
-    assert main(["query", "--task", str(tmp_path), "--label", "validation", "--format", "markdown"]) == 0
-    query_output = capsys.readouterr().out
-    assert "Build validation passed" in query_output
-
-    add_entry(
-        tmp_path,
-        timestamp="2026-08-19T11:00:00",
-        severity="high",
-        labels=("validation",),
-        status="resolved",
-        summary="Resolved validation history",
-    )
-
-    assert main(["query", "--task", str(tmp_path), "--newest-first"]) == 0
-    newest_first_output = capsys.readouterr().out
-    assert "Build validation passed" in newest_first_output
-    assert "Resolved validation history" not in newest_first_output
-
-    assert main(["query", "--task", str(tmp_path), "--all-statuses", "--newest-first"]) == 0
-    all_status_output = capsys.readouterr().out
-    assert "Build validation passed" in all_status_output
-    assert "Resolved validation history" in all_status_output
-
-    assert main(["query", "--task", str(tmp_path), "--label", "surprise-label"]) == 1
-    assert "label must be one of:" in capsys.readouterr().err
-
-    assert main(["compact", "--task", str(tmp_path), "--print"]) == 0
-    compact_output = capsys.readouterr().out
-    assert "Build validation passed" in compact_output
-    assert not (tmp_path / "TASK_CONTEXT.md").exists()
-
-
-def test_cli_agent_format_compile_dictionary_and_compact(tmp_path: Path, capsys: object) -> None:
-    repeated = "drivers/firmware/scmi/scmi.c"
-    assert (
-        main(
-            [
-                "add",
-                "--task",
-                str(tmp_path),
-                "--timestamp",
-                "2026-08-19T10:00:00",
-                "--severity",
-                "high",
-                "--label",
-                "bug",
-                "--details",
-                f"{repeated} calls scmi_send_message() and {repeated} handles replies.",
-                f"{repeated} has a race",
+                "--category",
+                "goal",
+                "--content",
+                "Build slot-based task context.",
             ]
         )
         == 0
     )
     capsys.readouterr()
 
-    assert main(["query", "--task", str(tmp_path), "--format", "agent"]) == 0
-    agent_output = capsys.readouterr().out
-    assert "## Task Dictionary" in agent_output
-    assert "`§00` =" in agent_output
+    assert main(["query", "--task", str(tmp_path), "--category", "goal", "--format", "markdown"]) == 0
+    query_output = capsys.readouterr().out
+    assert query_output.startswith("```text\n+---")
+    assert "| Goal" in query_output
+    assert "Build slot-based task context." in query_output
 
-    assert main(["dictionary", "--task", str(tmp_path)]) == 0
-    dictionary_output = capsys.readouterr().out
-    assert "§00\tactive\t" in dictionary_output
-
-    assert main(["compile", "--task", str(tmp_path)]) == 0
-    compile_output = capsys.readouterr().out
-    assert "compiled dictionary" in compile_output
+    assert main(["query", "--task", str(tmp_path), "--cats", "env,validation"]) == 0
+    assert capsys.readouterr().out == ""
 
     assert main(["compact", "--task", str(tmp_path), "--agent-context"]) == 0
     compact_output = capsys.readouterr().out
-    assert "Encoded for agent use" in compact_output
-    assert "§00" in compact_output
+    assert "| Goal" in compact_output
+    assert not (tmp_path / "TASK_CONTEXT.md").exists()
+
+
+def test_slot_agent_format_encodes_content_and_renders_dictionary(tmp_path: Path, capsys: object) -> None:
+    repeated = "drivers/firmware/scmi/scmi.c"
+    assert (
+        main(
+            [
+                "slot",
+                "--task",
+                str(tmp_path),
+                "--category",
+                "findings",
+                "--content",
+                f"{repeated} starts. {repeated} validates. {repeated} remains active.",
+                "--format",
+                "agent",
+            ]
+        )
+        == 0
+    )
+    output = capsys.readouterr().out
+
+    assert "## Task Dictionary" in output
+    assert repeated in output
+    assert "```text\n+---" in output
+    assert "§00 starts" in output
+
+
+def test_missing_database_imports_description_and_markdown_context_to_legacy_slot(tmp_path: Path) -> None:
+    (tmp_path / "TASK_DESCRIPTION.md").write_text("# Old description\n\nBrief.\n", encoding="utf-8")
+    (tmp_path / "TASK_CONTEXT.md").write_text("# Old context\n\nContext.\n", encoding="utf-8")
+
+    slots = load_slots(tmp_path)
+
+    assert [slot.category for slot in slots] == ["legacy"]
+    assert "TASK_DESCRIPTION.md" in slots[0].content
+    assert "Brief." in slots[0].content
+    assert "TASK_CONTEXT.md" in slots[0].content
+    assert "Context." in slots[0].content
 
 
 def test_cli_edit_dry_run_update_and_delete(tmp_path: Path, capsys: object) -> None:

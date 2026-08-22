@@ -1,0 +1,47 @@
+---
+name: task-front-desk
+description: Follow the task-local front door bell protocol for workspace task iterations. Use when Codex starts or resumes a task, receives a user message inside a task, needs guidance for task_check/context slots, or must complete the current work iteration before returning control to the user.
+rule: agent_tools/rules/task-workflow.md
+---
+
+# Task Front Desk
+
+Workspace tasks use a front-desk iteration loop. The task-local entrypoint is
+`front_door_bell.py` in the task directory. Run it with the available Python
+interpreter:
+
+```sh
+python3 front_door_bell.py
+```
+
+If the host uses a different Python launcher, use that launcher with the same
+task-local script.
+
+## Protocol
+
+1. After each user message inside a task, run `front_door_bell.py` before doing
+   task work.
+2. Follow the returned `FRONT_DESK_STAGE`.
+3. Treat one iteration as one useful work step for the latest user request,
+   followed by returning control to the user.
+4. Do not consider the iteration complete until the tool returns
+   `ITERATION_DONE` or `BLOCKED`.
+5. If the tool returns task_check failures, fix those failures before normal
+   task work.
+6. If the tool returns `DO_USER_WORK`, execute the user's request. Re-read
+   current context slots only when prior decisions, findings, validation,
+   environment, risks, or current task state matter.
+7. If the tool returns `JOURNAL_REQUIRED`, update singleton task context slots
+   in place. Minimum slot for substantive work is `operational-memory`; update
+   `findings`, `decisions`, `validation`, or `blocker-risk` when those facts
+   changed.
+8. If the user request required no durable context update, run:
+
+   ```sh
+   python3 front_door_bell.py --ack-no-context-change
+   ```
+
+9. After the tool returns `ITERATION_DONE`, answer the user concisely.
+
+The tool output is for the agent, not for the human user. Do not paste the full
+tool protocol back to the user unless asked.

@@ -48,6 +48,30 @@ class ReportHeatmap:
 
 
 @dataclass(frozen=True)
+class ReportMetricTableColumn:
+    key: str
+    label: str
+    sublabel: str | None = None
+
+
+@dataclass(frozen=True)
+class ReportMetricTableCell:
+    text: str
+    status: str | None = None
+    note: str | None = None
+    graph_view: dict[str, Any] | None = None
+    parts: tuple["ReportMetricTableCell", ...] = ()
+
+
+@dataclass(frozen=True)
+class ReportMetricTable:
+    title: str
+    columns: tuple[ReportMetricTableColumn, ...]
+    rows: tuple[tuple[ReportMetricTableCell, ...], ...]
+    note: str | None = None
+
+
+@dataclass(frozen=True)
 class ReportTable:
     title: str
     columns: tuple[str, ...]
@@ -99,7 +123,10 @@ class GenericReport:
     comments: ReviewComments
     metrics: tuple[ReportMetric, ...] = ()
     status_cards: tuple[ReportStatusCard, ...] = ()
+    status_cards_title: str = "Status Cards"
+    status_cards_note: str | None = None
     heatmaps: tuple[ReportHeatmap, ...] = ()
+    metric_tables: tuple[ReportMetricTable, ...] = ()
     tables: tuple[ReportTable, ...] = ()
     timeline: tuple[ReportTimelineItem, ...] = ()
     artifacts: tuple[ReportArtifact, ...] = ()
@@ -128,7 +155,10 @@ def report_from_payload(
         comments=comments,
         metrics=metrics_from_payload(payload.get("metrics", [])),
         status_cards=status_cards_from_payload(payload.get("status_cards", [])),
+        status_cards_title=_status_cards_section_text(payload.get("status_cards"), "title", "Status Cards"),
+        status_cards_note=_status_cards_section_text(payload.get("status_cards"), "note", ""),
         heatmaps=heatmaps_from_payload(payload.get("heatmaps", payload.get("heatmap", []))),
+        metric_tables=metric_tables_from_payload(payload.get("metric_tables", [])),
         tables=tables_from_payload(payload.get("tables", [])),
         timeline=timeline_from_payload(payload.get("timeline", [])),
         artifacts=artifacts_from_payload(payload.get("artifacts", [])),
@@ -154,8 +184,16 @@ def render_report_json_html(report: GenericReport) -> str:
         parts.append(_render_summary_section(comments))
     if report.metrics:
         parts.append(_render_metrics_section(report.metrics))
+    if report.metric_tables:
+        parts.append(_render_metric_tables_section(report.metric_tables))
     if report.status_cards:
-        parts.append(_render_status_cards_section(report.status_cards))
+        parts.append(
+            _render_status_cards_section(
+                report.status_cards,
+                report.status_cards_title,
+                report.status_cards_note,
+            )
+        )
     if report.heatmaps:
         parts.append(_render_heatmaps_section(report.heatmaps))
     if report.relationship_graph:
@@ -207,9 +245,21 @@ def metrics_from_payload(raw_metrics: Any) -> tuple[ReportMetric, ...]:
     return tuple(metrics)
 
 
+def _status_cards_section_text(raw_cards: Any, key: str, fallback: str) -> str | None:
+    if isinstance(raw_cards, dict):
+        value = raw_cards.get(key)
+        if value is not None and not isinstance(value, str):
+            raise DiffReportError(f"report.status_cards.{key} must be a string")
+        if value:
+            return str(value)
+    return fallback or None
+
+
 def status_cards_from_payload(raw_cards: Any) -> tuple[ReportStatusCard, ...]:
     if raw_cards is None:
         return ()
+    if isinstance(raw_cards, dict):
+        raw_cards = raw_cards.get("cards", [])
     if not isinstance(raw_cards, list):
         raise DiffReportError("report.status_cards must be a list")
     cards: list[ReportStatusCard] = []
@@ -249,6 +299,142 @@ def heatmaps_from_payload(raw_heatmaps: Any) -> tuple[ReportHeatmap, ...]:
             )
         )
     return tuple(heatmaps)
+
+
+def metric_tables_from_payload(raw_metric_tables: Any) -> tuple[ReportMetricTable, ...]:
+    if raw_metric_tables is None:
+        return ()
+    if isinstance(raw_metric_tables, dict):
+        raw_metric_tables = [raw_metric_tables]
+    if not isinstance(raw_metric_tables, list):
+        raise DiffReportError("report.metric_tables must be a list")
+    metric_tables: list[ReportMetricTable] = []
+    for index, item in enumerate(raw_metric_tables):
+        field = f"report.metric_tables[{index}]"
+        if not isinstance(item, dict):
+            raise DiffReportError(f"{field} must be an object")
+        columns = _metric_table_columns_from_payload(item.get("columns", []), f"{field}.columns")
+        if not columns:
+            raise DiffReportError(f"{field}.columns must contain at least one column")
+        raw_rows = item.get("rows", [])
+        if not isinstance(raw_rows, list):
+            raise DiffReportError(f"{field}.rows must be a list")
+        rows = tuple(
+            _metric_table_row_from_payload(row, columns, f"{field}.rows[{row_index}]")
+            for row_index, row in enumerate(raw_rows)
+        )
+        metric_tables.append(
+            ReportMetricTable(
+                title=str(item.get("title", "Metrics")),
+                columns=columns,
+                rows=rows,
+                note=_optional_text(item, "note"),
+            )
+        )
+    return tuple(metric_tables)
+
+
+def _metric_table_columns_from_payload(raw_columns: Any, field: str) -> tuple[ReportMetricTableColumn, ...]:
+    if not isinstance(raw_columns, list):
+        raise DiffReportError(f"{field} must be a list")
+    columns: list[ReportMetricTableColumn] = []
+    for index, item in enumerate(raw_columns):
+        if isinstance(item, str):
+            columns.append(ReportMetricTableColumn(key=item, label=_label_for_key(item)))
+            continue
+        if not isinstance(item, dict):
+            raise DiffReportError(f"{field}[{index}] must be an object or string")
+        key = _required_text(item, "key", f"{field}[{index}]")
+        columns.append(
+            ReportMetricTableColumn(
+                key=key,
+                label=str(item.get("label", "")) or _label_for_key(key),
+                sublabel=_optional_text(item, "sublabel"),
+            )
+        )
+    return tuple(columns)
+
+
+def _metric_table_row_from_payload(
+    raw_row: Any,
+    columns: tuple[ReportMetricTableColumn, ...],
+    field: str,
+) -> tuple[ReportMetricTableCell, ...]:
+    if not isinstance(raw_row, dict):
+        raise DiffReportError(f"{field} must be an object")
+    raw_cells = raw_row.get("cells", raw_row)
+    if not isinstance(raw_cells, dict):
+        raise DiffReportError(f"{field}.cells must be an object")
+    return tuple(
+        _metric_table_cell_from_payload(raw_cells.get(column.key), f"{field}.cells.{column.key}")
+        for column in columns
+    )
+
+
+def _metric_table_cell_from_payload(raw_cell: Any, field: str) -> ReportMetricTableCell:
+    if raw_cell is None:
+        return ReportMetricTableCell(text="")
+    if isinstance(raw_cell, (str, int, float)):
+        return ReportMetricTableCell(text=str(raw_cell))
+    if not isinstance(raw_cell, dict):
+        raise DiffReportError(f"{field} must be an object, string, or number")
+    raw_parts = raw_cell.get("parts")
+    parts: tuple[ReportMetricTableCell, ...] = ()
+    if raw_parts is not None:
+        if not isinstance(raw_parts, list):
+            raise DiffReportError(f"{field}.parts must be a list")
+        parts = tuple(
+            _metric_table_cell_from_payload(part, f"{field}.parts[{index}]")
+            for index, part in enumerate(raw_parts)
+        )
+        if any(part.parts for part in parts):
+            raise DiffReportError(f"{field}.parts entries must not carry their own parts")
+    return ReportMetricTableCell(
+        text=str(raw_cell.get("text", "")),
+        status=_optional_text(raw_cell, "status"),
+        note=_optional_text(raw_cell, "note"),
+        graph_view=_graph_view_from_payload(raw_cell.get("graph_view"), f"{field}.graph_view"),
+        parts=parts,
+    )
+
+
+def _graph_view_from_payload(raw_view: Any, field: str) -> dict[str, Any] | None:
+    if raw_view is None:
+        return None
+    if not isinstance(raw_view, dict):
+        raise DiffReportError(f"{field} must be an object")
+    view: dict[str, Any] = {}
+    for key in ("focus", "target_type", "label"):
+        if key in raw_view and raw_view[key] is not None:
+            if not isinstance(raw_view[key], str):
+                raise DiffReportError(f"{field}.{key} must be a string")
+            if raw_view[key]:
+                view[key] = raw_view[key]
+    types = raw_view.get("types")
+    if types is not None:
+        if not isinstance(types, list) or not all(isinstance(item, str) for item in types):
+            raise DiffReportError(f"{field}.types must be a string list")
+        view["types"] = list(types)
+    filters = raw_view.get("filters")
+    if filters is not None:
+        if not isinstance(filters, dict):
+            raise DiffReportError(f"{field}.filters must be an object")
+        clean_filters: dict[str, dict[str, list[str]]] = {}
+        for node_type, type_filters in filters.items():
+            if not isinstance(node_type, str) or not isinstance(type_filters, dict):
+                raise DiffReportError(f"{field}.filters must map entity type to field filters")
+            clean_type_filters: dict[str, list[str]] = {}
+            for filter_field, values in type_filters.items():
+                if not isinstance(filter_field, str):
+                    raise DiffReportError(f"{field}.filters.{node_type} keys must be strings")
+                if not isinstance(values, list) or not all(isinstance(value, str) for value in values):
+                    raise DiffReportError(f"{field}.filters.{node_type}.{filter_field} must be a string list")
+                clean_type_filters[filter_field] = list(values)
+            clean_filters[node_type] = clean_type_filters
+        view["filters"] = clean_filters
+    if not view.get("focus"):
+        raise DiffReportError(f"{field}.focus is required")
+    return view
 
 
 def tables_from_payload(raw_tables: Any) -> tuple[ReportTable, ...]:
@@ -458,8 +644,15 @@ def _render_metrics_section(metrics: tuple[ReportMetric, ...]) -> str:
     return "".join(parts)
 
 
-def _render_status_cards_section(cards: tuple[ReportStatusCard, ...]) -> str:
-    parts = ['  <section class="report-status-cards" id="report-status-cards"><h2>Status Cards</h2><div class="report-card-grid">\n']
+def _render_status_cards_section(
+    cards: tuple[ReportStatusCard, ...],
+    title: str = "Status Cards",
+    note: str | None = None,
+) -> str:
+    parts = [f'  <section class="report-status-cards" id="report-status-cards"><h2>{_esc(title)}</h2>\n']
+    if note:
+        parts.append(f'    <p class="report-status-cards-note">{_format_text(note)}</p>\n')
+    parts.append('    <div class="report-card-grid">\n')
     for card in cards:
         parts.append(
             f'    <article class="report-card {_status_class(card.status)}" id="{_anchor(card.title)}">'
@@ -508,6 +701,61 @@ def _render_heatmaps_section(heatmaps: tuple[ReportHeatmap, ...]) -> str:
             parts.append("      </div>\n")
         parts.append("    </div>\n  </section>\n")
     return "".join(parts)
+
+
+def _metric_table_section_id(index: int) -> str:
+    return "report-metric-tables" if index == 0 else f"report-metric-table-{index + 1}"
+
+
+def _render_metric_tables_section(metric_tables: tuple[ReportMetricTable, ...]) -> str:
+    parts: list[str] = []
+    for index, metric_table in enumerate(metric_tables):
+        section_id = _metric_table_section_id(index)
+        parts.append(
+            f'  <section class="report-metric-table-section" id="{section_id}">'
+            f'<h2>{_esc(metric_table.title)}</h2>\n'
+        )
+        if metric_table.note:
+            parts.append(f'    <p class="report-metric-table-note">{_format_text(metric_table.note)}</p>\n')
+        parts.append('    <div class="report-metric-table-wrap"><table class="report-metric-table">\n      <thead><tr>')
+        for column in metric_table.columns:
+            sublabel = (
+                f'<small class="report-metric-table-sublabel">{_esc(column.sublabel)}</small>'
+                if column.sublabel
+                else ""
+            )
+            parts.append(f"<th>{_esc(column.label)}{sublabel}</th>")
+        parts.append("</tr></thead>\n      <tbody>\n")
+        for row in metric_table.rows:
+            parts.append("        <tr>")
+            for position, cell in enumerate(row):
+                tag = "th" if position == 0 else "td"
+                scope = ' scope="row"' if position == 0 else ""
+                status_attr = f' class="{_status_class(cell.status)}"' if cell.status else ""
+                parts.append(f'<{tag}{status_attr}{scope}>{_render_metric_table_cell(cell)}</{tag}>')
+            parts.append("</tr>\n")
+        parts.append("      </tbody>\n    </table></div>\n  </section>\n")
+    return "".join(parts)
+
+
+def _render_metric_table_cell(cell: ReportMetricTableCell) -> str:
+    if cell.parts:
+        rendered = '<span class="report-metric-cell-part-sep">·</span>'.join(
+            f'<span class="report-metric-cell-part {_status_class(part.status)}">{_render_metric_table_cell(part)}</span>'
+            for part in cell.parts
+        )
+        note = f'<small class="report-metric-cell-note">{_esc(cell.note)}</small>' if cell.note else ""
+        return f'<span class="report-metric-cell-parts">{rendered}</span>{note}'
+    text = _esc(cell.text)
+    note = f'<small class="report-metric-cell-note">{_esc(cell.note)}</small>' if cell.note else ""
+    if not cell.graph_view:
+        return f"{text}{note}"
+    view_json = json.dumps(cell.graph_view, ensure_ascii=False, sort_keys=True).replace("</", "<\\/")
+    label = cell.graph_view.get("label") or f"Open graph for {cell.text}"
+    return (
+        f'<button type="button" class="report-metric-cell-link" title="{_esc(str(label))}"'
+        f" data-relationship-open-view='{_esc(view_json)}'>{text or '&mdash;'}</button>{note}"
+    )
 
 
 def _render_tables_section(tables: tuple[ReportTable, ...], comments: ReviewComments) -> str:
@@ -612,31 +860,40 @@ def _render_relationship_graph_section(graph: RelationshipGraph) -> str:
         <div class="relationship-browser" data-relationship-browser data-relationship-defer>
           <script type="application/json" data-relationship-graph-data>{graph_json}</script>
           <div class="relationship-toolbar">
-            <div class="relationship-status-legend" aria-label="Status legend">
+            <div class="relationship-status-filter" data-relationship-status-filter aria-label="Status filter">
               <span class="relationship-control-label">Status</span>
-              {_render_status_badge("pass")}
-              {_render_status_badge("warning")}
-              {_render_status_badge("fail")}
-              {_render_status_badge("assumption_failure")}
-              {_render_status_badge("not_run")}
             </div>
             <div class="relationship-search-controls">
-              <label><span class="label">Find node</span><input type="search" data-relationship-search placeholder="VSR, HAL, CTS, CDD"></label>
-              <label><span class="label">Focus <small data-relationship-node-count></small></span><select data-relationship-node-select aria-label="Select graph node"></select></label>
+              <label class="label relationship-cell-find-label" for="relationship-find-node">Find node</label>
+              <label class="label relationship-cell-focus-label" for="relationship-focus-node">Focus <small data-relationship-node-count></small></label>
+              <label class="label relationship-cell-type-label" for="relationship-focus-type">Focus type</label>
+              <input class="relationship-cell-find-input" id="relationship-find-node" type="search" data-relationship-search placeholder="VSR, HAL, CTS, CDD">
+              <select class="relationship-cell-focus-input" id="relationship-focus-node" data-relationship-node-select aria-label="Select graph node"></select>
+              <select class="relationship-cell-type-input" id="relationship-focus-type" data-relationship-focus-type aria-label="Limit focus list to one entity type"></select>
+              <label class="relationship-focus-scope relationship-cell-scope"><input type="checkbox" data-relationship-focus-scope><span>only visible</span></label>
             </div>
             <div class="relationship-view-controls">
               <div class="relationship-type-filter" data-relationship-type-filter>
-                <span class="relationship-control-label">Entity types</span>
+                <span class="relationship-control-label">Layers</span>
               </div>
               <label class="relationship-secondary-toggle">
                 <input type="checkbox" data-relationship-secondary-links>
                 <span>Shortcuts</span>
               </label>
+              <details class="relationship-filters" data-relationship-filters>
+                <summary><span data-relationship-filters-summary>Filters</span></summary>
+                <div class="relationship-filters-body" data-relationship-filters-body></div>
+              </details>
             </div>
           </div>
           <div class="relationship-layout">
             <div class="relationship-explorer-main">
-              <div class="relationship-page-row">
+              <div class="relationship-control-bar" aria-label="Graph view controls">
+                <div class="relationship-nav-controls" aria-label="Graph history">
+                  <button type="button" data-relationship-fit title="Fit graph" aria-label="Fit graph">Fit</button>
+                  <button type="button" data-relationship-back title="Back" aria-label="Back">←</button>
+                  <button type="button" data-relationship-forward title="Forward" aria-label="Forward">→</button>
+                </div>
                 <div class="relationship-page-controls" data-relationship-page-controls>
                   <button type="button" data-relationship-page-prev aria-label="Previous graph page">‹</button>
                   <span data-relationship-page-count>Page 1</span>
@@ -644,13 +901,6 @@ def _render_relationship_graph_section(graph: RelationshipGraph) -> str:
                 </div>
               </div>
               <div class="relationship-canvas-wrap">
-                <div class="relationship-canvas-controls" aria-label="Graph view controls">
-                  <div class="relationship-nav-controls" aria-label="Graph history">
-                    <button type="button" data-relationship-fit title="Fit graph" aria-label="Fit graph">Fit</button>
-                    <button type="button" data-relationship-back title="Back" aria-label="Back">←</button>
-                    <button type="button" data-relationship-forward title="Forward" aria-label="Forward">→</button>
-                  </div>
-                </div>
                 <div class="relationship-canvas" data-relationship-canvas role="img" aria-label="{_esc(graph.title)}"></div>
               </div>
               <div class="relationship-selection-panel" data-relationship-selection-table>
@@ -745,8 +995,10 @@ def _report_toc_items(report: GenericReport) -> list[tuple[str, str]]:
         items.append(("Summary", "#summary-section"))
     if report.metrics:
         items.append(("Metrics", "#report-metrics"))
+    for index, metric_table in enumerate(report.metric_tables):
+        items.append((metric_table.title, f"#{_metric_table_section_id(index)}"))
     if report.status_cards:
-        items.append(("Status Cards", "#report-status-cards"))
+        items.append((report.status_cards_title or "Status Cards", "#report-status-cards"))
     if report.heatmaps:
         items.append(("Heatmaps", "#report-heatmaps"))
     if report.relationship_graph:
@@ -1089,6 +1341,7 @@ def _relationship_graph_script() -> str:
 
   function isTypeEnabled(node, selectedId, enabledTypes) {
     if (!node) return false;
+    if (selectedId && node.id === selectedId) return true;
     return enabledTypes.has(node.type || "entity");
   }
 
@@ -1101,7 +1354,7 @@ def _relationship_graph_script() -> str:
   }
 
   function subfilterFieldsForType(type, nodes) {
-    const candidates = ["status", "suite", "domain", "applicability", "mapping_status", "coverage_strength", "evidence_trust"];
+    const candidates = ["suite", "domain", "applicability", "mapping_status", "coverage_strength", "evidence_trust"];
     const typedNodes = nodes.filter((node) => (node.type || "entity") === type);
     const fields = [];
     for (const field of candidates) {
@@ -1131,16 +1384,42 @@ def _relationship_graph_script() -> str:
     return result;
   }
 
+  function createStatusFilter(nodes, defaults) {
+    const values = Array.from(new Set(nodes.map((node) => fieldValue(node, "status")).filter((value) => value.trim())))
+      .sort((left, right) => String(left).localeCompare(String(right)));
+    let include = null;
+    const exclude = new Set();
+    for (const typeDefaults of Object.values(defaults && typeof defaults === "object" ? defaults : {})) {
+      const config = typeDefaults && typeDefaults.status;
+      if (!config || typeof config !== "object") continue;
+      if (Array.isArray(config.include)) {
+        include = include || new Set();
+        for (const value of config.include) include.add(String(value));
+      }
+      if (Array.isArray(config.exclude)) {
+        for (const value of config.exclude) exclude.add(String(value));
+      }
+    }
+    const enabled = new Set(values.filter((value) => include ? include.has(value) : !exclude.has(value)));
+    return {values, enabled};
+  }
+
   function resetSubfilters(state) {
     state.subfilters = createSubfilters(state.nodes, state.filterDefaults);
+    state.statusFilter = createStatusFilter(state.nodes, state.filterDefaults);
   }
 
   function isSubfilterEnabled(node, state) {
     if (!node || !state) return false;
+    const statusFilter = state.statusFilter;
+    if (statusFilter && statusFilter.values.length && !statusFilter.enabled.has(fieldValue(node, "status"))) return false;
     const type = node.type || "entity";
     const typeFilters = state.subfilters && state.subfilters[type] || {};
     for (const [field, config] of Object.entries(typeFilters)) {
       const value = fieldValue(node, field);
+      // a node that does not carry the field at all cannot be judged by it; the filter lists only
+      // the values that exist, so an empty value must not silently hide the node
+      if (!value) continue;
       if (config.values && config.values.length && !config.enabled.has(value)) return false;
     }
     return true;
@@ -1148,11 +1427,8 @@ def _relationship_graph_script() -> str:
 
   function isNodeVisible(node, state) {
     if (!node) return false;
+    if (state && state.selectedId && node.id === state.selectedId) return true;
     return isTypeEnabled(node, state && state.selectedId, state.enabledTypes) && isSubfilterEnabled(node, state);
-  }
-
-  function isNodeAvailableInFocus(node, state) {
-    return Boolean(node && isSubfilterEnabled(node, state));
   }
 
   function includeNodeInSubfilters(state, node) {
@@ -1179,28 +1455,8 @@ def _relationship_graph_script() -> str:
     };
   }
 
-  function rawTraversalConfig(types) {
-    return {
-      terminalTypes: new Set(),
-      passThroughTypes: new Set(types || []),
-      relationTraversal: {},
-      edgeDirection: "both",
-      typeRanks: DEFAULT_TYPE_RANKS,
-      ignoreFallback: true
-    };
-  }
-
   function activeTraversal(state) {
-    if (state.traversalMode === "raw") return rawTraversalConfig(graphTypes(state.nodes));
-    return Object.assign({}, state.traversal, {shortcutMode: state.scopedLinkMode || "nested"});
-  }
-
-  function canExpandNode(node, selectedId, traversal) {
-    if (!node) return false;
-    if (node.id === selectedId) return true;
-    const type = node.type || "entity";
-    if (traversal.passThroughTypes.has(type)) return true;
-    return !traversal.terminalTypes.has(type);
+    return state.traversal;
   }
 
   function edgeTraversalMode(edge, traversal) {
@@ -1329,9 +1585,10 @@ def _relationship_graph_script() -> str:
       }
     }
     if (visibleDescendants.length) {
-      const nearestRank = Math.min(...visibleDescendants.map((id) => rankOf(nodesById.get(id))));
-      const nearestDescendants = visibleDescendants.filter((id) => rankOf(nodesById.get(id)) === nearestRank).concat(secondaryDescendants);
-      for (const targetId of nearestDescendants) {
+      // Draw the first visible child frontier only. Hidden intermediate nodes are still traversed,
+      // and derived edges below keep the visible frontier connected to the focus/ancestor chain.
+      const shownDescendants = visibleDescendants.concat(secondaryDescendants);
+      for (const targetId of shownDescendants) {
         const path = [];
         let pathId = targetId;
         while (pathId && pathId !== selectedId) {
@@ -1423,23 +1680,9 @@ def _relationship_graph_script() -> str:
     };
   }
 
-  function availableTypesForFocus(state) {
-    if (!state || !state.selectedId) return new Set(graphTypes(state.nodes));
-    const graph = buildNeighborhood(
-      state.selectedId,
-      state.nodesById,
-      state.edges,
-      state.adjacency,
-      (node) => isNodeAvailableInFocus(node, state),
-      activeTraversal(state),
-      state.showSecondaryLinks
-    );
-    return new Set(graph.nodes.map((node) => node.type || "entity"));
-  }
-
   function capGraph(graph, selectedId, limit, page) {
     if (!limit) {
-      return Object.assign({}, graph, {pagination: {enabled: false, page: 0, pageCount: 1, start: 0, end: graph.nodes.length, total: graph.nodes.length}});
+      return Object.assign({}, graph, {pagination: {enabled: false, page: 0, pageCount: 1, start: 0, end: graph.nodes.length, total: graph.nodes.length, rendered: graph.nodes.length}});
     }
     const score = (node) => {
       const status = String(node.status || "");
@@ -1494,7 +1737,7 @@ def _relationship_graph_script() -> str:
     const total = orderedNodes.length;
     if (total <= pageSize) {
       return Object.assign({}, graph, {
-        pagination: {enabled: false, page: 0, pageCount: 1, start: total ? 1 : 0, end: total, total, pageSize}
+        pagination: {enabled: false, page: 0, pageCount: 1, start: total ? 1 : 0, end: total, total, pageSize, rendered: graph.nodes.length}
       });
     }
     const pageCount = Math.max(1, Math.ceil(total / pageSize));
@@ -1517,7 +1760,8 @@ def _relationship_graph_script() -> str:
         start: startIndex + 1,
         end,
         total,
-        pageSize
+        pageSize,
+        rendered: nodes.length
       }
     };
   }
@@ -1584,21 +1828,40 @@ def _relationship_graph_script() -> str:
 
   function wrapLabel(value) {
     const text = String(value || "");
-    const tokens = text.split(/([@./:_-])/).filter(Boolean);
+    const limit = 22;
+    const tokens = [];
+    for (const token of text.split(/(\s+|[@./:_-])/).filter(Boolean)) {
+      if (token.length <= limit) {
+        tokens.push(token);
+        continue;
+      }
+      for (let index = 0; index < token.length; index += limit) {
+        tokens.push(token.slice(index, index + limit));
+      }
+    }
     const lines = [];
     let line = "";
+    let truncated = false;
     for (const token of tokens) {
       const candidate = line + token;
-      if (candidate.length > 22 && line) {
+      if (candidate.length > limit && line) {
+        if (lines.length >= 4) {
+          truncated = true;
+          break;
+        }
         lines.push(line);
         line = token.trimStart();
       } else {
         line = candidate;
       }
-      if (lines.length >= 3) break;
     }
     if (line && lines.length < 4) lines.push(line);
-    return lines.slice(0, 4).join("\n");
+    else if (line) truncated = true;
+    const wrapped = lines.slice(0, 4);
+    if (truncated && wrapped.length) {
+      wrapped[wrapped.length - 1] = `${wrapped[wrapped.length - 1].slice(0, limit - 1)}\u2026`;
+    }
+    return wrapped.join("\n");
   }
 
   function cssValue(name, fallback) {
@@ -1752,55 +2015,26 @@ def _relationship_graph_script() -> str:
     updateActiveTableRow(browser, state);
   }
 
-  function updateCanvasControlsPosition(browser, state) {
-    const scroller = browser.querySelector(".relationship-explorer-main");
-    const wrap = browser.querySelector(".relationship-canvas-wrap");
-    const controls = browser.querySelector(".relationship-canvas-controls");
-    if (!scroller || !wrap || !controls) return;
-    const scrollerRect = scroller.getBoundingClientRect();
-    const wrapRect = wrap.getBoundingClientRect();
-    const inset = 12;
-    const visibleTop = Math.max(scrollerRect.top, wrapRect.top) + inset;
-    const visibleBottom = Math.min(scrollerRect.bottom, wrapRect.bottom) - inset;
-    if (visibleBottom <= visibleTop + controls.offsetHeight) {
-      controls.style.visibility = "hidden";
-      if (state) state.canvasControlsSignature = "";
-      return;
-    }
-    const top = Math.min(visibleTop, visibleBottom - controls.offsetHeight);
-    const left = wrapRect.left + inset;
-    const maxWidth = Math.max(160, wrapRect.width - (inset * 2));
-    const signature = `${top.toFixed(2)}:${left.toFixed(2)}:${maxWidth.toFixed(2)}`;
-    if (state && state.canvasControlsSignature === signature) return;
-    if (state) state.canvasControlsSignature = signature;
-    controls.style.position = "fixed";
-    controls.style.top = `${top.toFixed(2)}px`;
-    controls.style.left = `${left.toFixed(2)}px`;
-    controls.style.maxWidth = `${maxWidth.toFixed(2)}px`;
-    controls.style.visibility = "visible";
-  }
-
-  function scheduleCanvasControlsPosition(browser, state) {
-    if (state.canvasControlsFrame) return;
-    state.canvasControlsFrame = requestAnimationFrame(() => {
-      state.canvasControlsFrame = 0;
-      updateCanvasControlsPosition(browser, state);
-    });
-  }
-
   function updateGraphPageControls(browser, state, pagination) {
     const page = pagination || {enabled: false, start: 0, end: 0, total: 0, page: 0, pageCount: 1};
     browser.querySelectorAll("[data-relationship-page-controls]").forEach((controls) => {
       const prev = controls.querySelector("[data-relationship-page-prev]");
       const next = controls.querySelector("[data-relationship-page-next]");
       const count = controls.querySelector("[data-relationship-page-count]");
-      controls.classList.toggle("is-disabled", !page.enabled);
-      if (prev) prev.disabled = !page.enabled || page.page <= 0;
-      if (next) next.disabled = !page.enabled || page.page >= page.pageCount - 1;
+      controls.classList.toggle("is-single-page", !page.enabled);
+      if (prev) {
+        prev.hidden = !page.enabled;
+        prev.disabled = !page.enabled || page.page <= 0;
+      }
+      if (next) {
+        next.hidden = !page.enabled;
+        next.disabled = !page.enabled || page.page >= page.pageCount - 1;
+      }
       if (count) {
+        const rendered = page.rendered == null ? page.total || 0 : page.rendered;
         count.textContent = page.enabled
           ? `${page.start}-${page.end} of ${page.total}`
-          : `${page.total || 0} shown`;
+          : `${rendered} ${rendered === 1 ? "node" : "nodes"}`;
       }
     });
     if (page.enabled && state.graphPage !== page.page) {
@@ -1833,9 +2067,8 @@ def _relationship_graph_script() -> str:
     secondaryLinks.checked = available && state.showSecondaryLinks;
     const label = secondaryLinks.closest(".relationship-secondary-toggle");
     if (label) {
-      label.classList.toggle("is-disabled", !available);
       label.hidden = !available;
-      label.title = available ? "" : "No shortcuts for current focus";
+      label.title = available ? "Show shortcut links of the current focus" : "";
     }
   }
 
@@ -1860,7 +2093,6 @@ def _relationship_graph_script() -> str:
     }
     const hasSearch = String(state.searchQuery || "").trim();
     updateSecondaryLinkControl(browser, state);
-    state.availableTypes = availableTypesForFocus(state);
     const nodeVisible = (node) => isNodeVisible(node, state);
     const baseGraph = buildTypeListGraph(state) || buildNeighborhood(
       state.selectedId,
@@ -1871,7 +2103,10 @@ def _relationship_graph_script() -> str:
       activeTraversal(state),
       state.showSecondaryLinks
     );
-    const graph = capGraph(graphMatchesSearch(baseGraph, state.searchQuery, state), state.selectedId, hasSearch ? 0 : 50, state.graphPage);
+    const focusGraph = graphMatchesSearch(baseGraph, state.searchQuery, state);
+    state.focusGraph = focusGraph;
+    state.focusContent = focusContent(state);
+    const graph = capGraph(focusGraph, state.selectedId, hasSearch ? 0 : 50, state.graphPage);
     updateGraphPageControls(browser, state, graph.pagination);
     if (!graph.nodes.some((node) => node.id === state.activeId)) {
       state.activeId = graph.nodes.some((node) => node.id === state.selectedId)
@@ -1886,22 +2121,21 @@ def _relationship_graph_script() -> str:
     const typeContainer = browser.querySelector("[data-relationship-type-filter]");
     if (typeContainer) refreshTypeFilterState(typeContainer, state, graphTypes(state.nodes));
     const listColumnWidth = 220;
-    const listHeight = 720;
-    const listColumns = graph.listMode
-      ? Math.max(1, Math.min(6, Math.floor((canvas.clientWidth || 900) / listColumnWidth)))
-      : 0;
+    const listRowHeight = 150;
+    canvas.style.height = "";
     if (graph.listMode) {
-      canvas.style.height = `${listHeight}px`;
+      const boxWidth = canvas.clientWidth || 900;
+      const listColumns = Math.max(1, Math.min(6, Math.floor(boxWidth / listColumnWidth)));
+      const listRows = Math.max(1, Math.ceil(Math.max(graph.nodes.length, 1) / listColumns));
       graph.listLayout = {
         cols: listColumns,
-        rows: Math.max(1, Math.ceil(Math.max(graph.nodes.length, 1) / Math.max(1, listColumns))),
-        width: canvas.clientWidth || 900,
-        height: listHeight,
+        rows: listRows,
+        width: boxWidth,
+        height: Math.max(canvas.clientHeight || 520, listRows * listRowHeight),
         left: 120,
         top: 92
       };
     } else {
-      canvas.style.height = "";
       graph.listLayout = null;
     }
     const renderSignature = graphRenderSignature(graph);
@@ -1909,7 +2143,6 @@ def _relationship_graph_script() -> str:
       updateActiveGraphNode(state);
       renderSelectionTable(browser, state);
       updateActiveTableRow(browser, state);
-      scheduleCanvasControlsPosition(browser, state);
       syncGraphViewport(state);
       return;
     }
@@ -1964,9 +2197,18 @@ def _relationship_graph_script() -> str:
       return;
     }
     canvas.removeAttribute("data-empty-graph");
-    if (graph.omitted) {
+    const hiddenByFilters = hiddenByFiltersCount(state);
+    if (graph.nodes.length <= 1 && hiddenByFilters > 0) {
+      canvas.setAttribute(
+        "data-graph-message",
+        `Only the focus is drawn: ${hiddenByFilters} nodes of the enabled layers are hidden by the status filter or the filter values.`
+      );
+      canvas.setAttribute("data-graph-hint", "filtered");
+    } else if (graph.omitted) {
+      canvas.removeAttribute("data-graph-hint");
       canvas.setAttribute("data-graph-message", `${graph.omitted} more nodes hidden. Use search or entity filters to narrow the graph.`);
     } else {
+      canvas.removeAttribute("data-graph-hint");
       canvas.removeAttribute("data-graph-message");
     }
     const layoutOptions = graph.listMode ? {
@@ -1991,8 +2233,7 @@ def _relationship_graph_script() -> str:
     const selected = state.cy.getElementById(state.selectedId);
     if (selected.length) selected.select();
     renderSelectionTable(browser, state);
-    scheduleCanvasControlsPosition(browser, state);
-    fitGraph(state, 88);
+    fitGraph(state, 40);
   }
 
   function visibleGraphDegree(nodeId, graph) {
@@ -2189,7 +2430,6 @@ def _relationship_graph_script() -> str:
     }
     state.activeSubfilterTypes = types;
     state.activeSubfilterType = types[0] || "";
-    if (state.activeSubfilterType) state.typeSearchType = state.activeSubfilterType;
   }
 
   function allEntityTypesEnabled(state) {
@@ -2203,9 +2443,8 @@ def _relationship_graph_script() -> str:
       activeId: state.activeId,
       enabledTypes: Array.from(state.enabledTypes),
       subfilters: serializeSubfilters(state),
+      statusFilter: serializeStatusFilter(state),
       graphPage: state.graphPage,
-      traversalMode: state.traversalMode,
-      scopedLinkMode: state.scopedLinkMode,
       showSecondaryLinks: state.showSecondaryLinks,
       searchQuery: state.searchQuery,
       typeSearchType: state.typeSearchType
@@ -2229,16 +2468,24 @@ def _relationship_graph_script() -> str:
     state.enabledTypes = new Set(Array.isArray(snapshot.enabledTypes) ? snapshot.enabledTypes : graphTypes(state.nodes));
     resetSubfilters(state);
     restoreSubfilters(state, snapshot.subfilters);
+    restoreStatusFilter(state, snapshot.statusFilter);
     state.graphPage = Number(snapshot.graphPage) || 0;
-    state.traversalMode = snapshot.traversalMode || state.traversalMode;
-    state.scopedLinkMode = snapshot.scopedLinkMode || state.scopedLinkMode;
     state.showSecondaryLinks = Boolean(snapshot.showSecondaryLinks);
     state.searchQuery = snapshot.searchQuery || "";
     state.typeSearchType = snapshot.typeSearchType || "";
-    syncGraphControls(browser, state);
+    refreshTypeFilterState(browser.querySelector("[data-relationship-type-filter]") || browser, state, graphTypes(state.nodes));
     renderGraph(browser, state);
     renderNodeSelect(browser, state);
     renderDetail(browser, state);
+  }
+
+  function serializeStatusFilter(state) {
+    return Array.from((state.statusFilter && state.statusFilter.enabled) || []);
+  }
+
+  function restoreStatusFilter(state, snapshot) {
+    if (!state.statusFilter || !Array.isArray(snapshot)) return;
+    state.statusFilter.enabled = new Set(snapshot.map(String).filter((value) => state.statusFilter.values.includes(value)));
   }
 
   function serializeSubfilters(state) {
@@ -2357,13 +2604,14 @@ def _relationship_graph_script() -> str:
     detail.innerHTML = html;
   }
 
-  function selectNode(browser, state, nodeId, recordHistory) {
+  function selectNode(browser, state, nodeId, recordHistory, options) {
     if (!state.nodesById.has(nodeId)) return;
+    const resetTypes = Boolean(options && options.resetTypes);
     if (recordHistory && state.selectedId && state.selectedId !== nodeId) {
       state.backStack.push(navigationSnapshot(state));
       state.forwardStack.length = 0;
     }
-    if (recordHistory) {
+    if (resetTypes) {
       enableAllEntityTypes(browser, state);
     }
     state.selectedId = nodeId;
@@ -2502,6 +2750,19 @@ def _relationship_graph_script() -> str:
         degrees.set(edge.target, (degrees.get(edge.target) || 0) + 1);
       }
     }
+    // Nodes drawn right now are judged by the edges the canvas really shows, which include the
+    // derived links that stand in for hidden layers; otherwise a focus whose own layer is hidden
+    // would be reported as having no links while the canvas clearly draws them.
+    const graph = state.visibleGraph;
+    if (graph && Array.isArray(graph.nodes) && Array.isArray(graph.edges)) {
+      const rendered = new Map();
+      for (const node of graph.nodes) rendered.set(node.id, 0);
+      for (const edge of graph.edges) {
+        if (rendered.has(edge.source)) rendered.set(edge.source, rendered.get(edge.source) + 1);
+        if (rendered.has(edge.target)) rendered.set(edge.target, rendered.get(edge.target) + 1);
+      }
+      for (const [id, degree] of rendered) degrees.set(id, degree);
+    }
     return degrees;
   }
 
@@ -2510,11 +2771,65 @@ def _relationship_graph_script() -> str:
     return (degrees || visibleNodeDegreeMap(state)).get(node.id) || 0;
   }
 
+  function graphRootId(state) {
+    let rootId = "";
+    let rootRank = Infinity;
+    for (const node of state.nodes) {
+      const rank = traversalRank(state, node);
+      if (rank >= rootRank) continue;
+      rootRank = rank;
+      rootId = node.id;
+    }
+    return rootId;
+  }
+
+  function focusAncestorIds(state) {
+    const ids = new Set();
+    let currentId = state.selectedId || "";
+    const seen = new Set();
+    while (currentId && !seen.has(currentId)) {
+      seen.add(currentId);
+      const current = state.nodesById.get(currentId);
+      if (!current) break;
+      const currentRank = traversalRank(state, current);
+      let parentId = "";
+      let parentRank = 99;
+      for (const item of state.adjacency.get(currentId) || []) {
+        if (item.edge.target !== currentId || item.edge.source !== item.id) continue;
+        if (isSecondaryEdge(item.edge) && !state.showSecondaryLinks) continue;
+        const node = state.nodesById.get(item.id);
+        if (!node || seen.has(item.id)) continue;
+        const rank = traversalRank(state, node);
+        if (rank >= currentRank) continue;
+        if (!parentId || rank < parentRank) {
+          parentId = item.id;
+          parentRank = rank;
+        }
+      }
+      if (!parentId) break;
+      ids.add(parentId);
+      currentId = parentId;
+    }
+    return ids;
+  }
+
+  function focusScopeIds(state) {
+    if (!state.focusInGraphOnly) return null;
+    const graph = state.visibleGraph;
+    if (!graph || !Array.isArray(graph.nodes)) return null;
+    const scope = new Set(graph.nodes.map((node) => node.id));
+    if (state.selectedId) scope.add(state.selectedId);
+    for (const id of focusAncestorIds(state)) scope.add(id);
+    return scope;
+  }
+
   function selectableNodes(state, includeSelected, degrees) {
     const query = String(state.searchQuery || "").trim().toLowerCase();
     const targetType = state.typeSearchType || "";
+    const scopeIds = focusScopeIds(state);
     const degreeMap = degrees || visibleNodeDegreeMap(state);
     return state.nodes
+      .filter((node) => !scopeIds || node.id === state.selectedId || scopeIds.has(node.id))
       .filter((node) => {
         if (includeSelected && node.id === state.selectedId) return isNodeVisible(node, state);
         return isNodeVisible(node, state);
@@ -2553,7 +2868,7 @@ def _relationship_graph_script() -> str:
       return nodes;
     }
     const renderedNodes = nodes.slice(0, MAX_FOCUS_OPTIONS);
-    const selectedNode = nodes.find((node) => node.id === state.selectedId);
+    const selectedNode = includeSelected ? state.nodesById.get(state.selectedId || "") : null;
     if (selectedNode && !renderedNodes.some((node) => node.id === selectedNode.id)) {
       renderedNodes.push(selectedNode);
     }
@@ -2575,7 +2890,9 @@ def _relationship_graph_script() -> str:
       }
       const option = document.createElement("option");
       option.value = node.id;
-      option.textContent = degree ? (node.label || node.id) : `${node.label || node.id} · no visible links`;
+      const optionLabel = shortText(node.label || node.id, 90);
+      option.textContent = degree ? optionLabel : `${optionLabel} · no visible links`;
+      option.title = node.label || node.id;
       option.className = degree ? "" : "relationship-option-isolated";
       option.setAttribute("data-relationship-visible-links", String(degree));
       groups.get(label).appendChild(option);
@@ -2587,7 +2904,7 @@ def _relationship_graph_script() -> str:
       option.textContent = `${nodes.length - renderedNodes.length} more matches; narrow search`;
       select.appendChild(option);
     }
-    if (nodes.some((node) => node.id === state.selectedId)) {
+    if (selectedNode) {
       select.value = state.selectedId;
     }
     return nodes;
@@ -2637,56 +2954,49 @@ def _relationship_graph_script() -> str:
     syncActiveSubfilterType(state);
   }
 
-  function syncGraphControls(browser, state) {
-    const typeContainer = browser.querySelector("[data-relationship-type-filter]");
-    if (typeContainer) refreshTypeFilterState(typeContainer, state, graphTypes(state.nodes));
-    updateSecondaryLinkControl(browser, state);
-    const search = browser.querySelector("[data-relationship-search]");
-    if (search) search.value = state.searchQuery || "";
-    browser.querySelectorAll("[data-relationship-traversal]").forEach((item) => {
-      item.classList.toggle("is-active", (item.getAttribute("data-relationship-traversal") || "scoped") === state.traversalMode);
-    });
-    browser.querySelectorAll("[data-relationship-scoped-links]").forEach((item) => {
-      const mode = item.getAttribute("data-relationship-scoped-links") || "nested";
-      item.classList.toggle("is-active", mode === state.scopedLinkMode);
-      item.disabled = state.traversalMode !== "scoped";
-    });
-    const scopedMode = browser.querySelector("[data-relationship-scoped-mode]");
-    if (scopedMode) scopedMode.classList.toggle("is-disabled", state.traversalMode !== "scoped");
-  }
-
   function refreshTypeFilterState(container, state, types) {
+    const ancestorTypes = new Set();
+    for (const id of focusAncestorIds(state)) {
+      const node = state.nodesById.get(id);
+      if (node && isSubfilterEnabled(node, state)) ancestorTypes.add(node.type || "entity");
+    }
     container.querySelectorAll("[data-relationship-type]").forEach((checkbox) => {
       const type = checkbox.value;
-      const available = !state.availableTypes || state.availableTypes.has(type);
       checkbox.checked = state.enabledTypes.has(type);
-      checkbox.disabled = !available;
-      const label = checkbox.closest(".relationship-type-filter-item");
-      if (label) label.classList.toggle("is-disabled", !available);
-    });
-    container.querySelectorAll("[data-relationship-type-label]").forEach((label) => {
-      const type = label.getAttribute("data-relationship-type-label") || "";
-      label.classList.toggle("is-active", state.typeSearchType === type);
       const total = state.nodes.filter((node) => (node.type || "entity") === type).length;
-      const available = state.availableTypes && state.availableTypes.has(type);
-      const visible = state.visibleGraph && state.visibleGraph.nodes
-        ? state.visibleGraph.nodes.filter((node) => (node.type || "entity") === type).length
-        : state.nodes.filter((node) => (node.type || "entity") === type && isSubfilterEnabled(node, state)).length;
-      label.title = available ? `${visible}/${total} ${TYPE_LABELS[type] || type} in current focus` : `0/${total} ${TYPE_LABELS[type] || type} in current focus`;
+      const visible = typeNodeCount(state, type);
+      const inFocus = typeFocusTotal(state, type);
+      const label = checkbox.closest(".relationship-type-filter-item");
+      if (!label) return;
+      label.setAttribute("data-relationship-type-visible", String(visible));
+      label.setAttribute("data-relationship-type-in-focus", String(inFocus));
+      // one meaning only: a dimmed chip is a layer that draws nothing for the current focus,
+      // counting both the focus content and the ancestry the graph always draws above it
+      const isAncestorLayer = ancestorTypes.has(type);
+      const draws = visible > 0 || isAncestorLayer;
+      label.classList.toggle("is-empty", !draws);
+      const action = state.enabledTypes.has(type) ? "hide" : "show";
+      const reason = inFocus === 0
+        ? "nothing of this layer is inside the current focus"
+        : `all ${inFocus} of them are hidden by the current status or filter values`;
+      if (!draws) {
+        label.title = `Draws nothing here: ${reason}. ${total} ${TYPE_LABELS[type] || type} nodes exist in the whole graph. Click to ${action} this layer.`;
+      } else if (visible === 0) {
+        label.title = `Drawn only as the ancestry above the focus; ${reason}. Click to ${action} this layer.`;
+      } else {
+        label.title = `${visible} of ${inFocus} ${TYPE_LABELS[type] || type} nodes inside the current focus pass the current filters; ${total} exist in the whole graph. Click to ${action} this layer.`;
+      }
     });
     const allCheckbox = container.querySelector("[data-relationship-type-all]");
     if (allCheckbox) {
-      const availableTypes = types.filter((type) => !state.availableTypes || state.availableTypes.has(type));
-      const selectedCount = availableTypes.filter((type) => state.enabledTypes.has(type)).length;
-      allCheckbox.disabled = !availableTypes.length;
-      allCheckbox.checked = availableTypes.length > 0 && selectedCount === availableTypes.length;
-      allCheckbox.indeterminate = selectedCount > 0 && selectedCount < availableTypes.length;
-      const allLabel = allCheckbox.closest(".relationship-type-filter-all");
-      if (allLabel) allLabel.classList.toggle("is-active", !state.typeSearchType);
+      const selectedCount = types.filter((type) => state.enabledTypes.has(type)).length;
+      allCheckbox.checked = types.length > 0 && selectedCount === types.length;
+      allCheckbox.indeterminate = selectedCount > 0 && selectedCount < types.length;
     }
+    const browser = container.closest && container.closest("[data-relationship-browser]") || container;
+    renderStatusFilter(browser, state);
+    renderFocusTypeSelect(browser, state);
     renderSubfilterPopover(container, state);
-    const browser = container.closest("[data-relationship-browser]");
-    if (browser) scheduleCanvasControlsPosition(browser, state);
   }
 
   function subfilterLabel(field) {
@@ -2705,15 +3015,199 @@ def _relationship_graph_script() -> str:
     }
   }
 
+  function statusFilterValues(state) {
+    const counts = new Map();
+    for (const value of (state.statusFilter && state.statusFilter.values) || []) counts.set(value, 0);
+    for (const node of state.nodes) {
+      const value = fieldValue(node, "status");
+      if (!counts.has(value)) continue;
+      counts.set(value, counts.get(value) + 1);
+    }
+    return Array.from(counts.entries());
+  }
+
+  function isStatusValueEnabled(state, value) {
+    return Boolean(state.statusFilter && state.statusFilter.enabled.has(value));
+  }
+
+  function setStatusValueEnabled(state, value, enabled) {
+    if (!state.statusFilter || !state.statusFilter.values.includes(value)) return;
+    if (enabled) {
+      state.statusFilter.enabled.add(value);
+    } else {
+      state.statusFilter.enabled.delete(value);
+    }
+  }
+
+  function renderStatusFilter(browser, state) {
+    const container = browser.querySelector("[data-relationship-status-filter]");
+    if (!container) return;
+    container.querySelectorAll("[data-relationship-status-value], .relationship-status-all").forEach((item) => item.remove());
+    const values = statusFilterValues(state);
+    if (!values.length) return;
+    const rerender = () => {
+      state.graphPage = 0;
+      ensureSelectableFocus(state);
+      refreshTypeFilterState(browser.querySelector("[data-relationship-type-filter]") || browser, state, graphTypes(state.nodes));
+      renderGraph(browser, state);
+      renderNodeSelect(browser, state);
+      renderDetail(browser, state);
+    };
+    const enabledCount = values.filter(([value]) => isStatusValueEnabled(state, value)).length;
+    const allLabel = document.createElement("label");
+    allLabel.className = "relationship-status-all";
+    const allCheckbox = document.createElement("input");
+    allCheckbox.type = "checkbox";
+    allCheckbox.setAttribute("data-relationship-status-all", "");
+    allCheckbox.checked = enabledCount === values.length;
+    allCheckbox.indeterminate = enabledCount > 0 && enabledCount < values.length;
+    allCheckbox.title = "Check to show every status, uncheck to hide all of them and then pick the ones you need";
+    allCheckbox.addEventListener("change", () => {
+      pushNavigationSnapshot(state);
+      for (const [value] of values) setStatusValueEnabled(state, value, allCheckbox.checked);
+      rerender();
+    });
+    const allText = document.createElement("span");
+    allText.textContent = "All";
+    allLabel.append(allCheckbox, allText);
+    container.appendChild(allLabel);
+    for (const [value, count] of values) {
+      const enabled = isStatusValueEnabled(state, value);
+      const chip = document.createElement("button");
+      chip.type = "button";
+      chip.setAttribute("data-relationship-status-value", value);
+      chip.setAttribute("aria-pressed", enabled ? "true" : "false");
+      chip.className = `relationship-status-chip report-status-badge ${cssStatus(value)}${enabled ? "" : " is-off"}`;
+      chip.title = `${count} ${value} nodes in the enabled layers of the whole graph. Click to ${enabled ? "hide" : "show"} them.`;
+      const text = document.createElement("span");
+      text.textContent = value;
+      const badge = document.createElement("small");
+      badge.textContent = String(count);
+      chip.append(text, badge);
+      chip.addEventListener("click", () => {
+        pushNavigationSnapshot(state);
+        setStatusValueEnabled(state, value, !enabled);
+        rerender();
+      });
+      container.appendChild(chip);
+    }
+  }
+
+  function renderFocusTypeSelect(browser, state) {
+    const select = browser.querySelector("[data-relationship-focus-type]");
+    if (!select) return;
+    const types = graphTypes(state.nodes);
+    select.replaceChildren();
+    const any = document.createElement("option");
+    any.value = "";
+    any.textContent = "Any type";
+    select.appendChild(any);
+    for (const type of types) {
+      const option = document.createElement("option");
+      option.value = type;
+      option.textContent = TYPE_LABELS[type] || type;
+      select.appendChild(option);
+    }
+    select.value = types.includes(state.typeSearchType) ? state.typeSearchType : "";
+  }
+
+  function traversalRank(state, node) {
+    if (!node) return 99;
+    const ranks = state.traversal && state.traversal.typeRanks || DEFAULT_TYPE_RANKS;
+    const value = ranks[node.type || "entity"];
+    return Number.isFinite(value) ? value : typeRank(node);
+  }
+
+  function focusContent(state) {
+    const counts = new Map();
+    const totals = new Map();
+    const ids = new Set();
+    const selected = state.nodesById.get(state.selectedId || "");
+    if (!selected) return {counts, totals, ids};
+    const add = (node) => {
+      const type = node.type || "entity";
+      counts.set(type, (counts.get(type) || 0) + 1);
+      ids.add(node.id);
+    };
+    const addTotal = (node) => {
+      const type = node.type || "entity";
+      totals.set(type, (totals.get(type) || 0) + 1);
+    };
+    addTotal(selected);
+    if (isSubfilterEnabled(selected, state)) add(selected);
+    const seen = new Set([selected.id]);
+    const queue = [selected.id];
+    while (queue.length) {
+      const fromId = queue.shift();
+      const fromRank = traversalRank(state, state.nodesById.get(fromId));
+      for (const item of state.adjacency.get(fromId) || []) {
+        if (item.edge.source !== fromId || item.edge.target !== item.id) continue;
+        if (isSecondaryEdge(item.edge) && !state.showSecondaryLinks) continue;
+        if (seen.has(item.id)) continue;
+        const node = state.nodesById.get(item.id);
+        if (!node) continue;
+        const rank = traversalRank(state, node);
+        if (rank <= fromRank && !(rank === 99 && fromRank === 99)) continue;
+        seen.add(item.id);
+        queue.push(item.id);
+        addTotal(node);
+        if (isSubfilterEnabled(node, state)) add(node);
+      }
+    }
+    return {counts, totals, ids};
+  }
+
+  function typeNodeCount(state, type) {
+    const content = state.focusContent || focusContent(state);
+    return content.counts.get(type) || 0;
+  }
+
+  function typeFocusTotal(state, type) {
+    const content = state.focusContent || focusContent(state);
+    return content.totals.get(type) || 0;
+  }
+
+  function hiddenByFiltersCount(state) {
+    const content = state.focusContent || focusContent(state);
+    let hidden = 0;
+    for (const type of state.enabledTypes) {
+      hidden += Math.max(0, (content.totals.get(type) || 0) - (content.counts.get(type) || 0));
+    }
+    return hidden;
+  }
+
+  function activeFilterCount(state) {
+    let active = 0;
+    for (const typeFilters of Object.values(state.subfilters || {})) {
+      for (const [field, config] of Object.entries(typeFilters || {})) {
+        if (field === "status") continue;
+        const values = config.values || [];
+        if (values.length && !values.every((value) => config.enabled.has(value))) active += 1;
+      }
+    }
+    return active;
+  }
+
   function renderSubfilterPopover(container, state) {
-    const existing = container.querySelector("[data-relationship-subfilter-popover]");
-    if (existing) existing.remove();
+    const browser = container.closest && container.closest("[data-relationship-browser]") || container;
+    const disclosure = browser.querySelector("[data-relationship-filters]");
+    const body = browser.querySelector("[data-relationship-filters-body]");
+    const summary = browser.querySelector("[data-relationship-filters-summary]");
+    if (!body) return;
+    body.replaceChildren();
     const activeTypes = (state.activeSubfilterTypes && state.activeSubfilterTypes.length ? state.activeSubfilterTypes : [state.activeSubfilterType])
       .filter((type, index, items) => type && state.enabledTypes.has(type) && items.indexOf(type) === index);
+    const filterCount = activeFilterCount(state);
+    if (summary) {
+      summary.textContent = filterCount ? `Filters (${filterCount} active)` : "Filters";
+    }
+    if (disclosure) {
+      disclosure.hidden = !activeTypes.length;
+      if (!activeTypes.length) disclosure.open = false;
+      disclosure.classList.toggle("is-active", filterCount > 0);
+    }
     if (!activeTypes.length) return;
     const rerender = () => {
-      const browser = container.closest("[data-relationship-browser]");
-      if (!browser) return;
       renderGraph(browser, state);
       renderNodeSelect(browser, state);
       renderDetail(browser, state);
@@ -2735,6 +3229,7 @@ def _relationship_graph_script() -> str:
       defaults.type = "button";
       defaults.textContent = "Defaults";
       defaults.addEventListener("click", () => {
+        pushNavigationSnapshot(state);
         resetTypeSubfilters(state, type);
         state.graphPage = 0;
         ensureSelectableFocus(state);
@@ -2745,6 +3240,7 @@ def _relationship_graph_script() -> str:
       allValues.type = "button";
       allValues.textContent = "All values";
       allValues.addEventListener("click", () => {
+        pushNavigationSnapshot(state);
         enableAllTypeSubfilters(state, type);
         state.graphPage = 0;
         ensureSelectableFocus(state);
@@ -2754,12 +3250,13 @@ def _relationship_graph_script() -> str:
       actions.append(defaults, allValues);
       head.appendChild(actions);
       section.appendChild(head);
-      if (!Object.keys(typeFilters).length) {
+      const fields = Object.entries(typeFilters).filter(([field]) => field !== "status");
+      if (!fields.length) {
         const empty = document.createElement("p");
-        empty.textContent = "No subfilters for this type.";
+        empty.textContent = "No filters beyond status for this type.";
         section.appendChild(empty);
       }
-      for (const [field, config] of Object.entries(typeFilters)) {
+      for (const [field, config] of fields) {
         const group = document.createElement("fieldset");
         const legend = document.createElement("legend");
         legend.textContent = subfilterLabel(field);
@@ -2814,7 +3311,7 @@ def _relationship_graph_script() -> str:
       }
       popover.appendChild(section);
     }
-    container.appendChild(popover);
+    body.appendChild(popover);
   }
 
   function renderTypeFilters(browser, state) {
@@ -2830,9 +3327,21 @@ def _relationship_graph_script() -> str:
     allCheckbox.setAttribute("data-relationship-type-all", "");
     allCheckbox.addEventListener("change", () => {
       pushNavigationSnapshot(state);
-      const availableTypes = types.filter((type) => !state.availableTypes || state.availableTypes.has(type));
-      state.enabledTypes = allCheckbox.checked ? new Set(availableTypes) : new Set();
+      state.enabledTypes = allCheckbox.checked ? new Set(types) : new Set();
       state.graphPage = 0;
+      if (!allCheckbox.checked) {
+        const rootId = graphRootId(state);
+        if (rootId && state.nodesById.has(rootId)) {
+          state.selectedId = rootId;
+          state.activeId = rootId;
+          state.searchQuery = "";
+          cancelSearchUpdate(state);
+          const search = browser.querySelector("[data-relationship-search]");
+          if (search) search.value = "";
+          includeNodeInSubfilters(state, state.nodesById.get(rootId));
+          syncActiveSubfilterType(state);
+        }
+      }
       ensureSelectableFocus(state);
       refreshTypeFilterState(container, state, types);
       renderGraph(browser, state);
@@ -2842,15 +3351,7 @@ def _relationship_graph_script() -> str:
     allLabel.appendChild(allCheckbox);
     const allText = document.createElement("span");
     allText.textContent = "All";
-    allText.title = "Show all entity types in focus search";
-    allText.addEventListener("click", (event) => {
-      event.preventDefault();
-      event.stopPropagation();
-      state.typeSearchType = "";
-      state.graphPage = 0;
-      renderNodeSelect(browser, state);
-      refreshTypeFilterState(container, state, types);
-    });
+    allText.title = "Show every layer in the graph";
     allLabel.appendChild(allText);
     actions.appendChild(allLabel);
     const list = document.createElement("div");
@@ -2880,18 +3381,6 @@ def _relationship_graph_script() -> str:
       const typeText = document.createElement("span");
       typeText.setAttribute("data-relationship-type-label", type);
       typeText.textContent = TYPE_LABELS[type] || type;
-      typeText.title = `Limit focus search to ${TYPE_LABELS[type] || type}`;
-      typeText.addEventListener("click", (event) => {
-        event.preventDefault();
-        event.stopPropagation();
-        if (state.availableTypes && !state.availableTypes.has(type)) return;
-        state.activeSubfilterType = type;
-        state.activeSubfilterTypes = [type];
-        state.typeSearchType = type;
-        state.graphPage = 0;
-        renderNodeSelect(browser, state);
-        refreshTypeFilterState(container, state, types);
-      });
       label.appendChild(checkbox);
       label.appendChild(typeText);
       list.appendChild(label);
@@ -2917,6 +3406,7 @@ def _relationship_graph_script() -> str:
       adjacency: buildAdjacency(graph.edges),
       filterDefaults: graph.filterDefaults || {},
       subfilters: {},
+      statusFilter: {values: [], enabled: new Set()},
       activeSubfilterType: "",
       selectedId: preferred.id,
       activeId: preferred.id,
@@ -2931,11 +3421,10 @@ def _relationship_graph_script() -> str:
       typeSearchType: "",
       graphInteractive: false,
       graphRenderSignature: "",
-      canvasControlsFrame: 0,
-      canvasControlsSignature: "",
+      focusGraph: null,
+      focusContent: null,
+      focusInGraphOnly: false,
       canvasViewportListenersAttached: false,
-      traversalMode: "scoped",
-      scopedLinkMode: "nested",
       showSecondaryLinks: false,
       graphPage: 0,
       traversal: traversalConfig(graph.traversal),
@@ -2944,35 +3433,6 @@ def _relationship_graph_script() -> str:
     resetSubfilters(state);
     syncActiveSubfilterType(state);
     renderTypeFilters(browser, state);
-    const refreshTraversalControls = () => {
-      syncGraphControls(browser, state);
-    };
-    browser.querySelectorAll("[data-relationship-traversal]").forEach((button) => {
-      const mode = button.getAttribute("data-relationship-traversal") || "scoped";
-      button.addEventListener("click", () => {
-        pushNavigationSnapshot(state);
-        state.traversalMode = mode;
-        state.graphPage = 0;
-        refreshTraversalControls();
-        renderGraph(browser, state);
-        renderNodeSelect(browser, state);
-        renderDetail(browser, state);
-      });
-    });
-    browser.querySelectorAll("[data-relationship-scoped-links]").forEach((button) => {
-      const mode = button.getAttribute("data-relationship-scoped-links") || "nested";
-      button.addEventListener("click", () => {
-        pushNavigationSnapshot(state);
-        state.scopedLinkMode = mode;
-        state.traversalMode = "scoped";
-        state.graphPage = 0;
-        refreshTraversalControls();
-        renderGraph(browser, state);
-        renderNodeSelect(browser, state);
-        renderDetail(browser, state);
-      });
-    });
-    refreshTraversalControls();
     const secondaryLinks = browser.querySelector("[data-relationship-secondary-links]");
     if (secondaryLinks) {
       secondaryLinks.checked = state.showSecondaryLinks;
@@ -3001,6 +3461,24 @@ def _relationship_graph_script() -> str:
         renderDetail(browser, state);
       });
     });
+    const focusType = browser.querySelector("[data-relationship-focus-type]");
+    if (focusType) {
+      focusType.addEventListener("change", () => {
+        state.typeSearchType = focusType.value || "";
+        state.graphPage = 0;
+        renderNodeSelect(browser, state);
+        refreshTypeFilterState(browser.querySelector("[data-relationship-type-filter]") || browser, state, graphTypes(state.nodes));
+      });
+    }
+    const focusScope = browser.querySelector("[data-relationship-focus-scope]");
+    if (focusScope) {
+      focusScope.checked = state.focusInGraphOnly;
+      focusScope.title = "When checked, the focus list offers only the nodes drawn on the current graph instead of every node";
+      focusScope.addEventListener("change", () => {
+        state.focusInGraphOnly = focusScope.checked;
+        renderNodeSelect(browser, state);
+      });
+    }
     const select = browser.querySelector("[data-relationship-node-select]");
     if (select) {
       select.addEventListener("change", () => {
@@ -3035,16 +3513,13 @@ def _relationship_graph_script() -> str:
     if (fit) {
       fit.addEventListener("click", () => {
         setGraphInteractive(browser, state, true);
-        fitGraph(state, 88);
+        fitGraph(state, 40);
       });
     }
     const canvas = browser.querySelector("[data-relationship-canvas]");
     if (canvas) {
       const canvasWrap = canvas.closest(".relationship-canvas-wrap");
       const activateFromCanvasWrap = (event) => {
-        if (event.target.closest(".relationship-canvas-controls")) {
-          return;
-        }
         syncGraphViewport(state);
         if (!state.graphInteractive) {
           setGraphInteractive(browser, state, true);
@@ -3078,20 +3553,12 @@ def _relationship_graph_script() -> str:
     const explorer = browser.querySelector(".relationship-explorer-main");
     if (explorer) {
       const handleExplorerScroll = () => {
-        scheduleCanvasControlsPosition(browser, state);
         syncGraphViewport(state);
         releaseGraphFocus(browser, state);
       };
       explorer.addEventListener("scroll", handleExplorerScroll, {passive: true});
-      explorer.addEventListener("wheel", () => {
-        scheduleCanvasControlsPosition(browser, state);
-        syncGraphViewport(state);
-      }, {passive: true});
-      updateCanvasControlsPosition(browser, state);
-      window.addEventListener("resize", () => {
-        scheduleCanvasControlsPosition(browser, state);
-        syncGraphViewport(state);
-      });
+      explorer.addEventListener("wheel", () => syncGraphViewport(state), {passive: true});
+      window.addEventListener("resize", () => syncGraphViewport(state));
     }
     const themeObserver = new MutationObserver(() => refreshGraphTheme(state));
     themeObserver.observe(document.documentElement, {attributes: true, attributeFilter: ["data-theme"]});
@@ -3145,7 +3612,7 @@ def _relationship_graph_script() -> str:
       event.preventDefault();
       activateNode(browser, state, nodeElement.getAttribute("data-node-id"));
     });
-    window.addEventListener("resize", () => fitGraph(state, 88), {passive: true});
+    window.addEventListener("resize", () => fitGraph(state, 40), {passive: true});
     selectNode(browser, state, state.selectedId, false);
     browser.__relationshipState = state;
   }
@@ -3177,6 +3644,70 @@ def _relationship_graph_script() -> str:
     }
   }
 
+  function applyRelationshipViewFilters(state, filters) {
+    if (!filters || typeof filters !== "object") return;
+    const statusValues = new Set();
+    let hasStatusFilter = false;
+    for (const [type, typeFilters] of Object.entries(filters)) {
+      if (!typeFilters || typeof typeFilters !== "object") continue;
+      for (const [field, values] of Object.entries(typeFilters)) {
+        if (!Array.isArray(values)) continue;
+        if (field === "status") {
+          hasStatusFilter = true;
+          for (const value of values) statusValues.add(String(value));
+          continue;
+        }
+        const stateFilters = state.subfilters && state.subfilters[type];
+        const config = stateFilters && stateFilters[field];
+        if (!config) continue;
+        config.enabled = new Set((config.values || []).filter((value) => values.includes(value)));
+      }
+    }
+    if (hasStatusFilter && state.statusFilter) {
+      state.statusFilter.enabled = new Set(state.statusFilter.values.filter((value) => statusValues.has(value)));
+    }
+  }
+
+  function applyRelationshipView(browser, state, view) {
+    const focusId = view && view.focus;
+    if (!focusId || !state.nodesById.has(focusId)) return;
+    pushNavigationSnapshot(state);
+    resetGraphFilters(browser, state);
+    const types = graphTypes(state.nodes);
+    const requested = Array.isArray(view.types) ? view.types.filter((type) => types.includes(type)) : [];
+    if (requested.length) {
+      state.enabledTypes = new Set(requested);
+      state.enabledTypes.add(state.nodesById.get(focusId).type || "entity");
+    }
+    applyRelationshipViewFilters(state, view.filters);
+    state.graphPage = 0;
+    state.searchQuery = "";
+    cancelSearchUpdate(state);
+    const search = browser.querySelector("[data-relationship-search]");
+    if (search) search.value = "";
+    selectNode(browser, state, focusId, false);
+    const targetType = view.target_type || "";
+    if (targetType && state.enabledTypes.has(targetType)) {
+      state.activeSubfilterType = targetType;
+      state.activeSubfilterTypes = [targetType];
+      state.typeSearchType = targetType;
+    }
+    refreshTypeFilterState(browser.querySelector("[data-relationship-type-filter]") || browser, state, types);
+    renderGraph(browser, state);
+    renderNodeSelect(browser, state);
+    renderDetail(browser, state);
+  }
+
+  function openRelationshipView(trigger, view) {
+    const section = trigger && trigger.closest ? trigger.closest(".report-root, body") : document;
+    const modal = (section || document).querySelector("[data-relationship-modal]");
+    if (!modal || !view || !view.focus) return;
+    openRelationshipModal(modal);
+    const browser = modal.querySelector("[data-relationship-browser]");
+    const state = browser && browser.__relationshipState;
+    if (state) applyRelationshipView(browser, state, view);
+  }
+
   function closeRelationshipModal(modal) {
     if (!modal) return;
     modal.hidden = true;
@@ -3191,6 +3722,18 @@ def _relationship_graph_script() -> str:
   document.querySelectorAll("[data-relationship-open-focus]").forEach((item) => {
     item.addEventListener("click", () => {
       openRelationshipFocus(item, item.getAttribute("data-relationship-open-focus"));
+    });
+  });
+  document.querySelectorAll("[data-relationship-open-view]").forEach((item) => {
+    item.addEventListener("click", (event) => {
+      event.preventDefault();
+      let view = null;
+      try {
+        view = JSON.parse(item.getAttribute("data-relationship-open-view") || "null");
+      } catch (error) {
+        view = null;
+      }
+      if (view) openRelationshipView(item, view);
     });
   });
   document.querySelectorAll("[data-relationship-modal]").forEach((modal) => {

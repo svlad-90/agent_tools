@@ -35,6 +35,14 @@ requires:
       network: host
       capabilities:
         - workspace_tools
+    agent-workspace-tests:
+      image: agent-workspace-tests:24.04
+      dockerfile: agent_tools/paf_workspace/domains/environments/assets/agent-workspace-tests/Dockerfile
+      context: agent_tools/paf_workspace/domains/environments/assets/agent-workspace-tests
+      network: host
+      capabilities:
+        - workspace_tools
+        - agent_workspace_tests
     moulin-act:
       image: moulin-act:22.04
       dockerfile: agent_tools/paf_workspace/domains/environments/assets/moulin-act/Dockerfile
@@ -65,6 +73,13 @@ requires:
         - source: /var/run/docker.sock
           target: /var/run/docker.sock
           mode: rw
+        - source: ${WORKSPACE_ROOT}
+          target: ${WORKSPACE_ROOT}
+          mode: rw
+    agent-workspace-tests-workspace:
+      image: agent-workspace-tests
+      workdir: ${WORKSPACE_ROOT}
+      mounts:
         - source: ${WORKSPACE_ROOT}
           target: ${WORKSPACE_ROOT}
           mode: rw

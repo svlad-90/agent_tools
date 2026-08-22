@@ -24,10 +24,10 @@ and matching topic files before deep investigation.
 
 Every task lives under `tasks/<task-name>/`:
 
-- `TASK_DESCRIPTION.md` - stable request, scope, criteria, links, background.
-- `TASK_CONTEXT.sqlite3` - transactional structured task journal and the only
-  task context source. Active entries are the compact working context; resolved
-  and stale entries are history.
+- `TASK_CONTEXT.sqlite3` - transactional structured task context and the only
+  current task context source. It stores singleton slots: `goal`, `env`,
+  `decisions`, `findings`, `validation`, `blocker-risk`,
+  `operational-memory`, `user-preference`, and `legacy`.
 - `dev/` - repositories, reproducers, workspaces, build files, and other
   development inputs for the task.
 - `Dockerfile/` - task-specific Dockerfiles, container build context files,
@@ -54,12 +54,16 @@ and only then name the exact variable, register, constant, or API. When several
 low-level terms are involved, repeat the role of each term locally instead of
 assuming the reader remembers it from earlier comments.
 
-Before working inside a task, read its `TASK_DESCRIPTION.md`, then query active
-task context from `TASK_CONTEXT.sqlite3` with
-`python3 -m agent_tools.tools.task_context query --task <task-dir> --severity
-mid..critical --status active --format markdown`. Do not read resolved or stale
-history by default; query it only when the user asks or active context requires
-historical investigation.
+Before working inside a task after a user message, run the task-local
+`front_door_bell.py` with the available Python interpreter and follow its
+returned stage until it returns `ITERATION_DONE` or `BLOCKED`. When the bell or
+the task requires direct context access, query current task context slots from
+`TASK_CONTEXT.sqlite3` with
+`python3 -m agent_tools.tools.task_context query --task <task-dir> --format
+agent`. Use `--category`/`--cats` for targeted slot reads. Legacy
+`TASK_DESCRIPTION.md` and `TASK_CONTEXT.md` files are imported into the
+`legacy` slot when a new slot database is created; they are not current context
+sources.
 
 Move repeated routine work into `scripts/` when it reduces repeated reasoning
 or makes commands easier to rerun.

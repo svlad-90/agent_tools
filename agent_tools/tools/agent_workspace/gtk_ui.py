@@ -5,10 +5,12 @@ from dataclasses import dataclass
 from pathlib import Path
 import argparse
 import os
+import re
 import shutil
 import subprocess
 import sys
 import textwrap
+import threading
 
 import gi
 
@@ -27,10 +29,15 @@ from agent_tools.tools.task_context import DICTIONARY_TOKEN_RE
 from agent_tools.tools.task_context import DictionaryPreview
 from agent_tools.tools.task_context import STATUSES as TASK_CONTEXT_STATUSES
 from agent_tools.tools.task_context import TaskDictionaryPolicy
+from agent_tools.tools.task_context import TaskContextSlot
 from agent_tools.tools.task_context import filter_entries as _filter_task_context_entries
 from agent_tools.tools.task_context import load_dictionary as _load_task_context_dictionary
 from agent_tools.tools.task_context import load_entries as _load_task_context_entries
+from agent_tools.tools.task_context import load_slots as _load_task_context_slots
 from agent_tools.tools.task_context import preview_dictionary_compile
+from agent_tools.tools.task_context import render_slots as _render_task_context_slots
+from agent_tools.tools.task_context import set_slot as _set_task_context_slot
+from agent_tools.tools.front_desk_bell import reset_workspace_pending_iterations
 
 from .artifacts import ArtifactEntry
 from .artifacts import artifact_context_action as _artifact_context_action
@@ -87,7 +94,6 @@ from .core import TaskActionParameter
 from .core import TaskActionsConfig
 from .core import TaskSummary
 from .core import AGENT_WORKSPACE_AGENTS
-from .core import AGENT_WORKSPACE_CLAUDE_MODELS
 from .core import AGENT_WORKSPACE_LANGUAGES
 from .core import AGENT_WORKSPACE_REASONING_EFFORTS
 from .core import AGENT_WORKSPACE_THEMES
@@ -96,6 +102,7 @@ from .core import agent_executable
 from .core import agent_install_command
 from .core import agent_label
 from .core import agent_status_tooltip_text
+from .core import ai_agent_environment
 from .core import ai_agent_launch_state_for_selection
 from .core import ai_agent_model_settings
 from .core import ai_agent_switch_decision
@@ -108,7 +115,8 @@ from .core import build_ai_agent_console_command
 from .core import bind_task_action_parameters
 from .core import clear_task_agent_session
 from .core import clear_task_active_agent_run
-from .core import codex_model_choices
+from .core import claude_model_choices_info
+from .core import codex_model_choices_info
 from .core import discover_tasks
 from .core import load_task_agent
 from .core import load_task_actions
@@ -120,6 +128,7 @@ from .core import new_agent_session_id
 from .core import normalize_agent
 from .core import prepare_ai_agent_launch_command
 from .core import read_task_file
+from .core import reconcile_task_agent_run_session
 from .core import render_markdown_chunks
 from .core import reset_task_agent_session
 from .core import save_agent_workspace_settings
@@ -412,6 +421,7 @@ class WorkspaceGtkGui:
 
     def _add_details_tab(self) -> None:
         pane = Gtk.Paned(orientation=Gtk.Orientation.VERTICAL)
+        self.details_page = pane
         self.details_pane = pane
         pane.add_events(Gdk.EventMask.BUTTON_PRESS_MASK)
         pane.connect("button-press-event", self._on_details_pane_button_press)
@@ -419,7 +429,8 @@ class WorkspaceGtkGui:
         pane.connect("size-allocate", self._on_details_pane_size_allocate)
         self.description_view = _text_view(self.text_font_size, editable=False)
         self.context_view = _text_view(self.text_font_size, editable=False)
-        self._register_detail_view(self.description_view, "TASK_DESCRIPTION.md")
+        self._register_detail_view(self.description_view, "goal")
+        self.context_view.connect("button-release-event", self._on_context_view_button_release)
         pane.pack1(_scrolled(self.description_view), resize=True, shrink=False)
         context_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
         context_box.set_border_width(4)
@@ -706,7 +717,8 @@ class WorkspaceGtkGui:
             return
         self._remember_current_console_tab()
         self.selected_task = task
-        self._refresh_selected_task_details(leave_edit=True)
+        if self._details_tab_active():
+            self._refresh_selected_task_details(leave_edit=True)
         self._reset_actions()
         self._watch_task_actions(self.selected_task)
         if self._artifacts_tab_active():
@@ -774,7 +786,7 @@ class WorkspaceGtkGui:
         if leave_edit or not editing_description:
             if leave_edit:
                 self._leave_detail_edit_mode(self.description_view)
-            self._set_markdown(self.description_view, read_task_file(self.selected_task, "TASK_DESCRIPTION.md"))
+            self._set_markdown(self.description_view, _task_goal_slot_markdown(self.selected_task))
         self._render_task_context_details()
 
     def _render_task_context_details(self) -> None:
@@ -782,40 +794,19 @@ class WorkspaceGtkGui:
             self._set_markdown(self.context_view, "")
             return
         try:
-            entries = _load_task_context_entries(self.selected_task.path)
+            slots = _load_task_context_slots(self.selected_task.path)
         except ValueError as exc:
             self._set_markdown(self.context_view, f"# {self._tr('context_journal_error')}\n\n{exc}\n")
             return
-        self._refresh_task_context_label_filter(entries)
-        if not entries:
+        self._refresh_task_context_label_filter([])
+        if not slots:
             self._set_markdown(self.context_view, f"# {self._tr('context_journal')}\n\n- {self._tr('context_filter_no_matches')}\n")
             return
-        try:
-            severity_values = self._task_context_filter_severity_value()
-            status_values = self._task_context_filter_status_values()
-            label_values = self._task_context_filter_label_values()
-            if severity_values == () or status_values == () or label_values == ():
-                filtered = []
-            else:
-                filtered = _filter_task_context_entries(
-                    entries,
-                    since=self._task_context_filter_since_value(),
-                    until=self._task_context_filter_until_value(),
-                    severity=severity_values,
-                    labels=label_values or (),
-                    statuses=status_values or (),
-                    newest_first=True,
-                )
-        except ValueError as exc:
-            self._set_markdown(self.context_view, f"# {self._tr('context_filter_error')}\n\n{exc}\n")
-            return
-        if filtered:
-            if self.task_context_encoded_check.get_active():
-                body = _encoded_task_context_cards_markdown(self.selected_task, filtered)
-            else:
-                body = _task_context_cards_markdown(filtered)
-        else:
-            body = f"- {self._tr('context_filter_no_matches')}"
+        body = _render_task_context_slots(
+            [slot for slot in slots if slot.category != "goal"],
+            format_name="agent" if self.task_context_encoded_check.get_active() else "markdown",
+            task_dir=self.selected_task.path,
+        )
         self._set_markdown(self.context_view, f"# {self._tr('context_journal')}\n\n{body}\n")
 
     def _on_task_context_filter_changed(self, *_args: object) -> None:
@@ -1506,7 +1497,7 @@ class WorkspaceGtkGui:
 
     def _populate_detail_context_menu(self, menu: Gtk.Menu, view: Gtk.TextView) -> None:
         editing = self.detail_editing.get(view, False)
-        is_description = self.detail_filenames.get(view) == "TASK_DESCRIPTION.md"
+        is_description = self.detail_filenames.get(view) == "goal"
         buffer = view.get_buffer()
         clipboard = Gtk.Clipboard.get(Gdk.SELECTION_CLIPBOARD)
         readonly_items = (
@@ -1536,7 +1527,11 @@ class WorkspaceGtkGui:
         if self.selected_task is None:
             return
         filename = self.detail_filenames[view]
-        text = read_task_file(self.selected_task, filename)
+        if filename == "goal":
+            slots = _load_task_context_slots(self.selected_task.path, ("goal",))
+            text = slots[0].content if slots else ""
+        else:
+            text = read_task_file(self.selected_task, filename)
         self.detail_original_text[view] = text
         self.detail_editing[view] = True
         view.set_editable(True)
@@ -1548,12 +1543,19 @@ class WorkspaceGtkGui:
         if self.selected_task is None:
             return
         filename = self.detail_filenames[view]
-        path = self.selected_task.path / filename
-        path.write_text(_text_buffer_text(view.get_buffer()), encoding="utf-8")
+        text = _text_buffer_text(view.get_buffer())
+        if filename == "goal":
+            _set_task_context_slot(self.selected_task.path, "goal", text)
+        else:
+            path = self.selected_task.path / filename
+            path.write_text(text, encoding="utf-8")
         self.detail_editing[view] = False
         view.set_editable(False)
         view.set_cursor_visible(False)
-        self._set_markdown(view, path.read_text(encoding="utf-8", errors="replace"))
+        if filename == "goal":
+            self._set_markdown(view, self._task_goal_slot_markdown(self.selected_task))
+        else:
+            self._set_markdown(view, path.read_text(encoding="utf-8", errors="replace"))
         self.refresh_tasks()
 
     def _cancel_detail_edit(self, view: Gtk.TextView) -> None:
@@ -1561,7 +1563,10 @@ class WorkspaceGtkGui:
         self.detail_editing[view] = False
         view.set_editable(False)
         view.set_cursor_visible(False)
-        self._set_markdown(view, text)
+        if self.selected_task is not None and self.detail_filenames.get(view) == "goal":
+            self._set_markdown(view, self._task_goal_slot_markdown(self.selected_task))
+        else:
+            self._set_markdown(view, text)
 
     def _leave_detail_edit_mode(self, view: Gtk.TextView) -> None:
         self.detail_editing[view] = False
@@ -1599,6 +1604,8 @@ class WorkspaceGtkGui:
         codex_reasoning_combo = Gtk.ComboBoxText()
         claude_model_combo = Gtk.ComboBoxText()
         claude_effort_combo = Gtk.ComboBoxText()
+        codex_available = agent_executable("codex") is not None
+        claude_available = agent_executable("claude") is not None
         for theme in AGENT_WORKSPACE_THEMES:
             theme_combo.append_text(theme)
         theme_combo.set_active(AGENT_WORKSPACE_THEMES.index(self.theme) if self.theme in AGENT_WORKSPACE_THEMES else 0)
@@ -1619,16 +1626,20 @@ class WorkspaceGtkGui:
         for effort in AGENT_WORKSPACE_REASONING_EFFORTS:
             codex_reasoning_combo.append_text(effort)
             claude_effort_combo.append_text(effort)
-        _set_combo_text_choices(
-            codex_model_combo,
-            model_choices_with_current(codex_model_choices(), self.default_codex_model),
-            self.default_codex_model,
-        )
-        _set_combo_text_choices(
-            claude_model_combo,
-            model_choices_with_current(AGENT_WORKSPACE_CLAUDE_MODELS, self.default_claude_model),
-            self.default_claude_model,
-        )
+        codex_models = codex_model_choices_info(use_cli=False) if codex_available else None
+        claude_models = claude_model_choices_info() if claude_available else None
+        if codex_models is not None:
+            _set_combo_text_choices(
+                codex_model_combo,
+                model_choices_with_current(codex_models.choices, self.default_codex_model),
+                self.default_codex_model,
+            )
+        if claude_models is not None:
+            _set_combo_text_choices(
+                claude_model_combo,
+                model_choices_with_current(claude_models.choices, self.default_claude_model),
+                self.default_claude_model,
+            )
         codex_reasoning_combo.set_active(
             AGENT_WORKSPACE_REASONING_EFFORTS.index(self.default_codex_reasoning)
             if self.default_codex_reasoning in AGENT_WORKSPACE_REASONING_EFFORTS
@@ -1710,21 +1721,32 @@ class WorkspaceGtkGui:
             preview_output.get_buffer().set_text(_dictionary_preview_text(text, preview))
             preview_metrics.get_buffer().set_text(_dictionary_preview_metrics_text(text, preview))
 
-        for row, (label, widget) in enumerate(
-            (
-                (self._tr("text_font_size"), text_size),
-                (self._tr("button_font_size"), button_size),
-                (self._tr("theme"), theme_combo),
-                (self._tr("language"), language_combo),
-                (self._tr("default_agent"), default_agent_combo),
-                (self._tr("default_codex_model"), codex_model_combo),
-                (self._tr("default_codex_reasoning"), codex_reasoning_combo),
-                (self._tr("default_claude_model"), claude_model_combo),
-                (self._tr("default_claude_effort"), claude_effort_combo),
+        general_rows: list[tuple[str, Gtk.Widget]] = [
+            (self._tr("text_font_size"), text_size),
+            (self._tr("button_font_size"), button_size),
+            (self._tr("theme"), theme_combo),
+            (self._tr("language"), language_combo),
+            (self._tr("default_agent"), default_agent_combo),
+        ]
+        if codex_models is not None:
+            general_rows.extend(
+                [
+                    (self._tr("default_codex_model"), codex_model_combo),
+                    (self._tr("default_codex_reasoning"), codex_reasoning_combo),
+                ]
             )
-        ):
+        if claude_models is not None:
+            general_rows.extend(
+                [
+                    (self._tr("default_claude_model"), claude_model_combo),
+                    (self._tr("default_claude_effort"), claude_effort_combo),
+                ]
+            )
+        for row, (label, widget) in enumerate(general_rows):
             label_widget = Gtk.Label(label=label)
             label_widget.set_xalign(0)
+            if isinstance(widget, Gtk.Label):
+                widget.set_xalign(0)
             general_grid.attach(label_widget, 0, row, 1, 1)
             general_grid.attach(widget, 1, row, 1, 1)
 
@@ -1762,18 +1784,40 @@ class WorkspaceGtkGui:
         update_dictionary_preview()
 
         dialog.show_all()
+        settings_open = {"value": True}
+        if codex_available:
+            def refresh_codex_models() -> None:
+                info = codex_model_choices_info(use_cli=True)
+
+                def apply_codex_models() -> bool:
+                    if not settings_open["value"]:
+                        return False
+                    current = codex_model_combo.get_active_text() or self.default_codex_model
+                    _set_combo_text_choices(
+                        codex_model_combo,
+                        model_choices_with_current(info.choices, current),
+                        current,
+                    )
+                    return False
+
+                GLib.idle_add(apply_codex_models)
+
+            threading.Thread(target=refresh_codex_models, daemon=True).start()
         text_size.grab_focus()
         response = dialog.run()
+        settings_open["value"] = False
         if response == Gtk.ResponseType.OK:
             self.text_font_size = int(text_size.get_value())
             self.button_font_size = int(button_size.get_value())
             self.theme = theme_combo.get_active_text() or self.theme
             self.language = language_combo.get_active_text() or self.language
             self.default_agent = normalize_agent(default_agent_combo.get_active_text())
-            self.default_codex_model = codex_model_combo.get_active_text() or ""
-            self.default_codex_reasoning = codex_reasoning_combo.get_active_text() or ""
-            self.default_claude_model = claude_model_combo.get_active_text() or ""
-            self.default_claude_effort = claude_effort_combo.get_active_text() or ""
+            if codex_available:
+                self.default_codex_model = codex_model_combo.get_active_text() or ""
+                self.default_codex_reasoning = codex_reasoning_combo.get_active_text() or ""
+            if claude_available:
+                self.default_claude_model = claude_model_combo.get_active_text() or ""
+                self.default_claude_effort = claude_effort_combo.get_active_text() or ""
             self.task_dictionary_auto_discovery = dictionary_auto.get_active()
             self.task_dictionary_min_occurrences = int(dictionary_min_occurrences.get_value())
             self.task_dictionary_min_saving = int(dictionary_min_saving.get_value())
@@ -3092,6 +3136,8 @@ class WorkspaceGtkGui:
             inject_task_context=self.inject_task_context_prompt,
             include_task_check=True,
         )
+        run_id = new_agent_session_id()
+        env = ai_agent_environment(os.environ.copy(), task, self.workspace, agent, launch.session_state, run_id=run_id)
         for session in self._current_task_terminal_sessions(task):
             if session.kind == agent:
                 self._activate_terminal(session.session_id)
@@ -3101,8 +3147,9 @@ class WorkspaceGtkGui:
             task=task,
             command=launch.command,
             cwd=self.workspace,
-            env=os.environ.copy(),
+            env=env,
             kind=agent,
+            run_id=run_id,
         )
         self._update_codex_button_state()
 
@@ -3267,6 +3314,7 @@ class WorkspaceGtkGui:
         cwd: Path,
         env: dict[str, str],
         kind: str,
+        run_id: str | None = None,
     ) -> int:
         session_id = self.next_terminal_id
         self.next_terminal_id += 1
@@ -3302,7 +3350,7 @@ class WorkspaceGtkGui:
             terminal=terminal,
             page=scrolled,
             busy=session_is_agent(session_kind=kind),
-            run_id=new_agent_session_id() if session_is_agent(session_kind=kind) else None,
+            run_id=run_id if session_is_agent(session_kind=kind) else None,
         )
         self.terminal_sessions[session_id] = session
         if session.run_id is not None:
@@ -3779,6 +3827,12 @@ class WorkspaceGtkGui:
             return False
         return self.notebook.get_nth_page(page_num) is self.actions_page
 
+    def _details_tab_active(self) -> bool:
+        page_num = self.notebook.get_current_page()
+        if page_num < 0:
+            return False
+        return self.notebook.get_nth_page(page_num) is getattr(self, "details_page", None)
+
     def _artifacts_tab_active(self) -> bool:
         page_num = self.notebook.get_current_page()
         if page_num < 0:
@@ -3878,6 +3932,9 @@ class WorkspaceGtkGui:
         session = self._session_for_terminal(terminal)
         if session is None or not session_is_agent(session_kind=session.kind):
             return
+        if hasattr(self, "tasks") and hasattr(self, "workspace"):
+            task = self._task_for_path(session.task_path)
+            reconcile_task_agent_run_session(task, self.workspace, session.kind, session.run_id)
         tail = _terminal_text_tail(terminal)
         analysis = analyze_agent_output(tail)
         if (
@@ -4005,6 +4062,71 @@ class WorkspaceGtkGui:
         for chunk in render_markdown_chunks(text):
             end = buffer.get_end_iter()
             buffer.insert_with_tags_by_name(end, chunk.text, chunk.tag)
+        if view is getattr(self, "context_view", None):
+            self._mark_context_entry_links(view)
+
+    def _mark_context_entry_links(self, view: Gtk.TextView) -> None:
+        buffer = view.get_buffer()
+        tag_table = buffer.get_tag_table()
+        link_tag = tag_table.lookup("journal_link")
+        if link_tag is None:
+            link_tag = buffer.create_tag("journal_link", foreground="#9ecbff", underline=Pango.Underline.SINGLE)
+        text = _text_buffer_text(buffer)
+        for match in re.finditer(r"(?<![\w/-])#(\d+)\b", text):
+            start = buffer.get_iter_at_offset(match.start())
+            end = buffer.get_iter_at_offset(match.end())
+            buffer.apply_tag(link_tag, start, end)
+
+    def _on_context_view_button_release(self, view: Gtk.TextView, event: Gdk.EventButton) -> bool:
+        if event.button != 1:
+            return False
+        buffer = view.get_buffer()
+        x, y = view.window_to_buffer_coords(Gtk.TextWindowType.TEXT, int(event.x), int(event.y))
+        result = view.get_iter_at_location(x, y)
+        if isinstance(result, tuple):
+            cursor_iter = next(item for item in result if hasattr(item, "get_tags"))
+        else:
+            cursor_iter = result
+        for tag in cursor_iter.get_tags():
+            if tag.props.name == "journal_link":
+                entry_id = _context_entry_reference_at_iter(buffer, cursor_iter)
+                if entry_id is not None:
+                    return self._scroll_context_view_to_entry(entry_id)
+        return False
+
+    def _scroll_context_view_to_entry(self, entry_id: int, *, allow_refilter: bool = True) -> bool:
+        buffer = self.context_view.get_buffer()
+        text = _text_buffer_text(buffer)
+        for pattern in (rf"(?m)^\| #{entry_id} \[", rf"(?m)^#{entry_id} \["):
+            match = re.search(pattern, text)
+            if match is None:
+                continue
+            start = buffer.get_iter_at_offset(match.start())
+            end = buffer.get_iter_at_offset(match.start() + len(f"#{entry_id}"))
+            buffer.select_range(start, end)
+            self.context_view.scroll_to_iter(start, 0.15, True, 0.0, 0.1)
+            return True
+        if allow_refilter and self._show_context_entry_in_full_journal(entry_id):
+            return self._scroll_context_view_to_entry(entry_id, allow_refilter=False)
+        return False
+
+    def _show_context_entry_in_full_journal(self, entry_id: int) -> bool:
+        if self.selected_task is None:
+            return False
+        try:
+            entries = _load_task_context_entries(self.selected_task.path)
+        except ValueError:
+            return False
+        if not any(entry.id == entry_id for entry in entries):
+            return False
+        self.task_context_filter_since = None
+        self.task_context_filter_until = None
+        self._update_task_context_date_buttons()
+        self._set_task_context_group_checks("severity", self.task_context_severity_checks, True)
+        self._set_task_context_group_checks("status", self.task_context_status_checks, True)
+        self._set_task_context_group_checks("label", self.task_context_label_checks, True)
+        self._render_task_context_details()
+        return True
 
     def _ensure_markdown_tags(self, buffer: Gtk.TextBuffer) -> None:
         tag_table = buffer.get_tag_table()
@@ -4362,7 +4484,7 @@ class WorkspaceGtkGui:
         self.description_view.modify_font(Pango.FontDescription(f"Monospace {self.text_font_size}"))
         self.context_view.modify_font(Pango.FontDescription(f"Monospace {self.text_font_size}"))
         if self.selected_task is not None:
-            self._set_markdown(self.description_view, read_task_file(self.selected_task, "TASK_DESCRIPTION.md"))
+            self._set_markdown(self.description_view, self._task_goal_slot_markdown(self.selected_task))
             self._render_task_context_details()
         for session in self.terminal_sessions.values():
             self._apply_terminal_theme(session.terminal)
@@ -4528,6 +4650,22 @@ def _text_buffer_text(buffer: Gtk.TextBuffer) -> str:
     return buffer.get_text(start, end, True)
 
 
+def _task_goal_slot_markdown(task: TaskSummary) -> str:
+    slots = _load_task_context_slots(task.path, ("goal",))
+    if slots:
+        return _render_task_context_slots(slots, format_name="markdown", task_dir=task.path)
+    return "# Goal\n\n- Empty.\n"
+
+
+def _context_entry_reference_at_iter(buffer: Gtk.TextBuffer, cursor_iter: Gtk.TextIter) -> int | None:
+    text = _text_buffer_text(buffer)
+    offset = cursor_iter.get_offset()
+    for match in re.finditer(r"(?<![\w/-])#(\d+)\b", text):
+        if match.start() <= offset <= match.end():
+            return int(match.group(1))
+    return None
+
+
 def _scrolled(widget: Gtk.Widget) -> Gtk.ScrolledWindow:
     scrolled = Gtk.ScrolledWindow()
     scrolled.add(widget)
@@ -4627,7 +4765,8 @@ def _task_context_entry_card(entry: ContextEntry, *, width: int = 96, encoded: b
 
 
 def _task_context_entry_head(entry: ContextEntry) -> str:
-    return f"[{entry.severity.upper()}] [{entry.status.upper()}]  {_task_context_card_timestamp(entry.timestamp)}"
+    entry_id = f"#{entry.id} " if entry.id is not None else ""
+    return f"{entry_id}[{entry.severity.upper()}] [{entry.status.upper()}]  {_task_context_card_timestamp(entry.timestamp)}"
 
 
 def _task_context_card_timestamp(timestamp: str) -> str:
@@ -4714,11 +4853,13 @@ def codex_console_command(
 
 def _set_combo_text_choices(combo: Gtk.ComboBoxText, choices: tuple[str, ...], current: str) -> None:
     active_index = 0
+    combo.remove_all()
     for index, choice in enumerate(choices):
         combo.append_text(choice)
         if choice == current:
             active_index = index
-    combo.set_active(active_index)
+    if choices:
+        combo.set_active(active_index)
 
 
 def _rgba(color: str) -> Gdk.RGBA:
@@ -4753,6 +4894,7 @@ def main(argv: list[str] | None = None) -> int:
         print(f"Agent Workspace is already running for {workspace.resolve()}", file=sys.stderr)
         return 0
 
+    reset_workspace_pending_iterations(workspace)
     gui = WorkspaceGtkGui(workspace)
     gui.window.show_all()
     Gtk.main()

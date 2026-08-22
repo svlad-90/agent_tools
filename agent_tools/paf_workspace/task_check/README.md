@@ -10,28 +10,28 @@ python -m agent_tools.paf_workspace.task_check task-name
 ```
 
 Run from the workspace root. The command checks the standard task layout,
-`TASK_DESCRIPTION.md`, `TASK_CONTEXT.sqlite3`, product artifact manifests, and
-Xen/Zephyr runtime YAML metadata.
-The structured context database is mandatory: `TASK_CONTEXT.sqlite3` must exist
-and be readable.
-Legacy `TASK_CONTEXT.md` files are ignored as context sources and reported as
-non-strict warnings so they can be removed without blocking unrelated work.
+`TASK_CONTEXT.sqlite3`, product artifact manifests, and Xen/Zephyr runtime YAML
+metadata.
+The structured context database is mandatory. If it is missing, `task_check`
+creates it and imports legacy `TASK_DESCRIPTION.md`/`TASK_CONTEXT.md` content
+into the `legacy` slot.
+Legacy markdown files are no longer context sources. A non-empty `legacy` slot
+is reported as a warning until current facts are moved into typed slots.
 For a task that still has the legacy `TASK_CONTEXT_LOG.jsonl`, run
 `python -m agent_tools.tools.task_context migrate --task tasks/task-name`.
 
-Create a missing task layout without overwriting an existing description or
-context database:
+Create a missing task layout without overwriting an existing context database:
 
 ```sh
 python -m agent_tools.paf_workspace.task_check task-name --init-layout
 ```
 
-The initialized context file is intentionally compact. Durable task history
-belongs in `TASK_CONTEXT.sqlite3` and should be maintained with:
+The initialized context database is intentionally compact. Durable current
+state belongs in `TASK_CONTEXT.sqlite3` slots and should be maintained with:
 
 ```sh
-python -m agent_tools.tools.task_context add --task tasks/task-name ...
-python -m agent_tools.tools.task_context compact --task tasks/task-name
+python -m agent_tools.tools.task_context slot --task tasks/task-name --category goal --content "..."
+python -m agent_tools.tools.task_context query --task tasks/task-name --format agent
 ```
 
 Create the starter files for a Xen/QEMU/Moulin runtime product:

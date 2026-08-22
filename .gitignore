@@ -6,7 +6,12 @@
 !README.md
 !install-agent-tools.py
 !agent-workspace
+!agent-workspace.command
+!agent-workspace.cmd
 !agent-workspace.sh
+!agent-workspace-web.command
+!agent-workspace-web.cmd
+!agent-workspace-web.sh
 !agent-workspace.desktop
 !tasks/
 !tasks/.gitignore

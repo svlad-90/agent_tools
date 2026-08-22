@@ -9,6 +9,7 @@ python -m agent_tools.tools.cpp_code_map
 python -m agent_tools.tools.yaml_map
 python -m agent_tools.tools.diff_report
 python -m agent_tools.tools.task_context
+python -m agent_tools.tools.front_desk_bell
 python -m agent_tools.tools.commit_msg
 python -m agent_tools.tools.push_guard
 python -m agent_tools.tools.agent_workspace
@@ -40,9 +41,11 @@ Install the legacy GTK/VTE UI dependencies only when that UI is needed:
 python3 install-agent-tools.py --gui
 ```
 
-The default installation does not install GTK/VTE. Agent Workspace tries UI
-backends in order: GTK, web, then Tk. When the web UI exists it can be used as
-the fallback on hosts without GTK/VTE.
+The default installation does not install GTK/VTE. On Linux, Agent Workspace
+tries UI backends in order: GTK, web, then Tk. On macOS and Windows, the
+portable default is the browser UI. Use `agent-workspace-web.sh`,
+`agent-workspace-web.command`, or `agent-workspace-web.cmd` to start the browser
+UI explicitly without desktop backend probing.
 
 ```sh
 python3 install-agent-tools.py --venv /path/to/venv --dev
@@ -76,79 +79,39 @@ python -m agent_tools.tools.rules_sync sync --check
 
 ## Task Context
 
-Use `task_context` to keep long-running tasks compact without losing history.
-It stores durable context in `TASK_CONTEXT.sqlite3`. Agents read active entries
-from the database; resolved and stale entries stay queryable history.
-Labels are validated against the fixed vocabulary used by
-`agent_tools.tools.task_context`.
+Use `task_context` to keep long-running tasks compact. It stores current task
+state in singleton SQLite slots under `TASK_CONTEXT.sqlite3`. Agents update the
+relevant slot in place instead of appending a changelog.
 
-Add a dated finding:
+Set or replace a slot:
 
 ```sh
-python -m agent_tools.tools.task_context add \
+python -m agent_tools.tools.task_context slot \
   --task tasks/my-task \
-  --severity high \
-  --label validation \
-  --label build \
-  "Docker pytest passed for the Agent Workspace suite"
+  --category validation \
+  --content "static: pass, python -m agent_tools.tools.code_map parse-check ..."
 ```
 
-Legacy tasks can be imported once with:
+Query all slots, or filter by category:
 
 ```sh
-python -m agent_tools.tools.task_context migrate --task tasks/my-task
+python -m agent_tools.tools.task_context query --task tasks/my-task --format agent
+python -m agent_tools.tools.task_context query --task tasks/my-task --cats env,validation
 ```
 
-Query active journal entries by date, severity, or labels:
+If `TASK_CONTEXT.sqlite3` is missing, `query` creates it and imports legacy
+`TASK_DESCRIPTION.md`/`TASK_CONTEXT.md` content into the `legacy` slot.
 
-```sh
-python -m agent_tools.tools.task_context query \
-  --task tasks/my-task \
-  --since 2026-08-19 \
-  --severity mid..critical \
-  --label validation \
-  --format markdown
-```
+`goal` and `operational-memory` are required. `env` and `validation` are
+recommended. Move useful legacy material into typed slots, then clear `legacy`.
 
-`query` defaults to active entries. Use `--all-statuses` or explicit
-`--status resolved` / `--status stale` only when historical context is needed.
+## Task Front Desk
 
-Batch edit or delete selected entries:
-
-```sh
-python -m agent_tools.tools.task_context edit \
-  --task tasks/my-task \
-  --label validation \
-  --status active \
-  --until 2026-08-19 \
-  --set-status resolved \
-  --add-label superseded
-```
-
-Use `--dry-run` before broad edits. Combine selectors such as `--id`, `--all`,
-`--since`, `--until`, `--severity`, `--label`, and `--status` with operations
-such as `--set-status`, `--set-label`, `--add-label`, `--remove-label`,
-artifact updates, or `--delete`.
-
-Before handoff, push-ready handoff, validation handoff, blocker resolution, or
-compaction, audit active entries and move completed or superseded context out
-of the active set:
-
-```sh
-python -m agent_tools.tools.task_context query \
-  --task tasks/my-task \
-  --severity mid..critical \
-  --status active \
-  --format text
-```
-
-Only entries that still affect the next session should remain `active`.
-
-Regenerate compact active context:
-
-```sh
-python -m agent_tools.tools.task_context compact --task tasks/my-task
-```
+New task layouts include a task-local `front_door_bell.py`. Agents run this
+script after each user message inside the task. It delegates to
+`agent_tools.tools.front_desk_bell`, performs first-run onboarding, runs
+task_check preflight, tells the agent when to do the user work, and enforces a
+slot update or explicit `--ack-no-context-change` before the iteration is done.
 
 ## Commit Message
 
@@ -227,13 +190,15 @@ while the workspace and task controls are useful without any AI session
 running.
 
 ```sh
-./agent-workspace
+./agent-workspace.sh
 ```
 
-It lists workspace tasks, renders `TASK_DESCRIPTION.md`, shows
-`TASK_CONTEXT.sqlite3` as a newest-first context journal with date, severity,
-status, and label filters. It opens task and `dev/` folders, edits task
-descriptions on demand, runs compact `task_check`, discovers repositories under
+On macOS, use `agent-workspace.command`. On Windows, use
+`agent-workspace.cmd`. Those launchers start the browser UI.
+
+It lists workspace tasks, renders the `goal` slot, shows current context slots
+from `TASK_CONTEXT.sqlite3`, opens task and `dev/` folders, runs compact
+`task_check`, discovers repositories under
 `dev/`, runs task-declared actions from `TASK_ACTIONS.json` in the active
 console, manages per-task terminal tabs, starts one interactive AI agent
 session per task, and shows task artifacts from `report/`, `report/diff/`, and

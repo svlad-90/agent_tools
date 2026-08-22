@@ -1,11 +1,14 @@
 from __future__ import annotations
 
 from datetime import datetime
+import importlib.util
 from importlib import resources
 from pathlib import Path
 import json
 import os
 import sys
+import threading
+from urllib.request import urlopen
 
 from agent_tools.tools.agent_workspace.core import TASK_CONTEXT_BUDGET
 from agent_tools.tools.agent_workspace.core import AGENT_STATUS_MANUAL_ENTRIES
@@ -18,10 +21,12 @@ from agent_tools.tools.agent_workspace.core import TaskAction
 from agent_tools.tools.agent_workspace.core import TaskActionParameter
 from agent_tools.tools.agent_workspace.core import TaskActionsConfig
 from agent_tools.tools.agent_workspace.core import TaskSummary
+from agent_tools.tools.agent_workspace.core import AgentSessionState
 from agent_tools.tools.agent_workspace.core import load_task_actions_config
 from agent_tools.tools.agent_workspace.core import agent_executable
 from agent_tools.tools.agent_workspace.core import agent_install_command
 from agent_tools.tools.agent_workspace.core import agent_status_tooltip_text
+from agent_tools.tools.agent_workspace.core import ai_agent_environment
 from agent_tools.tools.agent_workspace.core import ai_agent_launch_state
 from agent_tools.tools.agent_workspace.core import ai_agent_launch_state_for_selection
 from agent_tools.tools.agent_workspace.core import ai_agent_model_settings
@@ -38,14 +43,17 @@ from agent_tools.tools.agent_workspace.core import acquire_agent_workspace_lock
 from agent_tools.tools.agent_workspace.core import build_ai_agent_console_command
 from agent_tools.tools.agent_workspace.core import clear_task_agent_session
 from agent_tools.tools.agent_workspace.core import clear_task_active_agent_run
+from agent_tools.tools.agent_workspace.core import codex_model_choices_info
 from agent_tools.tools.agent_workspace.core import codex_model_choices
 from agent_tools.tools.agent_workspace.core import codex_session_id_exists
 from agent_tools.tools.agent_workspace.core import discover_tasks
 from agent_tools.tools.agent_workspace.core import find_latest_claude_session_id
 from agent_tools.tools.agent_workspace.core import find_latest_codex_session_id
 from agent_tools.tools.agent_workspace.core import find_task_agent_session_id
+from agent_tools.tools.agent_workspace.core import claude_model_choices_info
 from agent_tools.tools.agent_workspace.core import load_task_agent
 from agent_tools.tools.agent_workspace.core import load_task_active_agent_run
+from agent_tools.tools.agent_workspace.core import load_task_agent_run_session_id
 from agent_tools.tools.agent_workspace.core import load_task_agent_session
 from agent_tools.tools.agent_workspace.core import load_task_actions
 from agent_tools.tools.agent_workspace.core import load_agent_workspace_settings
@@ -54,6 +62,7 @@ from agent_tools.tools.agent_workspace.core import log_agent_workspace_exception
 from agent_tools.tools.agent_workspace.core import parse_console_output
 from agent_tools.tools.agent_workspace.core import prepare_task_agent_session
 from agent_tools.tools.agent_workspace.core import prepare_ai_agent_launch_command
+from agent_tools.tools.agent_workspace.core import reconcile_task_agent_run_session
 from agent_tools.tools.agent_workspace.core import task_check_prompt_suffix
 from agent_tools.tools.agent_workspace.core import render_markdown_chunks
 from agent_tools.tools.agent_workspace.core import render_task_context_details
@@ -61,6 +70,7 @@ from agent_tools.tools.agent_workspace.core import reset_task_agent_session
 from agent_tools.tools.agent_workspace.core import rough_token_count
 from agent_tools.tools.agent_workspace.core import save_agent_workspace_settings
 from agent_tools.tools.agent_workspace.core import save_task_active_agent_run
+from agent_tools.tools.agent_workspace.core import save_task_agent_run_session_id
 from agent_tools.tools.agent_workspace.core import save_task_agent
 from agent_tools.tools.agent_workspace.core import save_task_agent_session
 from agent_tools.tools.agent_workspace.core import save_task_state
@@ -83,6 +93,12 @@ from agent_tools.tools.agent_workspace.core import task_has_valid_agent_session
 from agent_tools.tools.agent_workspace.core import task_status_label
 from agent_tools.tools.agent_workspace.core import task_selected_agent_has_resumable_state
 from agent_tools.tools.agent_workspace.core import task_state_path
+from agent_tools.tools.agent_workspace.commands import task_action_windows_command
+from agent_tools.tools.agent_workspace.commands import task_check_windows_command
+from agent_tools.tools.agent_workspace.service import AgentWorkspaceService
+from agent_tools.tools.agent_workspace.service import TaskContextFilters
+from agent_tools.tools.agent_workspace.service import context_cards_markdown
+from agent_tools.tools.agent_workspace.web_ui import create_server as create_web_server
 from agent_tools.tools.agent_workspace import __main__ as agent_workspace_main_module
 from agent_tools.tools.agent_workspace import core as core_module
 from agent_tools.tools.agent_workspace import gtk_open as gtk_open_module
@@ -119,6 +135,7 @@ from agent_tools.tools.task_context import LEGACY_DICTIONARY_PREVIEW_TEXT
 from agent_tools.tools.task_context import ensure_database as ensure_task_context_database
 from agent_tools.tools.task_context import load_entries as load_task_context_entries
 from agent_tools.tools.task_context import preview_dictionary_compile
+from agent_tools.tools.task_context import set_slot
 from agent_tools.tools.task_context import TaskDictionaryPolicy
 from agent_tools.tools.agent_workspace.gtk_ui import _task_path_for_name as gtk_task_path_for_name
 from agent_tools.tools.agent_workspace.gtk_ui import _task_row_style as gtk_task_row_style
@@ -675,7 +692,6 @@ class FakeGtkConsoleNotebook:
 def test_discover_tasks_reports_description_context_and_budget(tmp_path: Path) -> None:
     task = tmp_path / "tasks" / "sample-task"
     task.mkdir(parents=True)
-    (task / "TASK_DESCRIPTION.md").write_text("# Description\n\nshort\n", encoding="utf-8")
     add_entry(
         task,
         severity="high",
@@ -689,7 +705,7 @@ def test_discover_tasks_reports_description_context_and_budget(tmp_path: Path) -
     assert [entry.name for entry in tasks] == ["sample-task"]
     assert tasks[0].has_description
     assert tasks[0].has_context
-    assert tasks[0].description_tokens > 0
+    assert tasks[0].description_tokens == 0
     assert tasks[0].context_over_budget
 
 
@@ -711,6 +727,16 @@ def test_agent_workspace_auto_ui_falls_back_to_web_before_tk(monkeypatch: object
 
     assert agent_workspace_main_module.main(["--workspace", "/tmp/ws"]) == 7
     assert calls == ["gtk", "web"]
+
+
+def test_agent_workspace_auto_ui_uses_web_only_on_portable_platforms(monkeypatch: object) -> None:
+    monkeypatch.setattr(agent_workspace_main_module.platform, "system", lambda: "Windows")
+
+    assert agent_workspace_main_module._auto_ui_order() == ("web",)
+
+    monkeypatch.setattr(agent_workspace_main_module.platform, "system", lambda: "Darwin")
+
+    assert agent_workspace_main_module._auto_ui_order() == ("web",)
 
 
 def test_agent_workspace_explicit_web_ui_uses_web_backend(monkeypatch: object) -> None:
@@ -958,12 +984,13 @@ def test_gtk_task_context_cards_markdown_renders_console_cards() -> None:
                 details="Critical blocker is intentionally active for filter testing.",
                 source="agent",
                 artifacts=("report/validation/latest.json",),
+                id=36,
             )
         ]
     )
 
     assert content.startswith("```text\n+")
-    assert "[CRITICAL] [ACTIVE]  2026-08-19 10:30:00+03:00" in content
+    assert "#36 [CRITICAL] [ACTIVE]  2026-08-19 10:30:00+03:00" in content
     assert "summary  Release validation is blocked on approval" in content
     assert "labels   #blocker #validation" in content
     assert "artifacts report/validation/latest.json" in content
@@ -1143,15 +1170,9 @@ def test_codex_task_context_message_points_at_selected_task(tmp_path: Path) -> N
     assert "workspace task `sample-task`" in message
     assert f"Workspace: {tmp_path}" in message
     assert f"Task directory: {task}" in message
-    assert "TASK_DESCRIPTION.md" in message
-    assert "task_context query" in message
-    assert "--status active" in message
-    assert "--format agent" in message
-    assert "stable task-local identifiers" in message
-    assert "terse factual engineering prose" in message
-    assert "Active task context preloaded from `TASK_CONTEXT.sqlite3`" in message
-    assert "No dictionary aliases used" in message
-    assert "Do not read resolved or stale task context entries" in message
+    assert "front_door_bell.py" in message
+    assert "ITERATION_DONE" in message
+    assert "Current task context slots preloaded from `TASK_CONTEXT.sqlite3`" not in message
 
 
 def test_core_ai_agent_task_context_prompt_supports_optional_suffix(tmp_path: Path) -> None:
@@ -1167,23 +1188,21 @@ def test_core_ai_agent_task_context_prompt_supports_optional_suffix(tmp_path: Pa
         inject_task_context=False,
     )
 
-    assert "Maintain the task journal as a current working set" in plain
+    assert "front_door_bell.py" in plain
+    assert "Follow its returned stage" in plain
     assert "Reply in Russian." not in plain
     assert suffixed.endswith("Reply in Russian.")
-    assert "Active task context preloaded" not in plain
+    assert "Current task context slots preloaded" not in plain
 
 
-def test_ai_agent_task_context_prompt_can_inject_active_context(tmp_path: Path) -> None:
+def test_ai_agent_task_context_prompt_does_not_inject_active_context(tmp_path: Path) -> None:
     task = tmp_path / "tasks" / "sample-task"
     task.mkdir(parents=True)
-    add_entry(
+    set_slot(
         task,
-        timestamp="2026-08-19T10:00:00",
-        severity="high",
-        labels=("bug",),
-        summary="drivers/firmware/scmi/scmi.c has active context",
-        details=(
-            "drivers/firmware/scmi/scmi.c records active context. "
+        "findings",
+        (
+            "drivers/firmware/scmi/scmi.c records current context. "
             "drivers/firmware/scmi/scmi.c appears in the handoff. "
             "drivers/firmware/scmi/scmi.c remains the target file."
         ),
@@ -1192,9 +1211,71 @@ def test_ai_agent_task_context_prompt_can_inject_active_context(tmp_path: Path) 
 
     prompt = ai_agent_task_context_prompt(summary, tmp_path)
 
-    assert "Active task context preloaded from `TASK_CONTEXT.sqlite3`" in prompt
-    assert "## Encoded Context" in prompt
-    assert "has active context" in prompt
+    assert "front_door_bell.py" in prompt
+    assert "Current task context slots preloaded from `TASK_CONTEXT.sqlite3`" not in prompt
+    assert "| Findings" not in prompt
+    assert "records current context" not in prompt
+
+
+def test_ai_agent_environment_exports_front_desk_session_identity(tmp_path: Path) -> None:
+    task = tmp_path / "tasks" / "sample-task"
+    task.mkdir(parents=True)
+    summary = discover_tasks_with_context(task, tmp_path)
+
+    new_env = ai_agent_environment(
+        {"PATH": "/bin"},
+        summary,
+        tmp_path,
+        "codex",
+        AgentSessionState(agent="codex", resume=False, session_id=None),
+        run_id="run-1",
+    )
+    resumed_env = ai_agent_environment(
+        {"PATH": "/bin"},
+        summary,
+        tmp_path,
+        "codex",
+        AgentSessionState(agent="codex", resume=True, session_id="codex-session-1"),
+        run_id="run-2",
+    )
+
+    assert new_env["AGENT_TOOLS_AGENT"] == "codex"
+    assert new_env["AGENT_TOOLS_SESSION_ID"] == "run-1"
+    assert new_env["AGENT_TOOLS_RUN_ID"] == "run-1"
+    assert new_env["AGENT_TOOLS_TASK_DIR"] == str(task)
+    assert new_env["AGENT_TOOLS_WORKSPACE"] == str(tmp_path)
+    assert "AGENT_TOOLS_AGENT_SESSION_ID" not in new_env
+    assert resumed_env["AGENT_TOOLS_SESSION_ID"] == "codex-session-1"
+    assert resumed_env["AGENT_TOOLS_AGENT_SESSION_ID"] == "codex-session-1"
+    assert resumed_env["AGENT_TOOLS_RUN_ID"] == "run-2"
+
+
+def test_reconcile_task_agent_run_session_persists_real_session_mapping(tmp_path: Path) -> None:
+    workspace = tmp_path
+    task = workspace / "tasks" / "sample-task"
+    sessions = workspace / ".codex" / "sessions"
+    sessions.mkdir(parents=True)
+    task.mkdir(parents=True)
+    summary = discover_tasks_with_context(task, workspace)
+    session_id = "019feba2-e25e-76e1-9468-aa399758268f"
+    session_file = sessions / f"rollout-2026-08-10T15-25-48-{session_id}.jsonl"
+    prompt = ai_agent_task_context_prompt(summary, workspace)
+    session_file.write_text(json.dumps({"message": {"content": prompt}}), encoding="utf-8")
+
+    resolved = reconcile_task_agent_run_session(summary, workspace, "codex", "run-1", home=workspace)
+
+    assert resolved == session_id
+    assert load_task_agent_run_session_id(summary, "run-1") == session_id
+    assert load_task_agent_session(summary, "codex").session_id == session_id
+
+
+def test_save_task_agent_run_session_id_rejects_invalid_session_id(tmp_path: Path) -> None:
+    task = tmp_path / "tasks" / "sample-task"
+    task.mkdir(parents=True)
+    summary = discover_tasks_with_context(task, tmp_path)
+
+    assert not save_task_agent_run_session_id(summary, "run-1", "not-a-session")
+    assert load_task_agent_run_session_id(summary, "run-1") is None
 
 
 def test_task_context_details_can_render_encoded_dictionary_view(tmp_path: Path) -> None:
@@ -1229,6 +1310,107 @@ def test_task_context_details_can_render_encoded_dictionary_view(tmp_path: Path)
     assert "- `§00` = drivers/firmware/scmi/scmi.c" in encoded
 
 
+def test_agent_workspace_service_returns_headless_task_snapshot(tmp_path: Path) -> None:
+    task = tmp_path / "tasks" / "sample-task"
+    report = task / "report"
+    report.mkdir(parents=True)
+    set_slot(task, "goal", "Headless service.")
+    set_slot(task, "findings", "Agent Workspace service returns task data without importing GTK or VTE.")
+    (task / "TASK_ACTIONS.json").write_text(
+        json.dumps(
+            {
+                "actions": [
+                    {
+                        "id": "smoke",
+                        "label": "Smoke",
+                        "command": ["python3", "-c", "print('ok')"],
+                        "cwd": ".",
+                    }
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    (report / "runtime.log").write_text("log", encoding="utf-8")
+
+    service = AgentWorkspaceService(tmp_path)
+    snapshot = service.task_snapshot("sample-task")
+
+    assert snapshot["task"]["name"] == "sample-task"
+    assert "Headless service" in snapshot["description"]
+    assert "Agent Workspace service returns task data" in snapshot["context"]["markdown"]
+    assert snapshot["actions"]["actions"][0]["id"] == "smoke"
+    assert snapshot["artifacts"][0]["label"] == "report/runtime.log"
+    assert "python" in service.task_action_command("sample-task", "smoke")
+
+
+def test_agent_workspace_service_renders_encoded_context_cards(tmp_path: Path) -> None:
+    task = tmp_path / "tasks" / "sample-task"
+    task.mkdir(parents=True)
+    set_slot(
+        task,
+        "findings",
+        (
+            "drivers/firmware/scmi/scmi.c records active context. "
+            "drivers/firmware/scmi/scmi.c appears in the handoff. "
+            "drivers/firmware/scmi/scmi.c remains the target file."
+        ),
+    )
+    add_entry(
+        task,
+        timestamp="2026-08-19T10:00:00",
+        severity="high",
+        labels=("bug",),
+        summary="drivers/firmware/scmi/scmi.c has active context",
+        details=(
+            "drivers/firmware/scmi/scmi.c records active context. "
+            "drivers/firmware/scmi/scmi.c appears in the handoff. "
+            "drivers/firmware/scmi/scmi.c remains the target file."
+        ),
+    )
+    summary = discover_tasks_with_context(task, tmp_path)
+    entries = load_task_context_entries(task)
+
+    markdown = context_cards_markdown(summary, entries, encoded=True)
+    context = AgentWorkspaceService(tmp_path).task_context(
+        "sample-task",
+        filters=TaskContextFilters(severity=("high",), statuses=("active",)),
+        encoded=True,
+    )
+
+    assert markdown.startswith("## Dictionary")
+    assert "§00 = drivers/firmware/scmi/scmi.c" in markdown
+    assert "#1 [HIGH] [ACTIVE]" in markdown
+    assert "[HIGH] [ACTIVE]" in markdown
+    assert context["dictionary"][0]["token"] == "§00"
+    assert context["dictionary"][0]["value"] == "drivers/firmware/scmi/scmi.c"
+    assert context["entries"][0]["category"] == "findings"
+    assert "§00 records active context" in context["markdown"]
+
+
+def test_agent_workspace_web_server_exposes_tasks_api(tmp_path: Path) -> None:
+    task = tmp_path / "tasks" / "sample-task"
+    task.mkdir(parents=True)
+    (task / "TASK_DESCRIPTION.md").write_text("# Description\n", encoding="utf-8")
+
+    server = create_web_server(tmp_path, "127.0.0.1", 0)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        host, port = server.server_address
+        with urlopen(f"http://{host}:{port}/api/tasks", timeout=5) as response:
+            data = json.loads(response.read().decode("utf-8"))
+        with urlopen(f"http://{host}:{port}/", timeout=5) as response:
+            html = response.read().decode("utf-8")
+    finally:
+        server.shutdown()
+        thread.join(timeout=5)
+        server.server_close()
+
+    assert data["tasks"][0]["name"] == "sample-task"
+    assert "Agent Workspace" in html
+
+
 def test_task_check_errors_are_added_to_new_ai_prompt(tmp_path: Path) -> None:
     task = tmp_path / "tasks" / "sample-task"
     task.mkdir(parents=True)
@@ -1238,10 +1420,10 @@ def test_task_check_errors_are_added_to_new_ai_prompt(tmp_path: Path) -> None:
     suffix = task_check_prompt_suffix(summary, tmp_path)
 
     assert "Task check reported errors" in suffix
-    assert "task-context-database-missing" in suffix
+    assert "task-context-slot-required" in suffix
 
 
-def test_new_ai_launch_includes_task_check_errors(tmp_path: Path) -> None:
+def test_new_ai_launch_uses_front_door_prompt_instead_of_task_check_dump(tmp_path: Path) -> None:
     task = tmp_path / "tasks" / "sample-task"
     task.mkdir(parents=True)
     (task / "TASK_DESCRIPTION.md").write_text("# Description\n", encoding="utf-8")
@@ -1260,11 +1442,12 @@ def test_new_ai_launch_includes_task_check_errors(tmp_path: Path) -> None:
         include_task_check=True,
     )
 
-    assert "Task check reported errors" in launch.command[-1]
-    assert "task-context-database-missing" in launch.command[-1]
+    assert "front_door_bell.py" in launch.command[-1]
+    assert "Task check reported errors" not in launch.command[-1]
+    assert "task-context-slot-required" not in launch.command[-1]
 
 
-def test_resumed_ai_launch_includes_task_check_errors(
+def test_resumed_ai_launch_uses_front_door_prompt_instead_of_task_check_dump(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -1294,8 +1477,9 @@ def test_resumed_ai_launch_includes_task_check_errors(
     )
 
     assert launch.session_state.resume
-    assert "Task check reported errors" in launch.command[-1]
-    assert "task-context-database-missing" in launch.command[-1]
+    assert "front_door_bell.py" in launch.command[-1]
+    assert "Task check reported errors" not in launch.command[-1]
+    assert "task-context-slot-required" not in launch.command[-1]
 
 
 def test_codex_console_command_passes_prompt_and_workspace(tmp_path: Path) -> None:
@@ -1407,7 +1591,8 @@ def test_prepare_ai_agent_launch_command_builds_command_from_session_and_model_s
         session_id,
         launch.command[-1],
     ]
-    assert "Active task context preloaded from `TASK_CONTEXT.sqlite3`" in launch.command[-1]
+    assert "front_door_bell.py" in launch.command[-1]
+    assert "Current task context slots preloaded from `TASK_CONTEXT.sqlite3`" not in launch.command[-1]
 
 
 def test_codex_console_command_can_resume_session(tmp_path: Path) -> None:
@@ -1617,6 +1802,19 @@ def test_task_check_shell_command_runs_from_workspace(tmp_path: Path) -> None:
         assert str(task) in command
 
 
+def test_task_check_windows_command_runs_from_workspace(tmp_path: Path) -> None:
+    task = tmp_path / "tasks" / "sample-task"
+    task.mkdir(parents=True)
+    summary = discover_tasks_with_context(task, tmp_path)
+
+    command = task_check_windows_command(tmp_path, summary)
+
+    assert command.startswith("cd /d ")
+    assert "agent_tools.tools.agent_workspace.actions" in command
+    assert "task-check" in command
+    assert str(task) in command
+
+
 def test_task_action_shell_command_runs_in_action_cwd(tmp_path: Path) -> None:
     action = TaskAction(
         action_id="unit",
@@ -1637,6 +1835,26 @@ def test_task_action_shell_command_runs_in_action_cwd(tmp_path: Path) -> None:
     assert f"{PAF_HIDE_TASK_ENV_VAR}=1" in command
     assert "python -m pytest" in command
     assert "exit ${PIPESTATUS[0]}" in command
+
+
+def test_task_action_windows_command_runs_in_action_cwd(tmp_path: Path) -> None:
+    action = TaskAction(
+        action_id="unit",
+        label="Unit",
+        command=("python", "-m", "pytest"),
+        cwd=tmp_path / "scripts",
+        env={"FLAG": "hello world"},
+    )
+
+    command = task_action_windows_command(action)
+
+    assert command.startswith("cd /d ")
+    assert "report\\logs" in command or "report/logs" in command
+    assert "unit-" in command
+    assert "set \"FLAG=hello world\"&&" in command
+    assert f"set \"{PAF_HIDE_TASK_ENV_VAR}=1\"&&" in command
+    assert "python -m pytest" in command
+    assert "2>&1" in command
 
 
 def test_gtk_task_action_shell_command_runs_in_action_cwd(tmp_path: Path) -> None:
@@ -2919,6 +3137,27 @@ def test_find_latest_codex_session_id_matches_task_prompt(tmp_path: Path) -> Non
     assert find_latest_codex_session_id(summary, workspace, home=home) == session_id
 
 
+def test_find_latest_codex_session_id_scans_beyond_large_prefix(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    task = workspace / "tasks" / "sample-task"
+    task.mkdir(parents=True)
+    summary = discover_tasks_with_context(task, workspace)
+    home = tmp_path / "home"
+    sessions = home / ".codex" / "sessions" / "2026" / "08" / "10"
+    sessions.mkdir(parents=True)
+    session_id = "019feba2-e25e-76e1-9468-aa399758268f"
+    session_file = sessions / f"rollout-2026-08-10T15-25-48-{session_id}.jsonl"
+    prompt = codex_task_context_message(summary, workspace)
+    session_file.write_text(
+        ("x" * 70_000)
+        + "\n"
+        + json.dumps({"payload": {"content": [{"text": prompt}]}}),
+        encoding="utf-8",
+    )
+
+    assert find_latest_codex_session_id(summary, workspace, home=home) == session_id
+
+
 def test_find_latest_claude_session_id_matches_task_prompt(tmp_path: Path) -> None:
     workspace = tmp_path / "workspace"
     task = workspace / "tasks" / "sample-task"
@@ -3267,7 +3506,89 @@ def test_codex_model_choices_loads_model_cache_slugs(tmp_path: Path) -> None:
         encoding="utf-8",
     )
 
-    assert codex_model_choices(cache) == ("", "gpt-5.6-sol", "gpt-5.5")
+    assert codex_model_choices(cache) == ("gpt-5.6-sol", "gpt-5.5")
+
+
+def test_codex_model_choices_info_uses_real_cli_catalog(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(core_module, "agent_executable", lambda agent: "/usr/bin/codex")
+
+    def fake_run(*args: object, **kwargs: object) -> object:
+        assert args[0] == ["/usr/bin/codex", "debug", "models"]
+        assert kwargs["timeout"] == 5.0
+        return type(
+            "Result",
+            (),
+            {
+                "returncode": 0,
+                "stdout": (
+                    "WARNING: ignored setup warning\n"
+                    + json.dumps(
+                        {
+                            "models": [
+                                {"slug": "gpt-5.6-sol", "model_messages": {"instructions_template": "large"}},
+                                {"slug": "gpt-5.5"},
+                                {"slug": "gpt-5.6-sol"},
+                            ]
+                        }
+                    )
+                ),
+                "stderr": "",
+            },
+        )()
+
+    monkeypatch.setattr(core_module.subprocess, "run", fake_run)
+
+    info = codex_model_choices_info()
+
+    assert info.choices == ("gpt-5.6-sol", "gpt-5.5")
+    assert info.source == "Codex CLI: codex debug models"
+
+
+def test_codex_model_choices_info_can_skip_live_cli_for_fast_settings_open(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    cache = tmp_path / "models_cache.json"
+    cache.write_text(json.dumps({"models": [{"slug": "cached-model"}]}), encoding="utf-8")
+    monkeypatch.setattr(core_module.subprocess, "run", lambda *args, **kwargs: pytest.fail("CLI should not run"))
+
+    info = codex_model_choices_info(cache, use_cli=False)
+
+    assert info.choices == ("cached-model",)
+    assert info.source == f"Codex cache: {cache}"
+
+
+def test_claude_model_choices_info_includes_configured_models(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    home = tmp_path / "home"
+    settings = home / ".claude" / "settings.json"
+    settings.parent.mkdir(parents=True)
+    settings.write_text(
+        json.dumps({"model": "claude-opus-4-1", "nested": {"fallbackModel": "claude-sonnet-4"}}),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr("agent_tools.tools.agent_workspace.core.Path.home", lambda: home)
+    monkeypatch.setattr(core_module, "agent_executable", lambda agent: "/usr/bin/claude")
+
+    info = claude_model_choices_info()
+
+    assert "claude-opus-4-1" in info.choices
+    assert "claude-sonnet-4" in info.choices
+    assert "sonnet" in info.choices
+    assert "fable" not in info.choices
+    assert info.source == "Claude settings"
+
+
+def test_claude_model_choices_info_falls_back_when_cli_is_missing(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(core_module, "agent_executable", lambda agent: None)
+    monkeypatch.setattr(core_module.Path, "home", lambda: Path("/missing-agent-workspace-home"))
+
+    info = claude_model_choices_info()
+
+    assert info.choices == ("sonnet", "opus")
+    assert info.source == "fallback"
 
 
 def test_agent_output_requests_permission_ignores_approval_prompts() -> None:
@@ -3712,6 +4033,7 @@ def test_gtk_task_selection_remembers_current_tab_before_switching(tmp_path: Pat
     gui._task_is_external_active = lambda _task: False
     gui._leave_detail_edit_mode = lambda _view: None
     gui._set_markdown = lambda _view, _text: None
+    gui._details_tab_active = lambda: False
     gui._reset_actions = lambda: None
     gui._watch_task_actions = lambda _task: None
     gui._load_task_artifacts = lambda _task: (_ for _ in ()).throw(AssertionError("inactive artifacts tab should not load"))
@@ -3743,6 +4065,52 @@ def test_gtk_task_selection_remembers_current_tab_before_switching(tmp_path: Pat
     assert task_two_shell.terminal.focused
     assert gui.last_active_terminal_by_task == {summary_one.path: task_one_shell.session_id}
     assert artifact_events == ["store"]
+
+
+def test_gtk_task_selection_refreshes_details_only_when_details_tab_is_active(tmp_path: Path) -> None:
+    task = tmp_path / "tasks" / "sample-task"
+    task.mkdir(parents=True)
+    summary = discover_tasks_with_context(task, tmp_path)
+    selection = FakeGtkSelection(FakeGtkTaskStore([[None, "sample-task", summary]]), 0)
+    gui = WorkspaceGtkGui.__new__(WorkspaceGtkGui)
+    gui.workspace = tmp_path
+    gui.language = "en"
+    gui.default_agent = "codex"
+    gui._updating_task_selection = False
+    gui.selected_task = None
+    gui.terminal_sessions = {}
+    gui.last_active_terminal_by_task = {}
+    gui._refreshing_console_tabs = False
+    gui.console_notebook = FakeGtkConsoleNotebook([])
+    gui.ai_agent_page = object()
+    gui.ai_agent_terminal_box = None
+    gui._ensure_ai_agent_console_page = lambda: None
+    gui._clear_ai_agent_terminal_page = lambda: None
+    gui._task_is_external_active = lambda _task: False
+    gui._remember_current_console_tab = lambda: None
+    gui._reset_actions = lambda: None
+    gui._watch_task_actions = lambda _task: None
+    gui._artifacts_tab_active = lambda: False
+    gui.artifact_store = type("ArtifactStore", (), {"clear": lambda self: None})()
+    gui._load_task_action_buttons = lambda: None
+    gui._set_selected_agent = lambda _agent: None
+    gui._renumber_terminal_tabs = lambda _task: None
+    gui._refresh_console_tabs_for_task = lambda _task: None
+    gui._actions_tab_active = lambda: False
+    gui._update_codex_button_state = lambda: None
+    gui._show_terminal_tab = lambda _session, renumber=True: None
+    calls: list[str] = []
+    gui._refresh_selected_task_details = lambda leave_edit=False: calls.append(f"details:{leave_edit}")  # type: ignore[method-assign]
+
+    gui._details_tab_active = lambda: False
+    gui._on_task_selected(selection)  # type: ignore[arg-type]
+
+    assert calls == []
+
+    gui._details_tab_active = lambda: True
+    gui._on_task_selected(selection)  # type: ignore[arg-type]
+
+    assert calls == ["details:True"]
 
 
 def test_gtk_task_action_selection_shows_only_selected_play_button(tmp_path: Path) -> None:
@@ -4300,12 +4668,68 @@ def test_agent_workspace_desktop_uses_icon_name() -> None:
     assert "StartupWMClass=agent-workspace\n" in content
 
 
+def test_agent_workspace_web_launcher_uses_web_backend() -> None:
+    workspace = Path(__file__).resolve().parents[4]
+    launchers = [
+        workspace / "agent-workspace-web.sh",
+        workspace / "agent-workspace-web.command",
+        workspace / "agent-workspace-web.cmd",
+    ]
+
+    for launcher in launchers:
+        content = launcher.read_text(encoding="utf-8")
+        assert "agent_tools.tools.agent_workspace" in content
+        assert "--ui web" in content
+
+    assert '"$@"' in launchers[0].read_text(encoding="utf-8")
+    assert '"$@"' in launchers[1].read_text(encoding="utf-8")
+    assert "%*" in launchers[2].read_text(encoding="utf-8")
+
+
+def test_agent_workspace_portable_default_launchers_use_web_backend() -> None:
+    workspace = Path(__file__).resolve().parents[4]
+    launchers = [
+        workspace / "agent-workspace.command",
+        workspace / "agent-workspace.cmd",
+    ]
+
+    for launcher in launchers:
+        content = launcher.read_text(encoding="utf-8")
+        assert "agent_tools.tools.agent_workspace" in content
+        assert "--ui web" in content
+
+
 def test_agent_workspace_desktop_entry_uses_current_workspace_path(tmp_path: Path) -> None:
     content = install_desktop_module._desktop_entry(tmp_path)
 
     assert f"Exec={tmp_path / 'agent-workspace.sh'}\n" in content
     assert f"Path={tmp_path}\n" in content
     assert "/Projects/new_dev" not in content
+
+
+def test_install_agent_tools_writes_auto_and_web_launchers(tmp_path: Path) -> None:
+    installer_path = Path(__file__).resolve().parents[4] / "install-agent-tools.py"
+    spec = importlib.util.spec_from_file_location("install_agent_tools_test", installer_path)
+    assert spec is not None
+    assert spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+
+    python = tmp_path / ".venv" / "bin" / "python"
+    auto = module._launcher_content(python, ())
+    web = module._launcher_content(python, ("--ui", "web"))
+    mac_auto = module._launcher_content(python, ("--ui", "web"))
+    windows_auto = module._windows_launcher_content(Path("C:/agent_tools/.venv/Scripts/python.exe"), ("--ui", "web"))
+    windows_web = module._windows_launcher_content(Path("C:/agent_tools/.venv/Scripts/python.exe"), ("--ui", "web"))
+
+    assert "agent_tools.tools.agent_workspace" in auto
+    assert "--ui web" not in auto
+    assert "agent_tools.tools.agent_workspace --ui web" in web
+    assert "agent_tools.tools.agent_workspace --ui web" in mac_auto
+    assert "agent_tools.tools.agent_workspace --ui web" in windows_auto
+    assert '"$@"' in web
+    assert "agent_tools.tools.agent_workspace --ui web" in windows_web
+    assert "%*" in windows_web
 
 
 def test_gtk_agent_workspace_runtime_icon_falls_back_to_packaged_icon(monkeypatch: object, tmp_path: Path) -> None:

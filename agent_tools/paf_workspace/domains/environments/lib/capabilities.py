@@ -49,6 +49,22 @@ CAPABILITY_REQUIREMENTS: dict[str, CapabilityRequirement] = {
             "python3 -m agent_tools.tools.cpp_code_map help",
         ),
     ),
+    "agent_workspace_tests": CapabilityRequirement(
+        apt_packages=(
+            "gir1.2-gtk-3.0",
+            "gir1.2-vte-2.91",
+            "python3-gi",
+            "python3-pytest",
+            "python3-tk",
+        ),
+        python_imports=(
+            "gi",
+            "tkinter",
+        ),
+        commands=(
+            "python3 -m pytest --version",
+        ),
+    ),
 }
 
 

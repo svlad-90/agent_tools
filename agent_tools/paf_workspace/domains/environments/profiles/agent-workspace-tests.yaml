@@ -1,0 +1,10 @@
+case:
+  name: agent-workspace-tests-environment
+  domain: environments
+  workspace: .
+
+environments:
+  agent_workspace_tests:
+    image: agent-workspace-tests
+    container: agent-workspace-tests-workspace
+    build_network: host

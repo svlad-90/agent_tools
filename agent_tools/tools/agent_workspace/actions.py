@@ -37,7 +37,7 @@ def _task_summary(task_path: Path) -> TaskSummary:
     return TaskSummary(
         name=task_path.name,
         path=task_path,
-        has_description=(task_path / "TASK_DESCRIPTION.md").is_file(),
+        has_description=True,
         has_context=(task_path / TASK_CONTEXT_DATABASE_FILE).is_file(),
         description_tokens=0,
         context_tokens=0,

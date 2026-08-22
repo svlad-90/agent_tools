@@ -4,11 +4,22 @@
 named around the workspace rather than Codex because the same task layout can be
 used by Codex, Claude Code, plain shell sessions, or another local agent.
 
-Launch from the workspace root:
+Launch from the workspace root on Linux:
 
 ```sh
 ./agent-workspace.sh
 ```
+
+Launch the browser UI explicitly:
+
+```sh
+./agent-workspace-web.sh
+```
+
+On macOS, use `agent-workspace.command` or `agent-workspace-web.command`.
+On Windows, use `agent-workspace.cmd` or `agent-workspace-web.cmd`. The macOS
+and Windows default launchers start the browser UI because the embedded
+GTK/VTE and Tk terminal backends are POSIX/Linux-oriented.
 
 Install or refresh the launcher, Python dependencies, desktop entry, and
 workspace-local agent skill mirrors with:
@@ -19,16 +30,15 @@ python3 install-agent-tools.py
 
 The installer does not pull GTK/VTE by default. Use
 `python3 install-agent-tools.py --gui` only when the legacy GTK UI is needed.
-The Agent Workspace entry point tries GTK, then web, then Tk, so a future web
-UI can become the fallback on hosts without GTK/VTE.
+On Linux, the `agent-workspace` default entry point tries GTK, then web, then
+Tk. On macOS and Windows, it uses web directly. The `agent-workspace-web`
+entry points always skip desktop backend probing and start the browser UI.
 
 Main capabilities:
 
 - browse task directories under `tasks/`;
-- render `TASK_DESCRIPTION.md`;
-- render `TASK_CONTEXT.sqlite3` as a newest-first context journal with date,
-  severity, status, and label filters;
-- edit task descriptions from the details context menu;
+- render the task goal slot from `TASK_CONTEXT.sqlite3`;
+- render current task context slots with category filters;
 - run compact `task_check` checks through the built-in action runner;
 - load task-declared actions from `TASK_ACTIONS.json` and run them in the
   active task terminal;
@@ -52,10 +62,10 @@ Code launches with the task context prompt, but Agent Workspace does not invent
 Claude conversation ids; without a real Claude Code conversation id, the UI
 keeps the action as a new launch instead of showing a restore action.
 The settings dialog can also set default models and reasoning effort for each
-agent. Model fields are combo boxes: Codex choices are loaded from the local
-Codex model cache with a built-in fallback list, and Claude Code choices use
-the CLI aliases `sonnet`, `opus`, and `fable`. Codex launches use `--model` and
-`-c model_reasoning_effort="..."`; Claude Code launches use
+agent. Model fields are combo boxes: Codex choices are loaded quickly from
+cache/fallback data and refreshed asynchronously from the local Codex CLI;
+Claude Code choices use configured local aliases plus `sonnet` and `opus`.
+Codex launches use `--model` and `-c model_reasoning_effort="..."`; Claude Code launches use
 `--permission-mode auto`, `--model`, and `--effort`. Empty model and effort
 values leave the agent CLI defaults in control. Initial defaults are Codex
 `gpt-5.5` with `medium` reasoning and Claude Code `sonnet` with `medium`

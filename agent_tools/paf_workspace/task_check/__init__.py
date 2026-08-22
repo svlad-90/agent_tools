@@ -13,17 +13,20 @@ from typing import Any
 import yaml
 
 from agent_tools.tools.task_context import DATABASE_FILENAME as TASK_CONTEXT_DATABASE_FILE
-from agent_tools.tools.task_context import ContextEntry
+from agent_tools.tools.task_context import RECOMMENDED_SLOT_CATEGORIES
+from agent_tools.tools.task_context import REQUIRED_SLOT_CATEGORIES
+from agent_tools.tools.task_context import SLOT_CATEGORIES
+from agent_tools.tools.task_context import TaskContextSlot
 from agent_tools.tools.task_context import ensure_database as ensure_task_context_database
-from agent_tools.tools.task_context import load_entries as load_task_context_entries
+from agent_tools.tools.task_context import load_slots as load_task_context_slots
 
 
 REQUIRED_DIRS = ("dev", "Dockerfile", "scripts", "report", "report/diff", "report/puml")
 TASK_METADATA_FILE = "TASK_METADATA.json"
+FRONT_DOOR_BELL_FILE = "front_door_bell.py"
 RUNTIME_HINTS = ("xen", "qemu", "moulin", "dom0", "domu", "hypervisor")
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
 PAF_WORKSPACE_ROOT = PROJECT_ROOT / "agent_tools" / "paf_workspace"
-TASK_DESCRIPTION_TEMPLATE = PAF_WORKSPACE_ROOT / "templates" / "TASK_DESCRIPTION.md"
 PRODUCT_ARTIFACTS_TEMPLATE = PAF_WORKSPACE_ROOT / "templates" / "product-artifacts.yaml"
 DEFAULT_RUNTIME_YAML_NAME = "xen-zephyr-runtime.yaml"
 TASKS_DIR_NAME = "tasks"
@@ -85,8 +88,7 @@ def main(argv: list[str] | None = None) -> int:
         "--init-layout",
         action="store_true",
         help=(
-            "Create missing task directories, TASK_DESCRIPTION.md, and "
-            "TASK_CONTEXT.sqlite3."
+            "Create missing task directories and TASK_CONTEXT.sqlite3."
         ),
     )
     parser.add_argument(
@@ -199,11 +201,10 @@ def check_task(
         return checks
 
     checks.extend(_check_layout(task_dir))
-    checks.extend(_check_task_description(task_dir))
     checks.extend(_check_legacy_task_context_markdown(task_dir))
-    entries, context_text = _load_task_context(task_dir, checks)
+    slots, context_text = _load_task_context(task_dir, checks)
     if any(check.status == "PASS" and check.code == "task-context-database-valid" for check in checks):
-        checks.extend(_check_task_context_quality(task_dir, entries))
+        checks.extend(_check_task_context_quality(task_dir, slots))
 
     manifests = _find_artifact_manifests(task_dir)
     harness_profiles = _find_xen_zephyr_harness_profiles(task_dir)
@@ -264,23 +265,6 @@ def initialize_task_layout(task_dir: Path, *, workspace: Path, privacy: str = "p
         path.mkdir(parents=True, exist_ok=True)
         checks.append(Check("PASS", "init-layout-dir", f"directory is present: {rel_path}", str(path)))
 
-    description_path = task_dir / "TASK_DESCRIPTION.md"
-    if description_path.exists():
-        checks.append(
-            Check(
-                "PASS",
-                "init-task-description-existing",
-                "TASK_DESCRIPTION.md already exists",
-                str(description_path),
-            )
-        )
-    else:
-        template = TASK_DESCRIPTION_TEMPLATE.read_text(encoding="utf-8")
-        description_path.write_text(template, encoding="utf-8")
-        checks.append(
-            Check("PASS", "init-task-description", "created TASK_DESCRIPTION.md from template", str(description_path))
-        )
-
     database_path = task_dir / TASK_CONTEXT_DATABASE_FILE
     if database_path.exists():
         checks.append(Check("PASS", "init-task-context-database-existing", f"{TASK_CONTEXT_DATABASE_FILE} already exists", str(database_path)))
@@ -297,6 +281,13 @@ def initialize_task_layout(task_dir: Path, *, workspace: Path, privacy: str = "p
         }
         metadata_path.write_text(json.dumps(metadata, indent=2, sort_keys=True) + "\n", encoding="utf-8")
         checks.append(Check("PASS", "init-task-metadata", f"created {TASK_METADATA_FILE}", str(metadata_path)))
+
+    front_door_path = task_dir / FRONT_DOOR_BELL_FILE
+    if front_door_path.exists():
+        checks.append(Check("PASS", "init-front-door-bell-existing", f"{FRONT_DOOR_BELL_FILE} already exists", str(front_door_path)))
+    else:
+        front_door_path.write_text(_front_door_bell_script(), encoding="utf-8")
+        checks.append(Check("PASS", "init-front-door-bell", f"created {FRONT_DOOR_BELL_FILE}", str(front_door_path)))
 
     return checks
 
@@ -434,23 +425,25 @@ def _check_layout(task_dir: Path) -> list[Check]:
     return checks
 
 
-def _check_task_description(task_dir: Path) -> list[Check]:
-    path = task_dir / "TASK_DESCRIPTION.md"
-    if not path.exists():
-        return [
-            Check(
-                "WARN",
-                "task-description-missing",
-                "TASK_DESCRIPTION.md is missing; create it for stable task scope",
-                str(path),
-            )
-        ]
-    if not path.is_file():
-        return [Check("FAIL", "task-description-not-file", "TASK_DESCRIPTION.md is not a file", str(path))]
-    text = path.read_text(encoding="utf-8")
-    if not text.strip():
-        return [Check("WARN", "task-description-empty", "TASK_DESCRIPTION.md is empty", str(path))]
-    return [Check("PASS", "task-description", "TASK_DESCRIPTION.md exists", str(path))]
+def _front_door_bell_script() -> str:
+    return """#!/usr/bin/env python3
+from __future__ import annotations
+
+from pathlib import Path
+import sys
+
+
+TASK_DIR = Path(__file__).resolve().parent
+WORKSPACE_ROOT = TASK_DIR.parent.parent if TASK_DIR.parent.name == "tasks" else Path.cwd()
+if str(WORKSPACE_ROOT) not in sys.path:
+    sys.path.insert(0, str(WORKSPACE_ROOT))
+
+from agent_tools.tools.front_desk_bell import main
+
+
+if __name__ == "__main__":
+    raise SystemExit(main(["--task", str(TASK_DIR), "--workspace", str(WORKSPACE_ROOT), *sys.argv[1:]]))
+"""
 
 
 def _check_legacy_task_context_markdown(task_dir: Path) -> list[Check]:
@@ -463,74 +456,113 @@ def _check_legacy_task_context_markdown(task_dir: Path) -> list[Check]:
         Check(
             "WARN",
             "task-context-markdown-legacy",
-            "legacy TASK_CONTEXT.md is ignored; task context comes from TASK_CONTEXT.sqlite3",
+            "legacy TASK_CONTEXT.md is imported into TASK_CONTEXT.sqlite3 legacy slot and should be removed",
             str(path),
         )
     ]
 
 
-def _load_task_context(task_dir: Path, checks: list[Check]) -> tuple[list[ContextEntry], str]:
+def _load_task_context(task_dir: Path, checks: list[Check]) -> tuple[list[TaskContextSlot], str]:
     database_path = task_dir / TASK_CONTEXT_DATABASE_FILE
-    if database_path.is_file():
-        checks.append(Check("PASS", "task-context-database", f"{TASK_CONTEXT_DATABASE_FILE} exists", str(database_path)))
-        try:
-            entries = load_task_context_entries(task_dir)
-            checks.append(Check("PASS", "task-context-database-valid", f"{TASK_CONTEXT_DATABASE_FILE} is valid", str(database_path)))
-            return entries, _task_context_search_text(entries)
-        except (ValueError, OSError, sqlite3.DatabaseError) as exc:
-            checks.append(Check("FAIL", "task-context-database-invalid", str(exc), str(database_path)))
-            return [], ""
-    else:
+    if not database_path.exists():
+        ensure_task_context_database(task_dir)
+    checks.append(Check("PASS", "task-context-database", f"{TASK_CONTEXT_DATABASE_FILE} exists", str(database_path)))
+    try:
+        slots = load_task_context_slots(task_dir)
+        checks.append(Check("PASS", "task-context-database-valid", f"{TASK_CONTEXT_DATABASE_FILE} is valid", str(database_path)))
+        return slots, _task_context_search_text(slots)
+    except (ValueError, OSError, sqlite3.DatabaseError) as exc:
+        checks.append(Check("FAIL", "task-context-database-invalid", str(exc), str(database_path)))
+        return [], ""
+
+
+def _task_context_search_text(slots: list[TaskContextSlot]) -> str:
+    return "\n".join(slot.content for slot in slots if slot.content)
+
+
+def _check_task_context_quality(task_dir: Path, slots: list[TaskContextSlot]) -> list[Check]:
+    checks: list[Check] = []
+    by_category = {slot.category: slot for slot in slots}
+    unknown = sorted(category for category in by_category if category not in SLOT_CATEGORIES)
+    if unknown:
         checks.append(
             Check(
                 "FAIL",
-                "task-context-database-missing",
-                f"{TASK_CONTEXT_DATABASE_FILE} is missing; initialize task context database",
-                str(database_path),
-            )
-        )
-    return [], ""
-
-
-def _task_context_search_text(entries: list[ContextEntry]) -> str:
-    parts: list[str] = []
-    for entry in entries:
-        parts.extend((entry.summary, entry.details, " ".join(entry.labels), " ".join(entry.artifacts)))
-    return "\n".join(part for part in parts if part)
-
-
-def _check_task_context_quality(task_dir: Path, entries: list[ContextEntry]) -> list[Check]:
-    active_entries = [
-        entry
-        for entry in entries
-        if entry.status == "active" and entry.severity in TASK_CONTEXT_ACTIVE_SEVERITIES
-    ]
-    active_text = _task_context_search_text(active_entries)
-    active_tokens = _rough_token_count(active_text)
-    if active_tokens > TASK_CONTEXT_ACTIVE_TOKEN_BUDGET:
-        return [
-            Check(
-                "FAIL",
-                "task-context-active-size",
-                (
-                    "active mid..critical task context is too large: "
-                    f"~{active_tokens} tokens, budget {TASK_CONTEXT_ACTIVE_TOKEN_BUDGET}. "
-                    "Resolve or stale superseded journal entries before continuing."
-                ),
+                "task-context-slot-category",
+                f"unknown task context slot categories: {', '.join(unknown)}",
                 str(task_dir / TASK_CONTEXT_DATABASE_FILE),
             )
-        ]
-    return [
-        Check(
-            "PASS",
-            "task-context-active-size",
-            (
-                "active mid..critical task context fits the journal budget: "
-                f"~{active_tokens}/{TASK_CONTEXT_ACTIVE_TOKEN_BUDGET} tokens"
-            ),
-            str(task_dir / TASK_CONTEXT_DATABASE_FILE),
         )
-    ]
+    for category in REQUIRED_SLOT_CATEGORIES:
+        slot = by_category.get(category)
+        if slot is None or not slot.content.strip():
+            checks.append(
+                Check(
+                    "FAIL",
+                    "task-context-slot-required",
+                    f"required task context slot is missing or empty: {category}",
+                    str(task_dir / TASK_CONTEXT_DATABASE_FILE),
+                )
+            )
+        else:
+            checks.append(
+                Check(
+                    "PASS",
+                    "task-context-slot-required",
+                    f"required task context slot is present: {category}",
+                    str(task_dir / TASK_CONTEXT_DATABASE_FILE),
+                )
+            )
+    for category in RECOMMENDED_SLOT_CATEGORIES:
+        slot = by_category.get(category)
+        if slot is None or not slot.content.strip():
+            checks.append(
+                Check(
+                    "WARN",
+                    "task-context-slot-recommended",
+                    f"recommended task context slot is missing or empty: {category}",
+                    str(task_dir / TASK_CONTEXT_DATABASE_FILE),
+                )
+            )
+        else:
+            checks.append(
+                Check(
+                    "PASS",
+                    "task-context-slot-recommended",
+                    f"recommended task context slot is present: {category}",
+                    str(task_dir / TASK_CONTEXT_DATABASE_FILE),
+                )
+            )
+    legacy = by_category.get("legacy")
+    if legacy is not None and legacy.content.strip():
+        checks.append(
+            Check(
+                "WARN",
+                "task-context-slot-legacy",
+                "legacy task context slot is non-empty; move current facts into typed slots",
+                str(task_dir / TASK_CONTEXT_DATABASE_FILE),
+            )
+        )
+    slot_tokens = _rough_token_count(_task_context_search_text(slots))
+    if slot_tokens > TASK_CONTEXT_ACTIVE_TOKEN_BUDGET:
+        checks.append(
+            Check(
+                "FAIL",
+                "task-context-slots-size",
+                f"task context slots are too large: ~{slot_tokens} tokens, budget {TASK_CONTEXT_ACTIVE_TOKEN_BUDGET}",
+                str(task_dir / TASK_CONTEXT_DATABASE_FILE),
+            )
+        )
+    else:
+        checks.append(
+            Check(
+                "PASS",
+                "task-context-slots-size",
+                f"task context slots fit the budget: ~{slot_tokens}/{TASK_CONTEXT_ACTIVE_TOKEN_BUDGET} tokens",
+                str(task_dir / TASK_CONTEXT_DATABASE_FILE),
+            )
+        )
+    return checks
 
 
 def _rough_token_count(text: str) -> int:

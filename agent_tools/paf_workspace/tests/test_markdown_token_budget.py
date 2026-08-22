@@ -103,9 +103,6 @@ def _single_task_bootstrap_markdown_files() -> tuple[Path, ...]:
         )
     )
 
-    for path in (Path("agent_tools/paf_workspace/templates/TASK_DESCRIPTION.md"),):
-        if (WORKSPACE_ROOT / path).is_file():
-            paths.append(path)
     return tuple(dict.fromkeys(paths))
 
 

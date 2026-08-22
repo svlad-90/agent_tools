@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from dataclasses import replace
 from pathlib import Path
 
 from .comments import comments_from_payload, load_comments, load_comments_payload
@@ -78,15 +79,6 @@ def generate_report_json(
 ) -> None:
     report = load_report_json(report_file)
     if title is not None:
-        report = type(report)(
-            title=title,
-            comments=report.comments,
-            metrics=report.metrics,
-            status_cards=report.status_cards,
-            heatmaps=report.heatmaps,
-            tables=report.tables,
-            timeline=report.timeline,
-            artifacts=report.artifacts,
-        )
+        report = replace(report, title=title)
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text(render_report_json_html(report), encoding="utf-8")

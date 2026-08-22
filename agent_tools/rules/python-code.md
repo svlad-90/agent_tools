@@ -8,23 +8,30 @@ These rules apply to all Python code under the workspace root.
 
 1. Use `agent_tools/tools/code_map` whenever Python code is inspected, changed,
    reviewed, or validated.
-2. Run commands from the workspace root with:
+2. Run commands from the workspace root or from the `agent_tools/` package
+   root. Target file paths are resolved relative to the `agent_tools/` package
+   root, not relative to the current shell directory. For files under
+   `agent_tools/`, omit the leading `agent_tools/` prefix:
 
    ```sh
    python -m agent_tools.tools.code_map <command> ...
+   python -m agent_tools.tools.code_map map tools/agent_workspace/core.py
    ```
+
+   Do not pass `agent_tools/tools/...` as the target path; from the workspace
+   root that resolves to `agent_tools/agent_tools/tools/...`.
 
 3. Before reading or changing an existing Python file, inspect its structure:
 
    ```sh
-   python -m agent_tools.tools.code_map map path/to/file.py
+   python -m agent_tools.tools.code_map map tools/path/to/file.py
    ```
 
 4. Before changing an existing class, function, or method, resolve its exact
    span and current hash:
 
    ```sh
-   python -m agent_tools.tools.code_map symbol-get path/to/file.py \
+   python -m agent_tools.tools.code_map symbol-get tools/path/to/file.py \
      --symbol QualifiedName
    ```
 
@@ -34,7 +41,7 @@ These rules apply to all Python code under the workspace root.
 6. After every Python edit, validate every changed Python file:
 
    ```sh
-   python -m agent_tools.tools.code_map parse-check path/to/file.py
+   python -m agent_tools.tools.code_map parse-check tools/path/to/file.py
    ```
 
 7. Re-run `map` when a change alters classes, functions, methods, or their

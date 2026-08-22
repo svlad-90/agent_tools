@@ -238,6 +238,31 @@ JSON line ranges so they can be inspected without rereading the whole file.
 
 ## Report JSON
 
+`status_cards` accepts either a plain card list or an object with `title`,
+`note`, and `cards`, so a report can name the section after what the cards
+actually track.
+
+`metric_tables` renders top-down metric grids whose cells can open the
+relationship graph in a specific view. A column may carry a `sublabel`, drawn
+as a second header line, which keeps a long composite header from stretching
+the column; metric-table headers wrap while the value cells stay on one line. Each cell may carry `graph_view` with:
+
+- `focus`: required node id the graph focuses on;
+- `types`: entity types to keep enabled, so intermediate layers collapse into
+  `through_filtered` links;
+- `target_type`: entity type the Focus dropdown is limited to;
+- `filters`: `{entity_type: {field: [allowed values]}}` subfilter overrides,
+  usually a status split such as passed versus failed. A `status` key is routed
+  into the graph's single global status filter rather than a per-type one;
+- `label`: tooltip text for the cell control.
+
+A cell may also hold `parts`: a list of cell objects rendered inline in one
+cell, each with its own status colour and `graph_view`. Use it to keep related
+counts together, for example passed, failed, no-verdict, and not-executed in a
+single column instead of four. Prefer buckets that are mutually exclusive and
+exhaustive, so the parts add up to the row total and the reader never has to
+guess about a hidden remainder.
+
 `--report-json` accepts the same shared artifact fields as comments JSON:
 `summary`, `summary_blocks`, `diagrams`, `logs`, `story`, and `vocabulary`.
 It also supports dashboard-oriented widgets:
@@ -252,7 +277,10 @@ It also supports dashboard-oriented widgets:
     {"label": "VSR rows", "value": 115, "status": "covered_candidate"},
     {"label": "Risks", "value": 4, "status": "risk", "note": "Security first pass"}
   ],
-  "status_cards": [
+  "status_cards": {
+    "title": "Processing progress",
+    "note": "AI processing status of the analysis pipeline, not product compliance.",
+    "cards": [
     {
       "title": "security",
       "status": "risk",
@@ -260,13 +288,51 @@ It also supports dashboard-oriented widgets:
       "metrics": [{"label": "rows", "value": 10}],
       "links": [{"label": "Security pass", "href": "../domains/security/VSR_SECURITY_PASS.md"}]
     }
-  ],
+    ]
+  },
   "heatmaps": [
     {
       "title": "Domain Heatmap",
       "rows": [
         {"domain": "security", "status": "risk", "total": 10},
         {"domain": "storage_update", "status": "covered_candidate", "total": 4}
+      ]
+    }
+  ],
+  "metric_tables": [
+    {
+      "title": "Metrics",
+      "note": "Passed and failed counts per requirement or test entity type.",
+      "columns": [
+        {"key": "name", "label": "Name"},
+        {"key": "passed", "label": "Passed items"},
+        {"key": "failed", "label": "Failed items", "sublabel": "share of total"}
+      ],
+      "rows": [
+        {
+          "cells": {
+            "name": {
+              "text": "CDD",
+              "graph_view": {
+                "focus": "product:gen5-aaos-xen",
+                "types": ["product", "cdd"],
+                "target_type": "cdd",
+                "label": "Product to CDD requirements"
+              }
+            },
+            "passed": {
+              "text": "12 · 0.6%",
+              "status": "pass",
+              "graph_view": {
+                "focus": "product:gen5-aaos-xen",
+                "types": ["product", "cdd"],
+                "target_type": "cdd",
+                "filters": {"cdd": {"status": ["covered", "covered_candidate"]}}
+              }
+            },
+            "failed": {"text": "50 · 2.3%", "status": "fail"}
+          }
+        }
       ]
     }
   ],
@@ -348,13 +414,65 @@ and artifact previews.
 `relationship_graph` renders an offline Cytoscape.js traceability browser. Each
 node must have `id` and `label`; common optional fields are `type`, `status`,
 `summary`, and a `details` object. Each edge must have `source` and `target`
-pointing to existing node ids, plus an optional `relation`. The browser shows a
-selected node neighborhood at depth 1 or 2, supports zoom, pan, and node drag,
+pointing to existing node ids, plus an optional `relation`. The browser shows
+the focused node, its parent chain up to the root, and the first visible child
+frontier below the focus. Hidden intermediate layers are still traversed and
+rendered as derived links where needed, but a visible child is not expanded
+again on the same canvas page. This keeps each page an overview rather than a
+flat slice of a large subtree. It supports zoom, pan, and node drag,
 keeps back/forward navigation, groups the selector by node type, and renders a
 detail panel with related entities grouped by relation. Node types are rendered
 with different shapes so a VSR, CDD, HAL, CTS/VTS module, and evidence artifact
 are visually distinct. This is intended for requirement graphs such as
 `VSR -> CDD -> HAL -> CTS/VTS -> Evidence -> Gap`.
+
+The graph toolbar keeps one control per concept:
+
+- `Status` chips are the status filter itself: one global set shared by every
+  layer, generated from the statuses present in the graph, carrying whole-graph
+  node counts. Status is not a per-type subfilter, so toggling layers can never
+  desynchronise it. The leading `All` control is a
+  tri-state checkbox like the one in the `Layers` row: unchecking it hides every
+  status so a single status can then be picked, checking it restores all, and it
+  renders indeterminate while only some are on. There is no separate status
+  legend and no status group inside the filter panel.
+- `Layers` checkboxes control layer visibility only. Each chip counts how many
+  nodes of that type the current focus contains, following directed edges down
+  the type ranks, so a product focus reports its domains, CDD, VSR, and
+  CTS/VTS totals while a VSR focus reports the tests and HALs under it. The
+  count is independent of the first-frontier canvas rule and of how many nodes
+  fit on the current graph page. The counts live in the chip
+  tooltip, not in the label, so a chip never changes width and the row never
+  shifts while filters change. Chip styling carries exactly one meaning: a
+  dashed, dimmed chip draws nothing for the current focus, counting both the
+  focus content and the ancestry the graph always draws above it, while a solid
+  chip has something to show. The tooltip says which of the two reasons applies,
+  nothing of that layer inside the focus or everything of it hidden by filters,
+  and when only the focus itself ends up drawn the canvas states how many nodes
+  the filters are holding back.
+- `Focus type` limits the focus list to one entity type, and carries no counts:
+  counting is the Layers row's job. It is user-owned: selecting a node no
+  longer rewrites it. The `only visible` checkbox next to it narrows the focus
+  list from every node in the graph to the nodes drawn on the current graph plus
+  the focus ancestry, so a leaf focus still offers a way back up.
+- Unchecking the `Layers` `All` box clears every layer and returns the focus to
+  the graph root, so the next single layer click reads that layer from the top
+  of the hierarchy instead of from wherever the previous focus was.
+- The focus node is pinned against every filter, layers and status alike, so
+  clearing all statuses leaves the same one-node view as clearing all layers
+  instead of an empty graph with no focus at all. A pinned focus does not pull
+  its own status back into the filter, so a status-filtered view stays exact.
+- The focus node itself is always drawn, even when its own layer is unchecked,
+  so hiding layers narrows what hangs off the focus instead of moving the
+  focus. Unchecking every layer except one therefore answers "what is the first
+  visible layer below this focus", for example product plus CDD lists the first
+  CDD frontier under the product through hidden domains.
+- `Filters` is a collapsed disclosure that shows the remaining per-type fields
+  (suite, domain, applicability, and similar) and reports how many of them are
+  narrowed. Its bulk `Defaults` and `All values` actions record navigation
+  history like the individual value checkboxes.
+- `Shortcuts` appears only when the current focus has shortcut links.
+- `Fit`, back, forward, and paging live in one control bar above the canvas.
 
 The table of contents is flat by default. Add `toc_groups` to render it as a
 grouped tree. Each item `href` must point to a section id in the rendered page,

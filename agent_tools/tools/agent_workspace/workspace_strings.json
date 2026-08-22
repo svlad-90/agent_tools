@@ -30,7 +30,7 @@
       ],
       [
         "Структура",
-        "TASK_DESCRIPTION.md, TASK_CONTEXT.sqlite3, dev/, scripts/ и report/ держат работу воспроизводимой"
+        "TASK_CONTEXT.sqlite3, dev/, scripts/ и report/ держат работу воспроизводимой"
       ],
       [
         "Действия",

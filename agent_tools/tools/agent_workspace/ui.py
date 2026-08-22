@@ -9,6 +9,7 @@ import os
 import platform
 import pty
 import queue
+import re
 import select
 import subprocess
 import struct
@@ -33,13 +34,13 @@ from .core import AgentModelSettings
 from .core import TaskAction
 from .core import TaskSummary
 from .core import AGENT_WORKSPACE_AGENTS
-from .core import AGENT_WORKSPACE_CLAUDE_MODELS
 from .core import AGENT_WORKSPACE_REASONING_EFFORTS
 from .core import AGENT_WORKSPACE_THEMES
 from .core import agent_executable
 from .core import agent_install_command
 from .core import agent_label
 from .core import agent_status_tooltip_text
+from .core import ai_agent_environment
 from .core import ai_agent_launch_state_for_selection
 from .core import ai_agent_model_settings
 from .core import ai_agent_switch_decision
@@ -52,7 +53,8 @@ from .core import agent_output_state_update
 from .core import build_ai_agent_console_command
 from .core import clear_task_agent_session
 from .core import clear_task_active_agent_run
-from .core import codex_model_choices
+from .core import claude_model_choices_info
+from .core import codex_model_choices_info
 from .core import discover_tasks
 from .core import load_task_agent
 from .core import load_task_actions
@@ -63,8 +65,8 @@ from .core import normalize_agent
 from .core import parse_console_output
 from .core import prepare_ai_agent_launch_command
 from .core import read_task_file
+from .core import reconcile_task_agent_run_session
 from .core import render_markdown_chunks
-from .core import render_task_context_details
 from .core import reset_task_agent_session
 from .core import save_agent_workspace_settings
 from .core import save_task_active_agent_run
@@ -85,8 +87,11 @@ from .commands import codex_executable as _codex_executable
 from .commands import sys_executable
 from .commands import task_action_shell_command
 from .commands import task_check_shell_command
+from agent_tools.tools.front_desk_bell import reset_workspace_pending_iterations
 from agent_tools.tools.task_context import filter_entries as _filter_task_context_entries
 from agent_tools.tools.task_context import load_entries as _load_task_context_entries
+from agent_tools.tools.task_context import load_slots as _load_task_context_slots
+from agent_tools.tools.task_context import render_slots as _render_task_context_slots
 from .tk_strings import AI_AGENT_BUTTON_LABELS as _AI_AGENT_BUTTON_LABELS
 from .tk_strings import tk_string
 
@@ -302,6 +307,9 @@ class AgentWorkspace:
             "Context",
             controls=self._task_context_controls,
         )
+        context_text.tag_bind("journal_link", "<Button-1>", self._on_context_entry_link_clicked)
+        context_text.tag_bind("journal_link", "<Enter>", lambda _event: context_text.configure(cursor="hand2"))
+        context_text.tag_bind("journal_link", "<Leave>", lambda _event: context_text.configure(cursor=""))
         self.notebook.add(frame, text="Details")
         self.root.after_idle(self._set_details_default_split)
         return description_text, context_text
@@ -438,13 +446,11 @@ class AgentWorkspace:
         task_iids: dict[str, str] = {}
         for index, task in enumerate(self.tasks):
             flags = []
-            if not task.has_description:
-                flags.append("missing desc")
             if not task.has_context:
                 flags.append("missing context db")
             if task.context_over_budget:
                 flags.append(f"context > {TASK_CONTEXT_BUDGET}")
-            details = f"desc {task.description_tokens}, context {task.context_tokens}"
+            details = f"context {task.context_tokens}"
             if flags:
                 details = f"{details}, {', '.join(flags)}"
             self.task_tree.insert(
@@ -472,8 +478,9 @@ class AgentWorkspace:
             self._set_task_tree_selection(self._selectable_task_iid(self.selected_task.name if self.selected_task else None))
             return
         self.selected_task = task
-        self._set_markdown(self.description_text, read_task_file(task, "TASK_DESCRIPTION.md"))
-        self._refresh_context_details()
+        if self._is_details_tab_selected():
+            self._set_markdown(self.description_text, _task_goal_slot_markdown(task))
+            self._refresh_context_details()
         self._reset_actions_tab(task)
         action_errors = self._load_task_action_buttons(task)
         messages = []
@@ -497,16 +504,11 @@ class AgentWorkspace:
                 self._set_markdown(self.context_text, "")
             return
         try:
-            entries = _filter_task_context_entries(
-                _load_task_context_entries(self.selected_task.path),
-                severity="mid..critical",
-                statuses=("active",),
-                newest_first=True,
-            )
-            body = render_task_context_details(
-                self.selected_task,
-                entries,
-                encoded=self.encoded_context_var.get(),
+            slots = _load_task_context_slots(self.selected_task.path)
+            body = _render_task_context_slots(
+                [slot for slot in slots if slot.category != "goal"],
+                format_name="agent" if self.encoded_context_var.get() else "markdown",
+                task_dir=self.selected_task.path,
             )
         except (OSError, ValueError) as exc:
             body = f"# Context Journal Error\n\n{exc}\n"
@@ -725,7 +727,7 @@ class AgentWorkspace:
         if self.selected_task is None:
             return
         if self._is_details_tab_selected():
-            self._set_markdown(self.description_text, read_task_file(self.selected_task, "TASK_DESCRIPTION.md"))
+            self._set_markdown(self.description_text, _task_goal_slot_markdown(self.selected_task))
             self._refresh_context_details()
         elif self._is_console_tab_selected():
             self.activate_console_for_task(self.selected_task)
@@ -767,8 +769,20 @@ class AgentWorkspace:
         codex_reasoning_var = tk.StringVar(value=self.default_codex_reasoning)
         claude_model_var = tk.StringVar(value=self.default_claude_model)
         claude_effort_var = tk.StringVar(value=self.default_claude_effort)
-        codex_model_values = model_choices_with_current(codex_model_choices(), self.default_codex_model)
-        claude_model_values = model_choices_with_current(AGENT_WORKSPACE_CLAUDE_MODELS, self.default_claude_model)
+        codex_available = agent_executable("codex") is not None
+        claude_available = agent_executable("claude") is not None
+        codex_models = codex_model_choices_info(use_cli=False) if codex_available else None
+        claude_models = claude_model_choices_info() if claude_available else None
+        codex_model_values = (
+            model_choices_with_current(codex_models.choices, self.default_codex_model)
+            if codex_models is not None
+            else ()
+        )
+        claude_model_values = (
+            model_choices_with_current(claude_models.choices, self.default_claude_model)
+            if claude_models is not None
+            else ()
+        )
 
         ttk.Label(frame, text="Text font size").grid(row=0, column=0, sticky=tk.W, pady=4)
         tk.Spinbox(
@@ -808,55 +822,53 @@ class AgentWorkspace:
             font=self.ui_font,
         )
         agent_combo.grid(row=3, column=1, sticky=tk.W, pady=4)
-        ttk.Label(frame, text="Codex model").grid(row=4, column=0, sticky=tk.W, pady=4)
-        ttk.Combobox(
-            frame,
-            values=codex_model_values,
-            textvariable=codex_model_var,
-            state="readonly",
-            width=22,
-            font=self.ui_font,
-        ).grid(
-            row=4,
-            column=1,
-            sticky=tk.W,
-            pady=4,
-        )
-        ttk.Label(frame, text="Codex reasoning").grid(row=5, column=0, sticky=tk.W, pady=4)
-        ttk.Combobox(
-            frame,
-            values=AGENT_WORKSPACE_REASONING_EFFORTS,
-            textvariable=codex_reasoning_var,
-            state="readonly",
-            width=10,
-            font=self.ui_font,
-        ).grid(row=5, column=1, sticky=tk.W, pady=4)
-        ttk.Label(frame, text="Claude model").grid(row=6, column=0, sticky=tk.W, pady=4)
-        ttk.Combobox(
-            frame,
-            values=claude_model_values,
-            textvariable=claude_model_var,
-            state="readonly",
-            width=22,
-            font=self.ui_font,
-        ).grid(
-            row=6,
-            column=1,
-            sticky=tk.W,
-            pady=4,
-        )
-        ttk.Label(frame, text="Claude effort").grid(row=7, column=0, sticky=tk.W, pady=4)
-        ttk.Combobox(
-            frame,
-            values=AGENT_WORKSPACE_REASONING_EFFORTS,
-            textvariable=claude_effort_var,
-            state="readonly",
-            width=10,
-            font=self.ui_font,
-        ).grid(row=7, column=1, sticky=tk.W, pady=4)
+        row = 4
+        if codex_models is not None:
+            ttk.Label(frame, text="Codex model").grid(row=row, column=0, sticky=tk.W, pady=4)
+            codex_model_combo = ttk.Combobox(
+                frame,
+                values=codex_model_values,
+                textvariable=codex_model_var,
+                state="readonly",
+                width=22,
+                font=self.ui_font,
+            )
+            codex_model_combo.grid(row=row, column=1, sticky=tk.W, pady=4)
+            row += 1
+            ttk.Label(frame, text="Codex reasoning").grid(row=row, column=0, sticky=tk.W, pady=4)
+            ttk.Combobox(
+                frame,
+                values=AGENT_WORKSPACE_REASONING_EFFORTS,
+                textvariable=codex_reasoning_var,
+                state="readonly",
+                width=10,
+                font=self.ui_font,
+            ).grid(row=row, column=1, sticky=tk.W, pady=4)
+            row += 1
+        if claude_models is not None:
+            ttk.Label(frame, text="Claude model").grid(row=row, column=0, sticky=tk.W, pady=4)
+            ttk.Combobox(
+                frame,
+                values=claude_model_values,
+                textvariable=claude_model_var,
+                state="readonly",
+                width=22,
+                font=self.ui_font,
+            ).grid(row=row, column=1, sticky=tk.W, pady=4)
+            row += 1
+            ttk.Label(frame, text="Claude effort").grid(row=row, column=0, sticky=tk.W, pady=4)
+            ttk.Combobox(
+                frame,
+                values=AGENT_WORKSPACE_REASONING_EFFORTS,
+                textvariable=claude_effort_var,
+                state="readonly",
+                width=10,
+                font=self.ui_font,
+            ).grid(row=row, column=1, sticky=tk.W, pady=4)
+            row += 1
 
         buttons = ttk.Frame(frame)
-        buttons.grid(row=8, column=0, columnspan=2, sticky=tk.E, pady=(10, 0))
+        buttons.grid(row=row, column=0, columnspan=2, sticky=tk.E, pady=(10, 0))
         ttk.Button(
             buttons,
             text=tk_string("apply"),
@@ -887,6 +899,19 @@ class AgentWorkspace:
             ),
         ).pack(side=tk.LEFT, padx=2)
         ttk.Button(buttons, text=tk_string("cancel"), command=window.destroy).pack(side=tk.LEFT, padx=2)
+        if codex_models is not None:
+            def refresh_codex_models() -> None:
+                info = codex_model_choices_info(use_cli=True)
+
+                def apply_codex_models() -> None:
+                    if not window.winfo_exists():
+                        return
+                    current = codex_model_var.get().strip()
+                    codex_model_combo.configure(values=model_choices_with_current(info.choices, current))
+
+                self.root.after(0, apply_codex_models)
+
+            threading.Thread(target=refresh_codex_models, daemon=True).start()
 
     def _close_settings(
         self,
@@ -1166,6 +1191,8 @@ class AgentWorkspace:
             inject_task_context=self.inject_task_context_prompt,
             include_task_check=True,
         )
+        run_id = new_agent_session_id()
+        env = ai_agent_environment(os.environ.copy(), task, self.workspace, agent, launch.session_state, run_id=run_id)
         self._update_ai_agent_button_label()
         self._refresh_task_session_indicators()
         for session in self._current_task_console_sessions(task):
@@ -1181,6 +1208,8 @@ class AgentWorkspace:
             command=launch.command,
             cwd=self.workspace,
             title_prefix=agent,
+            env=env,
+            run_id=run_id,
         )
 
     def _update_ai_agent_button_label(self) -> None:
@@ -1492,6 +1521,8 @@ class AgentWorkspace:
         command: list[str],
         cwd: Path,
         title_prefix: str,
+        env: dict[str, str] | None = None,
+        run_id: str | None = None,
     ) -> int | None:
         session_id = self.next_console_id
         self.next_console_id += 1
@@ -1508,8 +1539,10 @@ class AgentWorkspace:
                 theme=self.theme,
             ),
             cwd=self.workspace,
+            env=env,
             close_fds=True,
         )
+        session_run_id = run_id if session_is_agent(session_kind=title_prefix) else None
         session = ConsoleSession(
             session_id=session_id,
             title=title_prefix,
@@ -1520,8 +1553,12 @@ class AgentWorkspace:
             process=process,
             fd=None,
             chunks=[],
+            busy=session_is_agent(session_kind=title_prefix),
+            run_id=session_run_id,
         )
         self.console_sessions[session_id] = session
+        if session.run_id is not None:
+            save_task_active_agent_run(task, title_prefix, session.run_id)
         self._renumber_console_tabs(task)
         if self.selected_task is not None and self.selected_task.path == task.path:
             self._show_console_tab(session)
@@ -1536,6 +1573,7 @@ class AgentWorkspace:
         env: dict[str, str],
         title_prefix: str,
         startup_text: str,
+        run_id: str | None = None,
     ) -> int | None:
         try:
             master_fd, slave_fd = pty.openpty()
@@ -1580,7 +1618,7 @@ class AgentWorkspace:
             fd=master_fd,
             chunks=[ConsoleChunk(startup_text, ())],
             busy=session_is_agent(session_kind=title_prefix),
-            run_id=new_agent_session_id() if session_is_agent(session_kind=title_prefix) else None,
+            run_id=run_id if session_is_agent(session_kind=title_prefix) else None,
         )
         self.console_sessions[session_id] = session
         if session.run_id is not None:
@@ -1917,6 +1955,9 @@ class AgentWorkspace:
             return
         session.chunks.extend(chunks)
         if session_is_agent(session_kind=session.kind):
+            if hasattr(self, "tasks") and hasattr(self, "workspace"):
+                task = self._task_for_path(session.task_path)
+                reconcile_task_agent_run_session(task, self.workspace, session.kind, session.run_id)
             text = self._agent_session_output_tail(session)
             analysis = analyze_agent_output(text)
             if (
@@ -2028,7 +2069,49 @@ class AgentWorkspace:
         widget.delete("1.0", tk.END)
         for chunk in render_markdown_chunks(text):
             widget.insert(tk.END, chunk.text, chunk.tag)
+        if widget is getattr(self, "context_text", None):
+            self._mark_context_entry_links(widget)
         widget.configure(state=tk.DISABLED)
+
+    def _mark_context_entry_links(self, widget: tk.Text) -> None:
+        widget.tag_remove("journal_link", "1.0", tk.END)
+        text = widget.get("1.0", tk.END)
+        for match in re.finditer(r"(?<![\w/-])#(\d+)\b", text):
+            start = f"1.0+{match.start()}c"
+            end = f"1.0+{match.end()}c"
+            widget.tag_add("journal_link", start, end)
+
+    def _on_context_entry_link_clicked(self, event: tk.Event[tk.Misc]) -> str:
+        widget = event.widget
+        if not isinstance(widget, tk.Text):
+            return "break"
+        index = widget.index(f"@{event.x},{event.y}")
+        entry_id = _context_entry_reference_at_index(widget, index)
+        if entry_id is not None:
+            self._scroll_context_text_to_entry(entry_id)
+        return "break"
+
+    def _scroll_context_text_to_entry(self, entry_id: int, *, allow_refilter: bool = True) -> bool:
+        widget = self.context_text
+        text = widget.get("1.0", tk.END)
+        for pattern in (rf"(?m)^\| #{entry_id} \[", rf"(?m)^#{entry_id} \["):
+            match = re.search(pattern, text)
+            if match is None:
+                continue
+            start = f"1.0+{match.start()}c"
+            end = f"1.0+{match.start() + len(f'#{entry_id}')}c"
+            widget.configure(state=tk.NORMAL)
+            widget.tag_remove(tk.SEL, "1.0", tk.END)
+            widget.tag_add(tk.SEL, start, end)
+            widget.see(start)
+            widget.configure(state=tk.DISABLED)
+            return True
+        if allow_refilter and self._show_context_entry_in_full_journal(entry_id):
+            return self._scroll_context_text_to_entry(entry_id, allow_refilter=False)
+        return False
+
+    def _show_context_entry_in_full_journal(self, entry_id: int) -> bool:
+        return False
 
     def _configure_text_tags(self, widget: tk.Text) -> None:
         widget.configure(font=self.text_font)
@@ -2039,6 +2122,7 @@ class AgentWorkspace:
         widget.tag_configure("code", font=self.fixed_font, lmargin1=12, lmargin2=12)
         widget.tag_configure("table", font=self.fixed_font)
         widget.tag_configure("paragraph", spacing1=1, spacing3=2)
+        widget.tag_configure("journal_link", foreground="#0b5cad", underline=True)
 
     def _configure_console_tags(self, widget: tk.Text) -> None:
         widget.tag_configure("console_bold", font=self.fixed_font)
@@ -2312,6 +2396,25 @@ def console_paste_text(text: str) -> str:
     return " ".join(line.strip() for line in lines if line.strip())
 
 
+def _task_goal_slot_markdown(task: TaskSummary) -> str:
+    slots = _load_task_context_slots(task.path, ("goal",))
+    if slots:
+        return _render_task_context_slots(slots, format_name="markdown", task_dir=task.path)
+    return "# Goal\n\n- Empty.\n"
+
+
+def _context_entry_reference_at_index(widget: tk.Text, index: str) -> int | None:
+    text = widget.get("1.0", tk.END)
+    offset_count = widget.count("1.0", index, "chars")
+    if not offset_count:
+        return None
+    offset = int(offset_count[0])
+    for match in re.finditer(r"(?<![\w/-])#(\d+)\b", text):
+        if match.start() <= offset <= match.end():
+            return int(match.group(1))
+    return None
+
+
 def _tk_control_shortcut(event: tk.Event[tk.Misc]) -> str | None:
     state = int(getattr(event, "state", 0))
     if not (state & 0x4):
@@ -2419,6 +2522,7 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     workspace = Path(args.workspace)
     install_agent_workspace_exception_logger(workspace, "tk")
+    reset_workspace_pending_iterations(workspace)
 
     root = tk.Tk()
 

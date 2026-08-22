@@ -30,15 +30,19 @@ class ReportJsonTests(unittest.TestCase):
                     {"label": "VSR rows", "value": 115, "status": "covered_candidate"},
                     {"label": "Risks", "value": 4, "status": "risk", "note": "Security first pass"},
                 ],
-                "status_cards": [
-                    {
-                        "title": "security",
-                        "status": "risk",
-                        "body": "SELinux and KeyMint need production evidence.",
-                        "metrics": [{"label": "rows", "value": 10}],
-                        "links": [{"label": "Security pass", "href": "../domains/security/VSR_SECURITY_PASS.md"}],
-                    }
-                ],
+                "status_cards": {
+                    "title": "Processing progress",
+                    "note": "AI processing status of the analysis pipeline.",
+                    "cards": [
+                        {
+                            "title": "security",
+                            "status": "risk",
+                            "body": "SELinux and KeyMint need production evidence.",
+                            "metrics": [{"label": "rows", "value": 10}],
+                            "links": [{"label": "Security pass", "href": "../domains/security/VSR_SECURITY_PASS.md"}],
+                        }
+                    ],
+                },
                 "heatmaps": [
                     {
                         "title": "Domain Heatmap",
@@ -131,6 +135,10 @@ class ReportJsonTests(unittest.TestCase):
             "VSR rows",
             "Security first pass",
             "report-card status-risk",
+            "<h2>Processing progress</h2>",
+            "report-status-cards-note",
+            "AI processing status of the analysis pipeline.",
+            '<a href="#report-status-cards">Processing progress</a>',
             "SELinux and KeyMint need production evidence.",
             "Domain Heatmap",
             "report-heatmap-cell status-risk",
@@ -147,7 +155,6 @@ class ReportJsonTests(unittest.TestCase):
             'data-relationship-close',
             'data-relationship-graph-data',
             'data-relationship-node-count',
-            "relationship-canvas-controls",
             "relationship-selection-table",
             "data-relationship-selection-body",
             "data-relationship-selection-count",
@@ -172,8 +179,6 @@ class ReportJsonTests(unittest.TestCase):
             "function focusChoiceRank(node, state)",
             "function focusChoiceGroupKey(node, state, degrees)",
             "function focusChoiceGroupLabel(node, state, degrees, count)",
-            "function isNodeAvailableInFocus(node, state)",
-            "function availableTypesForFocus(state)",
             "function childLayerSubfilterTypes(state)",
             "function visibleNodeDegreeMap(state)",
             "function visibleNodeDegree(node, state, degrees)",
@@ -205,9 +210,9 @@ class ReportJsonTests(unittest.TestCase):
             "function pushNavigationSnapshot(state)",
             "state.backStack.push(navigationSnapshot(state));",
             "state.forwardStack.push(navigationSnapshot(state));",
-            "syncGraphControls(browser, state)",
             "function selectTableNode(browser, state, nodeId)",
-            "if (recordHistory) {",
+            "const resetTypes = Boolean(options && options.resetTypes);",
+            "if (resetTypes) {",
             "enableAllEntityTypes(browser, state);",
             'selectTableNode(browser, state, tableRow.getAttribute("data-relationship-table-node"));',
             "state.visibleNodeIds = new Set(graph.nodes.map((node) => node.id));",
@@ -238,12 +243,10 @@ class ReportJsonTests(unittest.TestCase):
             'browser.querySelectorAll("[data-relationship-page-prev]").forEach((pagePrev) => {',
             'browser.querySelectorAll("[data-relationship-page-next]").forEach((pageNext) => {',
             "function traversalConfig(rawTraversal)",
-            "function rawTraversalConfig(types)",
             "function activeTraversal(state)",
             "DEFAULT_TYPE_RANKS",
             "type_ranks",
             "focused_context",
-            'ignoreFallback: true',
             "DEFAULT_TERMINAL_TYPES",
             "terminal_types",
             "pass_through_types",
@@ -251,6 +254,49 @@ class ReportJsonTests(unittest.TestCase):
             "relation_traversal",
             "relationTraversal",
             "function renderFailureStats(stats)",
+            "data-relationship-status-filter",
+            "function createStatusFilter(nodes, defaults)",
+            "function serializeStatusFilter(state)",
+            "function restoreStatusFilter(state, snapshot)",
+            "function statusFilterValues(state)",
+            "function isStatusValueEnabled(state, value)",
+            "function setStatusValueEnabled(state, value, enabled)",
+            "function renderStatusFilter(browser, state)",
+            "data-relationship-status-value",
+            "data-relationship-status-all",
+            "relationship-status-all",
+            "allCheckbox.indeterminate = enabledCount > 0 && enabledCount < values.length;",
+            "relationship-status-chip",
+            "data-relationship-focus-type",
+            "data-relationship-focus-scope",
+            "relationship-cell-scope",
+            ">only visible<",
+            "function focusAncestorIds(state)",
+            "function graphRootId(state)",
+            "if (!value) continue;",
+            "if (state && state.selectedId && node.id === state.selectedId) return true;",
+            "const rootId = graphRootId(state);",
+            "if (selectedId && node.id === selectedId) return true;",
+            "function focusScopeIds(state)",
+            "function focusContent(state)",
+            "function traversalRank(state, node)",
+            "state.focusInGraphOnly",
+            "shortText(node.label || node.id, 90)",
+            "function renderFocusTypeSelect(browser, state)",
+            "function typeNodeCount(state, type)",
+            "function typeFocusTotal(state, type)",
+            "function hiddenByFiltersCount(state)",
+            "Only the focus is drawn:",
+            "function activeFilterCount(state)",
+            "data-relationship-filters",
+            "data-relationship-filters-body",
+            "data-relationship-filters-summary",
+            ">Layers</span>",
+            "data-relationship-type-visible",
+            "data-relationship-type-in-focus",
+            "relationship-control-bar",
+            "if (!activeTypes.length) disclosure.open = false;",
+            "label.hidden = !available;",
             "Failed Test Statistics",
             "function openRelationshipFocus(trigger, nodeId)",
             'document.querySelectorAll("[data-relationship-open-focus]")',
@@ -258,23 +304,14 @@ class ReportJsonTests(unittest.TestCase):
             "function openRelationshipModal(modal)",
             "function closeRelationshipModal(modal)",
             "enabledTypes: new Set(graphTypes(graph.nodes))",
-            'traversalMode: "scoped"',
             "graphInteractive: false",
             'canvas.addEventListener("pointerdown"',
             'canvasWrap.addEventListener("pointerdown"',
             "function releaseGraphFocus(browser, state)",
-            "function updateCanvasControlsPosition(browser, state)",
-            "function scheduleCanvasControlsPosition(browser, state)",
-            "canvasControlsFrame: 0",
-            'canvasControlsSignature: ""',
-            "state.canvasControlsSignature === signature",
-            'controls.style.position = "fixed";',
-            "controls.style.top = `${top.toFixed(2)}px`;",
             'detail.addEventListener("pointerdown", releaseFromDetail, {capture: true, passive: true});',
             'detail.addEventListener("scroll", releaseFromDetail, {passive: true});',
             'browser.addEventListener("wheel", releaseFromBrowserDetail, {capture: true, passive: true});',
             'explorer.addEventListener("scroll", handleExplorerScroll, {passive: true});',
-            "scheduleCanvasControlsPosition(browser, state)",
             'setGraphInteractive(browser, state, false);',
             "search.addEventListener(\"keydown\"",
             "selectNode(browser, state, matches[0].id, false)",
@@ -328,6 +365,8 @@ class ReportJsonTests(unittest.TestCase):
             'target.scrollIntoView({block: "start", inline: "nearest"});',
             "function isSecondaryEdge(edge)",
             "function buildNeighborhood(selectedId, nodesById, edges, adjacency, nodeVisible, traversal, includeSecondaryLinks)",
+            "const shownDescendants = visibleDescendants.concat(secondaryDescendants);",
+            "Draw the first visible child frontier only.",
             "data-relationship-secondary-links",
             "Shortcuts",
             "data-relationship-page-controls",
@@ -349,6 +388,10 @@ class ReportJsonTests(unittest.TestCase):
     def test_validates_widget_shapes(self) -> None:
         invalid_payloads = [
             ({"title": "Broken", "metrics": {}}, "report.metrics must be a list"),
+            (
+                {"title": "Broken", "status_cards": {"title": 5, "cards": []}},
+                "report.status_cards.title must be a string",
+            ),
             (
                 {"title": "Broken", "status_cards": [{"status": "risk"}]},
                 "report.status_cards[0].title is required",
@@ -414,6 +457,150 @@ class ReportJsonTests(unittest.TestCase):
                     },
                 },
                 "report.relationship_graph.traversal.relation_traversal values must be both, forward, reverse, none, or fallback",
+            ),
+        ]
+        for payload, message in invalid_payloads:
+            with self.subTest(message=message):
+                with self.assertRaisesRegex(DiffReportError, re.escape(message)):
+                    report_from_payload(payload)
+
+    def test_renders_metric_tables_with_graph_views(self) -> None:
+        payload = {
+            "title": "Dashboard",
+            "metric_tables": [
+                {
+                    "title": "Metrics",
+                    "note": "Passed and failed items per entity type.",
+                    "columns": [
+                        {"key": "name", "label": "Name"},
+                        {"key": "passed", "label": "Passed items"},
+                        {"key": "failed", "label": "Failed items"},
+                    ],
+                    "rows": [
+                        {
+                            "cells": {
+                                "name": {
+                                    "text": "CDD",
+                                    "graph_view": {
+                                        "focus": "product:gen5",
+                                        "types": ["product", "cdd"],
+                                        "target_type": "cdd",
+                                        "label": "Product to CDD",
+                                    },
+                                },
+                                "passed": {
+                                    "text": "12 · 10.4%",
+                                    "status": "pass",
+                                    "graph_view": {
+                                        "focus": "product:gen5",
+                                        "types": ["product", "cdd"],
+                                        "target_type": "cdd",
+                                        "filters": {"cdd": {"status": ["covered_candidate"]}},
+                                    },
+                                },
+                                "failed": {"text": "0 · 0.0%", "status": "fail", "note": "no reviewed gap"},
+                            }
+                        }
+                    ],
+                },
+                {
+                    "title": "Per domain metrics",
+                    "columns": ["name", {"key": "cdd_passed", "label": "CDD", "sublabel": "passed · failed"}],
+                    "rows": [{"cells": {"name": "graphics", "cdd_passed": 4}}],
+                },
+            ],
+            "relationship_graph": {
+                "title": "Traceability",
+                "nodes": [
+                    {"id": "product:gen5", "type": "product", "label": "Gen5"},
+                    {"id": "cdd:1", "type": "cdd", "label": "CDD 1", "status": "covered_candidate"},
+                ],
+                "edges": [{"source": "product:gen5", "target": "cdd:1", "relation": "product_contains_cdd"}],
+            },
+        }
+
+        html = render_report_json_html(report_from_payload(payload))
+
+        expected = [
+            'id="report-metric-tables"',
+            'id="report-metric-table-2"',
+            "report-metric-table-note",
+            "Passed and failed items per entity type.",
+            "<th>Passed items</th>",
+            '<small class="report-metric-table-sublabel">passed · failed</small>',
+            "report-metric-table-sublabel",
+            '<th scope="row">',
+            'class="status-pass"',
+            "report-metric-cell-link",
+            "data-relationship-open-view=",
+            "&quot;focus&quot;: &quot;product:gen5&quot;",
+            "&quot;target_type&quot;: &quot;cdd&quot;",
+            "report-metric-cell-note",
+            "<a href=\"#report-metric-tables\">Metrics</a>",
+            "<a href=\"#report-metric-table-2\">Per domain metrics</a>",
+            "function applyRelationshipViewFilters(state, filters)",
+            "function applyRelationshipView(browser, state, view)",
+            "function openRelationshipView(trigger, view)",
+            'document.querySelectorAll("[data-relationship-open-view]")',
+            "state.typeSearchType = targetType;",
+        ]
+        for fragment in expected:
+            with self.subTest(fragment=fragment):
+                self.assertIn(fragment, html)
+        self.assertIn(">graphics<", html)
+        self.assertIn(">4<", html)
+
+    def test_validates_metric_table_shapes(self) -> None:
+        invalid_payloads = [
+            ({"title": "Broken", "metric_tables": "x"}, "report.metric_tables must be a list"),
+            (
+                {"title": "Broken", "metric_tables": [{"title": "M", "columns": []}]},
+                "report.metric_tables[0].columns must contain at least one column",
+            ),
+            (
+                {"title": "Broken", "metric_tables": [{"columns": ["name"], "rows": ["bad"]}]},
+                "report.metric_tables[0].rows[0] must be an object",
+            ),
+            (
+                {
+                    "title": "Broken",
+                    "metric_tables": [
+                        {"columns": ["name"], "rows": [{"cells": {"name": {"graph_view": {"types": ["cdd"]}}}}]}
+                    ],
+                },
+                "report.metric_tables[0].rows[0].cells.name.graph_view.focus is required",
+            ),
+            (
+                {
+                    "title": "Broken",
+                    "metric_tables": [
+                        {
+                            "columns": ["name"],
+                            "rows": [{"cells": {"name": {"graph_view": {"focus": "a", "types": "cdd"}}}}],
+                        }
+                    ],
+                },
+                "report.metric_tables[0].rows[0].cells.name.graph_view.types must be a string list",
+            ),
+            (
+                {
+                    "title": "Broken",
+                    "metric_tables": [
+                        {
+                            "columns": ["name"],
+                            "rows": [
+                                {
+                                    "cells": {
+                                        "name": {
+                                            "graph_view": {"focus": "a", "filters": {"cdd": {"status": "pass"}}}
+                                        }
+                                    }
+                                }
+                            ],
+                        }
+                    ],
+                },
+                "report.metric_tables[0].rows[0].cells.name.graph_view.filters.cdd.status must be a string list",
             ),
         ]
         for payload, message in invalid_payloads:

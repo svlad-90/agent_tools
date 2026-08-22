@@ -18,6 +18,10 @@ from paf_workspace.domains.environments.tasks.act import ensure_zephyr_xenlib_ac
 from paf_workspace.domains.environments.tasks.act import validate_agent_tools_act
 from paf_workspace.domains.environments.tasks.act import validate_moulin_act
 from paf_workspace.domains.environments.tasks.act import validate_zephyr_xenlib_act
+from paf_workspace.domains.environments.tasks.agent_workspace import check_agent_workspace_tests_image
+from paf_workspace.domains.environments.tasks.agent_workspace import check_agent_workspace_tests_tools
+from paf_workspace.domains.environments.tasks.agent_workspace import ensure_agent_workspace_tests_image
+from paf_workspace.domains.environments.tasks.agent_workspace import run_agent_workspace_tests
 from paf_workspace.domains.environments.tasks.base import EnvironmentTask
 from paf_workspace.domains.environments.tasks.base import check_cpp_code_map_tools
 from paf_workspace.domains.environments.tasks.base import check_environment_image
@@ -35,6 +39,10 @@ __all__ = [
     "check_workspace_tool_baseline",
     "check_cpp_code_map_tools",
     "run_container_command",
+    "ensure_agent_workspace_tests_image",
+    "check_agent_workspace_tests_image",
+    "check_agent_workspace_tests_tools",
+    "run_agent_workspace_tests",
     "ensure_agent_tools_act_image",
     "check_agent_tools_act_image",
     "ensure_moulin_act_image",

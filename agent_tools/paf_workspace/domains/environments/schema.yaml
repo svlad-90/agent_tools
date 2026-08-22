@@ -57,6 +57,19 @@ properties:
             type: string
             default: host
         additionalProperties: false
+      agent_workspace_tests:
+        type: object
+        properties:
+          image:
+            type: string
+            default: agent-workspace-tests
+          container:
+            type: string
+            default: agent-workspace-tests-workspace
+          build_network:
+            type: string
+            default: host
+        additionalProperties: false
       moulin_act:
         type: object
         properties:

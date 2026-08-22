@@ -6,6 +6,11 @@ on:
       - ".github/workflows/install-agent-tools.yml"
       - "install-agent-tools.py"
       - "agent-workspace.sh"
+      - "agent-workspace-web.sh"
+      - "agent-workspace.command"
+      - "agent-workspace-web.command"
+      - "agent-workspace.cmd"
+      - "agent-workspace-web.cmd"
       - "agent_tools/tools/requirements/**"
       - "agent_tools/tools/agent_workspace/**"
       - "agent_tools/tools/task_context/**"
@@ -17,6 +22,11 @@ on:
       - ".github/workflows/install-agent-tools.yml"
       - "install-agent-tools.py"
       - "agent-workspace.sh"
+      - "agent-workspace-web.sh"
+      - "agent-workspace.command"
+      - "agent-workspace-web.command"
+      - "agent-workspace.cmd"
+      - "agent-workspace-web.cmd"
       - "agent_tools/tools/requirements/**"
       - "agent_tools/tools/agent_workspace/**"
       - "agent_tools/tools/task_context/**"
@@ -69,6 +79,61 @@ jobs:
               agent_tools/.venv/bin/python -m agent_tools.tools.rules_sync sync --check
               agent_tools/.venv/bin/python -m pytest -q agent_tools/tools/task_context/tests/test_task_context.py
             '
+
+  portable-install:
+    name: portable install (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - macos-latest
+          - windows-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install workspace without GTK system packages
+        run: python install-agent-tools.py --dev --skip-system-deps --no-desktop
+
+      - name: Smoke web/service imports on macOS
+        if: runner.os == 'macOS'
+        run: agent_tools/.venv/bin/python -c "import agent_tools.tools.agent_workspace.service; import agent_tools.tools.agent_workspace.web_ui"
+
+      - name: Smoke web/service imports on Windows
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: agent_tools/.venv/Scripts/python.exe -c "import agent_tools.tools.agent_workspace.service; import agent_tools.tools.agent_workspace.web_ui"
+
+      - name: Run portable headless tests on macOS
+        if: runner.os == 'macOS'
+        run: agent_tools/.venv/bin/python -m pytest -q agent_tools/tools/agent_workspace/tests/test_agent_workspace_headless.py agent_tools/tools/task_context/tests/test_task_context.py
+
+      - name: Run portable headless tests on Windows
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: agent_tools/.venv/Scripts/python.exe -m pytest -q agent_tools/tools/agent_workspace/tests/test_agent_workspace_headless.py agent_tools/tools/task_context/tests/test_task_context.py
+
+      - name: Check macOS launchers
+        if: runner.os == 'macOS'
+        run: |
+          grep -q -- "--ui web" agent-workspace.command
+          grep -q -- "--ui web" agent-workspace-web.command
+          test -x agent-workspace.command
+          test -x agent-workspace-web.command
+
+      - name: Check Windows launchers
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          if (-not (Select-String -Path agent-workspace.cmd -Pattern "--ui web" -Quiet)) { throw "agent-workspace.cmd does not force web UI" }
+          if (-not (Select-String -Path agent-workspace-web.cmd -Pattern "--ui web" -Quiet)) { throw "agent-workspace-web.cmd does not force web UI" }
 
   gui-system-packages:
     name: gui packages (${{ matrix.distro }})

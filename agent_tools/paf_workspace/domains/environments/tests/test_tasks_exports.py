@@ -8,3 +8,10 @@ def test_run_container_command_is_exported_from_compat_module() -> None:
     from paf_workspace.domains.environments.tasks import run_container_command
 
     assert run_container_command.__name__ == "run_container_command"
+
+
+def test_run_agent_workspace_tests_is_exported_from_compat_module() -> None:
+    pytest.importorskip("paf.paf_impl")
+    from paf_workspace.domains.environments.tasks import run_agent_workspace_tests
+
+    assert run_agent_workspace_tests.__name__ == "run_agent_workspace_tests"

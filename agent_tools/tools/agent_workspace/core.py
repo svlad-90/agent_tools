@@ -3,7 +3,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime
 import faulthandler
-import fcntl
 import io
 import json
 import os
@@ -18,6 +17,11 @@ import time
 import traceback
 from typing import Any
 import uuid
+
+try:
+    import fcntl
+except ImportError:  # pragma: no cover - exercised on Windows runners.
+    fcntl = None
 
 from agent_tools.paf_workspace.task_check import check_task
 from agent_tools.paf_workspace.task_check import render_text
@@ -35,8 +39,10 @@ from agent_tools.tools.task_context import TaskDictionaryPolicy
 from agent_tools.tools.task_context import filter_entries as filter_task_context_entries
 from agent_tools.tools.task_context import load_dictionary as load_task_context_dictionary
 from agent_tools.tools.task_context import load_entries as load_task_context_entries
+from agent_tools.tools.task_context import load_slots as load_task_context_slots
 from agent_tools.tools.task_context import render_agent_entries as render_agent_context_entries
 from agent_tools.tools.task_context import render_entries as render_task_context_entries
+from agent_tools.tools.task_context import render_slots as render_task_context_slots
 
 from .workspace_strings import AGENT_STATUS_MANUAL_ENTRIES
 from .workspace_strings import AGENT_STATUS_MANUAL_MENU_LABEL
@@ -69,7 +75,6 @@ AGENT_WORKSPACE_DEFAULT_CLAUDE_MODEL = "sonnet"
 AGENT_WORKSPACE_DEFAULT_CLAUDE_EFFORT = "medium"
 AGENT_WORKSPACE_DEFAULT_CLAUDE_PERMISSION_MODE = "auto"
 AGENT_WORKSPACE_CODEX_MODEL_FALLBACKS = (
-    "",
     "gpt-5.6-sol",
     "gpt-5.6-sol-wm",
     "gpt-5.6-terra",
@@ -79,8 +84,8 @@ AGENT_WORKSPACE_CODEX_MODEL_FALLBACKS = (
     "gpt-5.4-mini",
     "gpt-5.3-codex-spark",
 )
-AGENT_WORKSPACE_CLAUDE_MODELS = ("", "sonnet", "opus", "fable")
-AGENT_WORKSPACE_REASONING_EFFORTS = ("", "low", "medium", "high", "xhigh", "max")
+AGENT_WORKSPACE_CLAUDE_MODELS = ("sonnet", "opus")
+AGENT_WORKSPACE_REASONING_EFFORTS = ("low", "medium", "high", "xhigh", "max")
 AGENT_WORKSPACE_AGENT_LABELS = {
     "codex": "Codex",
     "claude": "Claude Code",
@@ -208,6 +213,12 @@ class AgentModelSettings:
 
 
 @dataclass(frozen=True)
+class AgentModelChoices:
+    choices: tuple[str, ...]
+    source: str
+
+
+@dataclass(frozen=True)
 class AgentLaunchCommand:
     command: list[str]
     session_state: AgentSessionState
@@ -264,6 +275,8 @@ def agent_workspace_lock_path(workspace: Path) -> Path:
 
 
 def acquire_agent_workspace_lock(workspace: Path) -> io.TextIOWrapper | None:
+    if fcntl is None:
+        return None
     lock_path = agent_workspace_lock_path(workspace)
     try:
         handle = lock_path.open("w", encoding="utf-8")
@@ -441,13 +454,15 @@ def discover_tasks(workspace: Path) -> list[TaskSummary]:
         _candidate_task_dirs(workspace),
         key=lambda candidate: candidate.name.casefold(),
     ):
-        description_path = path / "TASK_DESCRIPTION.md"
         context_path = path / TASK_CONTEXT_DATABASE_FILE
-        has_description = description_path.is_file()
+        legacy_description_path = path / "TASK_DESCRIPTION.md"
+        legacy_context_path = path / "TASK_CONTEXT.md"
+        has_description = True
         has_context = context_path.is_file()
-        if not has_description and not has_context:
+        has_legacy_context = legacy_description_path.is_file() or legacy_context_path.is_file()
+        if not has_context and not has_legacy_context:
             continue
-        description_tokens = _file_tokens(description_path) if has_description else 0
+        description_tokens = 0
         context_tokens = _active_task_context_tokens(path) if has_context else 0
         tasks.append(
             TaskSummary(
@@ -524,24 +539,130 @@ def agent_install_command(agent: str) -> str:
     return AGENT_WORKSPACE_AGENT_INSTALL_COMMANDS.get(agent, "")
 
 
-def codex_model_choices(cache_path: Path | None = None) -> tuple[str, ...]:
+def codex_model_choices_info(
+    cache_path: Path | None = None,
+    *,
+    use_cli: bool = True,
+    timeout: float = 5.0,
+) -> AgentModelChoices:
+    if use_cli:
+        choices = _codex_model_choices_from_cli(timeout=timeout)
+        if choices is not None:
+            return AgentModelChoices(choices, "Codex CLI: codex debug models")
     path = cache_path or (Path.home() / ".codex" / "models_cache.json")
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
-        return AGENT_WORKSPACE_CODEX_MODEL_FALLBACKS
+        return AgentModelChoices(AGENT_WORKSPACE_CODEX_MODEL_FALLBACKS, "fallback")
+    choices = _model_choices_from_catalog(data)
+    if choices is None:
+        return AgentModelChoices(AGENT_WORKSPACE_CODEX_MODEL_FALLBACKS, "fallback")
+    return AgentModelChoices(choices, f"Codex cache: {path}")
+
+
+def codex_model_choices(cache_path: Path | None = None) -> tuple[str, ...]:
+    return codex_model_choices_info(cache_path, use_cli=cache_path is None).choices
+
+
+def claude_model_choices_info() -> AgentModelChoices:
+    configured = _claude_configured_model_choices()
+    if len(configured) > 1:
+        return AgentModelChoices(
+            _unique_model_choices((*configured, *AGENT_WORKSPACE_CLAUDE_MODELS)),
+            "Claude settings",
+        )
+    if agent_executable("claude") is not None:
+        return AgentModelChoices(AGENT_WORKSPACE_CLAUDE_MODELS, "Claude CLI installed")
+    return AgentModelChoices(AGENT_WORKSPACE_CLAUDE_MODELS, "fallback")
+
+
+def claude_model_choices() -> tuple[str, ...]:
+    return claude_model_choices_info().choices
+
+
+def _codex_model_choices_from_cli(*, timeout: float) -> tuple[str, ...] | None:
+    executable = agent_executable("codex")
+    if executable is None:
+        return None
+    try:
+        result = subprocess.run(
+            [executable, "debug", "models"],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if result.returncode != 0:
+        return None
+    data = _json_object_from_output(f"{result.stdout}\n{result.stderr}")
+    if data is None:
+        return None
+    return _model_choices_from_catalog(data)
+
+
+def _model_choices_from_catalog(data: object) -> tuple[str, ...] | None:
+    if not isinstance(data, dict):
+        return None
     models = data.get("models")
     if not isinstance(models, list):
-        return AGENT_WORKSPACE_CODEX_MODEL_FALLBACKS
-    choices = [""]
+        return None
+    choices: list[str] = []
     for model in models:
         if not isinstance(model, dict):
             continue
         slug = model.get("slug")
         if isinstance(slug, str) and slug and slug not in choices:
             choices.append(slug)
-    if len(choices) == 1:
-        return AGENT_WORKSPACE_CODEX_MODEL_FALLBACKS
+    if not choices:
+        return None
+    return tuple(choices)
+
+
+def _json_object_from_output(output: str) -> object | None:
+    start = output.find("{")
+    end = output.rfind("}")
+    if start < 0 or end < start:
+        return None
+    try:
+        return json.loads(output[start : end + 1])
+    except json.JSONDecodeError:
+        return None
+
+
+def _claude_configured_model_choices() -> tuple[str, ...]:
+    values: list[str] = []
+    for path in (Path.home() / ".claude" / "settings.json", Path.home() / ".claude" / "remote-settings.json"):
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            continue
+        values.extend(_model_strings_from_settings(data))
+    return _unique_model_choices(tuple(values))
+
+
+def _model_strings_from_settings(data: object) -> tuple[str, ...]:
+    values: list[str] = []
+    if isinstance(data, dict):
+        for key, value in data.items():
+            if isinstance(key, str) and "model" in key.casefold() and isinstance(value, str):
+                normalized = value.strip()
+                if normalized:
+                    values.append(normalized)
+            values.extend(_model_strings_from_settings(value))
+    elif isinstance(data, list):
+        for item in data:
+            values.extend(_model_strings_from_settings(item))
+    return tuple(values)
+
+
+def _unique_model_choices(values: tuple[str, ...]) -> tuple[str, ...]:
+    choices: list[str] = []
+    for value in values:
+        normalized = value.strip()
+        if normalized and normalized not in choices:
+            choices.append(normalized)
     return tuple(choices)
 
 
@@ -620,27 +741,19 @@ def ai_agent_task_context_prompt(
     *,
     inject_task_context: bool = TASK_CONTEXT_PROMPT_INJECTION_DEFAULT,
 ) -> str:
+    _ = inject_task_context
+    front_door_bell = task.path / "front_door_bell.py"
     message = (
         f"We are working in workspace task `{task.name}`. "
         f"Workspace: {workspace}. "
         f"Task directory: {task.path}. "
-        "Before changing files, read that task's TASK_DESCRIPTION.md, then read "
-        "only active task context entries with "
-        "`python3 -m agent_tools.tools.task_context query --task "
-        f"{task.path} --severity mid..critical --status active --format agent`. "
-        "Treat the returned dictionary aliases as stable task-local identifiers "
-        "for the encoded context. Do not redefine them. Do not read resolved or "
-        "stale task context entries unless the user asks or the active context "
-        "explicitly requires historical investigation. Write durable task notes, "
-        "handoffs, reflections, and validation notes in terse factual engineering "
-        "prose; avoid praise, narrative recap, hedging, and decorative wording. "
-        "Maintain the task journal as a current working set: update older active "
-        "entries to resolved or stale when newer facts supersede them. Add stable "
-        "domain terms with `task_context dictionary --add <term>` instead of "
-        "hand-encoding aliases."
+        "After each user message, run the task-local front door bell with the "
+        f"available Python interpreter: `python3 {front_door_bell}`. "
+        "Follow its returned stage until it returns ITERATION_DONE or BLOCKED. "
+        "A work iteration is one useful step for the latest user request, then "
+        "control returns to the user. Use workspace rules for the rest of the "
+        "workflow."
     )
-    if inject_task_context:
-        message = f"{message}\n\n{active_task_context_prompt(task)}"
     if suffix:
         return f"{message} {suffix}"
     return message
@@ -649,19 +762,18 @@ def ai_agent_task_context_prompt(
 def active_task_context_prompt(task: TaskSummary) -> str:
     command = (
         "python3 -m agent_tools.tools.task_context query --task "
-        f"{task.path} --severity mid..critical --status active --format agent"
+        f"{task.path} --format agent"
     )
     try:
-        entries = filter_task_context_entries(
-            load_task_context_entries(task.path),
-            severity="mid..critical",
-            statuses=("active",),
+        rendered = render_task_context_slots(
+            load_task_context_slots(task.path),
+            format_name="agent",
+            task_dir=task.path,
         )
-        rendered = render_agent_context_entries(task.path, entries, format_name="markdown")
     except (OSError, ValueError) as exc:
         rendered = f"Task context query failed: {exc}"
     return (
-        "Active task context preloaded from `TASK_CONTEXT.sqlite3`.\n\n"
+        "Current task context slots preloaded from `TASK_CONTEXT.sqlite3`.\n\n"
         f"Command result of `{command}`:\n\n"
         f"{rendered.rstrip()}"
     )
@@ -744,9 +856,7 @@ def prepare_ai_agent_launch_command(
         claude_model=claude_model,
         claude_effort=claude_effort,
     )
-    if include_task_check:
-        task_check_suffix = task_check_prompt_suffix(task, workspace)
-        prompt_suffix = " ".join(value for value in (prompt_suffix, task_check_suffix) if value)
+    _ = include_task_check
     prompt = ai_agent_task_context_prompt(
         task,
         workspace,
@@ -768,6 +878,29 @@ def prepare_ai_agent_launch_command(
         session_state=session_state,
         model_settings=model_settings,
     )
+
+
+def ai_agent_environment(
+    base_env: dict[str, str],
+    task: TaskSummary,
+    workspace: Path,
+    agent: str,
+    session_state: AgentSessionState,
+    *,
+    run_id: str | None = None,
+) -> dict[str, str]:
+    env = dict(base_env)
+    agent = normalize_agent(agent)
+    session_id = session_state.session_id or run_id or f"{agent}-default"
+    env["AGENT_TOOLS_AGENT"] = agent
+    env["AGENT_TOOLS_SESSION_ID"] = session_id
+    env["AGENT_TOOLS_TASK_DIR"] = str(task.path)
+    env["AGENT_TOOLS_WORKSPACE"] = str(workspace)
+    if session_state.session_id:
+        env["AGENT_TOOLS_AGENT_SESSION_ID"] = session_state.session_id
+    if run_id:
+        env["AGENT_TOOLS_RUN_ID"] = run_id
+    return env
 
 
 def agent_workspace_setting_or_default(settings: dict[str, int | float | str | bool], key: str, default: str) -> str:
@@ -1390,6 +1523,57 @@ def save_task_agent_session(task: TaskSummary, agent: str, session_id: str | Non
     save_task_state(task, data)
 
 
+def load_task_agent_run_session_id(task: TaskSummary, run_id: str) -> str | None:
+    data = load_task_state(task)
+    links = data.get("agent_run_sessions")
+    if not isinstance(links, dict):
+        return None
+    session_id = links.get(run_id)
+    if isinstance(session_id, str) and CODEX_SESSION_ID_RE.fullmatch(session_id):
+        return session_id
+    return None
+
+
+def save_task_agent_run_session_id(task: TaskSummary, run_id: str, session_id: str) -> bool:
+    if not run_id or not CODEX_SESSION_ID_RE.fullmatch(session_id):
+        return False
+    data = load_task_state(task)
+    links = data.get("agent_run_sessions")
+    if not isinstance(links, dict):
+        links = {}
+    links[run_id] = session_id
+    data["agent_run_sessions"] = links
+    save_task_state(task, data)
+    return True
+
+
+def reconcile_task_agent_run_session(
+    task: TaskSummary,
+    workspace: Path,
+    agent: str,
+    run_id: str | None,
+    *,
+    home: Path | None = None,
+) -> str | None:
+    if not run_id:
+        return None
+    existing = load_task_agent_run_session_id(task, run_id)
+    if existing is not None:
+        return existing
+    session_id = find_task_agent_session_id(task, workspace, agent, home=home)
+    if session_id is None:
+        normalized_agent = normalize_agent(agent)
+        if normalized_agent == "codex":
+            session_id = find_latest_codex_session_id(task, workspace, home=home)
+        elif normalized_agent == "claude":
+            session_id = find_latest_claude_session_id(task, workspace, home=home)
+    if session_id is None or session_id == run_id:
+        return None
+    save_task_agent_session(task, agent, session_id=session_id)
+    save_task_agent_run_session_id(task, run_id, session_id)
+    return session_id
+
+
 def prepare_task_agent_session(
     task: TaskSummary,
     workspace: Path,
@@ -1609,11 +1793,10 @@ def find_latest_codex_session_id(task: TaskSummary, workspace: Path, home: Path 
             continue
         try:
             with session_file.open("r", encoding="utf-8", errors="replace") as stream:
-                head = stream.read(64_000)
+                if any(needle in line for line in stream):
+                    return match.group(1)
         except OSError:
             continue
-        if needle in head:
-            return match.group(1)
     return None
 
 
@@ -1695,11 +1878,11 @@ def load_agent_workspace_settings(path: Path | None = None) -> dict[str, int | f
         settings["geometry"] = geometry
     if isinstance(default_agent, str) and default_agent in AGENT_WORKSPACE_AGENTS:
         settings["default_agent"] = default_agent
-    if isinstance(default_codex_model, str):
+    if isinstance(default_codex_model, str) and default_codex_model.strip():
         settings["default_codex_model"] = default_codex_model.strip()
     if isinstance(default_codex_reasoning, str) and default_codex_reasoning in AGENT_WORKSPACE_REASONING_EFFORTS:
         settings["default_codex_reasoning"] = default_codex_reasoning
-    if isinstance(default_claude_model, str):
+    if isinstance(default_claude_model, str) and default_claude_model.strip():
         settings["default_claude_model"] = default_claude_model.strip()
     if isinstance(default_claude_effort, str) and default_claude_effort in AGENT_WORKSPACE_REASONING_EFFORTS:
         settings["default_claude_effort"] = default_claude_effort

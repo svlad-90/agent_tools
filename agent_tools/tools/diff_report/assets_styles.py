@@ -291,10 +291,10 @@ def stylesheet() -> str:
     .report-metric-note { color: var(--muted); font-size: .92em; overflow-wrap: anywhere; }
     .report-card { display: grid; gap: 12px; padding: 14px; border-left: 5px solid var(--meta-border); }
     .report-card-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; min-width: 0; }
-    .report-card h3 { min-width: 0; margin: 0; font-size: calc(var(--scaled-body-font) * 1.05); overflow-wrap: anywhere; }
+    .report-card h3 { min-width: 0; margin: 0; font-size: calc(var(--scaled-body-font) * 1.05); overflow-wrap: break-word; }
     .report-card-body { color: var(--meta-text); white-space: pre-line; overflow-wrap: anywhere; }
-    .report-card-metrics { display: grid; grid-template-columns: repeat(auto-fit, minmax(92px, 1fr)); gap: 8px; }
-    .report-card-metrics span { min-width: 0; padding: 8px; border: 1px solid var(--border); border-radius: 6px; background: var(--panel); overflow-wrap: anywhere; }
+    .report-card-metrics { display: grid; grid-template-columns: repeat(auto-fit, minmax(126px, 1fr)); gap: 8px; }
+    .report-card-metrics span { min-width: 0; padding: 8px; border: 1px solid var(--border); border-radius: 6px; background: var(--panel); overflow-wrap: break-word; }
     .report-card-metrics strong { display: block; margin-top: 3px; font-family: ui-monospace, SFMono-Regular, Consolas, monospace; }
     .report-card-links { display: flex; flex-wrap: wrap; gap: 8px; }
     .report-card-links a, .report-artifact { color: var(--link); text-decoration: none; }
@@ -322,6 +322,29 @@ def stylesheet() -> str:
     .report-heatmap-cell.status-gap, .report-heatmap-cell.status-fail, .report-heatmap-cell.status-blocked { background: color-mix(in srgb, var(--del-bg) 76%, var(--panel)); color: var(--stat-del); font-weight: 800; }
     .report-heatmap-cell.status-assumption-failure, .report-heatmap-cell.status-skip, .report-heatmap-cell.status-skipped { background: color-mix(in srgb, var(--graph-status-info-bg) 76%, var(--panel)); color: var(--graph-status-info-border); font-weight: 800; }
     .report-heatmap-cell.status-not-run, .report-heatmap-cell.status-not-done, .report-heatmap-cell.status-not-started, .report-heatmap-cell.status-unknown { background: color-mix(in srgb, var(--graph-status-neutral-bg) 76%, var(--panel)); color: var(--graph-status-neutral-border); font-weight: 800; }
+    .report-metric-table-note { margin: 0 0 10px; color: var(--muted); }
+    .report-status-cards-note { margin: 0 0 10px; color: var(--muted); }
+    .report-metric-table { width: 100%; min-width: 640px; border-collapse: separate; border-spacing: 0; table-layout: auto; }
+    .report-metric-table th, .report-metric-table td { padding: 7px 9px; border-bottom: 1px solid var(--border); border-right: 1px solid var(--border); text-align: left; vertical-align: top; overflow-wrap: anywhere; }
+    .report-metric-table th:last-child, .report-metric-table td:last-child { border-right: 0; }
+    .report-metric-table tr:last-child th, .report-metric-table tr:last-child td { border-bottom: 0; }
+    .report-metric-table thead th { position: sticky; top: 0; z-index: 5; background: var(--header-bg); background-clip: padding-box; color: var(--meta-label); font-size: .82em; text-transform: uppercase; letter-spacing: .04em; white-space: normal; overflow-wrap: break-word; vertical-align: bottom; }
+    .report-metric-table-sublabel { display: block; margin-top: 3px; color: var(--muted); font-size: .92em; font-weight: 700; letter-spacing: .02em; text-transform: none; }
+    .report-metric-table tbody th { font-weight: 800; white-space: nowrap; }
+    .report-metric-table tbody td { font: 700 13px/1.2 ui-monospace, SFMono-Regular, Consolas, monospace; white-space: nowrap; }
+    .report-metric-table tbody th.status-covered, .report-metric-table tbody th.status-covered-candidate, .report-metric-table tbody td.status-covered, .report-metric-table tbody td.status-covered-candidate, .report-metric-table tbody td.status-pass { background: color-mix(in srgb, var(--add-bg) 70%, var(--panel)); color: var(--stat-add); }
+    .report-metric-table tbody td.status-risk, .report-metric-table tbody td.status-needs-evidence, .report-metric-table tbody td.status-warning { background: color-mix(in srgb, var(--comment-bg) 70%, var(--panel)); color: var(--comment-border); }
+    .report-metric-table tbody td.status-gap, .report-metric-table tbody td.status-fail, .report-metric-table tbody td.status-blocked { background: color-mix(in srgb, var(--del-bg) 70%, var(--panel)); color: var(--stat-del); }
+    .report-metric-table tbody td.status-not-run, .report-metric-table tbody td.status-not-done, .report-metric-table tbody td.status-not-started, .report-metric-table tbody td.status-unknown { background: color-mix(in srgb, var(--graph-status-neutral-bg) 70%, var(--panel)); color: var(--graph-status-neutral-border); }
+    .report-metric-cell-link { padding: 0; border: 0; background: none; color: inherit; font: inherit; text-align: left; text-decoration: underline dotted; text-underline-offset: 3px; cursor: pointer; }
+    .report-metric-cell-link:hover, .report-metric-cell-link:focus-visible { color: var(--link); text-decoration-style: solid; }
+    .report-metric-cell-note { display: block; color: var(--muted); font: 400 12px/1.3 inherit; }
+    .report-metric-table-wrap { max-width: 100%; overflow-x: auto; border: 1px solid var(--border); border-radius: 8px; }
+    .report-metric-cell-parts { display: inline-flex; flex-wrap: nowrap; gap: 5px; align-items: baseline; }
+    .report-metric-cell-part-sep { color: var(--muted); font-weight: 600; }
+    .report-metric-cell-part.status-pass, .report-metric-cell-part.status-covered, .report-metric-cell-part.status-covered-candidate { color: var(--stat-add); }
+    .report-metric-cell-part.status-fail, .report-metric-cell-part.status-gap, .report-metric-cell-part.status-risk { color: var(--stat-del); }
+    .report-metric-cell-part.status-not-run, .report-metric-cell-part.status-not-done, .report-metric-cell-part.status-unknown, .report-metric-cell-part.status-needs-evidence { color: var(--muted); }
     .report-table-filter { display: grid; gap: 5px; max-width: 460px; margin-bottom: 10px; }
     .report-table-filter input { min-height: 36px; padding: 0 10px; border: 1px solid var(--border); border-radius: 6px; background: var(--button-bg); color: var(--text); font: inherit; }
     .report-table-wrap { max-width: 100%; overflow: visible; border: 1px solid var(--border); border-radius: 8px; }
@@ -366,36 +389,58 @@ def stylesheet() -> str:
     .relationship-modal-head { display: flex; gap: 12px; align-items: center; justify-content: space-between; min-width: 0; }
     .relationship-modal-head h3 { margin: 0; color: var(--text); font: 850 1.15em/1.2 var(--font-stack); overflow-wrap: anywhere; }
     .relationship-browser { display: grid; grid-template-rows: auto minmax(0, 1fr); gap: 8px; min-width: 0; min-height: 0; }
-    .relationship-toolbar { display: grid; grid-template-columns: auto minmax(360px, 1fr); grid-template-areas: "status search" "types types"; gap: 6px 10px; align-items: end; }
-    .relationship-search-controls { grid-area: search; display: grid; grid-template-columns: minmax(220px, .9fr) minmax(320px, 1.35fr); gap: 8px; align-items: end; }
+    .relationship-toolbar { display: grid; grid-template-columns: minmax(0, 1fr); grid-template-areas: "search" "status" "types"; gap: 6px 10px; align-items: end; }
+    .relationship-search-controls { grid-area: search; display: grid; grid-template-columns: minmax(180px, .75fr) minmax(280px, 1.3fr) minmax(140px, .3fr) auto; grid-template-areas: "find-label focus-label type-label ." "find-input focus-input type-input scope"; column-gap: 8px; row-gap: 3px; align-items: center; }
+    .relationship-search-controls > * { min-width: 0; }
+    .relationship-cell-find-label { grid-area: find-label; }
+    .relationship-cell-focus-label { grid-area: focus-label; }
+    .relationship-cell-type-label { grid-area: type-label; }
+    .relationship-cell-find-input { grid-area: find-input; }
+    .relationship-cell-focus-input { grid-area: focus-input; }
+    .relationship-cell-type-input { grid-area: type-input; }
+    .relationship-cell-scope { grid-area: scope; align-self: center; }
+    .relationship-toolbar .relationship-search-controls > label.label { display: block; }
     .relationship-view-controls { grid-area: types; display: flex; flex-wrap: wrap; gap: 6px; align-items: flex-start; min-width: 0; }
     .relationship-toolbar label { display: grid; gap: 3px; min-width: 0; }
     .relationship-toolbar .label small { margin-left: 6px; color: var(--muted); font: 700 .92em/1 var(--font-stack); text-transform: none; letter-spacing: 0; }
     .relationship-toolbar input, .relationship-toolbar select { min-height: 32px; min-width: 0; padding: 0 9px; border: 1px solid var(--border); border-radius: 6px; background: var(--button-bg); color: var(--text); font: inherit; }
     .relationship-toolbar select option.relationship-option-isolated { color: var(--graph-isolated-option-text); background: var(--graph-isolated-option-bg); }
-    .relationship-traversal-mode, .relationship-type-filter { display: flex; flex-wrap: wrap; align-items: center; gap: 5px; min-width: 0; margin: 0; padding: 2px 0; border: 0; border-radius: 0; background: transparent; }
-    .relationship-traversal-mode.is-disabled { opacity: .58; }
+    .relationship-type-filter { display: flex; flex-wrap: wrap; align-items: center; gap: 5px; min-width: 0; margin: 0; padding: 2px 0; border: 0; border-radius: 0; background: transparent; }
     .relationship-control-label { color: var(--meta-label); font: 800 11px/1 ui-monospace, SFMono-Regular, Consolas, monospace; text-transform: uppercase; letter-spacing: .04em; white-space: nowrap; }
     .relationship-type-filter-actions { display: flex; align-items: center; gap: 6px; margin: 0; padding: 0; border-bottom: 0; }
     .relationship-type-filter-list { display: flex; flex-wrap: wrap; gap: 5px; overflow: visible; }
     .relationship-type-filter label { display: inline-flex; align-items: center; gap: 4px; min-height: 24px; padding: 0 7px; border: 1px solid color-mix(in srgb, var(--border) 70%, transparent); border-radius: 999px; background: var(--meta-panel); color: var(--meta-text); font: 750 12px/1.1 var(--font-stack); white-space: nowrap; }
-    .relationship-type-filter label.is-disabled { opacity: .42; background: color-mix(in srgb, var(--button-bg) 68%, var(--panel)); color: var(--muted); }
-    .relationship-type-filter label.is-disabled [data-relationship-type-label] { cursor: default; }
-    .relationship-type-filter [data-relationship-type-label] { min-height: 22px; padding: 0 3px; border-radius: 999px; color: inherit; cursor: pointer; }
-    .relationship-type-filter [data-relationship-type-label].is-active { color: var(--link); background: color-mix(in srgb, var(--button-hover-bg) 58%, transparent); }
+    .relationship-type-filter label.is-empty { opacity: .5; border-style: dashed; border-color: color-mix(in srgb, var(--muted) 52%, transparent); color: var(--muted); background: color-mix(in srgb, var(--bg) 70%, var(--meta-panel)); }
+    .relationship-type-filter label.is-empty:hover { opacity: .85; }
+    .relationship-type-filter [data-relationship-type-label] { min-height: 22px; padding: 0 1px; color: inherit; }
     .relationship-toolbar label.relationship-secondary-toggle { display: inline-flex; align-items: center; justify-content: center; gap: 5px; width: auto; min-width: 0; min-height: 26px; padding: 0 8px; border: 1px solid var(--border); border-radius: 999px; background: var(--button-bg); color: var(--meta-text); font: 750 12px/1.1 var(--font-stack); white-space: nowrap; }
     .relationship-toolbar label.relationship-secondary-toggle input { width: 14px; height: 14px; min-height: 0; margin: 0; padding: 0; accent-color: var(--link); }
-    .relationship-toolbar label.relationship-secondary-toggle.is-disabled { opacity: .52; color: var(--muted); background: color-mix(in srgb, var(--button-bg) 72%, var(--panel)); }
-    .relationship-toolbar label.relationship-secondary-toggle.is-disabled input { cursor: default; }
-    .relationship-status-legend { grid-area: status; display: flex; flex-wrap: wrap; align-items: center; gap: 5px; min-width: 0; padding: 2px 0; border: 0; border-radius: 0; background: transparent; }
-    .relationship-status-legend .report-status-badge { min-height: 22px; padding: 1px 7px; font-size: 11px; }
+    .relationship-toolbar label.relationship-secondary-toggle[hidden] { display: none; }
+    .relationship-toolbar label.relationship-focus-scope { display: inline-flex; align-items: center; gap: 5px; width: fit-content; min-height: 32px; padding: 0 10px; border: 1px solid var(--border); border-radius: 999px; background: var(--button-bg); color: var(--meta-text); font: 750 12px/1.1 var(--font-stack); white-space: nowrap; cursor: pointer; }
+    .relationship-toolbar label.relationship-focus-scope:hover { color: var(--link); }
+    .relationship-toolbar label.relationship-focus-scope input { width: 13px; height: 13px; min-height: 0; margin: 0; padding: 0; accent-color: var(--link); }
+    .relationship-status-filter { grid-area: status; display: flex; flex-wrap: wrap; align-items: center; gap: 5px; min-width: 0; padding: 2px 0; border: 0; border-radius: 0; background: transparent; }
+    .relationship-status-filter .relationship-status-chip { display: inline-flex; align-items: center; gap: 5px; min-height: 22px; padding: 1px 7px; font-size: 11px; cursor: pointer; }
+    .relationship-status-filter .relationship-status-chip small { color: inherit; font: 800 10px/1 ui-monospace, SFMono-Regular, Consolas, monospace; opacity: .8; }
+    .relationship-status-filter label.relationship-status-all { display: inline-flex; align-items: center; gap: 4px; min-height: 22px; padding: 1px 9px 1px 7px; border: 1px solid var(--border); border-radius: 999px; background: var(--button-bg); color: var(--meta-text); font: 800 11px/1.1 var(--font-stack); white-space: nowrap; cursor: pointer; }
+    .relationship-status-filter label.relationship-status-all:hover { border-color: var(--link); color: var(--link); }
+    .relationship-status-filter label.relationship-status-all input { width: 13px; height: 13px; min-height: 0; margin: 0; padding: 0; accent-color: var(--link); }
+    .relationship-status-filter .relationship-status-chip:hover { border-color: var(--link); }
+    .relationship-status-filter .relationship-status-chip.is-off { border-style: dashed; background: color-mix(in srgb, var(--button-bg) 78%, var(--panel)); color: var(--muted); text-decoration: line-through; }
     .relationship-page-controls { display: inline-flex; align-items: center; gap: 5px; min-height: 26px; padding: 0 5px; border: 1px solid var(--border); border-radius: 999px; background: var(--button-bg); color: var(--meta-text); font: 750 12px/1.1 var(--font-stack); white-space: nowrap; }
     .relationship-page-controls button { min-width: 24px; min-height: 22px; padding: 0 6px; }
     .relationship-page-controls span { min-width: 86px; text-align: center; }
-    .relationship-page-controls.is-disabled { opacity: .58; }
-    .relationship-page-row { display: flex; align-items: center; justify-content: flex-start; min-width: 0; padding-left: 0; }
-    .relationship-type-filter-all.is-active { border-color: color-mix(in srgb, var(--link) 62%, var(--border)) !important; color: var(--text) !important; background: color-mix(in srgb, var(--button-hover-bg) 64%, var(--meta-panel)) !important; }
+    .relationship-page-controls.is-single-page { color: var(--muted); }
+    .relationship-control-bar { position: sticky; top: 0; z-index: 4; display: flex; flex-wrap: wrap; gap: 8px; align-items: center; justify-content: space-between; min-width: 0; padding: 4px 6px; border: 1px solid var(--border); border-radius: 8px; background: var(--panel); box-shadow: 0 4px 10px color-mix(in srgb, var(--shadow) 26%, transparent); }
     .relationship-type-filter input { width: 14px; height: 14px; min-height: 0; padding: 0; accent-color: var(--link); }
+    .relationship-filters { flex-basis: 100%; min-width: 0; }
+    .relationship-filters > summary { display: inline-flex; align-items: center; gap: 6px; width: fit-content; min-height: 26px; padding: 0 10px; border: 1px solid var(--border); border-radius: 999px; background: var(--button-bg); color: var(--meta-text); font: 800 12px/1.1 var(--font-stack); cursor: pointer; list-style: none; }
+    .relationship-filters > summary::-webkit-details-marker { display: none; }
+    .relationship-filters > summary::after { content: "\u25be"; color: var(--muted); }
+    .relationship-filters[open] > summary::after { content: "\u25b4"; }
+    .relationship-filters > summary:hover { border-color: var(--link); color: var(--link); }
+    .relationship-filters.is-active > summary { border-color: color-mix(in srgb, var(--link) 62%, var(--border)); background: color-mix(in srgb, var(--button-hover-bg) 64%, var(--meta-panel)); color: var(--link); }
+    .relationship-filters-body { padding-top: 6px; }
     .relationship-subfilter-popover { flex-basis: 100%; display: grid; gap: 6px; max-width: min(780px, 100%); margin-top: 2px; padding: 7px 8px; border: 1px solid var(--border); border-radius: 7px; background: color-mix(in srgb, var(--panel) 88%, var(--meta-panel)); box-shadow: none; }
     .relationship-subfilter-section { display: grid; gap: 5px; min-width: 0; }
     .relationship-subfilter-section + .relationship-subfilter-section { padding-top: 6px; border-top: 1px solid color-mix(in srgb, var(--border) 62%, transparent); }
@@ -404,7 +449,8 @@ def stylesheet() -> str:
     .relationship-subfilter-head span { display: inline-flex; flex-wrap: wrap; gap: 6px; }
     .relationship-subfilter-popover fieldset { display: flex; flex-wrap: wrap; gap: 5px; min-width: 0; margin: 0; padding: 6px; border: 1px solid var(--border); border-radius: 7px; }
     .relationship-subfilter-popover legend { padding: 0 5px; color: var(--meta-label); font: 800 11px/1 ui-monospace, SFMono-Regular, Consolas, monospace; text-transform: uppercase; letter-spacing: .04em; }
-    .relationship-subfilter-popover label { min-height: 24px; padding: 0 7px; }
+    .relationship-subfilter-popover label { display: inline-flex; align-items: center; gap: 4px; min-height: 24px; padding: 0 7px; border: 1px solid color-mix(in srgb, var(--border) 70%, transparent); border-radius: 999px; background: var(--meta-panel); color: var(--meta-text); font: 750 12px/1.1 var(--font-stack); white-space: nowrap; }
+    .relationship-subfilter-popover input { width: 14px; height: 14px; min-height: 0; margin: 0; padding: 0; accent-color: var(--link); }
     .relationship-subfilter-popover label.relationship-subfilter-all { border-color: color-mix(in srgb, var(--link) 54%, var(--border)); background: color-mix(in srgb, var(--button-hover-bg) 54%, var(--panel)); color: var(--text); font-weight: 850; }
     .relationship-subfilter-popover .status-pass { color: var(--stat-add); font-weight: 800; }
     .relationship-subfilter-popover .status-warning, .relationship-subfilter-popover .status-risk, .relationship-subfilter-popover .status-needs-evidence { color: var(--comment-border); font-weight: 800; }
@@ -420,18 +466,21 @@ def stylesheet() -> str:
     .relationship-canvas-wrap, .relationship-detail { min-width: 0; height: min(760px, calc(100vh - 180px)); min-height: 560px; max-height: 760px; border: 1px solid var(--border); border-radius: 8px; background: var(--meta-panel); }
     .relationship-modal .relationship-browser { min-height: 0; }
     .relationship-modal .relationship-layout { grid-template-columns: minmax(0, 2fr) minmax(380px, .72fr); align-items: stretch; min-height: 0; height: 100%; overflow: hidden; }
-    .relationship-modal .relationship-canvas-wrap { height: clamp(620px, 72vh, 920px); min-height: 620px; max-height: none; }
+    .relationship-modal .relationship-canvas-wrap { height: clamp(520px, 58vh, 900px); min-height: 520px; max-height: none; }
+    .relationship-modal .relationship-explorer-main { grid-template-rows: auto auto auto; height: 100%; overflow: auto; padding-right: 8px; }
+    .relationship-modal .relationship-selection-panel { min-height: 360px; }
     .relationship-modal .relationship-detail { position: static; height: 100%; min-height: 0; max-height: none; }
     .relationship-explorer-main { display: grid; grid-template-rows: auto auto auto; gap: 8px; min-width: 0; min-height: 0; max-height: 100%; overflow: auto; overscroll-behavior: contain; padding-right: 8px; }
     .relationship-canvas-wrap { overflow: hidden; position: relative; background: var(--graph-bg); }
-    .relationship-canvas-controls { position: absolute; top: 12px; left: 12px; z-index: 3; display: flex; flex-wrap: wrap; gap: 8px; align-items: center; max-width: calc(100% - 24px); padding: 8px; border: 1px solid color-mix(in srgb, var(--border) 76%, transparent); border-radius: 8px; background: color-mix(in srgb, var(--panel) 82%, transparent); box-shadow: 0 8px 20px color-mix(in srgb, #000 28%, transparent); backdrop-filter: blur(8px); }
-    .relationship-canvas-controls button { min-height: 34px; padding: 0 10px; border: 1px solid var(--border); border-radius: 6px; background: var(--button-bg); color: var(--text); font: 780 .88em/1 var(--font-stack); cursor: pointer; }
-    .relationship-canvas-controls [data-relationship-back], .relationship-canvas-controls [data-relationship-forward] { min-width: 36px; padding: 0; font-size: 1.1em; }
-    .relationship-canvas-controls button:hover, .relationship-canvas-controls button.is-active { border-color: var(--link); background: var(--button-hover-bg); color: var(--link); }
+    .relationship-control-bar button { min-height: 28px; padding: 0 10px; border: 1px solid var(--border); border-radius: 999px; background: var(--button-bg); color: var(--text); font: 780 .86em/1 var(--font-stack); cursor: pointer; }
+    .relationship-control-bar [data-relationship-back], .relationship-control-bar [data-relationship-forward] { min-width: 34px; padding: 0; font-size: 1.05em; }
+    .relationship-control-bar button:hover { border-color: var(--link); background: var(--button-hover-bg); color: var(--link); }
+    .relationship-control-bar button:disabled { cursor: default; color: var(--muted); border-color: var(--border); background: var(--button-bg); }
     .relationship-canvas { position: relative; display: block; width: 100%; height: 100%; cursor: grab; }
     .relationship-canvas[data-graph-interactive="false"] { cursor: default; pointer-events: none; }
     .relationship-canvas[data-graph-message]::after { content: attr(data-graph-message); position: absolute; left: 16px; right: 16px; bottom: 14px; z-index: 2; padding: 8px 10px; border: 1px solid var(--border); border-radius: 6px; background: color-mix(in srgb, var(--panel) 88%, transparent); color: var(--meta-text); font-size: .9em; pointer-events: none; }
     .relationship-canvas[data-empty-graph="true"]::after { top: 50%; bottom: auto; transform: translateY(-50%); text-align: center; }
+    .relationship-canvas[data-graph-hint="filtered"]::after { top: 14px; bottom: auto; border-color: color-mix(in srgb, var(--comment-border) 62%, var(--border)); color: var(--comment-border); text-align: center; }
     .relationship-canvas:active { cursor: grabbing; }
     .relationship-edge { stroke: color-mix(in srgb, var(--muted) 42%, transparent); stroke-width: 1.2; }
     .relationship-node { cursor: pointer; outline: none; }
@@ -747,6 +796,10 @@ def stylesheet() -> str:
       .review-nav { padding-right: 10px; }
       .story-step { grid-template-columns: 28px minmax(0, 1fr); padding: 7px 8px; }
     }
+    @media (max-width: 1440px) and (min-width: 1101px) {
+      .relationship-search-controls { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); grid-template-areas: "find-label focus-label" "find-input focus-input" "type-label ." "type-input scope"; }
+      .relationship-cell-scope { justify-self: start; }
+    }
     @media (max-width: 1100px) {
       :root {
         --nav-width: 0px;
@@ -762,8 +815,10 @@ def stylesheet() -> str:
       .relationship-launcher, .relationship-modal-head { align-items: stretch; flex-direction: column; }
       .relationship-modal { padding: 10px; overflow: auto; }
       .relationship-modal-panel { height: auto; min-height: calc(100vh - 20px); padding: 10px; }
-      .relationship-toolbar, .relationship-search-controls, .relationship-view-controls, .relationship-layout { grid-template-columns: 1fr; }
-      .relationship-modal .relationship-layout { height: auto; overflow: visible; }
+      .relationship-toolbar, .relationship-view-controls, .relationship-layout { grid-template-columns: 1fr; }
+      .relationship-search-controls { grid-template-columns: minmax(0, 1fr); grid-template-areas: "find-label" "find-input" "focus-label" "focus-input" "type-label" "type-input" "scope"; }
+      .relationship-cell-scope { justify-self: start; }
+      .relationship-modal .relationship-layout { grid-template-columns: minmax(0, 1fr); height: auto; overflow: visible; }
       .relationship-explorer-main { max-height: none; overflow: visible; padding-right: 0; }
       .relationship-modal .relationship-detail { position: static; height: auto; min-height: 360px; }
       .relationship-modal .relationship-canvas-wrap { height: 62vh; min-height: 420px; }

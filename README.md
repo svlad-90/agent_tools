@@ -35,8 +35,12 @@ workflow:
 Launch the workspace dashboard from the repository root:
 
 ```sh
-./agent-workspace
+python3 install-agent-tools.py
+./agent-workspace.sh
 ```
+
+On macOS, open `agent-workspace.command`. On Windows, run
+`agent-workspace.cmd`. Those portable launchers start the browser UI.
 
 Typical flow:
 
@@ -60,24 +64,22 @@ Each task gets a predictable layout:
 
 ```text
 tasks/<task-name>/
-  TASK_DESCRIPTION.md   The request, scope, acceptance criteria, useful links.
-  TASK_CONTEXT.md       Compact active context for the next session.
-  TASK_CONTEXT.sqlite3   Transactional journal of dated task findings.
+  TASK_CONTEXT.sqlite3  Current task context slots and dictionary.
   dev/                  Checkouts, reproducers, generated build inputs.
   scripts/              Repeatable helper commands.
   report/               Logs, diagrams, reviews, validation evidence.
 ```
 
-`TASK_DESCRIPTION.md` is the stable brief. `TASK_CONTEXT.sqlite3` is the
-transactional journal with dated findings, severity, status, labels, details,
-and artifact links. `TASK_CONTEXT.md` is the compact active handoff generated
-from the database.
+`TASK_CONTEXT.sqlite3` is the task context source. It stores one current slot
+per category: goal, environment, decisions, findings, validation,
+blockers/risks, operational memory, user preferences, and temporary legacy
+material imported from old `TASK_DESCRIPTION.md`/`TASK_CONTEXT.md` files.
 
 Useful prompts:
 
 ```text
-Show me high-severity validation and blocker notes from the last week.
-Compact the task context and keep only active mid-to-critical findings.
+Show me the current validation and blocker-risk slots.
+Update operational memory with the current next steps.
 ```
 
 ### Add Actions
@@ -122,15 +124,18 @@ and opening artifacts.
 
 ## Compact Context
 
-Long AI-assisted tasks create a lot of facts. Agent Workspace keeps them in two
-layers:
+Long AI-assisted tasks create a lot of facts. Agent Workspace keeps them in
+SQLite slots:
 
-- `TASK_CONTEXT.sqlite3`: transactional history with timestamps, severity,
-  labels, status, details, and artifact links.
-- `TASK_CONTEXT.md`: compact active context generated from the database.
+- `goal`: task objective and acceptance criteria.
+- `env`: how to build, run, and inspect the task.
+- `decisions`, `findings`, `validation`, `blocker-risk`: current facts by
+  category.
+- `operational-memory`: current handoff and next steps.
+- `user-preference`: durable user preferences.
+- `legacy`: temporary migrated old markdown or journal material.
 
-Ask for slices such as "active blockers", "validation notes since Monday", or
-"resolved environment issues" instead of loading a long Markdown log.
+Agents update slots in place instead of appending dated status notes.
 
 The underlying command is:
 
@@ -143,7 +148,14 @@ python -m agent_tools.tools.task_context
 The desktop app is the fastest way to operate the workspace day to day:
 
 ```sh
-./agent-workspace
+./agent-workspace.sh
+```
+
+On macOS and Windows, use the browser UI launchers:
+
+```text
+agent-workspace.command
+agent-workspace.cmd
 ```
 
 Agent Workspace lists tasks, shows descriptions, renders the task context

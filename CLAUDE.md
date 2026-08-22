@@ -152,82 +152,50 @@ These rules apply to every task directory under the workspace root.
    If the task directory does not exist and the user is asking for
    implementation, validation, or review work, create the standard layout from
    `AGENTS.md`.
-2. Before working inside an existing task directory, read
-   `TASK_DESCRIPTION.md` for the stable request, intended scope, acceptance
-   criteria, and non-status background. If it is missing, create or refresh it
-   from `agent_tools/paf_workspace/templates/TASK_DESCRIPTION.md`.
-3. Query active task context from `TASK_CONTEXT.sqlite3` only after the
-   directory is selected as the target task, or when the user explicitly asks
-   to inspect neighboring or related tasks. Use
+2. When working inside a task, run the task-local `front_door_bell.py` after
+   each user message and follow its returned stage until it returns
+   `ITERATION_DONE` or `BLOCKED`. This is the primary task iteration entrypoint;
+   it performs onboarding, task_check preflight, context-update enforcement,
+   and optional context-review guidance. Use the `task-front-desk` skill for
+   the full protocol.
+3. Before working inside an existing task directory without a front-door bell
+   result, query current task context
+   slots from `TASK_CONTEXT.sqlite3` after the directory is selected. Use
    `python3 -m agent_tools.tools.task_context query --task <task-dir>
-   --severity mid..critical --status active --format agent` for agent work, or
-   `--format markdown` when rendering for a human. Do not scan every neighboring
-   task context database during normal task discovery. Active entries are the
-   compact working set, not the historical log. If the database is missing or
-   too sparse to continue safely, create or update it with
-   `python3 -m agent_tools.tools.task_context`.
-4. Identify the task topics before deep work. Read
+   --format agent` for agent work, or `--format markdown` when rendering for a
+   human. Filter with `--category <slot>` or `--cats env,validation` when only
+   specific slots are needed. If the database is missing, the tool creates it
+   and imports legacy `TASK_DESCRIPTION.md`/`TASK_CONTEXT.md` content into the
+   `legacy` slot.
+4. Do not scan neighboring task context databases during normal task discovery.
+5. Identify the task topics before deep work. Read
    `agent_tools/knowledge/README.md` and every matching topic file under
    `agent_tools/knowledge/topics/`, for example Xen/QEMU work reads
    `topics/xen.md`, workspace tool work reads `topics/agent_tools.md`, and
    Moulin product work reads `topics/moulin.md`. Record the topic files read
    through the task context journal.
-5. Maintain task context through the structured journal:
+6. Maintain task context through singleton SQLite slots:
 
-   - `TASK_CONTEXT.sqlite3` is the transactional journal of dated findings and
-     the only task context source.
-   - Human-facing context renders decoded `summary` and `details` by default.
-     Agent-facing context uses `--format agent`, which renders encoded entries
-     plus only the stable task dictionary aliases used by the selected entries.
-     Dictionary aliases are task-local immutable identifiers such as `§00`;
-     agents must reuse them when reading encoded context and must not redefine
-     them. Dictionary ids and values are append-only task history: they must not
-     be deleted, rewritten, or reused for a different entity.
-   - Agents must maintain the active working set instead of only appending new
-     notes. When a new fact supersedes, resolves, or invalidates older active
-     context, update those older entries to `resolved` or `stale` in the same
-     handoff window.
+   - `TASK_CONTEXT.sqlite3` is the only task context source.
+   - Slots are current state, not an append-only changelog. Update the relevant
+     slot in place with `python3 -m agent_tools.tools.task_context slot --task
+     <task-dir> --category <slot> --content <text>`.
+   - Slot categories are `goal`, `env`, `decisions`, `findings`,
+     `validation`, `blocker-risk`, `operational-memory`, `user-preference`,
+     and `legacy`.
+   - `goal` and `operational-memory` are required. `env` and `validation` are
+     recommended. `legacy` is temporary migration material; move still-current
+     facts into typed slots and then clear or shrink it.
+   - Durable slot content must use terse factual engineering prose. Prefer
+     commands, facts, paths, statuses, risks, and next actions. Avoid praise,
+     motivational phrasing, narrative recap, hedging, and decorative adjectives.
    - When an agent identifies stable domain terminology that should keep one
      identity across sessions, add it through
      `python3 -m agent_tools.tools.task_context dictionary --task <task-dir>
-     --add <term>`. Do not encode terms by hand in journal text; use dictionary
+     --add <term>`. Do not encode terms by hand in slot text; use dictionary
      aliases returned by `--format agent`.
-   - Durable internal notes, handoffs, reflections, validation notes, and task
-     context details must use terse factual engineering prose. Prefer commands,
-     facts, paths, statuses, risks, and next actions. Avoid praise, motivational
-     phrasing, narrative recap, hedging, and decorative adjectives. Keep
-     technical qualifiers when they change behavior or risk.
-   - Use `python3 -m agent_tools.tools.task_context add --task <task-dir> ...`
-     to record facts with severity, status, labels, details, and artifacts.
-   - Use `python3 -m agent_tools.tools.task_context query --task <task-dir>
-     ...` to retrieve active context by default, or history by date, severity
-     range, status, or labels when explicitly needed.
-   - Use `python3 -m agent_tools.tools.task_context edit --task <task-dir>
-     ...` to batch update status, severity, labels, details, artifacts, or to
-     delete selected erroneous entries.
-   - Active context is a working set, not an append-only changelog. Before
-     handoff, before final responses that change task state, before or after
-     validation handoff, before push-ready handoff, after resolving blockers,
-     and before every compaction, query active entries and update stale or
-     superseded items with `task_context edit`. Completed or superseded entries
-     must become `resolved`; obsolete or misleading entries must become
-     `stale`; only facts that still affect the next session stay `active`.
-   - Use `python3 -m agent_tools.tools.task_context compact --task <task-dir>`
-     only after the active-entry audit when a compact active-context rendering
-     is useful for review. It prints the current active working set; it must not
-     regenerate a markdown task context file.
-     Legacy JSONL journals can be imported once with
-     `python3 -m agent_tools.tools.task_context migrate --task <task-dir>`.
 
-   Severity values are `note`, `low`, `mid`, `high`, and `critical`. Status
-   values are `active`, `resolved`, and `stale`. Labels are a fixed vocabulary:
-   `artifact`, `blocker`, `bug`, `build`, `cli`, `commit`, `decision`, `docs`,
-   `env`, `filter`, `goal`, `gui`, `handoff`, `knowledge`, `legacy`,
-   `migration`, `next-step`, `policy`, `push`, `report`, `repo`, `runtime`,
-   `security`, `superseded`, `task-context`, `test`, `tooling`, `ui`,
-   `user-preference`, and `validation`.
-
-6. Record the task bootstrap through the task context journal before deep work:
+7. Record the task bootstrap through the task context journal before deep work:
 
    ```text
    goal, active repositories and branches, selected environment, build or
@@ -259,7 +227,7 @@ These rules apply to every task directory under the workspace root.
    Use `--run-env-check` only when the task should actually execute the
    environment domain's safe PAF check-only scenario.
 
-7. For tasks that need a reusable environment, choose the environment before
+8. For tasks that need a reusable environment, choose the environment before
    building or validating. Record the selected
    `agent_tools/paf_workspace/domains/environments/...` profile/scenario,
    reason for choosing it, PAF scenario/task entry point, and validation
@@ -271,7 +239,7 @@ These rules apply to every task directory under the workspace root.
    expand the task-local PAF scenario or reusable domain tasks so the build and
    validation remain reproducible; use direct helper scripts only as a focused
    diagnostic and record that exception through the task context journal.
-8. Track validation by level instead of using one ambiguous "validated" note:
+9. Track validation by level instead of using one ambiguous "validated" note:
 
    ```text
    static: code maps, parse checks, linters, schema checks
@@ -282,21 +250,21 @@ These rules apply to every task directory under the workspace root.
 
    Mark each level as `not run`, `pass`, `fail`, or `blocked`, with the exact
    command or artifact path that supports the status.
-9. When a workspace tool or environment command fails, do not silently bypass
+10. When a workspace tool or environment command fails, do not silently bypass
    it. Record the command, short failure summary, whether it blocks exact
    source analysis or only fast feedback, and the next fix through the task
    context journal.
-10. Keep source, generated build output, product output, runtime logs, and
+11. Keep source, generated build output, product output, runtime logs, and
    review/report artifacts separate. Fix the source, product definition, or
    reusable environment that reproduces generated output; do not hand-edit
    generated output unless the task explicitly asks for generated artifact
    patching.
-11. For runtime products that combine multiple target artifacts, maintain a
+12. For runtime products that combine multiple target artifacts, maintain a
     task-owned artifact manifest based on
     `agent_tools/paf_workspace/templates/product-artifacts.yaml`. Keep it under
     the task's `dev/` tree and update it when artifact paths, domain roles, or
     compile databases change.
-12. Task-local GUI actions are the normal way to expose repeated task commands
+13. Task-local GUI actions are the normal way to expose repeated task commands
     in `agent-workspace`. Declare them in `TASK_ACTIONS.json` at the task root
     only when the action is useful for a human user to run directly without an
     AI agent. Good candidates include long builds, component builds, hardware
@@ -325,11 +293,11 @@ These rules apply to every task directory under the workspace root.
     stay inside the task directory. `env` is optional and must be a string map.
     Prefer commands under `scripts/` for repeatable task routines; keep
     agent-only helpers and one-off experiments out of `TASK_ACTIONS.json`.
-13. Keep commit-ready source/tooling changes separate from review/report
+14. Keep commit-ready source/tooling changes separate from review/report
     artifacts unless the user asks to include both. Review tasks place reports
     under `report/`; source tasks should not accumulate report output as a side
     effect.
-14. Task directories are local workspace state, not part of the public
+15. Task directories are local workspace state, not part of the public
     `agent_tools` repository payload. Do not merge or push `tasks/<task-name>/`
     contents into `agent_tools`; keep only the `tasks/` placeholder files
     needed to preserve the local directory layout in a fresh checkout. If a

@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 from collections.abc import Callable
 import importlib
+import platform
 import sys
 
 
@@ -12,6 +13,7 @@ UI_MODULES = {
     "tk": "ui",
 }
 AUTO_UI_ORDER = ("gtk", "web", "tk")
+PORTABLE_AUTO_UI_ORDER = ("web",)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -23,7 +25,7 @@ def main(argv: list[str] | None = None) -> int:
         help="UI backend. Default: auto.",
     )
     args, remaining = parser.parse_known_args(argv)
-    choices = AUTO_UI_ORDER if args.ui == "auto" else (args.ui,)
+    choices = _auto_ui_order() if args.ui == "auto" else (args.ui,)
     errors: list[str] = []
     for ui_name in choices:
         try:
@@ -36,6 +38,12 @@ def main(argv: list[str] | None = None) -> int:
     for error in errors:
         print(f"  {error}", file=sys.stderr)
     return 1
+
+
+def _auto_ui_order() -> tuple[str, ...]:
+    if platform.system() in {"Darwin", "Windows"}:
+        return PORTABLE_AUTO_UI_ORDER
+    return AUTO_UI_ORDER
 
 
 def _load_ui_main(ui_name: str) -> Callable[[list[str] | None], int]:
