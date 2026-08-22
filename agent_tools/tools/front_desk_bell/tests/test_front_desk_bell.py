@@ -15,11 +15,13 @@ def test_front_desk_bell_onboards_then_requires_task_check_fixes(tmp_path: Path)
     initialize_task_layout(task, workspace=tmp_path)
 
     first = ring(task, workspace=tmp_path, agent="codex", session_id="s1")
-    second = ring(task, workspace=tmp_path, agent="codex", session_id="s1")
+    idle = ring(task, workspace=tmp_path, agent="codex", session_id="s1")
+    second = ring(task, workspace=tmp_path, agent="codex", session_id="s1", open_iteration=True)
 
     assert first.stage == "WELCOME_REQUIRED"
     assert first.exit_code == 0
     assert "front_door_bell.py" in first.message
+    assert idle.stage == "IDLE"
     assert second.stage == "PRECHECK_FAILED"
     assert second.exit_code == 1
     assert "task-context-slot-required" in second.message
@@ -31,7 +33,7 @@ def test_front_desk_bell_guides_work_and_requires_slot_update(tmp_path: Path) ->
     _fill_required_slots(task)
 
     ring(task, workspace=tmp_path, agent="codex", session_id="s1")
-    work = ring(task, workspace=tmp_path, agent="codex", session_id="s1")
+    work = ring(task, workspace=tmp_path, agent="codex", session_id="s1", open_iteration=True)
     journal = ring(task, workspace=tmp_path, agent="codex", session_id="s1")
     missing = ring(task, workspace=tmp_path, agent="codex", session_id="s1")
     set_slot(task, "operational-memory", "Current: work completed.", updated_at="2026-01-01T00:00:10+00:00")
@@ -53,7 +55,7 @@ def test_front_desk_bell_allows_explicit_no_context_change_ack(tmp_path: Path) -
     _fill_required_slots(task)
 
     ring(task, workspace=tmp_path, agent="claude", session_id="s1")
-    ring(task, workspace=tmp_path, agent="claude", session_id="s1")
+    ring(task, workspace=tmp_path, agent="claude", session_id="s1", open_iteration=True)
     done = ring(task, workspace=tmp_path, agent="claude", session_id="s1", ack_no_context_change=True)
 
     assert done.stage == "ITERATION_DONE"
@@ -66,10 +68,12 @@ def test_front_desk_bell_reset_pending_iterations(tmp_path: Path) -> None:
     _fill_required_slots(task)
 
     ring(task, workspace=tmp_path, agent="codex", session_id="s1")
-    ring(task, workspace=tmp_path, agent="codex", session_id="s1")
+    ring(task, workspace=tmp_path, agent="codex", session_id="s1", open_iteration=True)
 
     assert reset_pending_iterations(task) == 1
-    work = ring(task, workspace=tmp_path, agent="codex", session_id="s1")
+    idle = ring(task, workspace=tmp_path, agent="codex", session_id="s1")
+    work = ring(task, workspace=tmp_path, agent="codex", session_id="s1", open_iteration=True)
+    assert idle.stage == "IDLE"
     assert work.stage == "DO_USER_WORK"
 
 
@@ -92,10 +96,60 @@ def test_front_desk_bell_resolves_run_id_mapping_and_migrates_state(tmp_path: Pa
         agent="codex",
         session_id=detect_session_id(task),
         previous_session_id="run-1",
+        open_iteration=True,
     )
 
     assert detect_session_id(task) == "019feba2-e25e-76e1-9468-aa399758268f"
     assert work.stage == "DO_USER_WORK"
+
+
+def test_front_desk_bell_requires_open_iteration_after_done(tmp_path: Path) -> None:
+    task = tmp_path / "tasks" / "sample-task"
+    initialize_task_layout(task, workspace=tmp_path)
+    _fill_required_slots(task)
+
+    ring(task, workspace=tmp_path, agent="codex", session_id="s1")
+    work = ring(task, workspace=tmp_path, agent="codex", session_id="s1", open_iteration=True)
+    done = ring(task, workspace=tmp_path, agent="codex", session_id="s1", ack_no_context_change=True)
+    idle = ring(task, workspace=tmp_path, agent="codex", session_id="s1")
+    next_work = ring(task, workspace=tmp_path, agent="codex", session_id="s1", open_iteration=True)
+
+    assert work.stage == "DO_USER_WORK"
+    assert done.stage == "ITERATION_DONE"
+    assert idle.stage == "IDLE"
+    assert "--open-iteration" in idle.message
+    assert next_work.stage == "DO_USER_WORK"
+
+
+def test_front_desk_bell_close_iteration_closes_journal_required(tmp_path: Path) -> None:
+    task = tmp_path / "tasks" / "sample-task"
+    initialize_task_layout(task, workspace=tmp_path)
+    _fill_required_slots(task)
+
+    ring(task, workspace=tmp_path, agent="codex", session_id="s1")
+    ring(task, workspace=tmp_path, agent="codex", session_id="s1", open_iteration=True)
+    journal = ring(task, workspace=tmp_path, agent="codex", session_id="s1")
+    closed = ring(task, workspace=tmp_path, agent="codex", session_id="s1", close_iteration=True)
+    idle = ring(task, workspace=tmp_path, agent="codex", session_id="s1")
+
+    assert journal.stage == "JOURNAL_REQUIRED"
+    assert closed.stage == "ITERATION_DONE"
+    assert "explicitly closed" in closed.message
+    assert idle.stage == "IDLE"
+
+
+def test_front_desk_bell_ack_no_context_change_closes_journal_required(tmp_path: Path) -> None:
+    task = tmp_path / "tasks" / "sample-task"
+    initialize_task_layout(task, workspace=tmp_path)
+    _fill_required_slots(task)
+
+    ring(task, workspace=tmp_path, agent="codex", session_id="s1")
+    ring(task, workspace=tmp_path, agent="codex", session_id="s1", open_iteration=True)
+    journal = ring(task, workspace=tmp_path, agent="codex", session_id="s1")
+    done = ring(task, workspace=tmp_path, agent="codex", session_id="s1", ack_no_context_change=True)
+
+    assert journal.stage == "JOURNAL_REQUIRED"
+    assert done.stage == "ITERATION_DONE"
 
 
 def _fill_required_slots(task: Path) -> None:

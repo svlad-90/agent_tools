@@ -42,11 +42,25 @@ def main(argv: list[str] | None = None) -> int:
         help="Finish the iteration without requiring a slot update.",
     )
     parser.add_argument(
+        "--open-iteration",
+        "--open_iteration",
+        action="store_true",
+        help="Open a new work iteration for the latest user message.",
+    )
+    parser.add_argument(
+        "--close-iteration",
+        "--close_iteration",
+        action="store_true",
+        help="Close any pending work iteration for this agent/session.",
+    )
+    parser.add_argument(
         "--reset-pending",
         action="store_true",
         help="Reset pending iterations for this task and exit.",
     )
     args = parser.parse_args(sys.argv[1:] if argv is None else argv)
+    if args.open_iteration and args.close_iteration:
+        parser.error("--open-iteration and --close-iteration are mutually exclusive")
 
     task_dir = args.task.resolve()
     workspace = (args.workspace or infer_workspace_root(task_dir)).resolve()
@@ -67,6 +81,8 @@ def main(argv: list[str] | None = None) -> int:
         session_id=session_id,
         previous_session_id=previous_session_id,
         ack_no_context_change=args.ack_no_context_change,
+        open_iteration=args.open_iteration,
+        close_iteration=args.close_iteration,
     )
     print(result.message)
     return result.exit_code
@@ -80,6 +96,8 @@ def ring(
     session_id: str = DEFAULT_SESSION_ID,
     previous_session_id: str | None = None,
     ack_no_context_change: bool = False,
+    open_iteration: bool = False,
+    close_iteration: bool = False,
 ) -> BellResult:
     task_dir = task_dir.resolve()
     workspace = workspace.resolve()
@@ -91,6 +109,17 @@ def ring(
         _migrate_state(task_dir, agent, previous_session_id, session_id)
 
     now = _now()
+    if close_iteration:
+        _save_state(
+            task_dir,
+            agent,
+            session_id,
+            stage="done",
+            last_bell_at=now,
+            last_context_seen_at=_latest_slot_update(task_dir),
+        )
+        return BellResult("ITERATION_DONE", 0, _done_message("Iteration was explicitly closed."))
+
     if not _is_onboarded(task_dir, agent):
         _mark_onboarded(task_dir, agent, now)
         _save_state(task_dir, agent, session_id, stage="precheck", last_bell_at=now, last_context_seen_at=_latest_slot_update(task_dir))
@@ -98,8 +127,13 @@ def ring(
 
     state = _load_state(task_dir, agent, session_id)
     stage = state.get("stage", "precheck")
-    if stage == "done":
+    if open_iteration:
         stage = "precheck"
+    elif stage in {"precheck", "done"} or not state:
+        return BellResult("IDLE", 0, _idle_message())
+    if ack_no_context_change and stage in {"work", "journal_required"}:
+        _save_state(task_dir, agent, session_id, stage="done", last_bell_at=now, last_context_seen_at=_latest_slot_update(task_dir))
+        return BellResult("ITERATION_DONE", 0, _done_message("No context change was explicitly acknowledged."))
 
     failures = [check for check in check_task(task_dir, workspace=workspace) if check.status == "FAIL"]
     if failures:
@@ -119,9 +153,6 @@ def ring(
         return BellResult("DO_USER_WORK", 0, _work_message(task_dir))
 
     if stage == "work":
-        if ack_no_context_change:
-            _save_state(task_dir, agent, session_id, stage="done", last_bell_at=now, last_context_seen_at=_latest_slot_update(task_dir))
-            return BellResult("ITERATION_DONE", 0, _done_message("No context change was explicitly acknowledged."))
         _save_state(
             task_dir,
             agent,
@@ -353,7 +384,7 @@ def _welcome_message(task_dir: Path, workspace: Path, agent: str, session_id: st
             "Use task_context slots as current state, not as an append-only changelog.",
             "",
             "ACTION:",
-            "Run front_door_bell.py again to start the precheck stage.",
+            "Run front_door_bell.py --open-iteration again to start the precheck stage.",
         ]
     )
 
@@ -361,7 +392,7 @@ def _welcome_message(task_dir: Path, workspace: Path, agent: str, session_id: st
 def _precheck_failed_message(failures: list[Check]) -> str:
     lines = [
         "FRONT_DESK_STAGE: PRECHECK_FAILED",
-        "ACTION: Fix the task_check failures, then run front_door_bell.py again.",
+        "ACTION: Fix the task_check failures, then run front_door_bell.py --open-iteration again.",
         "",
         "FAILURES:",
     ]
@@ -379,6 +410,7 @@ def _work_message(task_dir: Path) -> str:
             f"Suggested full query: python3 -m agent_tools.tools.task_context query --task {task_dir} --format agent",
             "AFTER:",
             "Run front_door_bell.py again after code/context work.",
+            "If this iteration must be abandoned, run front_door_bell.py --close-iteration.",
         ]
     )
 
@@ -392,6 +424,7 @@ def _journal_required_message() -> str:
             "Also update findings, decisions, validation, or blocker-risk when facts changed.",
             "Then run front_door_bell.py again.",
             "If the user request required no durable context update, run front_door_bell.py --ack-no-context-change.",
+            "If this iteration must be abandoned, run front_door_bell.py --close-iteration.",
         ]
     )
 
@@ -404,6 +437,17 @@ def _journal_missing_message(previous_seen: str) -> str:
             f"LAST_CONTEXT_SEEN_AT: {previous_seen or 'none'}",
             "ACTION: Update the relevant slot, then run front_door_bell.py again.",
             "If no durable context changed, run front_door_bell.py --ack-no-context-change.",
+            "If this iteration must be abandoned, run front_door_bell.py --close-iteration.",
+        ]
+    )
+
+
+def _idle_message() -> str:
+    return "\n".join(
+        [
+            "FRONT_DESK_STAGE: IDLE",
+            "RESULT: No iteration is open for this agent/session.",
+            "ACTION: After a user message, run front_door_bell.py --open-iteration.",
         ]
     )
 

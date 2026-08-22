@@ -1171,6 +1171,7 @@ def test_codex_task_context_message_points_at_selected_task(tmp_path: Path) -> N
     assert f"Workspace: {tmp_path}" in message
     assert f"Task directory: {task}" in message
     assert "front_door_bell.py" in message
+    assert "--open-iteration" in message
     assert "ITERATION_DONE" in message
     assert "Current task context slots preloaded from `TASK_CONTEXT.sqlite3`" not in message
 
@@ -1189,6 +1190,8 @@ def test_core_ai_agent_task_context_prompt_supports_optional_suffix(tmp_path: Pa
     )
 
     assert "front_door_bell.py" in plain
+    assert "--open-iteration" in plain
+    assert "--close-iteration" in plain
     assert "Follow its returned stage" in plain
     assert "Reply in Russian." not in plain
     assert suffixed.endswith("Reply in Russian.")
@@ -1212,6 +1215,7 @@ def test_ai_agent_task_context_prompt_does_not_inject_active_context(tmp_path: P
     prompt = ai_agent_task_context_prompt(summary, tmp_path)
 
     assert "front_door_bell.py" in prompt
+    assert "--open-iteration" in prompt
     assert "Current task context slots preloaded from `TASK_CONTEXT.sqlite3`" not in prompt
     assert "| Findings" not in prompt
     assert "records current context" not in prompt
@@ -1443,6 +1447,7 @@ def test_new_ai_launch_uses_front_door_prompt_instead_of_task_check_dump(tmp_pat
     )
 
     assert "front_door_bell.py" in launch.command[-1]
+    assert "--open-iteration" in launch.command[-1]
     assert "Task check reported errors" not in launch.command[-1]
     assert "task-context-slot-required" not in launch.command[-1]
 
@@ -1478,6 +1483,7 @@ def test_resumed_ai_launch_uses_front_door_prompt_instead_of_task_check_dump(
 
     assert launch.session_state.resume
     assert "front_door_bell.py" in launch.command[-1]
+    assert "--open-iteration" in launch.command[-1]
     assert "Task check reported errors" not in launch.command[-1]
     assert "task-context-slot-required" not in launch.command[-1]
 
@@ -1592,6 +1598,7 @@ def test_prepare_ai_agent_launch_command_builds_command_from_session_and_model_s
         launch.command[-1],
     ]
     assert "front_door_bell.py" in launch.command[-1]
+    assert "--open-iteration" in launch.command[-1]
     assert "Current task context slots preloaded from `TASK_CONTEXT.sqlite3`" not in launch.command[-1]
 
 

@@ -107,11 +107,13 @@ recommended. Move useful legacy material into typed slots, then clear `legacy`.
 
 ## Task Front Desk
 
-New task layouts include a task-local `front_door_bell.py`. Agents run this
-script after each user message inside the task. It delegates to
-`agent_tools.tools.front_desk_bell`, performs first-run onboarding, runs
-task_check preflight, tells the agent when to do the user work, and enforces a
-slot update or explicit `--ack-no-context-change` before the iteration is done.
+New task layouts include a task-local `front_door_bell.py`. Agents run
+`front_door_bell.py --open-iteration` after each user message inside the task.
+It delegates to `agent_tools.tools.front_desk_bell`, performs first-run
+onboarding, runs task_check preflight, tells the agent when to do the user
+work, and enforces a slot update or explicit `--ack-no-context-change` before
+the iteration is done. Use `--close-iteration` to close an abandoned pending
+iteration.
 
 ## Commit Message
 

@@ -10,11 +10,15 @@ These rules apply to every task directory under the workspace root.
    If the task directory does not exist and the user is asking for
    implementation, validation, or review work, create the standard layout from
    `AGENTS.md`.
-2. When working inside a task, run the task-local `front_door_bell.py` after
-   each user message and follow its returned stage until it returns
-   `ITERATION_DONE` or `BLOCKED`. This is the primary task iteration entrypoint;
-   it performs onboarding, task_check preflight, context-update enforcement,
-   and optional context-review guidance. Use the `task-front-desk` skill for
+2. When working inside a task, open a work iteration after each user message
+   with `front_door_bell.py --open-iteration` and follow its returned stage
+   until it returns `ITERATION_DONE` or `BLOCKED`. This is the primary task
+   iteration entrypoint; it performs onboarding, task_check preflight,
+   context-update enforcement, and optional context-review guidance. Use
+   `front_door_bell.py` without `--open-iteration` only to advance an already
+   open iteration after work/context updates. Use
+   `front_door_bell.py --close-iteration` to close an abandoned pending
+   iteration before starting another one. Use the `task-front-desk` skill for
    the full protocol.
 3. Before working inside an existing task directory without a front-door bell
    result, query current task context

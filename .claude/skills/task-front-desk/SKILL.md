@@ -15,7 +15,7 @@ Workspace tasks use a front-desk iteration loop. The task-local entrypoint is
 interpreter:
 
 ```sh
-python3 front_door_bell.py
+python3 front_door_bell.py --open-iteration
 ```
 
 If the host uses a different Python launcher, use that launcher with the same
@@ -23,8 +23,8 @@ task-local script.
 
 ## Protocol
 
-1. After each user message inside a task, run `front_door_bell.py` before doing
-   task work.
+1. After each user message inside a task, run
+   `front_door_bell.py --open-iteration` before doing task work.
 2. Follow the returned `FRONT_DESK_STAGE`.
 3. Treat one iteration as one useful work step for the latest user request,
    followed by returning control to the user.
@@ -45,7 +45,13 @@ task-local script.
    python3 front_door_bell.py --ack-no-context-change
    ```
 
-9. After the tool returns `ITERATION_DONE`, answer the user concisely.
+9. If an older pending iteration must be abandoned, run:
+
+   ```sh
+   python3 front_door_bell.py --close-iteration
+   ```
+
+10. After the tool returns `ITERATION_DONE`, answer the user concisely.
 
 The tool output is for the agent, not for the human user. Do not paste the full
 tool protocol back to the user unless asked.

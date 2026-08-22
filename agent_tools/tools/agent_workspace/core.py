@@ -747,11 +747,13 @@ def ai_agent_task_context_prompt(
         f"We are working in workspace task `{task.name}`. "
         f"Workspace: {workspace}. "
         f"Task directory: {task.path}. "
-        "After each user message, run the task-local front door bell with the "
-        f"available Python interpreter: `python3 {front_door_bell}`. "
+        "After each user message, open a task work iteration through the "
+        "task-local front door bell with the available Python interpreter: "
+        f"`python3 {front_door_bell} --open-iteration`. "
         "Follow its returned stage until it returns ITERATION_DONE or BLOCKED. "
         "A work iteration is one useful step for the latest user request, then "
-        "control returns to the user. Use workspace rules for the rest of the "
+        "control returns to the user. Close abandoned iterations with "
+        "`--close-iteration`. Use workspace rules for the rest of the "
         "workflow."
     )
     if suffix:
