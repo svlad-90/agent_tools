@@ -145,18 +145,23 @@ jobs:
           - distro: ubuntu-24.04
             image: ubuntu:24.04
             bootstrap: apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y ca-certificates python3 python3-venv
+            python: python3
           - distro: debian-12
             image: debian:12
             bootstrap: apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y ca-certificates python3 python3-venv
+            python: python3
           - distro: fedora-latest
             image: fedora:latest
             bootstrap: dnf install -y ca-certificates python3 python3-pip
+            python: python3
           - distro: archlinux-latest
             image: archlinux:latest
             bootstrap: pacman -Sy --noconfirm ca-certificates python
-          - distro: opensuse-tumbleweed
-            image: opensuse/tumbleweed:latest
-            bootstrap: zypper --non-interactive install ca-certificates python3 python3-pip
+            python: python3
+          - distro: opensuse-leap-15.6
+            image: opensuse/leap:15.6
+            bootstrap: zypper --gpg-auto-import-keys --non-interactive refresh && zypper --non-interactive install ca-certificates python311 python311-pip
+            python: python3.11
 
     steps:
       - name: Check out repository
@@ -166,15 +171,17 @@ jobs:
         env:
           TARGET_IMAGE: ${{ matrix.image }}
           TARGET_BOOTSTRAP: ${{ matrix.bootstrap }}
+          TARGET_PYTHON: ${{ matrix.python }}
         run: |
           docker run --rm \
             -e TARGET_BOOTSTRAP="$TARGET_BOOTSTRAP" \
+            -e TARGET_PYTHON="$TARGET_PYTHON" \
             -v "$PWD:/workspace" \
             -w /workspace \
             "$TARGET_IMAGE" \
             sh -lc '
               set -eux
               eval "$TARGET_BOOTSTRAP"
-              ./install-agent-tools.py --gui --no-desktop --no-skills
+              "$TARGET_PYTHON" install-agent-tools.py --gui --no-desktop --no-skills
               agent_tools/.venv/bin/python -c "import gi; gi.require_version(\"Gtk\", \"3.0\"); gi.require_version(\"Vte\", \"2.91\")"
             '

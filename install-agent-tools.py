@@ -41,7 +41,6 @@ BREW_GUI_PACKAGES = (
     "gtk+3",
 )
 ZYPPER_GUI_PACKAGES = (
-    "python3-gobject",
     "gtk3",
     "typelib-1_0-Gtk-3_0",
     "typelib-1_0-Vte-2_91",
@@ -179,8 +178,21 @@ def _system_dependency_commands(manager: str) -> list[list[str]]:
     if manager == "brew":
         return [["brew", "install", *BREW_GUI_PACKAGES]]
     if manager == "zypper":
-        return [[*sudo, "zypper", "--non-interactive", "install", *ZYPPER_GUI_PACKAGES]]
+        return [[*sudo, "zypper", "--non-interactive", "install", *_zypper_gui_packages()]]
     raise ValueError(f"unsupported package manager: {manager}")
+
+
+def _zypper_gui_packages() -> tuple[str, ...]:
+    version_prefix = f"python{sys.version_info.major}{sys.version_info.minor}"
+    if version_prefix == "python36":
+        python_packages = ("python3-gobject", "python3-gobject-Gdk", "python3-pycairo")
+    else:
+        python_packages = (
+            f"{version_prefix}-gobject",
+            f"{version_prefix}-gobject-Gdk",
+            f"{version_prefix}-pycairo",
+        )
+    return (*python_packages, *ZYPPER_GUI_PACKAGES)
 
 
 def _running_as_root() -> bool:
