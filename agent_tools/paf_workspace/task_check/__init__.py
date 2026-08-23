@@ -283,12 +283,7 @@ def initialize_task_layout(task_dir: Path, *, workspace: Path, privacy: str = "p
         checks.append(Check("PASS", "init-task-metadata", f"created {TASK_METADATA_FILE}", str(metadata_path)))
 
     for result in actualize_task(task_dir, workspace=workspace):
-        code = result.code
-        if code == "actualize-front-door-bell-created":
-            code = "init-front-door-bell"
-        elif code == "actualize-front-door-bell-existing":
-            code = "init-front-door-bell-existing"
-        checks.append(Check(result.status, code, result.message, result.path))
+        checks.append(Check(result.status, result.code, result.message, result.path))
 
     return checks
 
@@ -447,6 +442,18 @@ def _load_task_context(task_dir: Path, checks: list[Check]) -> tuple[list[TaskCo
     if not database_path.exists():
         ensure_task_context_database(task_dir)
     checks.append(Check("PASS", "task-context-database", f"{TASK_CONTEXT_DATABASE_FILE} exists", str(database_path)))
+    with database_path.open("rb") as database_file:
+        database_header = database_file.read(16)
+    if database_path.stat().st_size > 0 and database_header != b"SQLite format 3\x00":
+        checks.append(
+            Check(
+                "FAIL",
+                "task-context-database-invalid",
+                f"{TASK_CONTEXT_DATABASE_FILE} is not a SQLite database",
+                str(database_path),
+            )
+        )
+        return [], ""
     try:
         slots = load_task_context_slots(task_dir)
         checks.append(Check("PASS", "task-context-database-valid", f"{TASK_CONTEXT_DATABASE_FILE} is valid", str(database_path)))

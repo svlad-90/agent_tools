@@ -10,6 +10,9 @@ import shutil
 import subprocess
 import sys
 import threading
+import time
+
+os.environ.setdefault("GDK_BACKEND", "x11")
 
 import gi
 
@@ -31,7 +34,6 @@ from agent_tools.tools.task_context import filter_entries as _filter_task_contex
 from agent_tools.tools.task_context import load_entries as _load_task_context_entries
 from agent_tools.tools.task_context import preview_dictionary_compile
 from agent_tools.tools.task_context import set_slot as _set_task_context_slot
-from agent_tools.tools.front_desk_bell import reset_workspace_pending_iterations
 
 from ...artifacts.api import ArtifactEntry
 from ...artifacts.api import artifact_context_action as _artifact_context_action
@@ -53,6 +55,9 @@ from ...agent_runtime.api import build_ai_agent_console_command
 from ...agent_runtime.api import prepare_ai_agent_launch_command
 from ...commands.api import task_action_shell_command
 from ...commands.api import task_check_shell_command
+from ...harness_policy.api import HarnessDebugEvent
+from ...harness_policy.api import clear_harness_debug_events
+from ...harness_policy.api import load_harness_debug_events
 from ...task_actions.api import add_task_shortcut as _add_task_shortcut
 from ...task_actions.api import bindings_for_action_run
 from ...task_actions.api import delete_parameter_set_value as _delete_parameter_set_value
@@ -323,6 +328,14 @@ class WorkspaceGtkGui:
         self.ai_agent_tab_label: Gtk.Label | None = None
         self.ai_agent_terminal_box: Gtk.Box | None = None
         self.ai_agent_placeholder: Gtk.Label | None = None
+        self.ai_debug_page: Gtk.Widget | None = None
+        self.ai_debug_store: Gtk.ListStore | None = None
+        self.ai_debug_tree: Gtk.TreeView | None = None
+        self.ai_debug_tab_label: Gtk.Label | None = None
+        self.ai_debug_columns: dict[str, Gtk.TreeViewColumn] = {}
+        self.ai_debug_last_signature: tuple[object, ...] = ()
+        self.ai_debug_refresh_source_id: int | None = None
+        self.harness_status_icon_cache: dict[Path, tuple[float, str]] = {}
         self.actions_controls_box: Gtk.Box | None = None
         self.task_reorder_group: str | None = None
         self.task_action_drag_source_id: str | None = None
@@ -359,6 +372,7 @@ class WorkspaceGtkGui:
         self._build_ui()
         self._apply_css()
         self.refresh_tasks()
+        self.ai_debug_refresh_source_id = GLib.timeout_add_seconds(1, self._refresh_ai_debug_if_visible)
         GLib.timeout_add(120, self._animate_agent_status)
 
     def _build_ui(self) -> None:
@@ -487,7 +501,7 @@ class WorkspaceGtkGui:
         self.task_context_label_box = label_box
         box.pack_start(label_button, False, False, 0)
 
-        self.task_context_encoded_check = Gtk.CheckButton(label="Encoded")
+        self.task_context_encoded_check = Gtk.CheckButton(label=self._tr("context_view_encoded"))
         self.task_context_encoded_check.connect("toggled", self._on_task_context_filter_changed)
         box.pack_start(self.task_context_encoded_check, False, False, 0)
         box.pack_start(self._button("context_filter_clear", self._clear_task_context_filters), False, False, 0)
@@ -628,6 +642,7 @@ class WorkspaceGtkGui:
         actions_pane.pack2(self.console_notebook, resize=True, shrink=False)
         self._on_actions_pane_position_changed(actions_pane, None)
         self._ensure_ai_agent_console_page()
+        self._ensure_ai_debug_page()
 
     def _on_actions_pane_position_changed(self, pane: Gtk.Paned, _param: object | None) -> None:
         if self.actions_controls_box is None:
@@ -672,6 +687,44 @@ class WorkspaceGtkGui:
             self.ai_agent_tab_label = Gtk.Label(label=self._s("console.ai_agent"))
             self.console_notebook.insert_page(self.ai_agent_page, self.ai_agent_tab_label, 0)
         self.ai_agent_page.show_all()
+
+    def _ensure_ai_debug_page(self) -> None:
+        if not hasattr(self, "ai_debug_page"):
+            self.ai_debug_page = None
+        if self.ai_debug_page is None:
+            self.ai_debug_store = Gtk.ListStore(str, str, str, str, str, str, str, str)
+            self.ai_debug_tree = Gtk.TreeView(model=self.ai_debug_store)
+            self.ai_debug_tree.set_enable_search(False)
+            self.ai_debug_tree.connect("row-activated", self._on_ai_debug_row_activated)
+            self.ai_debug_columns = {}
+            for key, column_index, width in (
+                ("ai_debug_column_time", 1, 180),
+                ("", 2, 38),
+                ("ai_debug_column_type", 3, 80),
+                ("ai_debug_column_hook", 4, 150),
+                ("ai_debug_column_tool", 5, 120),
+                ("ai_debug_column_result", 6, 90),
+            ):
+                renderer = Gtk.CellRendererText()
+                renderer.set_property("ellipsize", Pango.EllipsizeMode.END)
+                title = self._tr(key) if key else ""
+                column = Gtk.TreeViewColumn(title, renderer, text=column_index)
+                column.set_sizing(Gtk.TreeViewColumnSizing.FIXED)
+                column.set_fixed_width(width)
+                self.ai_debug_tree.append_column(column)
+                if key:
+                    self.ai_debug_columns[key] = column
+            content_renderer = Gtk.CellRendererText()
+            content_renderer.set_property("ellipsize", Pango.EllipsizeMode.END)
+            content_column = Gtk.TreeViewColumn(self._tr("ai_debug_column_content"), content_renderer, text=7)
+            content_column.set_expand(True)
+            self.ai_debug_tree.append_column(content_column)
+            self.ai_debug_columns["ai_debug_column_content"] = content_column
+            self.ai_debug_page = _scrolled(self.ai_debug_tree)
+        if self.console_notebook.page_num(self.ai_debug_page) < 0:
+            self.ai_debug_tab_label = Gtk.Label(label=self._tr("ai_debug_tab"))
+            self.console_notebook.insert_page(self.ai_debug_page, self.ai_debug_tab_label, 1)
+        self.ai_debug_page.show_all()
 
     def _set_ai_agent_terminal_page(self, page: Gtk.Widget) -> None:
         if self.ai_agent_terminal_box is None:
@@ -729,6 +782,7 @@ class WorkspaceGtkGui:
             self._refresh_selected_task_details(leave_edit=True)
         self._reset_actions()
         self._watch_task_actions(self.selected_task)
+        self._refresh_ai_debug()
         if self._artifacts_tab_active():
             self._load_task_artifacts(self.selected_task)
         else:
@@ -1395,8 +1449,10 @@ class WorkspaceGtkGui:
             transient_for=self.window,
             flags=Gtk.DialogFlags.MODAL,
         )
-        dialog.add_button(self._tr("cancel"), Gtk.ResponseType.CANCEL)
-        dialog.add_button(self._tr("ok"), Gtk.ResponseType.OK)
+        cancel_button = dialog.add_button(self._tr("cancel"), Gtk.ResponseType.CANCEL)
+        ok_button = dialog.add_button(self._tr("ok"), Gtk.ResponseType.OK)
+        cancel_button.connect("clicked", lambda *_: dialog.response(Gtk.ResponseType.CANCEL))
+        ok_button.connect("clicked", lambda *_: dialog.response(Gtk.ResponseType.OK))
         dialog.set_default_response(Gtk.ResponseType.OK)
         content = dialog.get_content_area()
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
@@ -1597,9 +1653,12 @@ class WorkspaceGtkGui:
         general_grid.set_border_width(12)
         dictionary_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
         dictionary_box.set_border_width(12)
+        dictionary_scrolled = _scrolled(dictionary_box)
+        dictionary_scrolled.set_hexpand(True)
+        dictionary_scrolled.set_vexpand(True)
         dictionary_grid = Gtk.Grid(column_spacing=10, row_spacing=8)
-        notebook.append_page(general_grid, Gtk.Label(label="General"))
-        notebook.append_page(dictionary_box, Gtk.Label(label="Dictionary"))
+        notebook.append_page(general_grid, Gtk.Label(label=self._tr("settings_dictionary_general")))
+        notebook.append_page(dictionary_scrolled, Gtk.Label(label=self._tr("settings_dictionary_dictionary")))
 
         text_size = Gtk.SpinButton.new_with_range(8, 28, 1)
         text_size.set_value(self.text_font_size)
@@ -1677,18 +1736,15 @@ class WorkspaceGtkGui:
         preview_input_scrolled = _scrolled(preview_input)
         preview_input_scrolled.set_hexpand(True)
         preview_input_scrolled.set_vexpand(True)
-        preview_input_scrolled.set_min_content_height(360)
+        preview_input_scrolled.set_min_content_height(220)
         preview_output_scrolled = _scrolled(preview_output)
         preview_output_scrolled.set_hexpand(True)
         preview_output_scrolled.set_vexpand(True)
-        preview_output_scrolled.set_min_content_height(260)
+        preview_output_scrolled.set_min_content_height(180)
         preview_metrics_scrolled = _scrolled(preview_metrics)
         preview_metrics_scrolled.set_hexpand(True)
         preview_metrics_scrolled.set_vexpand(False)
-        preview_metrics_scrolled.set_min_content_height(130)
-        preview_paned = Gtk.Paned(orientation=Gtk.Orientation.HORIZONTAL)
-        preview_paned.set_hexpand(True)
-        preview_paned.set_vexpand(True)
+        preview_metrics_scrolled.set_min_content_height(96)
         preview_input_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
         preview_input_box.set_hexpand(True)
         preview_input_box.set_vexpand(True)
@@ -1698,11 +1754,11 @@ class WorkspaceGtkGui:
         preview_metrics_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
         preview_metrics_box.set_hexpand(True)
         preview_metrics_box.set_vexpand(False)
-        preview_label = Gtk.Label(label="Preview text")
+        preview_label = Gtk.Label(label=self._tr("settings_dictionary_preview_text"))
         preview_label.set_xalign(0)
-        preview_output_label = Gtk.Label(label="Compiler preview")
+        preview_output_label = Gtk.Label(label=self._tr("settings_dictionary_preview"))
         preview_output_label.set_xalign(0)
-        preview_metrics_label = Gtk.Label(label="Savings")
+        preview_metrics_label = Gtk.Label(label=self._tr("settings_dictionary_savings"))
         preview_metrics_label.set_xalign(0)
         preview_input_box.pack_start(preview_label, False, False, 0)
         preview_input_box.pack_start(preview_input_scrolled, True, True, 0)
@@ -1710,8 +1766,6 @@ class WorkspaceGtkGui:
         preview_output_box.pack_start(preview_output_scrolled, True, True, 0)
         preview_metrics_box.pack_start(preview_metrics_label, False, False, 0)
         preview_metrics_box.pack_start(preview_metrics_scrolled, False, False, 0)
-        preview_paned.pack1(preview_input_box, True, False)
-        preview_paned.pack2(preview_output_box, True, False)
 
         def dictionary_policy() -> TaskDictionaryPolicy:
             return TaskDictionaryPolicy(
@@ -1726,8 +1780,8 @@ class WorkspaceGtkGui:
         def update_dictionary_preview(*_ignored: object) -> None:
             text = _text_buffer_text(preview_input.get_buffer())
             preview = preview_dictionary_compile(text, dictionary_policy())
-            preview_output.get_buffer().set_text(_dictionary_preview_text(text, preview))
-            preview_metrics.get_buffer().set_text(_dictionary_preview_metrics_text(text, preview))
+            preview_output.get_buffer().set_text(_dictionary_preview_text(text, preview, language=self.language))
+            preview_metrics.get_buffer().set_text(_dictionary_preview_metrics_text(text, preview, language=self.language))
 
         general_rows: list[tuple[str, Gtk.Widget]] = [
             (self._tr("text_font_size"), text_size),
@@ -1759,19 +1813,20 @@ class WorkspaceGtkGui:
             general_grid.attach(widget, 1, row, 1, 1)
 
         dictionary_box.pack_start(dictionary_grid, False, False, 0)
-        dictionary_box.pack_start(preview_paned, True, True, 0)
+        dictionary_box.pack_start(preview_input_box, True, True, 0)
+        dictionary_box.pack_start(preview_output_box, True, True, 0)
         dictionary_box.pack_start(preview_metrics_box, False, False, 0)
         row = 0
-        dictionary_heading = Gtk.Label(label="Task dictionary compiler")
+        dictionary_heading = Gtk.Label(label=self._tr("settings_dictionary_compiler"))
         dictionary_heading.set_xalign(0)
         dictionary_grid.attach(dictionary_heading, 0, row, 2, 1)
         for label, widget in (
-            ("Auto-discover aliases", dictionary_auto),
-            ("Strip English articles", dictionary_strip_articles),
-            ("Min occurrences", dictionary_min_occurrences),
-            ("Min saving", dictionary_min_saving),
-            ("Min term length", dictionary_min_term_length),
-            ("Max term words", dictionary_max_term_words),
+            (self._tr("settings_dictionary_auto_discover"), dictionary_auto),
+            (self._tr("settings_dictionary_strip_articles"), dictionary_strip_articles),
+            (self._tr("settings_dictionary_min_occurrences"), dictionary_min_occurrences),
+            (self._tr("settings_dictionary_min_saving"), dictionary_min_saving),
+            (self._tr("settings_dictionary_min_term_length"), dictionary_min_term_length),
+            (self._tr("settings_dictionary_max_term_words"), dictionary_max_term_words),
         ):
             row += 1
             label_widget = Gtk.Label(label=label)
@@ -2938,9 +2993,9 @@ class WorkspaceGtkGui:
         label_entry.set_text(action.label)
         id_entry = Gtk.Entry()
         id_entry.set_text(_shortcut_id_from_label(action.label))
-        grid.attach(Gtk.Label(label="label"), 0, 0, 1, 1)
+        grid.attach(Gtk.Label(label=self._s("action.shortcut_label")), 0, 0, 1, 1)
         grid.attach(label_entry, 1, 0, 1, 1)
-        grid.attach(Gtk.Label(label="id"), 0, 1, 1, 1)
+        grid.attach(Gtk.Label(label=self._s("action.shortcut_id")), 0, 1, 1, 1)
         grid.attach(id_entry, 1, 1, 1, 1)
         dialog.show_all()
         response = dialog.run()
@@ -3393,6 +3448,8 @@ class WorkspaceGtkGui:
             while self.console_notebook.get_n_pages() > 0:
                 self.console_notebook.remove_page(0)
             self._ensure_ai_agent_console_page()
+            if getattr(self, "ai_debug_page", None) is not None:
+                self._ensure_ai_debug_page()
             self._clear_ai_agent_terminal_page()
             self._renumber_terminal_tabs(task)
             for session in self._current_task_terminal_sessions(task):
@@ -3493,6 +3550,10 @@ class WorkspaceGtkGui:
         if task is not None and page is getattr(self, "ai_agent_page", None):
             page_memory[task.path] = "ai-agent"
             return
+        if task is not None and page is getattr(self, "ai_debug_page", None):
+            page_memory[task.path] = "ai-debug"
+            self._refresh_ai_debug()
+            return
         session = self._session_for_page(page)
         if session is not None:
             self.last_active_terminal_by_task[session.task_path] = session.session_id
@@ -3520,10 +3581,100 @@ class WorkspaceGtkGui:
             page_memory[task.path] = "ai-agent"
         return True
 
+    def _activate_ai_debug_page(self, task: TaskSummary, *, remember: bool) -> bool:
+        ai_debug_page = getattr(self, "ai_debug_page", None)
+        if ai_debug_page is None:
+            return False
+        page_num = self.console_notebook.page_num(ai_debug_page)
+        if page_num < 0:
+            return False
+        self.console_notebook.set_current_page(page_num)
+        self._refresh_ai_debug()
+        if remember:
+            page_memory = getattr(self, "last_active_console_page_by_task", None)
+            if page_memory is None:
+                page_memory = {}
+                self.last_active_console_page_by_task = page_memory
+            page_memory[task.path] = "ai-debug"
+        return True
+
+    def _refresh_ai_debug_if_visible(self) -> bool:
+        if self._closing:
+            return False
+        if self.selected_task is not None and self._actions_tab_active():
+            self._refresh_ai_debug()
+        return True
+
+    def _refresh_ai_debug(self) -> None:
+        task = self.selected_task
+        store = getattr(self, "ai_debug_store", None)
+        tree = getattr(self, "ai_debug_tree", None)
+        if task is None or store is None or tree is None:
+            return
+        events = self._ai_debug_events_for_task(task)
+        signature = (str(task.path), tuple(event.event_id for event in events))
+        if signature == getattr(self, "ai_debug_last_signature", ()):
+            return
+        selection = tree.get_selection()
+        selected_id: str | None = None
+        _model, selected_iter = selection.get_selected()
+        if selected_iter is not None:
+            selected_id = store[selected_iter][0]
+        self.ai_debug_last_signature = signature
+        store.clear()
+        selected_path: Gtk.TreePath | None = None
+        for event in events:
+            row_iter = store.append(_harness_debug_event_row(event, language=self.language))
+            if selected_id is not None and str(event.event_id) == selected_id:
+                selected_path = store.get_path(row_iter)
+        if selected_path is not None:
+            selection.select_path(selected_path)
+
+    def _ai_debug_events_for_task(self, task: TaskSummary) -> list[HarnessDebugEvent]:
+        return load_harness_debug_events(task.path)
+
+    def _on_ai_debug_row_activated(
+        self,
+        tree: Gtk.TreeView,
+        path: Gtk.TreePath,
+        _column: Gtk.TreeViewColumn,
+    ) -> None:
+        task = self.selected_task
+        model = tree.get_model()
+        if task is None or model is None:
+            return
+        row_iter = model.get_iter(path)
+        if row_iter is None:
+            return
+        event_id = str(model[row_iter][0])
+        event = next((event for event in self._ai_debug_events_for_task(task) if str(event.event_id) == event_id), None)
+        if event is None:
+            return
+        self._show_ai_debug_event_details(event)
+
+    def _show_ai_debug_event_details(self, event: HarnessDebugEvent) -> None:
+        dialog = Gtk.Dialog(
+            title=self._tr("ai_debug_details_title"),
+            transient_for=self.window,
+            flags=Gtk.DialogFlags.MODAL,
+        )
+        dialog.add_button(self._tr("close"), Gtk.ResponseType.CLOSE)
+        dialog.set_default_size(720, 420)
+        content = dialog.get_content_area()
+        content.set_border_width(12)
+        view = _text_view(self.text_font_size, editable=False)
+        self._set_text(view, _harness_debug_event_details_text(event, language=self.language))
+        content.pack_start(_scrolled(view), True, True, 0)
+        dialog.show_all()
+        dialog.run()
+        dialog.destroy()
+
     def _restore_last_console_page(self, task: TaskSummary) -> bool:
         page_marker = getattr(self, "last_active_console_page_by_task", {}).get(task.path)
         if page_marker == "ai-agent":
             return self._activate_ai_agent_console_page(task, remember=False)
+        if page_marker == "ai-debug":
+            return self._activate_ai_debug_page(task, remember=False)
         elif page_marker is not None and page_marker.startswith("session:"):
             try:
                 session_id = int(page_marker.removeprefix("session:"))
@@ -3730,6 +3881,9 @@ class WorkspaceGtkGui:
         return ()
 
     def _task_agent_status(self, task: TaskSummary) -> str:
+        harness_icon = self._task_harness_status_icon(task)
+        if harness_icon:
+            return harness_icon
         running_agents = self._task_running_agent_kinds(task)
         has_busy_agent = any(
             session.busy
@@ -3745,6 +3899,20 @@ class WorkspaceGtkGui:
             spinner_frame=AGENT_RUNNING_SPINNER_FRAMES[self._agent_spinner_index] if has_busy_agent else "",
             session_markers=self._task_agent_session_markers(task),
         )
+
+    def _task_harness_status_icon(self, task: TaskSummary) -> str:
+        now = time.monotonic()
+        cache = getattr(self, "harness_status_icon_cache", None)
+        if cache is None:
+            cache = {}
+            self.harness_status_icon_cache = cache
+        cached = cache.get(task.path)
+        if cached is not None and now - cached[0] < 0.2:
+            return cached[1]
+        events = load_harness_debug_events(task.path, limit=1)
+        icon = events[-1].icon if events else ""
+        cache[task.path] = (now, icon)
+        return icon
 
     def _set_agent_session_busy(self, session: TerminalSession, busy: bool) -> None:
         if not session_is_agent(session_kind=session.kind) or session.exited:
@@ -4231,6 +4399,12 @@ class WorkspaceGtkGui:
         self.actions_tab_label.set_text(self._tr("actions"))
         if self.ai_agent_tab_label is not None:
             self.ai_agent_tab_label.set_text(self._s("console.ai_agent"))
+        if self.ai_debug_tab_label is not None:
+            self.ai_debug_tab_label.set_text(self._tr("ai_debug_tab"))
+        if self.task_context_encoded_check is not None:
+            self.task_context_encoded_check.set_label(self._tr("context_view_encoded"))
+        for key, column in getattr(self, "ai_debug_columns", {}).items():
+            column.set_title(self._tr(key))
         if self.selected_task is not None and self._artifacts_tab_active():
             self._load_task_artifacts(self.selected_task)
         self._update_ai_agent_button_label()
@@ -4552,6 +4726,10 @@ class WorkspaceGtkGui:
         if source_id is not None:
             GLib.source_remove(source_id)
             self._initial_pane_layout_source_id = None
+        source_id = getattr(self, "ai_debug_refresh_source_id", None)
+        if source_id is not None:
+            GLib.source_remove(source_id)
+            self.ai_debug_refresh_source_id = None
         if self.task_actions_monitor is not None:
             self.task_actions_monitor.cancel()
         self._close_all_terminal_sessions()
@@ -4712,19 +4890,19 @@ def _scrolled(widget: Gtk.Widget) -> Gtk.ScrolledWindow:
     return scrolled
 
 
-def _dictionary_preview_text(text: str, preview: DictionaryPreview) -> str:
+def _dictionary_preview_text(text: str, preview: DictionaryPreview, *, language: str = "en") -> str:
     dictionary_lines = [f"{entry.token} = {entry.value}" for entry in preview.dictionary]
     dictionary_body = "\n".join(dictionary_lines)
-    dictionary_text = dictionary_body if dictionary_body else "(empty)"
+    dictionary_text = dictionary_body if dictionary_body else _gtk_text(language, "dictionary_empty")
     return (
-        "Dictionary\n"
+        f"{_gtk_text(language, 'settings_dictionary_dictionary')}\n"
         f"{dictionary_text}\n\n"
-        "Encoded text\n"
+        f"{_gtk_text(language, 'settings_dictionary_encoded_text')}\n"
         f"{preview.encoded_text}"
     )
 
 
-def _dictionary_preview_metrics_text(text: str, preview: DictionaryPreview) -> str:
+def _dictionary_preview_metrics_text(text: str, preview: DictionaryPreview, *, language: str = "en") -> str:
     dictionary_body = "\n".join(f"{entry.token} = {entry.value}" for entry in preview.dictionary)
     dictionary_chars = len(dictionary_body)
     encoded_total_chars = len(preview.encoded_text) + dictionary_chars
@@ -4732,14 +4910,14 @@ def _dictionary_preview_metrics_text(text: str, preview: DictionaryPreview) -> s
     encoded_total_tokens = preview.encoded_tokens + preview.dictionary_tokens
     token_saving = preview.original_tokens - encoded_total_tokens
     return (
-        f"Original chars: {len(text)}\n"
-        f"Encoded chars: {encoded_total_chars}\n"
-        f"Char saving: {char_saving}\n"
-        f"% saving: {_dictionary_preview_percent(char_saving, len(text))}\n"
-        f"Original tokens: {preview.original_tokens}\n"
-        f"Encoded tokens: {encoded_total_tokens}\n"
-        f"Saving tokens: {token_saving}\n"
-        f"% saving: {_dictionary_preview_percent(token_saving, preview.original_tokens)}"
+        f"{_gtk_text(language, 'settings_dictionary_original_chars')}: {len(text)}\n"
+        f"{_gtk_text(language, 'settings_dictionary_encoded_chars')}: {encoded_total_chars}\n"
+        f"{_gtk_text(language, 'settings_dictionary_saving_chars')}: {char_saving}\n"
+        f"{_gtk_text(language, 'settings_dictionary_saving_percent')}: {_dictionary_preview_percent(char_saving, len(text))}\n"
+        f"{_gtk_text(language, 'settings_dictionary_original_tokens')}: {preview.original_tokens}\n"
+        f"{_gtk_text(language, 'settings_dictionary_encoded_tokens')}: {encoded_total_tokens}\n"
+        f"{_gtk_text(language, 'settings_dictionary_saving_tokens')}: {token_saving}\n"
+        f"{_gtk_text(language, 'settings_dictionary_saving_percent')}: {_dictionary_preview_percent(token_saving, preview.original_tokens)}"
     )
 
 
@@ -4747,6 +4925,111 @@ def _dictionary_preview_percent(saving: int, original: int) -> str:
     if original <= 0:
         return "0.0%"
     return f"{saving / original * 100:.1f}%"
+
+
+def _harness_debug_events_text(events: list[HarnessDebugEvent], *, session_id: str | None = None, language: str = "en") -> str:
+    if not events:
+        if session_id:
+            return _gtk_text(language, "ai_debug_message_no_events_session").format(session=session_id)
+        return _gtk_text(language, "ai_debug_message_no_events")
+    lines = [_gtk_text(language, "ai_debug_session_filter").format(session=session_id or "all"), ""]
+    for event in events:
+        tool = f" tool={event.tool_name}" if event.tool_name else ""
+        detail = f" :: {event.tool_detail}" if event.tool_detail else ""
+        outcome = f" {_harness_debug_event_outcome(event, language=language)}" if event.outcome else ""
+        hook = event.hook_event or event.status_event.value
+        kind = _harness_debug_event_kind(event, language=language)
+        message = _harness_debug_event_message(event, language=language)
+        lines.append(
+            f"{event.updated_at} {event.icon} {kind} {event.agent_type.value}/{event.session_id} "
+            f"{hook}{tool}{outcome}: {message}{detail}"
+        )
+    return "\n".join(lines)
+
+
+def _harness_debug_event_details_text(event: HarnessDebugEvent, *, language: str = "en") -> str:
+    message = _harness_debug_event_message(event, language=language)
+    outcome = _harness_debug_event_outcome(event, language=language) or event.outcome
+    tool_detail = event.tool_detail.strip() or _gtk_text(language, "ai_debug_details_no_tool_detail")
+    return "\n".join(
+        (
+            f"{_gtk_text(language, 'ai_debug_details_time')}: {event.updated_at}",
+            f"{_gtk_text(language, 'ai_debug_details_agent')}: {event.agent_type.value}",
+            f"{_gtk_text(language, 'ai_debug_details_session')}: {event.session_id}",
+            f"{_gtk_text(language, 'ai_debug_details_event_id')}: {event.event_id}",
+            f"{_gtk_text(language, 'ai_debug_details_hook')}: {event.hook_event or event.status_event.value}",
+            f"{_gtk_text(language, 'ai_debug_details_status')}: {event.status_event.value}",
+            f"{_gtk_text(language, 'ai_debug_details_result')}: {outcome}",
+            f"{_gtk_text(language, 'ai_debug_details_message')}: {message}",
+            f"{_gtk_text(language, 'ai_debug_details_tool')}: {event.tool_name or '-'}",
+            "",
+            f"{_gtk_text(language, 'ai_debug_details_tool_detail')}:",
+            tool_detail,
+        )
+    )
+
+
+def _harness_debug_event_row(event: HarnessDebugEvent, *, language: str = "en") -> tuple[str, str, str, str, str, str, str, str]:
+    hook = event.hook_event or event.status_event.value
+    kind = _harness_debug_event_kind(event, language=language)
+    return (
+        str(event.event_id),
+        event.updated_at,
+        event.icon,
+        kind,
+        hook,
+        event.tool_name,
+        _harness_debug_event_outcome(event, language=language),
+        _harness_debug_event_message(event, language=language),
+    )
+
+
+def _harness_debug_event_kind(event: HarnessDebugEvent, *, language: str = "en") -> str:
+    if event.outcome == "injected":
+        return _gtk_text(language, "ai_debug_kind_inject")
+    if event.status_event.value.startswith("tool_"):
+        return _gtk_text(language, "ai_debug_kind_tool")
+    if event.outcome == "blocked":
+        return _gtk_text(language, "ai_debug_kind_block")
+    return _gtk_text(language, "ai_debug_kind_hook")
+
+
+def _harness_debug_event_message(event: HarnessDebugEvent, *, language: str = "en") -> str:
+    key_by_status = {
+        "compact_checkpoint": "ai_debug_message_compact_checkpoint",
+        "compact_finished": "ai_debug_message_compact_finished",
+        "journal_required": (
+            "ai_debug_message_journal_required_compact"
+            if event.hook_event == "pre_compact"
+            else "ai_debug_message_journal_required"
+        ),
+        "session_ended": "ai_debug_message_session_ended",
+        "session_started": "ai_debug_message_session_started",
+        "stop_allowed": "ai_debug_message_stop_allowed",
+        "task_check_failed": "ai_debug_message_task_check_failed",
+        "task_unresolved": "ai_debug_message_task_unresolved",
+        "tool_finished": "ai_debug_message_tool_finished",
+        "tool_started": "ai_debug_message_tool_started",
+        "user_prompt_received": "ai_debug_message_user_prompt_received",
+    }
+    key = key_by_status.get(event.status_event.value)
+    if key is None and event.status_event.value == "hook_observed":
+        return _gtk_text(language, "ai_debug_message_hook_observed").format(
+            hook=event.hook_event or event.status_event.value
+        )
+    if key is None:
+        return event.message
+    return _gtk_text(language, key)
+
+
+def _harness_debug_event_outcome(event: HarnessDebugEvent, *, language: str = "en") -> str:
+    if not event.outcome:
+        return ""
+    return _gtk_text(language, f"ai_debug_outcome_{event.outcome}")
+
+
+def _gtk_text(language: str, key: str) -> str:
+    return TRANSLATIONS.get(language, TRANSLATIONS["en"]).get(key, TRANSLATIONS["en"].get(key, key))
 
 
 
@@ -4856,7 +5139,7 @@ def main(argv: list[str] | None = None) -> int:
         print(f"Agent Workspace is already running for {workspace.resolve()}", file=sys.stderr)
         return 0
 
-    reset_workspace_pending_iterations(workspace)
+    clear_harness_debug_events(workspace)
     gui = WorkspaceGtkGui(workspace)
     gui.window.show_all()
     Gtk.main()

@@ -9,6 +9,7 @@ from ...artifacts.api import artifact_updated_label
 from ...artifacts.api import task_artifact_entries
 from ...commands.api import task_action_command
 from ...commands.api import task_check_command
+from ...harness_policy.api import load_harness_debug_events
 from ...task_actions.api import TaskAction
 from ...task_actions.api import load_task_actions_config
 from ...task_catalog.api import TaskSummary
@@ -63,6 +64,7 @@ class AgentWorkspaceService:
             "description": task_goal_slot_markdown(task.path),
             "context": self.task_context(task_name, filters=context_filters, encoded=encoded_context),
             "actions": self.task_actions(task_name),
+            "ai_debug": self.ai_debug_events(task_name),
             "artifacts": self.task_artifacts(task_name),
             "task_check": run_task_check(task, self.workspace),
         }
@@ -109,6 +111,13 @@ class AgentWorkspaceService:
                 "updated_label": artifact_updated_label(entry.updated),
             }
             for entry in task_artifact_entries(task)
+        ]
+
+    def ai_debug_events(self, task_name: str, *, session_id: str | None = None) -> list[dict[str, Any]]:
+        task = self.task(task_name)
+        return [
+            event.to_json()
+            for event in load_harness_debug_events(task.path, session_id=session_id)
         ]
 
     def task_check_command(self, task_name: str) -> str:

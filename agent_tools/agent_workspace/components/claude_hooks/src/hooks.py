@@ -5,6 +5,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from enum import StrEnum
 import json
+import os
 from pathlib import Path
 import sys
 from typing import Any
@@ -59,12 +60,14 @@ class ClaudeHookRequest:
     def from_payload(cls, payload: dict[str, Any]) -> "ClaudeHookRequest":
         event = _event_from_payload(payload)
         cwd = payload.get("cwd")
+        task_dir = payload.get("task_dir") or payload.get("taskDirectory") or payload.get("taskDir")
+        workspace = payload.get("workspace")
         return cls(
             event=event,
             payload=payload,
-            task_dir=Path(cwd) if isinstance(cwd, str) and cwd else None,
-            workspace=Path(cwd) if isinstance(cwd, str) and cwd else None,
-            session_id=_string_or_none(payload.get("session_id")),
+            task_dir=_path_or_none(task_dir) or _path_or_none(os.environ.get("AGENT_TOOLS_TASK_DIR")),
+            workspace=_path_or_none(workspace) or _path_or_none(cwd) or _path_or_none(os.environ.get("AGENT_TOOLS_WORKSPACE")),
+            session_id=_string_or_none(payload.get("session_id")) or _string_or_none(os.environ.get("AGENT_TOOLS_SESSION_ID")),
         )
 
 
@@ -263,3 +266,7 @@ def _normalize_event(event: ClaudeHookEvent) -> ClaudeHookEvent:
 
 def _string_or_none(value: Any) -> str | None:
     return value if isinstance(value, str) and value else None
+
+
+def _path_or_none(value: Any) -> Path | None:
+    return Path(value) if isinstance(value, str) and value else None

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import json
 from pathlib import Path
 from typing import Any
 
@@ -18,6 +19,9 @@ from ...settings.api import normalize_agent
 from ...task_sessions.api import AgentSessionState
 from ...task_sessions.api import prepare_task_agent_session
 from ...task_sessions.api import task_agent_has_saved_resumable_state
+from ...claude_hooks.api import ClaudeHookEvent
+from ...claude_hooks.api import claude_hooks_settings
+from ...codex_hooks.api import CodexHookEvent
 
 
 @dataclass(frozen=True)
@@ -64,6 +68,25 @@ def append_ai_agent_permission_options(command: list[str], agent: str) -> None:
         command.extend(["--permission-mode", AGENT_WORKSPACE_DEFAULT_CLAUDE_PERMISSION_MODE])
 
 
+def append_ai_agent_hook_options(command: list[str], agent: str) -> None:
+    agent = normalize_agent(agent)
+    if agent == "claude":
+        settings = claude_hooks_settings("python3 -m agent_tools.agent_workspace.components.harness_policy.claude")
+        command.extend(["--settings", json.dumps(settings, ensure_ascii=False)])
+        return
+    command.append("--dangerously-bypass-hook-trust")
+    hook_command = "python3 -m agent_tools.agent_workspace.components.harness_policy.codex"
+    for event in CodexHookEvent:
+        if event is CodexHookEvent.ALL:
+            continue
+        command.extend(
+            [
+                "-c",
+                f'hooks.{event.value}=[{{hooks=[{{type="command",command="{hook_command}"}}]}}]',
+            ]
+        )
+
+
 def build_ai_agent_console_command(
     workspace: Path,
     prompt: str,
@@ -81,9 +104,9 @@ def build_ai_agent_console_command(
         command = [claude_executable]
         append_ai_agent_permission_options(command, agent)
         append_ai_agent_model_options(command, agent, model=model, reasoning_effort=reasoning_effort)
+        append_ai_agent_hook_options(command, agent)
         if resume and resume_session_id:
             command.extend(["--resume", resume_session_id])
-            command.append(prompt)
         else:
             if resume_session_id:
                 command.extend(["--session-id", resume_session_id])
@@ -92,10 +115,10 @@ def build_ai_agent_console_command(
 
     command = [codex_executable]
     append_ai_agent_model_options(command, agent, model=model, reasoning_effort=reasoning_effort)
+    append_ai_agent_hook_options(command, agent)
     if resume and resume_session_id:
         command.extend(["resume", "--cd", str(workspace), "--no-alt-screen"])
         command.append(resume_session_id)
-        command.append(prompt)
         return command
     command.extend(["--cd", str(workspace), "--no-alt-screen", prompt])
     return command
@@ -109,19 +132,13 @@ def ai_agent_task_context_prompt(
     inject_task_context: bool = TASK_CONTEXT_PROMPT_INJECTION_DEFAULT,
 ) -> str:
     _ = inject_task_context
-    front_door_bell = task.path / "front_door_bell.py"
     message = (
         f"We are working in workspace task `{task.name}`. "
         f"Workspace: {workspace}. "
         f"Task directory: {task.path}. "
-        "After each user message, open a task work iteration through the "
-        "task-local front door bell with the available Python interpreter: "
-        f"`python3 {front_door_bell} --open-iteration`. "
-        "Follow its returned stage until it returns ITERATION_DONE or BLOCKED. "
-        "A work iteration is one useful step for the latest user request, then "
-        "control returns to the user. Close abandoned iterations with "
-        "`--close-iteration`. Use workspace rules for the rest of the "
-        "workflow."
+        "Workspace policy is delivered by harness hooks. Task context source "
+        "is TASK_CONTEXT.sqlite3 slots; query it when task state is needed. "
+        "Use workspace rules for the rest of the workflow."
     )
     if suffix:
         return f"{message} {suffix}"

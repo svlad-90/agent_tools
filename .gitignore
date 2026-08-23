@@ -37,6 +37,7 @@ agent_tools/knowledge/private/
 # Agent Workspace persists per-task local UI state beside task files.
 **/.agent-workspace-state.json
 agent-workspace-crash.log
+.agent-workspace-harness-debug.jsonl
 
 __pycache__/
 **/__pycache__/

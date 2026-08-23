@@ -114,6 +114,16 @@
     "ru": "Сохранить выбранное как шорткат",
     "uk": "Зберегти вибране як шорткат"
   },
+  "action.shortcut_id": {
+    "en": "ID",
+    "ru": "ID",
+    "uk": "ID"
+  },
+  "action.shortcut_label": {
+    "en": "Label",
+    "ru": "Название",
+    "uk": "Назва"
+  },
   "action.save_shortcut_title": {
     "en": "Save shortcut",
     "ru": "Сохранить шорткат",

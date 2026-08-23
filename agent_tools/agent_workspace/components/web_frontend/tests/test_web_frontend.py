@@ -24,4 +24,4 @@ def test_agent_workspace_web_server_exposes_tasks_api(tmp_path: Path) -> None:
 
     assert data["tasks"][0]["name"] == "sample-task"
     assert "Agent Workspace" in html
-
+    assert "AI Debug" in html

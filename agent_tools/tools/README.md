@@ -105,15 +105,14 @@ If `TASK_CONTEXT.sqlite3` is missing, `query` creates it and imports legacy
 `goal` and `operational-memory` are required. `env` and `validation` are
 recommended. Move useful legacy material into typed slots, then clear `legacy`.
 
-## Task Front Desk
+## Harness Policy
 
-New task layouts include a task-local `front_door_bell.py`. Agents run
-`front_door_bell.py --open-iteration` after each user message inside the task.
-It delegates to `agent_tools.tools.front_desk_bell`, performs first-run
-onboarding, runs task_check preflight, tells the agent when to do the user
-work, and enforces a slot update or explicit `--ack-no-context-change` before
-the iteration is done. Use `--close-iteration` to close an abandoned pending
-iteration.
+Normal Agent Workspace sessions use hook-driven harness policy from
+`agent_tools.agent_workspace.components.harness_policy`. The policy handles
+session lifecycle, task_check Stop gates, durable slot freshness, and compact
+checkpoints through Codex/Claude hooks. Legacy task-local `front_door_bell.py`
+scripts may remain in old tasks as manual fallback only; new task layouts do
+not require or create them.
 
 ## Commit Message
 

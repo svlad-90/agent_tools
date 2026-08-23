@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from agent_tools.agent_workspace.components.test_support.src.helpers import *
+from agent_tools.agent_workspace.components.harness_policy.src.commands import handle_codex_policy_hook
 
 
 def test_agent_workspace_service_returns_headless_task_snapshot(tmp_path: Path) -> None:
@@ -27,12 +28,25 @@ def test_agent_workspace_service_returns_headless_task_snapshot(tmp_path: Path) 
     (report / "runtime.log").write_text("log", encoding="utf-8")
 
     service = AgentWorkspaceService(tmp_path)
+    handle_codex_policy_hook(
+        json.dumps(
+            {
+                "hook_event_name": "PreToolUse",
+                "task_dir": str(task),
+                "session_id": "s1",
+                "tool_name": "exec_command",
+                "tool_input": {"command": "python3 -c 'print(42)'"},
+            }
+        )
+    )
     snapshot = service.task_snapshot("sample-task")
 
     assert snapshot["task"]["name"] == "sample-task"
     assert "Headless service" in snapshot["description"]
     assert "Agent Workspace service returns task data" in snapshot["context"]["markdown"]
     assert snapshot["actions"]["actions"][0]["id"] == "smoke"
+    assert snapshot["ai_debug"][0]["session_id"] == "s1"
+    assert snapshot["ai_debug"][0]["tool_detail"] == "python3 -c 'print(42)'"
     assert snapshot["artifacts"][0]["label"] == "report/runtime.log"
     assert "python" in service.task_action_command("sample-task", "smoke")
 
@@ -79,4 +93,3 @@ def test_agent_workspace_service_renders_encoded_context_cards(tmp_path: Path) -
     assert context["dictionary"][0]["value"] == "drivers/firmware/scmi/scmi.c"
     assert context["entries"][0]["category"] == "findings"
     assert "§00 records active context" in context["markdown"]
-

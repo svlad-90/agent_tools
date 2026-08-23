@@ -13,9 +13,8 @@ def test_codex_task_context_message_points_at_selected_task(tmp_path: Path) -> N
     assert "workspace task `sample-task`" in message
     assert f"Workspace: {tmp_path}" in message
     assert f"Task directory: {task}" in message
-    assert "front_door_bell.py" in message
-    assert "--open-iteration" in message
-    assert "ITERATION_DONE" in message
+    assert "Workspace policy is delivered by harness hooks" in message
+    assert "front_door_bell.py" not in message
     assert "Current task context slots preloaded from `TASK_CONTEXT.sqlite3`" not in message
 
 
@@ -32,10 +31,9 @@ def test_core_ai_agent_task_context_prompt_supports_optional_suffix(tmp_path: Pa
         inject_task_context=False,
     )
 
-    assert "front_door_bell.py" in plain
-    assert "--open-iteration" in plain
-    assert "--close-iteration" in plain
-    assert "Follow its returned stage" in plain
+    assert "Workspace policy is delivered by harness hooks" in plain
+    assert "front_door_bell.py" not in plain
+    assert "--open-iteration" not in plain
     assert "Reply in Russian." not in plain
     assert suffixed.endswith("Reply in Russian.")
     assert "Current task context slots preloaded" not in plain
@@ -57,8 +55,8 @@ def test_ai_agent_task_context_prompt_does_not_inject_active_context(tmp_path: P
 
     prompt = ai_agent_task_context_prompt(summary, tmp_path)
 
-    assert "front_door_bell.py" in prompt
-    assert "--open-iteration" in prompt
+    assert "Workspace policy is delivered by harness hooks" in prompt
+    assert "front_door_bell.py" not in prompt
     assert "Current task context slots preloaded from `TASK_CONTEXT.sqlite3`" not in prompt
     assert "| Findings" not in prompt
     assert "records current context" not in prompt
@@ -109,7 +107,7 @@ def test_task_check_errors_are_added_to_new_ai_prompt(tmp_path: Path) -> None:
     assert "task-context-slot-required" in suffix
 
 
-def test_new_ai_launch_uses_front_door_prompt_instead_of_task_check_dump(tmp_path: Path) -> None:
+def test_new_ai_launch_uses_harness_policy_prompt_instead_of_task_check_dump(tmp_path: Path) -> None:
     task = tmp_path / "tasks" / "sample-task"
     task.mkdir(parents=True)
     (task / "TASK_DESCRIPTION.md").write_text("# Description\n", encoding="utf-8")
@@ -128,13 +126,13 @@ def test_new_ai_launch_uses_front_door_prompt_instead_of_task_check_dump(tmp_pat
         include_task_check=True,
     )
 
-    assert "front_door_bell.py" in launch.command[-1]
-    assert "--open-iteration" in launch.command[-1]
+    assert "Workspace policy is delivered by harness hooks" in launch.command[-1]
+    assert "front_door_bell.py" not in launch.command[-1]
     assert "Task check reported errors" not in launch.command[-1]
     assert "task-context-slot-required" not in launch.command[-1]
 
 
-def test_resumed_ai_launch_uses_front_door_prompt_instead_of_task_check_dump(
+def test_resumed_ai_launch_uses_harness_policy_prompt_instead_of_task_check_dump(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -164,10 +162,11 @@ def test_resumed_ai_launch_uses_front_door_prompt_instead_of_task_check_dump(
     )
 
     assert launch.session_state.resume
-    assert "front_door_bell.py" in launch.command[-1]
-    assert "--open-iteration" in launch.command[-1]
-    assert "Task check reported errors" not in launch.command[-1]
-    assert "task-context-slot-required" not in launch.command[-1]
+    assert launch.command[-5:] == ["resume", "--cd", str(tmp_path), "--no-alt-screen", session_id]
+    assert all("Workspace policy is delivered by harness hooks" not in part for part in launch.command)
+    assert all("front_door_bell.py" not in part for part in launch.command)
+    assert all("Task check reported errors" not in part for part in launch.command)
+    assert all("task-context-slot-required" not in part for part in launch.command)
 
 
 def test_codex_console_command_passes_prompt_and_workspace(tmp_path: Path) -> None:
@@ -209,18 +208,10 @@ def test_core_ai_agent_command_builder_handles_codex_and_claude(tmp_path: Path) 
         reasoning_effort="low",
     )
 
-    assert codex_command == [
-        "codex-bin",
-        "--model",
-        "gpt-5.5",
-        "-c",
-        'model_reasoning_effort="medium"',
-        "--cd",
-        str(tmp_path),
-        "--no-alt-screen",
-        prompt,
-    ]
-    assert claude_command == [
+    assert codex_command[:5] == ["codex-bin", "--model", "gpt-5.5", "-c", 'model_reasoning_effort="medium"']
+    assert "python3 -m agent_tools.agent_workspace.components.harness_policy.codex" in " ".join(codex_command)
+    assert codex_command[-4:] == ["--cd", str(tmp_path), "--no-alt-screen", prompt]
+    assert claude_command[:7] == [
         "claude-bin",
         "--permission-mode",
         "auto",
@@ -228,10 +219,10 @@ def test_core_ai_agent_command_builder_handles_codex_and_claude(tmp_path: Path) 
         "sonnet",
         "--effort",
         "low",
-        "--resume",
-        "019feba2-e25e-76e1-9468-aa399758268f",
-        prompt,
     ]
+    assert "python3 -m agent_tools.agent_workspace.components.harness_policy.claude" in " ".join(claude_command)
+    assert claude_command[-2:] == ["--resume", "019feba2-e25e-76e1-9468-aa399758268f"]
+    assert prompt not in claude_command
 
 
 def test_prepare_ai_agent_launch_command_builds_command_from_session_and_model_settings(
@@ -266,22 +257,12 @@ def test_prepare_ai_agent_launch_command_builds_command_from_session_and_model_s
     assert launch.session_state.session_id == session_id
     assert launch.model_settings.model == "gpt-5.5"
     assert launch.model_settings.reasoning_effort == "medium"
-    assert launch.command == [
-        "codex-bin",
-        "--model",
-        "gpt-5.5",
-        "-c",
-        'model_reasoning_effort="medium"',
-        "resume",
-        "--cd",
-        str(tmp_path),
-        "--no-alt-screen",
-        session_id,
-        launch.command[-1],
-    ]
-    assert "front_door_bell.py" in launch.command[-1]
-    assert "--open-iteration" in launch.command[-1]
-    assert "Current task context slots preloaded from `TASK_CONTEXT.sqlite3`" not in launch.command[-1]
+    assert launch.command[:5] == ["codex-bin", "--model", "gpt-5.5", "-c", 'model_reasoning_effort="medium"']
+    assert "python3 -m agent_tools.agent_workspace.components.harness_policy.codex" in " ".join(launch.command)
+    assert launch.command[-5:] == ["resume", "--cd", str(tmp_path), "--no-alt-screen", session_id]
+    assert all("Workspace policy is delivered by harness hooks" not in part for part in launch.command)
+    assert all("front_door_bell.py" not in part for part in launch.command)
+    assert all("Current task context slots preloaded from `TASK_CONTEXT.sqlite3`" not in part for part in launch.command)
 
 
 def test_codex_console_command_can_resume_session(tmp_path: Path) -> None:
@@ -292,15 +273,14 @@ def test_codex_console_command_can_resume_session(tmp_path: Path) -> None:
 
     command = codex_console_command(tmp_path, summary, resume=True, resume_session_id=session_id)
 
-    assert command[-6:] == [
+    assert command[-5:] == [
         "resume",
         "--cd",
         str(tmp_path),
         "--no-alt-screen",
         session_id,
-        command[-1],
     ]
-    assert codex_task_context_message(summary, tmp_path) == command[-1]
+    assert codex_task_context_message(summary, tmp_path) not in command
 
 
 def test_codex_console_command_uses_model_and_reasoning(tmp_path: Path) -> None:
@@ -407,17 +387,14 @@ def test_ai_agent_console_command_can_use_claude_session_id(tmp_path: Path) -> N
         resume_session_id=session_id,
     )
 
-    assert first_command[:5] == [first_command[0], "--permission-mode", "auto", "--session-id", session_id]
+    assert first_command[:3] == [first_command[0], "--permission-mode", "auto"]
+    assert "python3 -m agent_tools.agent_workspace.components.harness_policy.claude" in " ".join(first_command)
+    assert first_command[-3:-1] == ["--session-id", session_id]
     assert "workspace task `sample-task`" in first_command[-1]
-    assert resume_command == [
-        resume_command[0],
-        "--permission-mode",
-        "auto",
-        "--resume",
-        session_id,
-        resume_command[-1],
-    ]
-    assert "workspace task `sample-task`" in resume_command[-1]
+    assert resume_command[:3] == [resume_command[0], "--permission-mode", "auto"]
+    assert "python3 -m agent_tools.agent_workspace.components.harness_policy.claude" in " ".join(resume_command)
+    assert resume_command[-2:] == ["--resume", session_id]
+    assert all("workspace task `sample-task`" not in part for part in resume_command)
 
 
 def test_gtk_and_tk_claude_command_builders_match(tmp_path: Path) -> None:
@@ -562,4 +539,3 @@ def test_ai_agent_switch_decision_confirms_switch_when_starting_changed_agent() 
     assert decision.action == "confirm_switch"
     assert decision.agent == "claude"
     assert decision.current_agent == "codex"
-

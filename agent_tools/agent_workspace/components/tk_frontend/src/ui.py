@@ -87,7 +87,6 @@ from ...commands.api import task_check_shell_command
 from ...markdown.api import render_markdown_chunks
 from ...task_actions.api import TaskAction
 from ...task_actions.api import load_task_actions
-from agent_tools.tools.front_desk_bell import reset_workspace_pending_iterations
 from agent_tools.tools.task_context import filter_entries as _filter_task_context_entries
 from agent_tools.tools.task_context import load_entries as _load_task_context_entries
 from ...localization.api import AI_AGENT_BUTTON_LABELS as _AI_AGENT_BUTTON_LABELS
@@ -2563,8 +2562,6 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     workspace = Path(args.workspace)
     install_agent_workspace_exception_logger(workspace, "tk")
-    reset_workspace_pending_iterations(workspace)
-
     root = tk.Tk()
 
     def report_callback_exception(

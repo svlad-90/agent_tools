@@ -2,14 +2,9 @@ from __future__ import annotations
 
 import argparse
 import json
-import os
-import stat
 import sys
 from dataclasses import dataclass
 from pathlib import Path
-
-
-FRONT_DOOR_BELL_FILE = "front_door_bell.py"
 
 
 @dataclass(frozen=True)
@@ -70,56 +65,16 @@ def actualize_task(task_dir: Path, *, workspace: Path) -> list[ActualizeResult]:
                 str(task_dir),
             )
         ]
-    return [ensure_front_door_bell(task_dir)]
+    return [report_harness_policy_ready(task_dir)]
 
 
-def ensure_front_door_bell(task_dir: Path) -> ActualizeResult:
-    front_door_path = task_dir / FRONT_DOOR_BELL_FILE
-    if front_door_path.is_file():
-        return ActualizeResult(
-            "PASS",
-            "actualize-front-door-bell-existing",
-            f"{FRONT_DOOR_BELL_FILE} already exists",
-            str(front_door_path),
-        )
-    if front_door_path.exists():
-        return ActualizeResult(
-            "FAIL",
-            "actualize-front-door-bell-blocked",
-            f"{FRONT_DOOR_BELL_FILE} exists but is not a file",
-            str(front_door_path),
-        )
-
-    front_door_path.write_text(front_door_bell_script(), encoding="utf-8")
-    if os.name != "nt":
-        front_door_path.chmod(front_door_path.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
+def report_harness_policy_ready(task_dir: Path) -> ActualizeResult:
     return ActualizeResult(
         "PASS",
-        "actualize-front-door-bell-created",
-        f"created {FRONT_DOOR_BELL_FILE}",
-        str(front_door_path),
+        "actualize-harness-policy-ready",
+        "task uses hook-driven harness policy; no task-local front door bell is required",
+        str(task_dir),
     )
-
-
-def front_door_bell_script() -> str:
-    return """#!/usr/bin/env python3
-from __future__ import annotations
-
-from pathlib import Path
-import sys
-
-
-TASK_DIR = Path(__file__).resolve().parent
-WORKSPACE_ROOT = TASK_DIR.parent.parent if TASK_DIR.parent.name == "tasks" else Path.cwd()
-if str(WORKSPACE_ROOT) not in sys.path:
-    sys.path.insert(0, str(WORKSPACE_ROOT))
-
-from agent_tools.tools.front_desk_bell import main
-
-
-if __name__ == "__main__":
-    raise SystemExit(main(["--task", str(TASK_DIR), "--workspace", str(WORKSPACE_ROOT), *sys.argv[1:]]))
-"""
 
 
 def render_text(results: list[ActualizeResult]) -> str:

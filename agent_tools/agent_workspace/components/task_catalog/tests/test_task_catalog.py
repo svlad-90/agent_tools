@@ -23,7 +23,7 @@ def test_discover_tasks_reports_description_context_and_budget(tmp_path: Path) -
     assert tasks[0].context_over_budget
 
 
-def test_discover_tasks_actualizes_front_door_bell_for_existing_task(tmp_path: Path) -> None:
+def test_discover_tasks_does_not_create_front_door_bell_for_existing_task(tmp_path: Path) -> None:
     task = tmp_path / "tasks" / "sample-task"
     task.mkdir(parents=True)
     ensure_task_context_database(task)
@@ -32,8 +32,7 @@ def test_discover_tasks_actualizes_front_door_bell_for_existing_task(tmp_path: P
 
     front_door = task / "front_door_bell.py"
     assert len(tasks) == 1
-    assert front_door.is_file()
-    assert "front_desk_bell" in front_door.read_text(encoding="utf-8")
+    assert not front_door.exists()
 
 
 def test_discover_tasks_sorts_names_case_insensitively(tmp_path: Path) -> None:
@@ -58,4 +57,3 @@ def test_run_task_check_returns_text_report(tmp_path: Path) -> None:
 
     assert "Summary:" in report
     assert "PASS task-description" not in report
-

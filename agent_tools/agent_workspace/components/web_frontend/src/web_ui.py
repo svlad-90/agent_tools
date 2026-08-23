@@ -15,9 +15,9 @@ import webbrowser
 
 from ...process_runtime.api import acquire_agent_workspace_lock
 from ...process_runtime.api import install_agent_workspace_exception_logger
+from ...harness_policy.api import clear_harness_debug_events
 from ...workspace_service.api import AgentWorkspaceService
 from ...workspace_service.api import TaskContextFilters
-from agent_tools.tools.front_desk_bell import reset_workspace_pending_iterations
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -34,7 +34,7 @@ def main(argv: list[str] | None = None) -> int:
     if lock is None:
         print("Agent Workspace is already running for this workspace.", file=sys.stderr)
         return 1
-    reset_workspace_pending_iterations(workspace)
+    clear_harness_debug_events(workspace)
     server = create_server(workspace, args.host, args.port)
     url = f"http://{server.server_address[0]}:{server.server_address[1]}/"
     print(f"Agent Workspace web UI: {url}")
@@ -107,6 +107,9 @@ class AgentWorkspaceWebHandler(BaseHTTPRequestHandler):
                 return
             if endpoint == "actions":
                 self._send_json(self.workspace_service.task_actions(task_name))
+                return
+            if endpoint == "ai-debug":
+                self._send_json({"events": self.workspace_service.ai_debug_events(task_name)})
                 return
             if endpoint == "artifacts":
                 self._send_json({"artifacts": self.workspace_service.task_artifacts(task_name)})
@@ -249,6 +252,7 @@ button:hover { border-color:var(--accent); }
       <div class="pane"><h2>Context</h2><pre id="context"></pre></div>
       <div class="pane"><h2>Actions</h2><div id="actions" class="list"></div></div>
       <div class="pane"><h2>Artifacts</h2><div id="artifacts" class="list"></div></div>
+      <div class="pane wide"><h2>AI Debug</h2><pre id="aiDebug"></pre></div>
       <div class="pane wide"><h2>Task Check</h2><pre id="taskCheck"></pre></div>
     </section>
   </main>
@@ -299,6 +303,7 @@ async function loadSnapshot() {
   renderContext(data.context.markdown || "-");
   text("taskCheck", data.task_check || "-");
   renderActions(data.actions.actions || [], data.actions.errors || []);
+  renderAiDebug(data.ai_debug || []);
   renderArtifacts(data.artifacts || []);
 }
 async function showTaskCheckCommand() {
@@ -334,6 +339,19 @@ function renderArtifacts(artifacts) {
   box.innerHTML = "";
   for (const artifact of artifacts) box.appendChild(item(artifact.label, `${artifact.group} ${artifact.updated_label}`));
   if (!box.children.length) box.appendChild(item("No artifacts", ""));
+}
+function renderAiDebug(events) {
+  if (!events.length) {
+    text("aiDebug", "No AI hook events.");
+    return;
+  }
+  text("aiDebug", events.map(event => {
+    const tool = event.tool_name ? ` tool=${event.tool_name}` : "";
+    const detail = event.tool_detail ? ` :: ${event.tool_detail}` : "";
+    const outcome = event.outcome ? ` ${event.outcome}` : "";
+    const kind = event.outcome === "injected" ? "INJECT" : event.status_event.startsWith("tool_") ? "TOOL" : event.outcome === "blocked" ? "BLOCK" : "HOOK";
+    return `${event.updated_at} ${event.icon} ${kind} ${event.agent_type}/${event.session_id} ${event.hook_event || event.status_event}${tool}${outcome}: ${event.message}${detail}`;
+  }).join("\\n"));
 }
 function item(title, body) {
   const node = document.createElement("div");

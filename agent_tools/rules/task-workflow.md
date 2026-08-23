@@ -10,19 +10,15 @@ These rules apply to every task directory under the workspace root.
    If the task directory does not exist and the user is asking for
    implementation, validation, or review work, create the standard layout from
    `AGENTS.md`.
-2. When working inside a task, open a work iteration after each user message
-   with `front_door_bell.py --open-iteration` and follow its returned stage
-   until it returns `ITERATION_DONE` or `BLOCKED`. This is the primary task
-   iteration entrypoint; it performs onboarding, task_check preflight,
-   context-update enforcement, and optional context-review guidance. Use
-   `front_door_bell.py` without `--open-iteration` only to advance an already
-   open iteration after work/context updates. Use
-   `front_door_bell.py --close-iteration` to close an abandoned pending
-   iteration before starting another one. Use the `task-front-desk` skill for
-   the full protocol.
-3. Before working inside an existing task directory without a front-door bell
-   result, query current task context
-   slots from `TASK_CONTEXT.sqlite3` after the directory is selected. Use
+2. Do not run a task-local front-door bell as part of normal task work.
+   Workspace policy is enforced by harness hooks when the active agent harness
+   supports them. Hook policy handles session start, user prompt lifecycle,
+   task_check gates, durable slot freshness before Stop, and compact
+   checkpoints. Legacy `front_door_bell.py` scripts may remain in old local
+   tasks as manual fallback only; do not create or require them for new tasks.
+3. Before working inside an existing task directory, query current task context
+   slots from `TASK_CONTEXT.sqlite3` after the directory is selected when task
+   state is needed. Use
    `python3 -m agent_tools.tools.task_context query --task <task-dir>
    --format agent` for agent work, or `--format markdown` when rendering for a
    human. Filter with `--category <slot>` or `--cats env,validation` when only
@@ -57,7 +53,7 @@ These rules apply to every task directory under the workspace root.
      --add <term>`. Do not encode terms by hand in slot text; use dictionary
      aliases returned by `--format agent`.
 
-7. Record the task bootstrap through the task context journal before deep work:
+7. Record the task bootstrap through the task context slots before deep work:
 
    ```text
    goal, active repositories and branches, selected environment, build or

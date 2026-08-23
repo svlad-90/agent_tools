@@ -1,5 +1,13 @@
 from __future__ import annotations
 
+import pytest
+
+from agent_tools.agent_workspace.components.gtk_desktop.src.gtk_ui import _harness_debug_event_row
+from agent_tools.agent_workspace.components.gtk_desktop.src.gtk_ui import _harness_debug_event_details_text
+from agent_tools.agent_workspace.components.gtk_desktop.src.gtk_ui import _harness_debug_events_text
+from agent_tools.agent_workspace.components.harness_policy.api import AgentType
+from agent_tools.agent_workspace.components.harness_policy.api import HarnessDebugEvent
+from agent_tools.agent_workspace.components.harness_policy.api import HarnessStatusEvent
 from agent_tools.agent_workspace.components.test_support.src.helpers import *
 
 
@@ -57,6 +65,7 @@ def test_gtk_dictionary_preview_shows_char_counts_with_dictionary() -> None:
 
     preview_content = gtk_dictionary_preview_text(text, preview)
     metrics_content = gtk_dictionary_preview_metrics_text(text, preview)
+    ru_metrics_content = gtk_dictionary_preview_metrics_text(text, preview, language="ru")
 
     assert "Savings" not in preview_content
     assert f"Original chars: {len(text)}" in metrics_content
@@ -67,7 +76,138 @@ def test_gtk_dictionary_preview_shows_char_counts_with_dictionary() -> None:
     assert f"Original tokens: {preview.original_tokens}" in metrics_content
     assert f"Encoded tokens: {encoded_tokens}" in metrics_content
     assert f"Saving tokens: {saving_tokens}" in metrics_content
+    assert f"Символов до: {len(text)}" in ru_metrics_content
+    assert "Original chars" not in ru_metrics_content
     assert "% saving:" in metrics_content
+
+
+def test_gtk_ai_debug_event_row_splits_columns() -> None:
+    row = _harness_debug_event_row(
+        HarnessDebugEvent(
+            event_id=7,
+            task_dir=Path("/tmp/task"),
+            agent_type=AgentType.CODEX,
+            session_id="s1",
+            hook_event="pre_tool_use",
+            status_event=HarnessStatusEvent.TOOL_STARTED,
+            icon="⚙",
+            message="Tool use started.",
+            tool_name="Bash",
+            tool_detail="python3 -m pytest",
+            outcome="started",
+            updated_at="2026-08-23T19:20:00+03:00",
+        )
+    )
+
+    assert row == (
+        "7",
+        "2026-08-23T19:20:00+03:00",
+        "⚙",
+        "TOOL",
+        "pre_tool_use",
+        "Bash",
+        "started",
+        "Tool use started.",
+    )
+
+
+def test_gtk_ai_debug_event_details_include_tool_command_without_output() -> None:
+    text = _harness_debug_event_details_text(
+        HarnessDebugEvent(
+            event_id=7,
+            task_dir=Path("/tmp/task"),
+            agent_type=AgentType.CODEX,
+            session_id="s1",
+            hook_event="pre_tool_use",
+            status_event=HarnessStatusEvent.TOOL_STARTED,
+            icon="⚙",
+            message="Tool use started.",
+            tool_name="Bash",
+            tool_detail="python3 -m pytest tests/test_example.py",
+            outcome="started",
+            updated_at="2026-08-23T19:20:00+03:00",
+        ),
+        language="ru",
+    )
+
+    assert "Команда / аргументы:" in text
+    assert "python3 -m pytest tests/test_example.py" in text
+    assert "stdout" not in text.lower()
+    assert "stderr" not in text.lower()
+
+
+def test_gtk_ai_debug_event_row_uses_selected_language() -> None:
+    row = _harness_debug_event_row(
+        HarnessDebugEvent(
+            event_id=8,
+            task_dir=Path("/tmp/task"),
+            agent_type=AgentType.CODEX,
+            session_id="s1",
+            hook_event="pre_tool_use",
+            status_event=HarnessStatusEvent.TOOL_STARTED,
+            icon="⚙",
+            message="Tool use started.",
+            tool_name="Bash",
+            tool_detail="python3 -m pytest",
+            outcome="started",
+            updated_at="2026-08-23T19:20:00+03:00",
+        ),
+        language="ru",
+    )
+
+    assert row[3] == "ТУЛЗА"
+    assert row[6] == "начато"
+    assert row[7] == "Вызов инструмента начат."
+    assert "Нет событий хуков ИИ для сессии s1." == _harness_debug_events_text([], session_id="s1", language="ru")
+
+
+def test_gtk_ai_debug_event_row_keeps_large_event_id_as_string() -> None:
+    row = _harness_debug_event_row(
+        HarnessDebugEvent(
+            event_id=1787503705134248638,
+            task_dir=Path("/tmp/task"),
+            agent_type=AgentType.CODEX,
+            session_id="s1",
+            hook_event="post_tool_use",
+            status_event=HarnessStatusEvent.TOOL_FINISHED,
+            icon="✓",
+            message="Tool use finished.",
+            tool_name="Bash",
+            tool_detail="",
+            outcome="finished",
+            updated_at="2026-08-23T19:20:01+03:00",
+        )
+    )
+
+    assert row[0] == "1787503705134248638"
+
+
+def test_gtk_ai_debug_store_accepts_large_event_id() -> None:
+    gi = pytest.importorskip("gi")
+    gi.require_version("Gtk", "3.0")
+    from gi.repository import Gtk
+
+    store = Gtk.ListStore(str, str, str, str, str, str, str, str)
+    row = _harness_debug_event_row(
+        HarnessDebugEvent(
+            event_id=1787503705134248638,
+            task_dir=Path("/tmp/task"),
+            agent_type=AgentType.CODEX,
+            session_id="s1",
+            hook_event="pre_tool_use",
+            status_event=HarnessStatusEvent.TOOL_STARTED,
+            icon="⚙",
+            message="Tool use started.",
+            tool_name="Bash",
+            tool_detail="",
+            outcome="started",
+            updated_at="2026-08-23T19:20:02+03:00",
+        )
+    )
+
+    row_iter = store.append(row)
+
+    assert store[row_iter][0] == "1787503705134248638"
 
 
 def test_gtk_task_context_status_filter_defaults_to_active_only() -> None:
@@ -1231,6 +1371,10 @@ def test_gtk_translates_agent_and_manual_labels() -> None:
     assert GTK_TRANSLATIONS["ru"]["default_claude_model"] == "Модель Claude"
     assert GTK_TRANSLATIONS["ru"]["default_codex_model"] == "Модель Codex"
     assert GTK_TRANSLATIONS["ru"]["ok"] == "ОК"
+    assert GTK_TRANSLATIONS["ru"]["ai_debug_tab"] == "ИИ дебаг"
+    assert GTK_TRANSLATIONS["ru"]["ai_debug_column_tool"] == "Инструмент"
+    assert GTK_TRANSLATIONS["ru"]["context_view_encoded"] == "Закодировано"
+    assert GTK_TRANSLATIONS["ru"]["settings_dictionary_preview_text"] == "Текст для проверки"
     assert GTK_TRANSLATIONS["uk"]["ok"] == "ОК"
     assert "закроет текущую сессию" in GTK_TRANSLATIONS["ru"]["confirm_switch_agent_body"]
     assert "ссылка на продолжение" in GTK_TRANSLATIONS["ru"]["confirm_delete_saved_agent_session_body"]
@@ -1245,6 +1389,8 @@ def test_gtk_translates_agent_and_manual_labels() -> None:
     assert GTK_TRANSLATIONS["uk"]["manual_usage_section"] == "Основи"
     assert GTK_TRANSLATIONS["uk"]["manual_status_section"] == "Статуси в колонці ШІ"
     assert GTK_TRANSLATIONS["uk"]["task_agent_status_column"] == "ШІ"
+    assert GTK_TRANSLATIONS["uk"]["ai_debug_tab"] == "ШІ дебаг"
+    assert GTK_TRANSLATIONS["uk"]["settings_dictionary_preview_text"] == "Текст для перевірки"
     assert GTK_TRANSLATIONS["uk"]["run_ai_agent"] == "Запустити ШІ агента"
     assert GTK_TRANSLATIONS["uk"]["manual_label_reset"] == "Скидання"
     assert "workspace розбитий на задачі" in GTK_TRANSLATIONS["uk"]["manual_usage_concept"]
@@ -1351,4 +1497,3 @@ def test_gtk_agent_restore_failure_clears_session_closes_console_and_sets_status
     assert page.destroyed
     assert not load_task_agent_session(summary, "claude").resume
     assert "Не удалось восстановить сохраненную сессию Claude Code" in gui.status_message
-

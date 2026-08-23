@@ -1,14 +1,18 @@
 ---
 name: task-front-desk
-description: Follow the task-local front door bell protocol for workspace task iterations. Use when Codex starts or resumes a task, receives a user message inside a task, needs guidance for task_check/context slots, or must complete the current work iteration before returning control to the user.
+description: Legacy fallback for manually driving old task-local front_door_bell.py scripts when harness hooks are unavailable and the user explicitly asks for the fallback protocol.
 rule: agent_tools/rules/task-workflow.md
 ---
 
 # Task Front Desk
 
-Workspace tasks use a front-desk iteration loop. The task-local entrypoint is
-`front_door_bell.py` in the task directory. Run it with the available Python
-interpreter:
+Normal workspace tasks do not use this skill. Agent Workspace policy is now
+hook-driven through `agent_tools.agent_workspace.components.harness_policy`.
+Use this skill only for old local tasks when harness hooks are unavailable and
+the user explicitly asks to drive the legacy manual fallback.
+
+For that fallback, the task-local entrypoint is `front_door_bell.py` in the
+task directory. Run it with the available Python interpreter:
 
 ```sh
 python3 front_door_bell.py --open-iteration
@@ -19,8 +23,8 @@ task-local script.
 
 ## Protocol
 
-1. After each user message inside a task, run
-   `front_door_bell.py --open-iteration` before doing task work.
+1. Run `front_door_bell.py --open-iteration` only when using the legacy
+   fallback.
 2. Follow the returned `FRONT_DESK_STAGE`.
 3. Treat one iteration as one useful work step for the latest user request,
    followed by returning control to the user.

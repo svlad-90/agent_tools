@@ -54,10 +54,12 @@ and only then name the exact variable, register, constant, or API. When several
 low-level terms are involved, repeat the role of each term locally instead of
 assuming the reader remembers it from earlier comments.
 
-Before working inside a task after a user message, run the task-local
-`front_door_bell.py` with the available Python interpreter and follow its
-returned stage until it returns `ITERATION_DONE` or `BLOCKED`. When the bell or
-the task requires direct context access, query current task context slots from
+Do not run a task-local front-door bell as part of normal task work. Workspace
+policy is enforced by harness hooks when the active agent harness supports
+them. Legacy `front_door_bell.py` scripts may remain in old local tasks as
+manual fallback only; do not create or require them for new tasks.
+
+When task context is needed, query current task context slots from
 `TASK_CONTEXT.sqlite3` with
 `python3 -m agent_tools.tools.task_context query --task <task-dir> --format
 agent`. Use `--category`/`--cats` for targeted slot reads. Legacy

@@ -3,6 +3,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
+
 from agent_tools.agent_workspace.components.codex_hooks.api import CodexHookEvent
 from agent_tools.agent_workspace.components.codex_hooks.api import CodexHookRegistry
 from agent_tools.agent_workspace.components.codex_hooks.api import CodexHookRequest
@@ -122,6 +124,27 @@ def test_codex_command_hook_reads_stdin_and_returns_json() -> None:
     assert result.exit_code == 0
     assert result.stderr == ""
     assert json.loads(result.stdout) == {"systemMessage": "context\nglobal"}
+
+
+def test_codex_command_hook_uses_agent_tools_environment(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    task_dir = tmp_path / "tasks" / "sample"
+    workspace = tmp_path
+    registry = CodexHookRegistry()
+    seen: list[CodexHookRequest] = []
+    registry.subscribe(CodexHookEvent.SESSION_START, lambda request: seen.append(request), subscriber_id="one")
+    monkeypatch.setenv("AGENT_TOOLS_TASK_DIR", str(task_dir))
+    monkeypatch.setenv("AGENT_TOOLS_WORKSPACE", str(workspace))
+    monkeypatch.setenv("AGENT_TOOLS_SESSION_ID", "session-env")
+
+    result = handle_command_hook(json.dumps({"hook_event_name": "SessionStart"}), registry=registry)
+
+    assert result.exit_code == 0
+    assert seen[0].task_dir == task_dir
+    assert seen[0].workspace == workspace
+    assert seen[0].session_id == "session-env"
 
 
 def test_codex_command_hook_reports_invalid_event() -> None:
