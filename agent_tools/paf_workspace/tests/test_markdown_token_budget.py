@@ -4,7 +4,7 @@ from collections.abc import Iterable
 from pathlib import Path
 import subprocess
 
-from agent_tools.tools.agent_workspace.components.markdown.api import rough_token_count
+from agent_tools.agent_workspace.components.markdown.api import rough_token_count
 
 
 AGENT_TOOLS_ROOT = Path(__file__).resolve().parents[2]

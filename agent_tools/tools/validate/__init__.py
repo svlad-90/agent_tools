@@ -147,11 +147,11 @@ def _validation_commands(repo: Path, changed: list[Path], task_dir: Path | None)
             commands.append(ValidationCommand(f"bash -n {path}", ["bash", "-n", str(path)], repo))
         elif path.suffix == ".desktop" and shutil.which("desktop-file-validate"):
             commands.append(ValidationCommand(f"desktop-file-validate {path}", ["desktop-file-validate", str(path)], repo))
-    if any(path.parts[:3] == ("agent_tools", "tools", "agent_workspace") for path in changed):
+    if any(path.parts[:2] == ("agent_tools", "agent_workspace") for path in changed):
         commands.append(
             ValidationCommand(
                 "pytest agent_workspace",
-                [sys.executable, "-m", "pytest", "-q", "agent_tools/tools/agent_workspace/components"],
+                [sys.executable, "-m", "pytest", "-q", "agent_tools/agent_workspace/components"],
                 repo,
             )
         )

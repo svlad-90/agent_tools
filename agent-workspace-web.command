@@ -25,7 +25,7 @@ else
 fi
 
 set +e
-"$PYTHON_BIN" -m agent_tools.tools.agent_workspace --ui web "$@"
+"$PYTHON_BIN" -m agent_tools.agent_workspace --ui web "$@"
 status=$?
 set -e
 if [ "$status" -ne 0 ]; then

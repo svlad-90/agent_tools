@@ -15,7 +15,7 @@ These rules apply to all Python code under the workspace root.
 
    ```sh
    python -m agent_tools.tools.code_map <command> ...
-   python -m agent_tools.tools.code_map map tools/agent_workspace/components/agent_status/src/status.py
+   python -m agent_tools.tools.code_map map agent_workspace/components/agent_status/src/status.py
    ```
 
    Do not pass `agent_tools/tools/...` as the target path; from the workspace

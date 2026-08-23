@@ -4,7 +4,7 @@ Docker image source for the Agent Workspace test environment.
 
 The image contains the Python, Tk, GTK, and VTE dependencies required by the
 Agent Workspace component test tree under
-`agent_tools/tools/agent_workspace/components`.
+`agent_tools/agent_workspace/components`.
 
 Build and run the validation through PAF:
 
@@ -31,5 +31,5 @@ agent_tools/paf_workspace/run-paf.sh \
   agent_tools/paf_workspace/domains/environments/scenarios/agent-workspace-tests.xml \
   validate \
   --yaml-config agent_tools/paf_workspace/domains/environments/profiles/agent-workspace-tests.yaml \
-  --parameter AGENT_WORKSPACE_TEST_COMMAND='PYTHONPATH=.:agent_tools python3 -m pytest -q agent_tools/tools/agent_workspace/components/workspace_service/tests'
+  --parameter AGENT_WORKSPACE_TEST_COMMAND='PYTHONPATH=.:agent_tools python3 -m pytest -q agent_tools/agent_workspace/components/workspace_service/tests'
 ```

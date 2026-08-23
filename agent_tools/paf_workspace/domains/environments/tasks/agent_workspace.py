@@ -13,7 +13,7 @@ from paf_workspace.domains.environments.tasks.base import EnvironmentTask
 AGENT_WORKSPACE_TEST_COMMAND = """
 set -euo pipefail
 export PYTHONPATH=.:agent_tools
-python3 -m pytest -q agent_tools/tools/agent_workspace/components
+python3 -m pytest -q agent_tools/agent_workspace/components
 """.strip()
 
 

@@ -247,7 +247,7 @@ def _write_launcher(python: Path, args: argparse.Namespace) -> None:
 
 def _launcher_content(python: Path, default_args: tuple[str, ...]) -> str:
     args = " ".join(_shell_quote(arg) for arg in default_args)
-    module_command = f'exec "{python}" -m agent_tools.tools.agent_workspace'
+    module_command = f'exec "{python}" -m agent_tools.agent_workspace'
     if args:
         module_command = f"{module_command} {args}"
     return "\n".join(
@@ -263,7 +263,7 @@ def _launcher_content(python: Path, default_args: tuple[str, ...]) -> str:
 
 def _windows_launcher_content(python: Path, default_args: tuple[str, ...]) -> str:
     args = " ".join(_windows_quote(arg) for arg in default_args)
-    module_command = f'"{python}" -m agent_tools.tools.agent_workspace'
+    module_command = f'"{python}" -m agent_tools.agent_workspace'
     if args:
         module_command = f"{module_command} {args}"
     return "\r\n".join(
@@ -300,7 +300,7 @@ def _install_desktop_entry(python: Path, args: argparse.Namespace) -> None:
         [
             str(python),
             "-m",
-            "agent_tools.tools.agent_workspace.components.desktop_integration.src.install_desktop",
+            "agent_tools.agent_workspace.components.desktop_integration.src.install_desktop",
         ],
         args,
         env=_python_env(),
@@ -322,7 +322,7 @@ def _validate_installation(python: Path, args: argparse.Namespace) -> None:
         [
             str(python),
             "-c",
-            "import yaml, tiktoken; import agent_tools.tools.task_context as tc; import agent_tools.tools.agent_workspace.components.workspace_service.api; import agent_tools.tools.agent_workspace.components.web_frontend.api; tc.token_count('Agent Workspace')",
+            "import yaml, tiktoken; import agent_tools.tools.task_context as tc; import agent_tools.agent_workspace.components.workspace_service.api; import agent_tools.agent_workspace.components.web_frontend.api; tc.token_count('Agent Workspace')",
         ],
         args,
         env=_python_env(),

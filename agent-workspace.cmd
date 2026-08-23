@@ -11,13 +11,13 @@ if defined PYTHONPATH (
 
 where py >nul 2>nul
 if %ERRORLEVEL%==0 (
-  py -3 -m agent_tools.tools.agent_workspace --ui web %*
+  py -3 -m agent_tools.agent_workspace --ui web %*
   exit /b %ERRORLEVEL%
 )
 
 where python >nul 2>nul
 if %ERRORLEVEL%==0 (
-  python -m agent_tools.tools.agent_workspace --ui web %*
+  python -m agent_tools.agent_workspace --ui web %*
   exit /b %ERRORLEVEL%
 )
 

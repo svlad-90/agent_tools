@@ -12,7 +12,7 @@ python -m agent_tools.tools.task_context
 python -m agent_tools.tools.front_desk_bell
 python -m agent_tools.tools.commit_msg
 python -m agent_tools.tools.push_guard
-python -m agent_tools.tools.agent_workspace
+python -m agent_tools.agent_workspace
 python -m agent_tools.tools.rules_sync
 ```
 
