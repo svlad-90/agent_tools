@@ -32,6 +32,7 @@ from .core import AGENT_STATUS_MANUAL_USAGE_ENTRIES
 from .core import AGENT_STATUS_MANUAL_USAGE_TITLE
 from .core import AgentModelSettings
 from .core import TaskAction
+from .core import TaskSessionDiscoveryState
 from .core import TaskSummary
 from .core import AGENT_WORKSPACE_AGENTS
 from .core import AGENT_WORKSPACE_REASONING_EFFORTS
@@ -67,6 +68,7 @@ from .core import prepare_ai_agent_launch_command
 from .core import read_task_file
 from .core import reconcile_task_agent_run_session
 from .core import render_markdown_chunks
+from .core import resolve_task_agent_sessions
 from .core import reset_task_agent_session
 from .core import save_agent_workspace_settings
 from .core import save_task_active_agent_run
@@ -171,6 +173,7 @@ class AgentWorkspace:
         self._updating_agent_selection = False
         self._updating_task_selection = False
         self._agent_spinner_index = 0
+        self.task_session_discovery = TaskSessionDiscoveryState()
         default_font_size = int(tkfont.nametofont("TkDefaultFont").cget("size"))
         settings = agent_workspace_runtime_settings(
             load_agent_workspace_settings(),
@@ -442,6 +445,7 @@ class AgentWorkspace:
     def refresh_tasks(self) -> None:
         selected_name = self.selected_task.name if self.selected_task is not None else None
         self.tasks = discover_tasks(self.workspace)
+        self._start_task_session_discovery()
         self.task_tree.delete(*self.task_tree.get_children())
         task_iids: dict[str, str] = {}
         for index, task in enumerate(self.tasks):
@@ -1231,6 +1235,40 @@ class AgentWorkspace:
     def _task_has_resumable_agent_session(self, task: TaskSummary) -> bool:
         return bool(task_agent_session_markers(task, self.workspace))
 
+    def _start_task_session_discovery(self) -> None:
+        discovery = getattr(self, "task_session_discovery", None)
+        if discovery is None:
+            discovery = TaskSessionDiscoveryState()
+            self.task_session_discovery = discovery
+        for task in discovery.plan(self.tasks):
+            worker = threading.Thread(
+                target=self._resolve_task_agent_sessions_in_background,
+                args=(task,),
+                daemon=True,
+            )
+            worker.start()
+
+    def _resolve_task_agent_sessions_in_background(self, task: TaskSummary) -> None:
+        try:
+            resolve_task_agent_sessions(task, self.workspace)
+        except Exception as exc:  # pragma: no cover - defensive UI background path
+            log_agent_workspace_exception(self.workspace, "tk-session-discovery", type(exc), exc, exc.__traceback__)
+        self.root.after(0, lambda task_path=task.path: self._finish_task_session_discovery(task_path))
+
+    def _finish_task_session_discovery(self, task_path: Path) -> None:
+        self.task_session_discovery.finish(task_path)
+        task = self._task_for_path(task_path)
+        if self.selected_task is not None and self.selected_task.path == task_path:
+            self._set_selected_agent(
+                task_agent_selection_with_resumable_fallback(
+                    task,
+                    self.workspace,
+                    self.default_agent,
+                )
+            )
+            self._update_ai_agent_button_label()
+        self._refresh_task_session_indicators()
+
     def _task_for_path(self, path: Path) -> TaskSummary:
         return task_for_path(self.tasks, path)
 
@@ -1354,6 +1392,9 @@ class AgentWorkspace:
         )
 
     def _task_label(self, task: TaskSummary) -> str:
+        discovery = getattr(self, "task_session_discovery", None)
+        if discovery is not None and discovery.is_pending(task):
+            return f"⚙ {task.name}"
         return task.name
 
     def _task_agent_status(self, task: TaskSummary) -> str:

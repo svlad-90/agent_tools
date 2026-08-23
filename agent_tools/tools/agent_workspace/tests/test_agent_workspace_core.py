@@ -20,6 +20,7 @@ from agent_tools.tools.agent_workspace.core import PAF_HIDE_TASK_ENV_VAR
 from agent_tools.tools.agent_workspace.core import TaskAction
 from agent_tools.tools.agent_workspace.core import TaskActionParameter
 from agent_tools.tools.agent_workspace.core import TaskActionsConfig
+from agent_tools.tools.agent_workspace.core import TaskSessionDiscoveryState
 from agent_tools.tools.agent_workspace.core import TaskSummary
 from agent_tools.tools.agent_workspace.core import AgentSessionState
 from agent_tools.tools.agent_workspace.core import load_task_actions_config
@@ -63,6 +64,7 @@ from agent_tools.tools.agent_workspace.core import parse_console_output
 from agent_tools.tools.agent_workspace.core import prepare_task_agent_session
 from agent_tools.tools.agent_workspace.core import prepare_ai_agent_launch_command
 from agent_tools.tools.agent_workspace.core import reconcile_task_agent_run_session
+from agent_tools.tools.agent_workspace.core import resolve_task_agent_sessions
 from agent_tools.tools.agent_workspace.core import task_check_prompt_suffix
 from agent_tools.tools.agent_workspace.core import render_markdown_chunks
 from agent_tools.tools.agent_workspace.core import render_task_context_details
@@ -83,8 +85,10 @@ from agent_tools.tools.agent_workspace.core import session_is_running_agent
 from agent_tools.tools.agent_workspace.core import session_should_clear_pending_permission
 from agent_tools.tools.agent_workspace.core import task_agent_status_text
 from agent_tools.tools.agent_workspace.core import task_agent_session_markers
+from agent_tools.tools.agent_workspace.core import task_agents_needing_session_discovery
 from agent_tools.tools.agent_workspace.core import task_agent_selection_with_resumable_fallback
 from agent_tools.tools.agent_workspace.core import task_agent_has_resumable_state
+from agent_tools.tools.agent_workspace.core import task_needs_session_discovery
 from agent_tools.tools.agent_workspace.core import task_agent_session_id_is_valid
 from agent_tools.tools.agent_workspace.core import task_dictionary_policy_from_runtime_settings
 from agent_tools.tools.agent_workspace.core import task_for_path
@@ -707,6 +711,19 @@ def test_discover_tasks_reports_description_context_and_budget(tmp_path: Path) -
     assert tasks[0].has_context
     assert tasks[0].description_tokens == 0
     assert tasks[0].context_over_budget
+
+
+def test_discover_tasks_actualizes_front_door_bell_for_existing_task(tmp_path: Path) -> None:
+    task = tmp_path / "tasks" / "sample-task"
+    task.mkdir(parents=True)
+    ensure_task_context_database(task)
+
+    tasks = discover_tasks(tmp_path)
+
+    front_door = task / "front_door_bell.py"
+    assert len(tasks) == 1
+    assert front_door.is_file()
+    assert "front_desk_bell" in front_door.read_text(encoding="utf-8")
 
 
 def test_agent_workspace_auto_ui_falls_back_to_web_before_tk(monkeypatch: object) -> None:
@@ -2659,6 +2676,34 @@ def test_gtk_refresh_task_row_styles_skips_unchanged_store_values(tmp_path: Path
     assert gui.task_store.set_calls == []
 
 
+def test_gtk_task_label_shows_session_discovery_pending_marker(tmp_path: Path) -> None:
+    task = tmp_path / "tasks" / "sample-task"
+    task.mkdir(parents=True)
+    summary = discover_tasks_with_context(task, tmp_path)
+    gui = WorkspaceGtkGui.__new__(WorkspaceGtkGui)
+    gui.task_session_discovery = TaskSessionDiscoveryState(pending={summary.path})
+
+    assert gui._task_label(summary) == "⚙ sample-task"
+
+    gui.task_session_discovery.finish(summary.path)
+
+    assert gui._task_label(summary) == "sample-task"
+
+
+def test_tk_task_label_shows_session_discovery_pending_marker(tmp_path: Path) -> None:
+    task = tmp_path / "tasks" / "sample-task"
+    task.mkdir(parents=True)
+    summary = discover_tasks_with_context(task, tmp_path)
+    gui = AgentWorkspace.__new__(AgentWorkspace)
+    gui.task_session_discovery = TaskSessionDiscoveryState(pending={summary.path})
+
+    assert gui._task_label(summary) == "⚙ sample-task"
+
+    gui.task_session_discovery.finish(summary.path)
+
+    assert gui._task_label(summary) == "sample-task"
+
+
 def test_gtk_animate_agent_status_updates_only_status_column(tmp_path: Path) -> None:
     task = tmp_path / "tasks" / "sample-task"
     task.mkdir(parents=True)
@@ -3165,6 +3210,63 @@ def test_find_latest_codex_session_id_scans_beyond_large_prefix(tmp_path: Path) 
     assert find_latest_codex_session_id(summary, workspace, home=home) == session_id
 
 
+def test_find_latest_codex_session_id_uses_cached_session_before_scan(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    task = workspace / "tasks" / "sample-task"
+    task.mkdir(parents=True)
+    summary = discover_tasks_with_context(task, workspace)
+    home = tmp_path / "home"
+    session_id = "019feba2-e25e-76e1-9468-aa399758268f"
+    save_task_agent_session(summary, "codex", session_id=session_id)
+
+    assert find_latest_codex_session_id(summary, workspace, home=home) == session_id
+
+
+def test_task_session_discovery_state_plans_unresolved_resume_once(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    task = workspace / "tasks" / "sample-task"
+    task.mkdir(parents=True)
+    summary = discover_tasks_with_context(task, workspace)
+    save_task_agent(summary, "codex")
+    save_task_agent_session(summary, "codex")
+    discovery = TaskSessionDiscoveryState()
+
+    assert task_needs_session_discovery(summary)
+    assert task_agents_needing_session_discovery(summary) == ("codex",)
+    assert discovery.plan([summary]) == (summary,)
+    assert discovery.is_pending(summary)
+    assert discovery.plan([summary]) == ()
+
+    discovery.finish(summary.path)
+
+    assert not discovery.is_pending(summary)
+    assert discovery.plan([summary]) == ()
+
+
+def test_resolve_task_agent_sessions_persists_discovered_codex_session_id(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    task = workspace / "tasks" / "sample-task"
+    task.mkdir(parents=True)
+    summary = discover_tasks_with_context(task, workspace)
+    home = tmp_path / "home"
+    sessions = home / ".codex" / "sessions" / "2026" / "08" / "10"
+    sessions.mkdir(parents=True)
+    session_id = "019feba2-e25e-76e1-9468-aa399758268f"
+    session_file = sessions / f"rollout-2026-08-10T15-25-48-{session_id}.jsonl"
+    session_file.write_text(
+        json.dumps({"payload": {"content": [{"text": codex_task_context_message(summary, workspace)}]}}),
+        encoding="utf-8",
+    )
+    save_task_agent(summary, "codex")
+    save_task_agent_session(summary, "codex")
+
+    assert resolve_task_agent_sessions(summary, workspace, home=home) == ("codex",)
+
+    assert load_task_agent_session(summary, "codex").session_id == session_id
+    assert not task_needs_session_discovery(summary)
+    assert task_agent_session_markers(summary, workspace) == ("Ⅱ",)
+
+
 def test_find_latest_claude_session_id_matches_task_prompt(tmp_path: Path) -> None:
     workspace = tmp_path / "workspace"
     task = workspace / "tasks" / "sample-task"
@@ -3189,7 +3291,19 @@ def test_find_latest_claude_session_id_matches_task_prompt(tmp_path: Path) -> No
     assert find_latest_claude_session_id(summary, workspace, home=home) == new_session_id
 
 
-def test_codex_session_id_validation_uses_local_session_files(tmp_path: Path) -> None:
+def test_find_latest_claude_session_id_uses_cached_session_before_scan(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    task = workspace / "tasks" / "sample-task"
+    task.mkdir(parents=True)
+    summary = discover_tasks_with_context(task, workspace)
+    home = tmp_path / "home"
+    session_id = "019feba2-e25e-76e1-9468-aa399758268f"
+    save_task_agent_session(summary, "claude", session_id=session_id)
+
+    assert find_latest_claude_session_id(summary, workspace, home=home) == session_id
+
+
+def test_codex_session_id_validation_trusts_saved_session_id(tmp_path: Path) -> None:
     workspace = tmp_path / "workspace"
     task = workspace / "tasks" / "sample-task"
     task.mkdir(parents=True)
@@ -3200,8 +3314,8 @@ def test_codex_session_id_validation_uses_local_session_files(tmp_path: Path) ->
     session_id = "019feba2-e25e-76e1-9468-aa399758268f"
 
     save_task_agent_session(summary, "codex", session_id=session_id)
-    assert not task_agent_session_id_is_valid(summary, workspace, "codex", home=home)
     assert not codex_session_id_exists(session_id, home=home)
+    assert task_agent_session_id_is_valid(summary, workspace, "codex", home=home)
 
     (sessions / f"rollout-2026-08-10T15-25-48-{session_id}.jsonl").write_text("{}", encoding="utf-8")
 
@@ -3257,6 +3371,28 @@ def test_task_agent_session_markers_show_latest_resumable_session(
 
     assert task_agent_session_markers(summary, workspace, home=home) == ("Ⅱ",)
     assert not task_agent_has_resumable_state(summary, workspace, "codex", home=home)
+
+
+def test_task_session_ui_indicators_do_not_scan_codex_history_without_saved_session_id(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace = tmp_path / "workspace"
+    task = workspace / "tasks" / "sample-task"
+    task.mkdir(parents=True)
+    summary = discover_tasks_with_context(task, workspace)
+    save_task_agent(summary, "codex")
+    save_task_agent_session(summary, "codex")
+
+    def fail_scan(*_args: object, **_kwargs: object) -> str | None:
+        raise AssertionError("UI session indicators must not scan Codex history")
+
+    monkeypatch.setattr("agent_tools.tools.agent_workspace.core.find_latest_codex_session_id", fail_scan)
+
+    assert task_agent_session_markers(summary, workspace) == ()
+    assert not task_selected_agent_has_resumable_state(summary, workspace, "codex")
+    assert task_agent_selection_with_resumable_fallback(summary, workspace, "codex") == "codex"
+    assert task_agent_status_text(summary, workspace, permission_pending=False) == "□"
 
 
 def test_task_agent_status_text_combines_permission_running_and_saved_sessions(

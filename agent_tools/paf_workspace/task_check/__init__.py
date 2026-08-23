@@ -19,11 +19,11 @@ from agent_tools.tools.task_context import SLOT_CATEGORIES
 from agent_tools.tools.task_context import TaskContextSlot
 from agent_tools.tools.task_context import ensure_database as ensure_task_context_database
 from agent_tools.tools.task_context import load_slots as load_task_context_slots
+from agent_tools.tools.task_actualize import actualize_task
 
 
 REQUIRED_DIRS = ("dev", "Dockerfile", "scripts", "report", "report/diff", "report/puml")
 TASK_METADATA_FILE = "TASK_METADATA.json"
-FRONT_DOOR_BELL_FILE = "front_door_bell.py"
 RUNTIME_HINTS = ("xen", "qemu", "moulin", "dom0", "domu", "hypervisor")
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
 PAF_WORKSPACE_ROOT = PROJECT_ROOT / "agent_tools" / "paf_workspace"
@@ -282,12 +282,13 @@ def initialize_task_layout(task_dir: Path, *, workspace: Path, privacy: str = "p
         metadata_path.write_text(json.dumps(metadata, indent=2, sort_keys=True) + "\n", encoding="utf-8")
         checks.append(Check("PASS", "init-task-metadata", f"created {TASK_METADATA_FILE}", str(metadata_path)))
 
-    front_door_path = task_dir / FRONT_DOOR_BELL_FILE
-    if front_door_path.exists():
-        checks.append(Check("PASS", "init-front-door-bell-existing", f"{FRONT_DOOR_BELL_FILE} already exists", str(front_door_path)))
-    else:
-        front_door_path.write_text(_front_door_bell_script(), encoding="utf-8")
-        checks.append(Check("PASS", "init-front-door-bell", f"created {FRONT_DOOR_BELL_FILE}", str(front_door_path)))
+    for result in actualize_task(task_dir, workspace=workspace):
+        code = result.code
+        if code == "actualize-front-door-bell-created":
+            code = "init-front-door-bell"
+        elif code == "actualize-front-door-bell-existing":
+            code = "init-front-door-bell-existing"
+        checks.append(Check(result.status, code, result.message, result.path))
 
     return checks
 
@@ -423,27 +424,6 @@ def _check_layout(task_dir: Path) -> list[Check]:
         else:
             checks.append(Check("FAIL", "layout-dir-missing", f"required directory is missing: {rel_path}", str(path)))
     return checks
-
-
-def _front_door_bell_script() -> str:
-    return """#!/usr/bin/env python3
-from __future__ import annotations
-
-from pathlib import Path
-import sys
-
-
-TASK_DIR = Path(__file__).resolve().parent
-WORKSPACE_ROOT = TASK_DIR.parent.parent if TASK_DIR.parent.name == "tasks" else Path.cwd()
-if str(WORKSPACE_ROOT) not in sys.path:
-    sys.path.insert(0, str(WORKSPACE_ROOT))
-
-from agent_tools.tools.front_desk_bell import main
-
-
-if __name__ == "__main__":
-    raise SystemExit(main(["--task", str(TASK_DIR), "--workspace", str(WORKSPACE_ROOT), *sys.argv[1:]]))
-"""
 
 
 def _check_legacy_task_context_markdown(task_dir: Path) -> list[Check]:

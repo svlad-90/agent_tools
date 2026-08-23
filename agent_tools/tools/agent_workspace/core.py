@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from dataclasses import field
 from datetime import datetime
 import faulthandler
 import io
@@ -25,6 +26,7 @@ except ImportError:  # pragma: no cover - exercised on Windows runners.
 
 from agent_tools.paf_workspace.task_check import check_task
 from agent_tools.paf_workspace.task_check import render_text
+from agent_tools.tools.task_actualize import actualize_task
 from agent_tools.tools.task_context import DATABASE_FILENAME as TASK_CONTEXT_DATABASE_FILE
 from agent_tools.tools.task_context import DICTIONARY_TOKEN_RE
 from agent_tools.tools.task_context import DICTIONARY_MAX_TERM_WORDS
@@ -179,6 +181,33 @@ class AgentSessionState:
     agent: str
     resume: bool = False
     session_id: str | None = None
+
+
+@dataclass
+class TaskSessionDiscoveryState:
+    pending: set[Path] = field(default_factory=set)
+    checked: set[Path] = field(default_factory=set)
+
+    def plan(self, tasks: list[TaskSummary]) -> tuple[TaskSummary, ...]:
+        planned: list[TaskSummary] = []
+        for task in tasks:
+            if task.path in self.pending or task.path in self.checked:
+                continue
+            if not task_needs_session_discovery(task):
+                continue
+            self.pending.add(task.path)
+            planned.append(task)
+        return tuple(planned)
+
+    def finish(self, task_path: Path) -> None:
+        self.pending.discard(task_path)
+        self.checked.add(task_path)
+
+    def is_pending(self, task: TaskSummary) -> bool:
+        return task.path in self.pending
+
+    def invalidate(self, task: TaskSummary) -> None:
+        self.checked.discard(task.path)
 
 
 @dataclass(frozen=True)
@@ -462,6 +491,7 @@ def discover_tasks(workspace: Path) -> list[TaskSummary]:
         has_legacy_context = legacy_description_path.is_file() or legacy_context_path.is_file()
         if not has_context and not has_legacy_context:
             continue
+        _actualize_task_for_gui(path, workspace)
         description_tokens = 0
         context_tokens = _active_task_context_tokens(path) if has_context else 0
         tasks.append(
@@ -476,6 +506,13 @@ def discover_tasks(workspace: Path) -> list[TaskSummary]:
             )
         )
     return tasks
+
+
+def _actualize_task_for_gui(task_dir: Path, workspace: Path) -> None:
+    try:
+        actualize_task(task_dir, workspace=workspace)
+    except OSError:
+        return
 
 
 def _candidate_task_dirs(workspace: Path) -> list[Path]:
@@ -1059,7 +1096,7 @@ def ai_agent_launch_state_for_selection(
         return ai_agent_launch_state(running=False, resumable=False)
     agent = normalize_agent(agent)
     running = running_agent == agent
-    resumable = task_agent_has_resumable_state(task, workspace, agent)
+    resumable = task_agent_has_saved_resumable_state(task, agent)
     return ai_agent_launch_state(running=running, resumable=resumable)
 
 
@@ -1651,14 +1688,56 @@ def task_agent_has_resumable_state(
     return find_task_agent_session_id(task, workspace, agent, home=home) is not None
 
 
+def task_agent_has_saved_resumable_state(task: TaskSummary, agent: str) -> bool:
+    session = load_task_agent_session(task, agent)
+    return session.resume and session.session_id is not None
+
+
+def task_agent_needs_session_discovery(task: TaskSummary, agent: str) -> bool:
+    session = load_task_agent_session(task, agent)
+    return session.resume and session.session_id is None
+
+
+def task_agents_needing_session_discovery(
+    task: TaskSummary,
+    default_agent: str = AGENT_WORKSPACE_DEFAULT_AGENT,
+) -> tuple[str, ...]:
+    saved_agent = load_task_agent(task, default_agent)
+    agents = (saved_agent, *(agent for agent in AGENT_WORKSPACE_AGENTS if agent != saved_agent))
+    return tuple(agent for agent in agents if task_agent_needs_session_discovery(task, agent))
+
+
+def task_needs_session_discovery(task: TaskSummary) -> bool:
+    return bool(task_agents_needing_session_discovery(task))
+
+
+def resolve_task_agent_sessions(
+    task: TaskSummary,
+    workspace: Path,
+    *,
+    home: Path | None = None,
+) -> tuple[str, ...]:
+    resolved: list[str] = []
+    for agent in task_agents_needing_session_discovery(task):
+        session_id = find_task_agent_session_id(task, workspace, agent, home=home)
+        if session_id is None:
+            continue
+        save_task_agent_session(task, agent, session_id=session_id)
+        resolved.append(agent)
+        break
+    return tuple(resolved)
+
+
 def task_selected_agent_has_resumable_state(
     task: TaskSummary,
     workspace: Path,
     default_agent: str = AGENT_WORKSPACE_DEFAULT_AGENT,
     home: Path | None = None,
 ) -> bool:
+    _ = workspace
+    _ = home
     agent = load_task_agent(task, default_agent)
-    return task_agent_has_resumable_state(task, workspace, agent, home=home)
+    return task_agent_has_saved_resumable_state(task, agent)
 
 
 def task_agent_selection_with_resumable_fallback(
@@ -1667,11 +1746,13 @@ def task_agent_selection_with_resumable_fallback(
     default_agent: str = AGENT_WORKSPACE_DEFAULT_AGENT,
     home: Path | None = None,
 ) -> str:
+    _ = workspace
+    _ = home
     agent = load_task_agent(task, default_agent)
-    if task_agent_has_resumable_state(task, workspace, agent, home=home):
+    if task_agent_has_saved_resumable_state(task, agent):
         return agent
     for candidate in AGENT_WORKSPACE_AGENTS:
-        if task_agent_has_resumable_state(task, workspace, candidate, home=home):
+        if task_agent_has_saved_resumable_state(task, candidate):
             return candidate
     return agent
 
@@ -1681,8 +1762,10 @@ def task_agent_session_markers(
     workspace: Path,
     home: Path | None = None,
 ) -> tuple[str, ...]:
+    _ = workspace
+    _ = home
     agent = load_task_agent(task)
-    if task_agent_has_resumable_state(task, workspace, agent, home=home):
+    if task_agent_has_saved_resumable_state(task, agent):
         return (AGENT_SESSION_MARKER,)
     return ()
 
@@ -1752,11 +1835,7 @@ def find_task_agent_session_id(
     agent = normalize_agent(agent)
     session = load_task_agent_session(task, agent)
     if session.session_id is not None:
-        if agent == "codex":
-            if codex_session_id_exists(session.session_id, home=home):
-                return session.session_id
-        elif agent == "claude":
-            return session.session_id
+        return session.session_id
     if agent == "codex" and session.resume:
         return find_latest_codex_session_id(task, workspace, home=home)
     if agent == "claude" and session.resume:
@@ -1773,6 +1852,9 @@ def task_has_valid_agent_session(task: TaskSummary, workspace: Path, home: Path 
 
 
 def find_latest_codex_session_id(task: TaskSummary, workspace: Path, home: Path | None = None) -> str | None:
+    cached_session_id = load_task_agent_session(task, "codex").session_id
+    if cached_session_id is not None:
+        return cached_session_id
     sessions_dir = (home or Path.home()) / ".codex" / "sessions"
     if not sessions_dir.is_dir():
         return None
@@ -1803,6 +1885,9 @@ def find_latest_codex_session_id(task: TaskSummary, workspace: Path, home: Path 
 
 
 def find_latest_claude_session_id(task: TaskSummary, workspace: Path, home: Path | None = None) -> str | None:
+    cached_session_id = load_task_agent_session(task, "claude").session_id
+    if cached_session_id is not None:
+        return cached_session_id
     projects_dir = (home or Path.home()) / ".claude" / "projects"
     if not projects_dir.is_dir():
         return None
