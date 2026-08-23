@@ -427,7 +427,7 @@ def test_dictionary_compiler_skips_unprofitable_candidates(tmp_path: Path) -> No
 
 
 def test_dictionary_preview_uses_policy_and_reports_savings() -> None:
-    path = "tools/agent_workspace/tests/test_agent_workspace_core.py"
+    path = "tools/agent_workspace/components/gtk_desktop/tests/test_gtk_desktop.py"
     text = f"{path} validates Agent Workspace. {path} covers Agent Workspace settings."
 
     preview = preview_dictionary_compile(
@@ -445,7 +445,7 @@ def test_dictionary_preview_uses_policy_and_reports_savings() -> None:
 
 
 def test_dictionary_preview_respects_disabled_auto_discovery() -> None:
-    path = "tools/agent_workspace/tests/test_agent_workspace_core.py"
+    path = "tools/agent_workspace/components/gtk_desktop/tests/test_gtk_desktop.py"
     text = f"{path} validates Agent Workspace. {path} covers Agent Workspace settings."
 
     preview = preview_dictionary_compile(text, TaskDictionaryPolicy(auto_discovery=False))
@@ -487,7 +487,7 @@ def test_token_count_uses_tiktoken_when_available(monkeypatch: object) -> None:
 
 
 def test_dictionary_candidate_formula_uses_net_token_delta() -> None:
-    path = "tools/agent_workspace/tests/test_agent_workspace_core.py"
+    path = "tools/agent_workspace/components/gtk_desktop/tests/test_gtk_desktop.py"
     config = "CONFIG_ARM_SCMI_TRANSPORT_SMC"
 
     assert _candidate_net_saving(path, "§00", 3) > 0
@@ -509,8 +509,8 @@ def test_dictionary_candidate_formula_uses_net_token_delta() -> None:
 
 
 def test_dictionary_candidate_selection_uses_marginal_encoded_body() -> None:
-    path = "tools/agent_workspace/tests/test_agent_workspace_core.py"
-    text = f"{path} {path} {path} test_agent_workspace_core"
+    path = "tools/agent_workspace/components/gtk_desktop/tests/test_gtk_desktop.py"
+    text = f"{path} {path} {path} test_agent_workspace"
 
     preview = preview_dictionary_compile(
         text,
@@ -519,21 +519,21 @@ def test_dictionary_candidate_selection_uses_marginal_encoded_body() -> None:
     values = [entry.value for entry in preview.dictionary]
 
     assert path in values
-    assert "test_agent_workspace_core" not in values
+    assert "test_agent_workspace" not in values
 
 
 def test_dictionary_preview_discovers_profitable_terms_without_semantic_lists() -> None:
     text = """
-tools/agent_workspace/tests/test_agent_workspace_core.py validates CONFIG_ARM_SCMI_TRANSPORT_SMC.
-tools/agent_workspace/tests/test_agent_workspace_core.py checks CONFIG_ARM_SCMI_TRANSPORT_SMC.
-tools/agent_workspace/tests/test_agent_workspace_core.py covers CONFIG_ARM_SCMI_TRANSPORT_SMC.
+tools/agent_workspace/components/gtk_desktop/tests/test_gtk_desktop.py validates CONFIG_ARM_SCMI_TRANSPORT_SMC.
+tools/agent_workspace/components/gtk_desktop/tests/test_gtk_desktop.py checks CONFIG_ARM_SCMI_TRANSPORT_SMC.
+tools/agent_workspace/components/gtk_desktop/tests/test_gtk_desktop.py covers CONFIG_ARM_SCMI_TRANSPORT_SMC.
 dictionary dictionary dictionary context context context encoded encoded encoded
 """
 
     preview = preview_dictionary_compile(text, TaskDictionaryPolicy())
     values = {entry.value for entry in preview.dictionary}
 
-    assert {"tools/agent_workspace/tests/test_agent_workspace_core.py", "CONFIG_ARM_SCMI_TRANSPORT_SMC"} <= values
+    assert {"tools/agent_workspace/components/gtk_desktop/tests/test_gtk_desktop.py", "CONFIG_ARM_SCMI_TRANSPORT_SMC"} <= values
     assert {"dictionary", "context", "encoded"}.isdisjoint(values)
     assert not any(" " in value and value.casefold().startswith(("the ", "a ", "an ")) for value in values)
 
@@ -547,7 +547,7 @@ summary  Agent Workspace can show encoded task context with dictionary
 details  Agent Workspace Details encoded-context toggle renders encoded context for humans. GTK encoded view keeps current journal filters, renders Dictionary first, then the same ASCII card layout as decoded view with encoded summary/details containing plain §id aliases. Tk/core encoded markdown also renders Dictionary before entries and uses plain §id aliases. Validation: code_map parse-check passed for changed Agent Workspace Python files; Docker ubuntu:24.04 Agent Workspace pytest passed, 212 tests; task_check --strict-warnings for current task passed.
 labels   #gui #task-context #validation
 summary  task_check now gates active journal size and push
-details  Added task_check active mid..critical journal-size FAIL using rough token budget 25,600, about 10% of 256K context. Agent Workspace feeds task_check FAIL reports into new/resumed prompts through existing include_task_check path. push_guard pre-push now blocks repositories inside tasks/<task>/ when task_check reports issues. Docker validation passed: python:3.12-slim with git ran paf_workspace/tests/test_task_check.py, tools/push_guard/tests/test_push_guard.py, tools/task_context/tests/test_task_context.py -> 47 passed; ubuntu:24.04 with tkinter/GTK/VTE ran tools/agent_workspace/tests/test_agent_workspace_core.py -> 210 passed. code_map parse-check passed for changed Python files.
+details  Added task_check active mid..critical journal-size FAIL using rough token budget 25,600, about 10% of 256K context. Agent Workspace feeds task_check FAIL reports into new/resumed prompts through existing include_task_check path. push_guard pre-push now blocks repositories inside tasks/<task>/ when task_check reports issues. Docker validation passed: python:3.12-slim with git ran paf_workspace/tests/test_task_check.py, tools/push_guard/tests/test_push_guard.py, tools/task_context/tests/test_task_context.py -> 47 passed; ubuntu:24.04 with tkinter/GTK/VTE ran tools/agent_workspace/components/gtk_desktop/tests/test_gtk_desktop.py -> 210 passed. code_map parse-check passed for changed Python files.
 labels   #task-context #tooling #validation
 summary  Current task context system state and policy
 details  Current state: task_context uses SQLite-only active context, agent format, persistent append-only dictionary ids rendered as §00, decoded UI default, encoded agent output with selected dictionary subset, named-entity-only compiler, dictionary --add for stable agent-supplied terms, and Agent Workspace prompt injection for new/resumed sessions controlled by inject_task_context_prompt default true. Agent policy: read injected/query active context, keep journal current by resolving/staling superseded active entries, add stable terms through dictionary --add, write terse durable notes. Validation now includes Docker pytest for task_context, task_check, push_guard, and Agent Workspace suites plus code_map parse-check; see active validation entry #28.
@@ -562,12 +562,12 @@ labels   #task-context #handoff #policy #validation
     assert preview.net_token_saving >= 50
     assert preview.encoded_tokens + preview.dictionary_tokens < preview.original_tokens
     assert {
-        "tools/agent_workspace/tests/test_agent_workspace_core.py",
+        "tools/agent_workspace/components/gtk_desktop/tests/test_gtk_desktop.py",
         "tools/task_context/tests/test_task_context.py",
         "home/vladyslav-goncharuk/Documents/Projects",
     } <= values
     assert {"context", "encoded", "settings"}.isdisjoint(values)
-    assert "test_agent_workspace_core" not in values
+    assert "test_agent_workspace" not in values
 
 
 def test_dictionary_preview_default_agent_workspace_sample_uses_repeated_phrases() -> None:
@@ -579,7 +579,7 @@ def test_dictionary_preview_default_agent_workspace_sample_uses_repeated_phrases
     assert preview.net_token_saving >= 50
     assert len(DICTIONARY_PREVIEW_TEXT) - len(preview.encoded_text) - dictionary_chars >= 700
     assert {
-        "tools/agent_workspace/tests/test_agent_workspace_core.py",
+        "tools/agent_workspace/components/gtk_desktop/tests/test_gtk_desktop.py",
         "tools/task_context/tests/test_task_context.py",
         "TASK_CONTEXT.sqlite3",
         "inject_task_context_prompt",
@@ -591,7 +591,7 @@ def test_dictionary_preview_reaches_expected_technical_text_savings() -> None:
     text = """
 Agent Workspace stores active task context in TASK_CONTEXT.sqlite3. Agent Workspace reads TASK_CONTEXT.sqlite3 before launching Codex. Agent Workspace injects active task context when inject_task_context_prompt is enabled. Agent Workspace renders encoded task context in Agent Workspace Details.
 
-tools/agent_workspace/tests/test_agent_workspace_core.py validates Agent Workspace prompt injection. tools/agent_workspace/tests/test_agent_workspace_core.py validates Agent Workspace Details. tools/agent_workspace/tests/test_agent_workspace_core.py validates dictionary preview metrics.
+tools/agent_workspace/components/gtk_desktop/tests/test_gtk_desktop.py validates Agent Workspace prompt injection. tools/agent_workspace/components/gtk_desktop/tests/test_gtk_desktop.py validates Agent Workspace Details. tools/agent_workspace/components/gtk_desktop/tests/test_gtk_desktop.py validates dictionary preview metrics.
 
 tools/task_context/tests/test_task_context.py validates task_context dictionary compilation. tools/task_context/tests/test_task_context.py validates append-only dictionary ids. tools/task_context/tests/test_task_context.py validates codec migration from bracket aliases to paragraph-sign aliases.
 
@@ -599,9 +599,9 @@ task_check --strict-warnings validates TASK_CONTEXT.sqlite3 active journal size.
 
 push_guard runs before git push. push_guard blocks repositories inside tasks/<task>/ when task_check reports failures. push_guard keeps task-local workspace state out of public repository payloads.
 
-code_map parse-check validates tools/task_context/__init__.py. code_map parse-check validates tools/agent_workspace/core.py. code_map parse-check validates tools/agent_workspace/gtk_ui.py. code_map parse-check validates tools/agent_workspace/tests/test_agent_workspace_core.py.
+code_map parse-check validates tools/task_context/__init__.py. code_map parse-check validates tools/agent_workspace/components/agent_status/src/status.py. code_map parse-check validates tools/agent_workspace/components/gtk_desktop/src/gtk_ui.py. code_map parse-check validates tools/agent_workspace/components/gtk_desktop/tests/test_gtk_desktop.py.
 
-Docker python:3.12-slim runs tools/task_context/tests/test_task_context.py. Docker ubuntu:24.04 runs tools/agent_workspace/tests/test_agent_workspace_core.py with GTK, VTE, and Tk dependencies. Docker validation records exact command results in task context.
+Docker python:3.12-slim runs tools/task_context/tests/test_task_context.py. Docker ubuntu:24.04 runs tools/agent_workspace/components/gtk_desktop/tests/test_gtk_desktop.py with GTK, VTE, and Tk dependencies. Docker validation records exact command results in task context.
 
 persistent append-only dictionary ids keep stable entity identity. persistent append-only dictionary ids must not be deleted. persistent append-only dictionary ids must not be reused. paragraph-sign aliases such as §00 reduce encoded context size compared with bracketed aliases.
 """.strip()
@@ -618,7 +618,7 @@ persistent append-only dictionary ids keep stable entity identity. persistent ap
     assert 0.10 <= token_saving_percent <= 0.30
     assert len(preview.dictionary) >= 4
     assert {
-        "tools/agent_workspace/tests/test_agent_workspace_core.py",
+        "tools/agent_workspace/components/gtk_desktop/tests/test_gtk_desktop.py",
         "tools/task_context/tests/test_task_context.py",
         "code_map parse-check validates",
         "task_check --strict-warnings",
@@ -648,7 +648,7 @@ def test_dictionary_compiler_reads_global_agent_workspace_policy(tmp_path: Path)
     old_config_root = os.environ.get("XDG_CONFIG_HOME")
     os.environ["XDG_CONFIG_HOME"] = str(config_root)
     try:
-        path = "tools/agent_workspace/tests/test_agent_workspace_core.py"
+        path = "tools/agent_workspace/components/gtk_desktop/tests/test_gtk_desktop.py"
         add_entry(
             tmp_path,
             timestamp="2026-08-19T10:00:00",

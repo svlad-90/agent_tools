@@ -26,7 +26,7 @@ package root, not the current shell directory. For repository files under
 
 ```sh
 python -m agent_tools.tools.code_map <command> ...
-python -m agent_tools.tools.code_map map tools/agent_workspace/core.py
+python -m agent_tools.tools.code_map map tools/agent_workspace/components/agent_status/src/status.py
 ```
 
 Do not pass `agent_tools/tools/...` as the target path; from the workspace root

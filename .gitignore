@@ -39,8 +39,11 @@ agent_tools/knowledge/private/
 agent-workspace-crash.log
 
 __pycache__/
+**/__pycache__/
 *.py[cod]
+**/*.py[cod]
 .pytest_cache/
+**/.pytest_cache/
 .mypy_cache/
 .ruff_cache/
 .coverage

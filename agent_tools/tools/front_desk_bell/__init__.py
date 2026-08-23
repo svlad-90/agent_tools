@@ -6,9 +6,9 @@ from datetime import datetime
 import json
 import os
 from pathlib import Path
-import sqlite3
 import sys
 
+from agent_tools.lib.database import connect_task_database
 from agent_tools.paf_workspace.task_check import Check
 from agent_tools.paf_workspace.task_check import check_task
 from agent_tools.tools.task_context import database_path
@@ -180,7 +180,7 @@ def reset_pending_iterations(task_dir: Path) -> int:
     task_dir = task_dir.resolve()
     ensure_database(task_dir)
     _ensure_schema(task_dir)
-    with sqlite3.connect(database_path(task_dir)) as connection:
+    with connect_task_database(task_dir) as connection:
         cursor = connection.execute(
             f"UPDATE {FRONT_DESK_STATE_TABLE} SET stage = ?, updated_at = ? WHERE stage IN ({','.join('?' for _ in PENDING_STAGES)})",
             ("precheck", _now(), *PENDING_STAGES),
@@ -238,7 +238,7 @@ def normalize_agent(agent: str) -> str:
 
 
 def _ensure_schema(task_dir: Path) -> None:
-    with sqlite3.connect(database_path(task_dir)) as connection:
+    with connect_task_database(task_dir) as connection:
         connection.execute(
             f"""
             CREATE TABLE IF NOT EXISTS {FRONT_DESK_ONBOARDING_TABLE} (
@@ -264,7 +264,7 @@ def _ensure_schema(task_dir: Path) -> None:
 
 
 def _is_onboarded(task_dir: Path, agent: str) -> bool:
-    with sqlite3.connect(database_path(task_dir)) as connection:
+    with connect_task_database(task_dir) as connection:
         row = connection.execute(
             f"SELECT 1 FROM {FRONT_DESK_ONBOARDING_TABLE} WHERE agent_type = ?",
             (agent,),
@@ -273,7 +273,7 @@ def _is_onboarded(task_dir: Path, agent: str) -> bool:
 
 
 def _mark_onboarded(task_dir: Path, agent: str, welcomed_at: str) -> None:
-    with sqlite3.connect(database_path(task_dir)) as connection:
+    with connect_task_database(task_dir) as connection:
         connection.execute(
             f"INSERT OR IGNORE INTO {FRONT_DESK_ONBOARDING_TABLE} (agent_type, welcomed_at) VALUES (?, ?)",
             (agent, welcomed_at),
@@ -281,7 +281,7 @@ def _mark_onboarded(task_dir: Path, agent: str, welcomed_at: str) -> None:
 
 
 def _load_state(task_dir: Path, agent: str, session_id: str) -> dict[str, str]:
-    with sqlite3.connect(database_path(task_dir)) as connection:
+    with connect_task_database(task_dir) as connection:
         row = connection.execute(
             f"""
             SELECT stage, started_at, last_bell_at, last_context_seen_at, updated_at
@@ -310,7 +310,7 @@ def _save_state(
     last_bell_at: str,
     last_context_seen_at: str,
 ) -> None:
-    with sqlite3.connect(database_path(task_dir)) as connection:
+    with connect_task_database(task_dir) as connection:
         existing = connection.execute(
             f"SELECT started_at FROM {FRONT_DESK_STATE_TABLE} WHERE agent_type = ? AND session_id = ?",
             (agent, session_id),
@@ -332,7 +332,7 @@ def _save_state(
 
 
 def _migrate_state(task_dir: Path, agent: str, old_session_id: str, new_session_id: str) -> None:
-    with sqlite3.connect(database_path(task_dir)) as connection:
+    with connect_task_database(task_dir) as connection:
         new_state = connection.execute(
             f"SELECT 1 FROM {FRONT_DESK_STATE_TABLE} WHERE agent_type = ? AND session_id = ?",
             (agent, new_session_id),

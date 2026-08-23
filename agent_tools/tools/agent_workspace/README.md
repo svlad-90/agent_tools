@@ -113,3 +113,17 @@ instead of keeping the action implementation in the already-running GUI
 process. After a GUI version with this runner is started, changes to built-in
 action implementation are picked up by the next click without restarting the
 window.
+
+## Component Boundary
+
+New Agent Workspace code should use component API modules under
+`components/<component>/api`. Component implementation lives under
+`components/<component>/src`, and component notes live under
+`components/<component>/docs`. Code outside a component must not import another
+component's `src` package directly.
+
+The component set includes task catalog/context/actions/sessions, artifacts,
+commands, settings, localization, markdown, agent runtime/status, process
+runtime, console output, GTK desktop, Tk frontend, VTE terminal, web frontend,
+and workspace service. Root modules are reserved for package entrypoints,
+installation integration, and launcher code.

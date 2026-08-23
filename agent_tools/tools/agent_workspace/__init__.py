@@ -1,12 +1,12 @@
 from __future__ import annotations
 
-from .core import MarkdownChunk
-from .core import TaskSummary
-from .core import discover_tasks
-from .core import read_task_file
-from .core import render_markdown_chunks
-from .core import rough_token_count
-from .core import run_task_check
+from .components.markdown.api import MarkdownChunk
+from .components.markdown.api import render_markdown_chunks
+from .components.markdown.api import rough_token_count
+from .components.task_catalog.api import TaskSummary
+from .components.task_catalog.api import discover_tasks
+from .components.task_catalog.api import read_task_file
+from .components.task_catalog.api import run_task_check
 
 
 __all__ = [

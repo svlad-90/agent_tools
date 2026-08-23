@@ -1,0 +1,1 @@
+"""VTE terminal launcher implementation."""

@@ -19,8 +19,12 @@ from typing import Iterable
 from typing import Mapping
 from typing import Sequence
 
+from agent_tools.lib.database import TASK_CONTEXT_DATABASE_FILENAME
+from agent_tools.lib.database import configure_task_database_schema
+from agent_tools.lib.database import connect_task_database
+from agent_tools.lib.database import task_database_path
 
-DATABASE_FILENAME = "TASK_CONTEXT.sqlite3"
+DATABASE_FILENAME = TASK_CONTEXT_DATABASE_FILENAME
 LEGACY_JOURNAL_FILENAME = "TASK_CONTEXT_LOG.jsonl"
 SEVERITIES = ("note", "low", "mid", "high", "critical")
 STATUSES = ("active", "resolved", "stale")
@@ -106,8 +110,8 @@ AGENT_WORKSPACE_SETTINGS_FILE = "settings.json"
 LEGACY_DICTIONARY_PREVIEW_TEXT = (
     "Agent Workspace renders TASK_CONTEXT.sqlite3 entries. "
     "Agent Workspace Details can show encoded task context. "
-    "tools/agent_workspace/tests/test_agent_workspace_core.py validates Agent Workspace behavior. "
-    "tools/agent_workspace/tests/test_agent_workspace_core.py covers Agent Workspace settings. "
+    "tools/agent_workspace/components/gtk_desktop/tests/test_gtk_desktop.py validates Agent Workspace behavior. "
+    "tools/agent_workspace/components/gtk_desktop/tests/test_gtk_desktop.py covers Agent Workspace settings. "
     "drivers/firmware/scmi/scmi.c calls scmi_send_message() when CONFIG_ARM_SCMI_TRANSPORT_SMC is enabled. "
     "drivers/firmware/scmi/scmi.c keeps scmi_send_message() consistent with CONFIG_ARM_SCMI_TRANSPORT_SMC."
 )
@@ -121,10 +125,10 @@ DICTIONARY_PREVIEW_TEXT = (
     "improves encoded context size. The task dictionary compiler must not rely on English semantic word lists. "
     "The task dictionary compiler should work with paths, config symbols, function names, repeated Unicode words, "
     "and repeated technical identifiers.\n\n"
-    "tools/agent_workspace/tests/test_agent_workspace_core.py validates Agent Workspace behavior. "
-    "tools/agent_workspace/tests/test_agent_workspace_core.py covers Agent Workspace settings. "
-    "tools/agent_workspace/tests/test_agent_workspace_core.py checks encoded context rendering. "
-    "tools/agent_workspace/tests/test_agent_workspace_core.py verifies Dictionary preview counters.\n\n"
+    "tools/agent_workspace/components/gtk_desktop/tests/test_gtk_desktop.py validates Agent Workspace behavior. "
+    "tools/agent_workspace/components/gtk_desktop/tests/test_gtk_desktop.py covers Agent Workspace settings. "
+    "tools/agent_workspace/components/gtk_desktop/tests/test_gtk_desktop.py checks encoded context rendering. "
+    "tools/agent_workspace/components/gtk_desktop/tests/test_gtk_desktop.py verifies Dictionary preview counters.\n\n"
     "tools/task_context/tests/test_task_context.py validates task_context behavior. "
     "tools/task_context/tests/test_task_context.py checks dictionary candidate selection. "
     "tools/task_context/tests/test_task_context.py verifies append-only dictionary ids. "
@@ -155,11 +159,12 @@ DICTIONARY_PREVIEW_TEXT = (
     "TASK_CONTEXT.sqlite3 replaces legacy generated TASK_CONTEXT.md. TASK_CONTEXT.sqlite3 keeps active context "
     "separate from resolved and stale history.\n\n"
     "code_map parse-check validates changed Python files. code_map map helps inspect Python file structure. "
-    "code_map symbol-get helps inspect exact function spans. code_map should pass for tools/agent_workspace/gtk_ui.py, "
-    "tools/agent_workspace/core.py, and tools/task_context/__init__.py.\n\n"
+    "code_map symbol-get helps inspect exact function spans. code_map should pass for "
+    "tools/agent_workspace/components/gtk_desktop/src/gtk_ui.py, "
+    "tools/agent_workspace/components/agent_status/src/status.py, and tools/task_context/__init__.py.\n\n"
     "Docker python:3.12-slim runs task_context pytest. Docker ubuntu:24.04 runs Agent Workspace pytest with GTK, VTE, "
     "and Tk dependencies. Docker validation should include tools/task_context/tests/test_task_context.py and "
-    "tools/agent_workspace/tests/test_agent_workspace_core.py.\n\n"
+    "tools/agent_workspace/components/gtk_desktop/tests/test_gtk_desktop.py.\n\n"
     "Repeated ordinary words should not be accepted when aliases are token-negative. repeated ordinary words like "
     "dictionary, context, validation, settings, compiler, and preview may appear many times. repeated ordinary words "
     "should still be rejected if §00 plus dictionary line costs more than the original text. Long repeated paths and "
@@ -172,10 +177,10 @@ DICTIONARY_PREVIEW_TEXT = (
     "The compiler should avoid encoding path segments after a full path has already been selected. The compiler "
     "should keep dictionary values flat and must not encode aliases inside dictionary values.\n\n"
     "When min occurrences is 2, Agent Workspace may be selected. When min occurrences is 3, "
-    "tools/agent_workspace/tests/test_agent_workspace_core.py should be selected. When min saving is high, fewer "
+    "tools/agent_workspace/components/gtk_desktop/tests/test_gtk_desktop.py should be selected. When min saving is high, fewer "
     "aliases should be selected. When min saving is low, more aliases can be selected if net saving remains positive.\n\n"
     "This sample intentionally repeats Agent Workspace, task_context, task_check, push_guard, "
-    "inject_task_context_prompt, TASK_CONTEXT.sqlite3, tools/agent_workspace/tests/test_agent_workspace_core.py, "
+    "inject_task_context_prompt, TASK_CONTEXT.sqlite3, tools/agent_workspace/components/gtk_desktop/tests/test_gtk_desktop.py, "
     "tools/task_context/tests/test_task_context.py, code_map, Docker ubuntu:24.04, Docker python:3.12-slim, and "
     "task dictionary compiler many times so the compiler preview has enough material for calibration."
 )
@@ -299,7 +304,7 @@ class DictionaryPreview:
 
 
 def database_path(task_dir: Path) -> Path:
-    return task_dir / DATABASE_FILENAME
+    return task_database_path(task_dir)
 
 
 def legacy_journal_path(task_dir: Path) -> Path:
@@ -314,7 +319,8 @@ def ensure_database(task_dir: Path) -> None:
     task_dir = task_dir.resolve()
     if not task_dir.is_dir():
         raise ValueError(f"task directory does not exist: {task_dir}")
-    with sqlite3.connect(database_path(task_dir)) as connection:
+    with connect_task_database(task_dir) as connection:
+        configure_task_database_schema(connection)
         _create_schema(connection)
         _migrate_legacy_inputs_to_slots(task_dir, connection)
 
@@ -324,7 +330,7 @@ def load_slots(task_dir: Path, categories: Iterable[str] = ()) -> list[TaskConte
     path = database_path(task_dir)
     ensure_database(task_dir)
     selected_categories = _normalized_slot_categories(categories)
-    with sqlite3.connect(path) as connection:
+    with connect_task_database(task_dir) as connection:
         _create_schema(connection)
         _migrate_legacy_inputs_to_slots(task_dir, connection)
         if selected_categories:
@@ -359,7 +365,7 @@ def set_slot(
         content=content.strip(),
         updated_at=_validate_timestamp(updated_at or datetime.now().astimezone().isoformat(timespec="seconds")),
     )
-    with sqlite3.connect(database_path(task_dir)) as connection:
+    with connect_task_database(task_dir) as connection:
         _create_schema(connection)
         _migrate_legacy_inputs_to_slots(task_dir, connection)
         connection.execute(
@@ -387,7 +393,7 @@ def add_entry(
     if not task_dir.is_dir():
         raise ValueError(f"task directory does not exist: {task_dir}")
     ensure_database(task_dir)
-    with sqlite3.connect(database_path(task_dir)) as connection:
+    with connect_task_database(task_dir) as connection:
         _create_schema(connection)
         decoded_summary, summary_terms = _decode_input_aliases(connection, _non_empty(summary, "summary"))
         decoded_details, details_terms = _decode_input_aliases(connection, details.strip())
@@ -411,7 +417,7 @@ def load_entries(task_dir: Path) -> list[ContextEntry]:
     if not path.exists():
         return []
     entries: list[ContextEntry] = []
-    with sqlite3.connect(path) as connection:
+    with connect_task_database(task_dir) as connection:
         _create_schema(connection)
         rows = connection.execute(
             "SELECT id, timestamp, severity, labels, status, summary, details, source, artifacts, "
@@ -518,7 +524,7 @@ def edit_entries(
         _delete_entries(task_dir, selected)
         return selected
     protected_terms_by_id: dict[int, set[str]] = {}
-    with sqlite3.connect(database_path(task_dir)) as connection:
+    with connect_task_database(task_dir) as connection:
         _create_schema(connection)
         decoded_summary = set_summary
         summary_terms: set[str] = set()
@@ -677,7 +683,7 @@ def _update_entries(
     *,
     protected_terms_by_id: Mapping[int, set[str]] | None = None,
 ) -> None:
-    with sqlite3.connect(database_path(task_dir)) as connection:
+    with connect_task_database(task_dir) as connection:
         _create_schema(connection)
         connection.executemany(
             "UPDATE context_entries SET severity = ?, labels = ?, status = ?, summary = ?, "
@@ -718,7 +724,7 @@ def _delete_entries(task_dir: Path, entries: Sequence[ContextEntry]) -> None:
     ids = [entry.id for entry in entries if entry.id is not None]
     if not ids:
         return
-    with sqlite3.connect(database_path(task_dir)) as connection:
+    with connect_task_database(task_dir) as connection:
         _create_schema(connection)
         placeholders = ",".join("?" for _entry_id_value in ids)
         connection.execute(f"DELETE FROM context_entries WHERE id IN ({placeholders})", ids)
@@ -734,7 +740,7 @@ def migrate_legacy_journal(task_dir: Path) -> int:
         raise ValueError(f"{LEGACY_JOURNAL_FILENAME} is missing; there is nothing to migrate")
     entries = _load_legacy_entries(task_dir)
     ensure_database(task_dir)
-    with sqlite3.connect(database_path(task_dir)) as connection:
+    with connect_task_database(task_dir) as connection:
         for entry in entries:
             _insert_entry(connection, entry)
         _compile_dictionary(connection)
@@ -744,7 +750,7 @@ def migrate_legacy_journal(task_dir: Path) -> int:
 
 def compile_dictionary(task_dir: Path) -> int:
     ensure_database(task_dir)
-    with sqlite3.connect(database_path(task_dir)) as connection:
+    with connect_task_database(task_dir) as connection:
         before = len(_load_dictionary(connection))
         _compile_dictionary(connection)
         after = len(_load_dictionary(connection))
@@ -755,7 +761,7 @@ def load_dictionary(task_dir: Path) -> list[DictionaryEntry]:
     path = database_path(task_dir)
     if not path.exists():
         return []
-    with sqlite3.connect(path) as connection:
+    with connect_task_database(task_dir) as connection:
         _create_schema(connection)
         return _load_dictionary(connection)
 
@@ -812,7 +818,7 @@ def add_dictionary_terms(task_dir: Path, values: Iterable[str]) -> int:
         return 0
     ensure_database(task_dir)
     now = datetime.now().astimezone().isoformat(timespec="seconds")
-    with sqlite3.connect(database_path(task_dir)) as connection:
+    with connect_task_database(task_dir) as connection:
         dictionary = _load_dictionary(connection)
         existing_values = {entry.value for entry in dictionary}
         next_id = max((entry.id for entry in dictionary), default=-1) + 1
@@ -1376,7 +1382,7 @@ def _dictionary_subset(task_dir: Path, entries: Sequence[ContextEntry]) -> list[
     entry_ids = [entry.id for entry in entries if entry.id is not None]
     if not entry_ids:
         return []
-    with sqlite3.connect(database_path(task_dir)) as connection:
+    with connect_task_database(task_dir) as connection:
         _create_schema(connection)
         placeholders = ",".join("?" for _entry_id_value in entry_ids)
         rows = connection.execute(

@@ -1028,18 +1028,18 @@ def compact_help() -> str:
     return "\n".join(
         [
             "code_map.py help",
-            "code_map.py map <python_file> [--json]",
+            "code_map.py map <python_file> [<python_file> ...] [--json]",
             "code_map.py class-diagram <path> [output.puml]",
             "code_map.py facade-audit <python_file> --symbol <ClassName> --callers <path> [<path> ...] [--json]",
             "code_map.py protocol-audit <path> [--symbol <ClassName>] [--json]",
-            "code_map.py symbol-get <python_file> --symbol <name> [--json]",
+            "code_map.py symbol-get <python_file> [<python_file> ...] --symbol <name> [--json]",
             "code_map.py replace-symbol <python_file> --symbol <name> --expect-hash <sha256> (--replacement-env <VAR> | --replacement-file <path> | --replacement-text <text> | --replacement-stdin) [--check-only] [--json]",
             "code_map.py replace-symbol-body <python_file> --symbol <name> --expect-hash <sha256> (--replacement-env <VAR> | --replacement-file <path> | --replacement-text <text> | --replacement-stdin) [--check-only] [--json]",
             "code_map.py insert-before-symbol <python_file> --symbol <name> --expect-hash <sha256> (--snippet-env <VAR> | --snippet-file <path> | --snippet-text <text> | --snippet-stdin) [--check-only] [--json]",
             "code_map.py insert-after-symbol <python_file> --symbol <name> --expect-hash <sha256> (--snippet-env <VAR> | --snippet-file <path> | --snippet-text <text> | --snippet-stdin) [--check-only] [--json]",
             "code_map.py batch (--plan-env <VAR> | --plan-file <path> | --plan-text <json> | --plan-stdin) [--check-only] [--json]",
-            "code_map.py imports-add <python_file> --import <statement> [--check-only] [--json]",
-            "code_map.py parse-check <python_file> [--json]",
+            "code_map.py imports-add <python_file> [<python_file> ...] --import <statement> [--check-only] [--json]",
+            "code_map.py parse-check <python_file> [<python_file> ...] [--json]",
         ]
     )
 

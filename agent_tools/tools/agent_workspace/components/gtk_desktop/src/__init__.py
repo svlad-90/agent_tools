@@ -1,0 +1,1 @@
+"""GTK desktop frontend implementation."""

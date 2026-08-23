@@ -300,7 +300,7 @@ def _install_desktop_entry(python: Path, args: argparse.Namespace) -> None:
         [
             str(python),
             "-m",
-            "agent_tools.tools.agent_workspace.install_desktop",
+            "agent_tools.tools.agent_workspace.components.desktop_integration.src.install_desktop",
         ],
         args,
         env=_python_env(),
@@ -322,7 +322,7 @@ def _validate_installation(python: Path, args: argparse.Namespace) -> None:
         [
             str(python),
             "-c",
-            "import yaml, tiktoken; import agent_tools.tools.task_context as tc; import agent_tools.tools.agent_workspace.service; import agent_tools.tools.agent_workspace.web_ui; tc.token_count('Agent Workspace')",
+            "import yaml, tiktoken; import agent_tools.tools.task_context as tc; import agent_tools.tools.agent_workspace.components.workspace_service.api; import agent_tools.tools.agent_workspace.components.web_frontend.api; tc.token_count('Agent Workspace')",
         ],
         args,
         env=_python_env(),

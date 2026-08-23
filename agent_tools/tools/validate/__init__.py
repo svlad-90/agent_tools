@@ -151,7 +151,7 @@ def _validation_commands(repo: Path, changed: list[Path], task_dir: Path | None)
         commands.append(
             ValidationCommand(
                 "pytest agent_workspace",
-                [sys.executable, "-m", "pytest", "-q", "agent_tools/tools/agent_workspace/tests"],
+                [sys.executable, "-m", "pytest", "-q", "agent_tools/tools/agent_workspace/components"],
                 repo,
             )
         )

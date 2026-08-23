@@ -68,8 +68,8 @@ def main(argv: list[str] | None = None) -> int:
     help_parser = subparsers.add_parser("help", help="Print compact CLI synopsis.")
     help_parser.set_defaults(handler=lambda _args: _print_help(compact_help()))
 
-    map_parser = subparsers.add_parser("map", help="Print class/function map for a Python file.")
-    map_parser.add_argument("file_path")
+    map_parser = subparsers.add_parser("map", help="Print class/function maps for Python files.")
+    map_parser.add_argument("file_paths", nargs="+")
     map_parser.add_argument("--json", action="store_true")
     map_parser.set_defaults(handler=lambda args: _render_code_map(args, render_code_map, render_code_map_json))
 
@@ -119,7 +119,7 @@ def main(argv: list[str] | None = None) -> int:
         "symbol-get",
         help="Resolve one symbol span and hashes for guarded edits.",
     )
-    symbol_parser.add_argument("file_path")
+    symbol_parser.add_argument("file_paths", nargs="+")
     symbol_parser.add_argument("--symbol", required=True)
     symbol_parser.add_argument("--json", action="store_true")
     symbol_parser.set_defaults(
@@ -262,7 +262,7 @@ def main(argv: list[str] | None = None) -> int:
         "imports-add",
         help="Insert one import statement into the module import block unless it already exists.",
     )
-    imports_parser.add_argument("file_path")
+    imports_parser.add_argument("file_paths", nargs="+")
     imports_parser.add_argument("--import", dest="import_statement", required=True)
     imports_parser.add_argument("--check-only", action="store_true")
     imports_parser.add_argument("--json", action="store_true")
@@ -270,8 +270,8 @@ def main(argv: list[str] | None = None) -> int:
         handler=lambda args: _imports_add(args, add_import_statement, render_edit_result, render_edit_result_json)
     )
 
-    parse_parser = subparsers.add_parser("parse-check", help="Parse one Python file and report syntax validity.")
-    parse_parser.add_argument("file_path")
+    parse_parser = subparsers.add_parser("parse-check", help="Parse Python files and report syntax validity.")
+    parse_parser.add_argument("file_paths", nargs="+")
     parse_parser.add_argument("--json", action="store_true")
     parse_parser.set_defaults(
         handler=lambda args: _render_parse_check(
@@ -320,11 +320,12 @@ def _render_code_map(
     render_code_map: Callable[..., Any],
     render_code_map_json: Callable[..., Any],
 ) -> int:
-    target = _resolve_target(args.file_path)
+    targets = [_resolve_target(path_text) for path_text in args.file_paths]
     if args.json:
-        print(render_code_map_json(target, PROJECT_ROOT))
+        print(_render_multi_json(targets, render_code_map_json, root_key="maps"))
         return 0
-    print(render_code_map(target, PROJECT_ROOT))
+    outputs = [render_code_map(target, PROJECT_ROOT).rstrip() for target in targets]
+    print("\n\n".join(outputs))
     return 0
 
 
@@ -390,11 +391,12 @@ def _render_symbol_snapshot(
     render_symbol_snapshot: Callable[..., Any],
     render_symbol_snapshot_json: Callable[..., Any],
 ) -> int:
-    target = _resolve_target(args.file_path)
+    targets = [_resolve_target(path_text) for path_text in args.file_paths]
     if args.json:
-        print(render_symbol_snapshot_json(target, PROJECT_ROOT, args.symbol))
+        print(_render_multi_json(targets, render_symbol_snapshot_json, root_key="symbols", args=(args.symbol,)))
         return 0
-    print(render_symbol_snapshot(target, PROJECT_ROOT, args.symbol))
+    outputs = [render_symbol_snapshot(target, PROJECT_ROOT, args.symbol).rstrip() for target in targets]
+    print("\n\n".join(outputs))
     return 0
 
 
@@ -499,11 +501,44 @@ def _render_parse_check(
     render_parse_check: Callable[..., Any],
     render_parse_check_json: Callable[..., Any],
 ) -> int:
-    target = _resolve_target(args.file_path)
-    result = parse_check(target)
-    output = render_parse_check_json(result, PROJECT_ROOT) if args.json else render_parse_check(result, PROJECT_ROOT)
-    print(output)
-    return 0 if result.ok else 1
+    targets = [_resolve_target(path_text) for path_text in args.file_paths]
+    results = [parse_check(target) for target in targets]
+    if args.json:
+        print(_render_parse_check_json(results, render_parse_check_json))
+    else:
+        for result in results:
+            print(render_parse_check(result, PROJECT_ROOT))
+    return 0 if all(result.ok for result in results) else 1
+
+
+def _render_parse_check_json(
+    results: list[Any],
+    render_parse_check_json: Callable[..., Any],
+) -> str:
+    if len(results) == 1:
+        return str(render_parse_check_json(results[0], PROJECT_ROOT))
+    payloads = [json.loads(render_parse_check_json(result, PROJECT_ROOT)) for result in results]
+    return json.dumps(
+        {
+            "ok": all(bool(payload["ok"]) for payload in payloads),
+            "results": payloads,
+        },
+        indent=2,
+        sort_keys=True,
+    )
+
+
+def _render_multi_json(
+    targets: list[Path],
+    render_json: Callable[..., Any],
+    *,
+    root_key: str,
+    args: tuple[Any, ...] = (),
+) -> str:
+    if len(targets) == 1:
+        return str(render_json(targets[0], PROJECT_ROOT, *args))
+    payloads = [json.loads(render_json(target, PROJECT_ROOT, *args)) for target in targets]
+    return json.dumps({root_key: payloads}, indent=2, sort_keys=True)
 
 
 def _imports_add(
@@ -512,17 +547,38 @@ def _imports_add(
     render_edit_result: Callable[..., Any],
     render_edit_result_json: Callable[..., Any],
 ) -> int:
-    target = _resolve_target(args.file_path)
-    result = add_import_statement(
-        target,
-        args.import_statement,
-        check_only=args.check_only,
-    )
+    targets = [_resolve_target(path_text) for path_text in args.file_paths]
+    results = [
+        add_import_statement(
+            target,
+            args.import_statement,
+            check_only=args.check_only,
+        )
+        for target in targets
+    ]
     if args.json:
-        print(render_edit_result_json(result, PROJECT_ROOT))
+        print(_render_edit_results_json(results, render_edit_result_json))
         return 0
-    print(render_edit_result(result, PROJECT_ROOT))
+    outputs = [render_edit_result(result, PROJECT_ROOT).rstrip() for result in results]
+    print("\n\n".join(outputs))
     return 0
+
+
+def _render_edit_results_json(
+    results: list[Any],
+    render_edit_result_json: Callable[..., Any],
+) -> str:
+    if len(results) == 1:
+        return str(render_edit_result_json(results[0], PROJECT_ROOT))
+    payloads = [json.loads(render_edit_result_json(result, PROJECT_ROOT)) for result in results]
+    return json.dumps(
+        {
+            "changed": any(bool(payload["changed"]) for payload in payloads),
+            "results": payloads,
+        },
+        indent=2,
+        sort_keys=True,
+    )
 
 
 if __name__ == "__main__":
