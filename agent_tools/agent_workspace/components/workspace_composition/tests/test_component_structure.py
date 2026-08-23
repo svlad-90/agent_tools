@@ -16,6 +16,8 @@ COMPONENTS = (
     "artifacts",
     "commands",
     "console_output",
+    "claude_hooks",
+    "codex_hooks",
     "desktop_integration",
     "gtk_desktop",
     "localization",
@@ -40,6 +42,8 @@ CLEAN_COMPONENTS = (
     "artifacts",
     "commands",
     "console_output",
+    "claude_hooks",
+    "codex_hooks",
     "desktop_integration",
     "gtk_desktop",
     "localization",
@@ -254,7 +258,7 @@ def test_agent_workspace_production_components_do_not_import_other_component_src
             continue
         text = path.read_text(encoding="utf-8")
         pattern = re.compile(
-            r"^\s*(?:from|import)\s+agent_tools\.tools\.agent_workspace\.components\.([^.]+)\.src\b",
+            r"^\s*(?:from|import)\s+agent_tools\.agent_workspace\.components\.([^.]+)\.src\b",
             re.MULTILINE,
         )
         for match in pattern.finditer(text):
@@ -275,7 +279,7 @@ def test_agent_workspace_production_components_do_not_import_other_component_src
 def test_agent_workspace_runtime_code_does_not_import_test_support() -> None:
     root = _agent_workspace_root()
     offenders: list[str] = []
-    pattern = re.compile(r"agent_tools\.tools\.agent_workspace\.components\.test_support")
+    pattern = re.compile(r"agent_tools\.agent_workspace\.components\.test_support")
     for path in root.rglob("*.py"):
         if "__pycache__" in path.parts:
             continue

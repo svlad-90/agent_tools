@@ -1,0 +1,1 @@
+"""Claude hook tests."""

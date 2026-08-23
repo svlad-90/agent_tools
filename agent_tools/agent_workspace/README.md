@@ -123,7 +123,7 @@ New Agent Workspace code should use component API modules under
 component's `src` package directly.
 
 The component set includes task catalog/context/actions/sessions, artifacts,
-commands, settings, localization, markdown, agent runtime/status, process
-runtime, console output, GTK desktop, Tk frontend, VTE terminal, web frontend,
-and workspace service. Root modules are reserved for package entrypoints,
-installation integration, and launcher code.
+commands, settings, localization, markdown, agent runtime/status, Codex/Claude
+hooks, process runtime, console output, GTK desktop, Tk frontend, VTE terminal,
+web frontend, and workspace service. Root modules are reserved for package
+entrypoints, installation integration, and launcher code.
