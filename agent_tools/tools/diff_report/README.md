@@ -250,7 +250,8 @@ the column; metric-table headers wrap while the value cells stay on one line. Ea
 - `focus`: required node id the graph focuses on;
 - `types`: entity types to keep enabled, so intermediate layers collapse into
   `through_filtered` links;
-- `target_type`: entity type the Focus dropdown is limited to;
+- `target_type`: entity type the Focus dropdown prefers first; it does not
+  hide other object groups when the search box is empty;
 - `filters`: `{entity_type: {field: [allowed values]}}` subfilter overrides,
   usually a status split such as passed versus failed. A `status` key is routed
   into the graph's single global status filter rather than a per-type one;
@@ -262,6 +263,13 @@ counts together, for example passed, failed, no-verdict, and not-executed in a
 single column instead of four. Prefer buckets that are mutually exclusive and
 exhaustive, so the parts add up to the row total and the reader never has to
 guess about a hidden remainder.
+
+Relationship graph layouts use the configured traversal `type_ranks` when they
+exist: lower ranks render above higher ranks, and dense rank layers fill
+square-ish grids from top to bottom, then left to right, instead of stretching
+into one unreadable horizontal line. In neighborhood pagination, the selected
+focus node and its ancestor context nodes stay pinned; the page window applies
+to the first visible descendant set.
 
 `--report-json` accepts the same shared artifact fields as comments JSON:
 `summary`, `summary_blocks`, `diagrams`, `logs`, `story`, and `vocabulary`.
@@ -429,48 +437,39 @@ are visually distinct. This is intended for requirement graphs such as
 The graph toolbar keeps one control per concept:
 
 - `Status` chips are the status filter itself: one global set shared by every
-  layer, generated from the statuses present in the graph, carrying whole-graph
-  node counts. Status is not a per-type subfilter, so toggling layers can never
-  desynchronise it. The leading `All` control is a
-  tri-state checkbox like the one in the `Layers` row: unchecking it hides every
-  status so a single status can then be picked, checking it restores all, and it
-  renders indeterminate while only some are on. There is no separate status
-  legend and no status group inside the filter panel.
-- `Layers` checkboxes control layer visibility only. Each chip counts how many
-  nodes of that type the current focus contains, following directed edges down
-  the type ranks, so a product focus reports its domains, CDD, VSR, and
-  CTS/VTS totals while a VSR focus reports the tests and HALs under it. The
-  count is independent of the first-frontier canvas rule and of how many nodes
-  fit on the current graph page. The counts live in the chip
-  tooltip, not in the label, so a chip never changes width and the row never
-  shifts while filters change. Chip styling carries exactly one meaning: a
-  dashed, dimmed chip draws nothing for the current focus, counting both the
-  focus content and the ancestry the graph always draws above it, while a solid
-  chip has something to show. The tooltip says which of the two reasons applies,
-  nothing of that layer inside the focus or everything of it hidden by filters,
-  and when only the focus itself ends up drawn the canvas states how many nodes
-  the filters are holding back.
+  projection level. The row renders only statuses present inside the current
+  focus/projection scope before applying the status filter, so it acts as a
+  local legend instead of a whole-graph inventory. Status is not a per-type
+  subfilter, so changing the path projection can never desynchronise it. The
+  leading `All` control is a tri-state checkbox: unchecking it hides every
+  currently shown status so a single status can then be picked, checking it
+  restores all shown statuses, and it renders indeterminate while only some are
+  on.
+- `Auto` is the default projection mode. It chooses the visible entity types
+  from the current focus: the parent chain, the focus node, and the nearest
+  visible child frontier. Selecting a new focus node re-enters this mode, so
+  the graph behaves like a visual browser instead of preserving a stale manual
+  layer selection.
+- Disabling `Auto` exposes one checkbox dropdown per type-rank level from the
+  graph traversal metadata. Each dropdown is generic and offers `All` plus the
+  entity types in that rank; selecting no type in a level means that level is
+  skipped while traversal still passes through it. The selected values are
+  compiled into the internal enabled-type set, so report-defined graph views
+  and older filtering code still use one compact representation. This is a path
+  projection control, not a Gen5-specific Product/Domain/Requirement/Test UI.
 - `Focus type` limits the focus list to one entity type, and carries no counts:
-  counting is the Layers row's job. It is user-owned: selecting a node no
+  projection controls own visibility. It is user-owned: selecting a node no
   longer rewrites it. The `only visible` checkbox next to it narrows the focus
   list from every node in the graph to the nodes drawn on the current graph plus
   the focus ancestry, so a leaf focus still offers a way back up.
-- Unchecking the `Layers` `All` box clears every layer and returns the focus to
-  the graph root, so the next single layer click reads that layer from the top
-  of the hierarchy instead of from wherever the previous focus was.
-- The focus node is pinned against every filter, layers and status alike, so
-  clearing all statuses leaves the same one-node view as clearing all layers
-  instead of an empty graph with no focus at all. A pinned focus does not pull
-  its own status back into the filter, so a status-filtered view stays exact.
-- The focus node itself is always drawn, even when its own layer is unchecked,
-  so hiding layers narrows what hangs off the focus instead of moving the
-  focus. Unchecking every layer except one therefore answers "what is the first
-  visible layer below this focus", for example product plus CDD lists the first
-  CDD frontier under the product through hidden domains.
-- `Filters` is a collapsed disclosure that shows the remaining per-type fields
-  (suite, domain, applicability, and similar) and reports how many of them are
-  narrowed. Its bulk `Defaults` and `All values` actions record navigation
-  history like the individual value checkboxes.
+- The focus node is pinned against every filter, projection, and status, so
+  clearing all statuses leaves the same one-node view instead of an empty graph
+  with no focus at all. A pinned focus does not pull its own status back into
+  the filter, so a status-filtered view stays exact.
+- The focus node itself is always drawn, even when its type is hidden by a
+  custom projection. Manual projection narrows what hangs off the focus instead
+  of moving the focus. For example, product plus CDD lists the first CDD
+  frontier under the product through hidden domains.
 - `Shortcuts` appears only when the current focus has shortcut links.
 - `Fit`, back, forward, and paging live in one control bar above the canvas.
 

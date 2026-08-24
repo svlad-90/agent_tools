@@ -873,17 +873,17 @@ def _render_relationship_graph_section(graph: RelationshipGraph) -> str:
               <label class="relationship-focus-scope relationship-cell-scope"><input type="checkbox" data-relationship-focus-scope><span>only visible</span></label>
             </div>
             <div class="relationship-view-controls">
-              <div class="relationship-type-filter" data-relationship-type-filter>
-                <span class="relationship-control-label">Layers</span>
+              <div class="relationship-projection-controls" data-relationship-projection-controls>
+                <label class="relationship-projection-auto">
+                  <input type="checkbox" data-relationship-projection-auto>
+                  <span>Auto</span>
+                </label>
+                <div class="relationship-projection-levels" data-relationship-projection-levels></div>
               </div>
               <label class="relationship-secondary-toggle">
                 <input type="checkbox" data-relationship-secondary-links>
                 <span>Shortcuts</span>
               </label>
-              <details class="relationship-filters" data-relationship-filters>
-                <summary><span data-relationship-filters-summary>Filters</span></summary>
-                <div class="relationship-filters-body" data-relationship-filters-body></div>
-              </details>
             </div>
           </div>
           <div class="relationship-layout">
@@ -1413,9 +1413,15 @@ def _relationship_graph_script() -> str:
     if (!node || !state) return false;
     const statusFilter = state.statusFilter;
     if (statusFilter && statusFilter.values.length && !statusFilter.enabled.has(fieldValue(node, "status"))) return false;
+    return isNonStatusSubfilterEnabled(node, state);
+  }
+
+  function isNonStatusSubfilterEnabled(node, state) {
+    if (!node || !state) return false;
     const type = node.type || "entity";
     const typeFilters = state.subfilters && state.subfilters[type] || {};
     for (const [field, config] of Object.entries(typeFilters)) {
+      if (field === "status") continue;
       const value = fieldValue(node, field);
       // a node that does not carry the field at all cannot be judged by it; the filter lists only
       // the values that exist, so an empty value must not silently hide the node
@@ -1506,7 +1512,7 @@ def _relationship_graph_script() -> str:
     return adjacency;
   }
 
-  function buildNeighborhood(selectedId, nodesById, edges, adjacency, nodeVisible, traversal, includeSecondaryLinks) {
+  function buildNeighborhood(selectedId, nodesById, edges, adjacency, nodeVisible, contextNodeVisible, traversal, includeSecondaryLinks) {
     const selected = nodesById.get(selectedId);
     if (!selected) {
       return {nodes: [], edges: [], distances: new Map()};
@@ -1575,19 +1581,23 @@ def _relationship_graph_script() -> str:
         if (!rankedChild && !fallbackChild) continue;
         downSeen.add(toId);
         downParents.set(toId, {parentId: fromId, edge: item.edge});
-        if (edgeSecondary && includeSecondaryLinks && fromId === selectedId) {
-          if (nodeVisible(toNode)) secondaryDescendants.push(toId);
+        if (edgeSecondary && includeSecondaryLinks && fromId === selectedId && nodeVisible(toNode)) {
+          secondaryDescendants.push(toId);
+        } else if (edgeSecondary) {
+          downQueue.push(toId);
         } else if (nodeVisible(toNode)) {
           visibleDescendants.push(toId);
-        } else if (!edgeSecondary) {
+        } else {
           downQueue.push(toId);
         }
       }
     }
     if (visibleDescendants.length) {
-      // Draw the first visible child frontier only. Hidden intermediate nodes are still traversed,
-      // and derived edges below keep the visible frontier connected to the focus/ancestor chain.
-      const shownDescendants = visibleDescendants.concat(secondaryDescendants);
+      // Draw the first visible child rank only. Hidden intermediate nodes are still traversed,
+      // and direct shortcut edges to deeper ranks do not mix tests with requirements.
+      const candidateDescendants = visibleDescendants.concat(secondaryDescendants);
+      const visibleChildRank = Math.min(...candidateDescendants.map((id) => rankOf(nodesById.get(id))));
+      const shownDescendants = candidateDescendants.filter((id) => rankOf(nodesById.get(id)) === visibleChildRank);
       for (const targetId of shownDescendants) {
         const path = [];
         let pathId = targetId;
@@ -1606,7 +1616,10 @@ def _relationship_graph_script() -> str:
         }
       }
     }
-    const visibleIds = new Set(Array.from(distances.keys()).filter((id) => nodeVisible(nodesById.get(id))));
+    const visibleIds = new Set(Array.from(distances.keys()).filter((id) => {
+      const node = nodesById.get(id);
+      return nodeVisible(node) || (ancestry.has(id) && contextNodeVisible(node));
+    }));
     const visibleEdges = edges.filter((edge) => {
       if (!traversedEdgeKeys.has(edgeKey(edge))) return false;
       const sourceDistance = visibleIds.has(edge.source) ? distances.get(edge.source) : null;
@@ -1647,7 +1660,7 @@ def _relationship_graph_script() -> str:
     }
     const visibleNodes = Array.from(visibleIds).map((id) => nodesById.get(id)).filter(Boolean);
     visibleEdges.push(...derivedEdges);
-    return {nodes: visibleNodes, edges: visibleEdges, distances};
+    return {nodes: visibleNodes, edges: visibleEdges, distances, contextIds: new Set(ancestry)};
   }
 
   function graphMatchesSearch(graph, query, state) {
@@ -1659,6 +1672,7 @@ def _relationship_graph_script() -> str:
       nodes,
       edges: graph.edges.filter((edge) => visible.has(edge.source) && visible.has(edge.target)),
       distances: graph.distances,
+      contextIds: graph.contextIds,
       listMode: graph.listMode
     };
   }
@@ -1705,10 +1719,12 @@ def _relationship_graph_script() -> str:
       return 0;
     };
     const selectedNode = graph.nodes.find((node) => node.id === selectedId);
+    const contextIds = graph.contextIds || new Set(selectedNode ? [selectedId] : []);
+    const contextNodes = graph.listMode ? [] : graph.nodes.filter((node) => contextIds.has(node.id));
     const pageSize = Math.max(1, limit);
     const buckets = new Map();
     for (const node of graph.nodes) {
-      if (node.id === selectedId) continue;
+      if (contextIds.has(node.id)) continue;
       const distance = graph.distances && graph.distances.get(node.id);
       const key = `${distance == null ? 9 : distance}\u0000${typeRank(node)}\u0000${node.type || "entity"}`;
       if (!buckets.has(key)) buckets.set(key, []);
@@ -1744,13 +1760,14 @@ def _relationship_graph_script() -> str:
     const currentPage = Math.min(Math.max(Number(page) || 0, 0), pageCount - 1);
     const startIndex = currentPage * pageSize;
     const pageNodes = orderedNodes.slice(startIndex, startIndex + pageSize);
-    const nodes = graph.listMode ? pageNodes : selectedNode ? [selectedNode].concat(pageNodes) : pageNodes;
+    const nodes = graph.listMode ? pageNodes : contextNodes.concat(pageNodes);
     const end = Math.min(startIndex + pageSize, total);
     const visible = new Set(nodes.map((node) => node.id));
     return {
       nodes,
       edges: graph.edges.filter((edge) => visible.has(edge.source) && visible.has(edge.target)),
       distances: graph.distances,
+      contextIds: graph.contextIds,
       listMode: graph.listMode,
       omitted: total - pageNodes.length,
       pagination: {
@@ -1947,6 +1964,77 @@ def _relationship_graph_script() -> str:
     return {x: left + col * colGap, y: top + row * rowGap};
   }
 
+  function nodeTraversalRank(node, traversal) {
+    if (!node) return 99;
+    const ranks = traversal && traversal.typeRanks || DEFAULT_TYPE_RANKS;
+    const value = ranks[node.type || "entity"];
+    return Number.isFinite(value) ? value : 99;
+  }
+
+  function buildHierarchicalLayout(nodes, width, height, selectedId, traversal) {
+    const positions = new Map();
+    if (!nodes.length) {
+      return {positions, width, height};
+    }
+    const groups = new Map();
+    for (const node of nodes) {
+      const rank = nodeTraversalRank(node, traversal);
+      if (!groups.has(rank)) groups.set(rank, []);
+      groups.get(rank).push(node);
+    }
+    const ranks = Array.from(groups.keys()).sort((left, right) => left - right);
+    const columnWidth = 180;
+    const rowHeight = 138;
+    const rankGap = 170;
+    const left = 120;
+    const top = 92;
+    const baseWidth = Math.max(width || 900, 640);
+    const columnCounts = new Map();
+    for (const [rank, group] of groups) {
+      columnCounts.set(rank, Math.max(1, Math.ceil(Math.sqrt(group.length))));
+    }
+    const maxColumns = Math.max(...Array.from(columnCounts.values()));
+    const rowCounts = new Map();
+    for (const [rank, group] of groups) {
+      rowCounts.set(rank, Math.max(1, Math.ceil(group.length / columnCounts.get(rank))));
+    }
+    const totalRows = Array.from(rowCounts.values()).reduce((sum, rows) => sum + rows, 0);
+    const layoutWidth = Math.max(baseWidth, left * 2 + Math.max(0, maxColumns - 1) * columnWidth);
+    const layoutHeight = Math.max(
+      height || 520,
+      top * 2 + Math.max(0, totalRows - 1) * rowHeight + Math.max(0, ranks.length - 1) * (rankGap - rowHeight)
+    );
+    const usableWidth = Math.max(1, layoutWidth - left * 2);
+    let rankTop = top;
+    ranks.forEach((rank) => {
+      const group = groups.get(rank).slice().sort((leftNode, rightNode) => {
+        if (leftNode.id === selectedId) return -1;
+        if (rightNode.id === selectedId) return 1;
+        return String(leftNode.label || leftNode.id).localeCompare(String(rightNode.label || rightNode.id));
+      });
+      const cols = Math.min(group.length, columnCounts.get(rank));
+      const rows = Math.max(1, Math.ceil(group.length / cols));
+      const colGap = cols > 1 ? usableWidth / (cols - 1) : 0;
+      group.forEach((node, index) => {
+        const colIndex = Math.floor(index / rows);
+        const rowIndex = index % rows;
+        positions.set(node.id, {
+          x: cols > 1 ? left + colIndex * colGap : layoutWidth / 2,
+          y: rankTop + rowIndex * rowHeight
+        });
+      });
+      rankTop += Math.max(0, rows - 1) * rowHeight + rankGap;
+    });
+    return {positions, width: layoutWidth, height: layoutHeight};
+  }
+
+  function hierarchyNodePosition(node, graph) {
+    const layout = graph.hierarchyLayout;
+    if (!layout || !layout.positions) return undefined;
+    const position = layout.positions.get(node.id);
+    return position ? {x: position.x, y: position.y} : undefined;
+  }
+
   function cytoscapeElements(graph) {
     const nodes = graph.nodes.map((node, index) => ({
       group: "nodes",
@@ -1957,7 +2045,7 @@ def _relationship_graph_script() -> str:
         type: node.type || "entity",
         status: node.status || "unknown"
       },
-      position: graph.listMode ? listNodePosition(index, graph) : undefined,
+      position: graph.listMode ? listNodePosition(index, graph) : hierarchyNodePosition(node, graph),
       classes: `${cssStatus(node.status)} ${graph.listMode ? "is-list-item" : ""} ${node.id === graph.selectedId ? "is-selected" : ""} ${node.id === graph.activeId ? "is-active" : ""}`
     }));
     const edges = visibleEdgesForCanvas(graph.selectedId, graph).map((edge, index) => ({
@@ -2094,12 +2182,14 @@ def _relationship_graph_script() -> str:
     const hasSearch = String(state.searchQuery || "").trim();
     updateSecondaryLinkControl(browser, state);
     const nodeVisible = (node) => isNodeVisible(node, state);
+    const contextNodeVisible = (node) => isTypeEnabled(node, state.selectedId, state.enabledTypes);
     const baseGraph = buildTypeListGraph(state) || buildNeighborhood(
       state.selectedId,
       state.nodesById,
       state.edges,
       state.adjacency,
       nodeVisible,
+      contextNodeVisible,
       activeTraversal(state),
       state.showSecondaryLinks
     );
@@ -2118,7 +2208,7 @@ def _relationship_graph_script() -> str:
     state.visibleGraph = graph;
     state.visibleNodeIds = new Set(graph.nodes.map((node) => node.id));
     syncActiveSubfilterType(state);
-    const typeContainer = browser.querySelector("[data-relationship-type-filter]");
+    const typeContainer = browser.querySelector("[data-relationship-projection-controls]");
     if (typeContainer) refreshTypeFilterState(typeContainer, state, graphTypes(state.nodes));
     const listColumnWidth = 220;
     const listRowHeight = 150;
@@ -2135,8 +2225,16 @@ def _relationship_graph_script() -> str:
         left: 120,
         top: 92
       };
+      graph.hierarchyLayout = null;
     } else {
       graph.listLayout = null;
+      graph.hierarchyLayout = buildHierarchicalLayout(
+        graph.nodes,
+        canvas.clientWidth || 900,
+        canvas.clientHeight || 520,
+        state.selectedId,
+        activeTraversal(state)
+      );
     }
     const renderSignature = graphRenderSignature(graph);
     if (state.cy && state.graphRenderSignature === renderSignature) {
@@ -2173,22 +2271,7 @@ def _relationship_graph_script() -> str:
     state.cy.on("tap", "node", (event) => {
       syncGraphViewport(state);
       const nodeId = event.target.id();
-      if (state.tapTimer && state.tapTarget === nodeId) {
-        window.clearTimeout(state.tapTimer);
-        state.tapTimer = 0;
-        state.tapTarget = "";
-        selectNode(browser, state, nodeId, true);
-        return;
-      }
-      if (state.tapTimer) {
-        window.clearTimeout(state.tapTimer);
-      }
-      state.tapTarget = nodeId;
-      state.tapTimer = window.setTimeout(() => {
-        state.tapTimer = 0;
-        state.tapTarget = "";
-        activateNode(browser, state, nodeId);
-      }, 240);
+      selectNode(browser, state, nodeId, true);
     });
     if (!graph.nodes.length) {
       canvas.setAttribute("data-empty-graph", "true");
@@ -2211,8 +2294,15 @@ def _relationship_graph_script() -> str:
       canvas.removeAttribute("data-graph-hint");
       canvas.removeAttribute("data-graph-message");
     }
-    const layoutOptions = graph.listMode ? {
+    const presetPositions = (graph.listMode || graph.hierarchyLayout)
+      ? new Map(graph.nodes.map((node, index) => [
+        node.id,
+        graph.listMode ? listNodePosition(index, graph) : hierarchyNodePosition(node, graph)
+      ]))
+      : null;
+    const layoutOptions = presetPositions ? {
       name: "preset",
+      positions: (node) => presetPositions.get(node.id()) || {x: 0, y: 0},
       animate: false,
       fit: true,
       padding: 54
@@ -2230,6 +2320,12 @@ def _relationship_graph_script() -> str:
     };
     const layout = state.cy.layout(layoutOptions);
     layout.run();
+    if (presetPositions) {
+      state.cy.nodes().forEach((node) => {
+        const position = presetPositions.get(node.id());
+        if (position) node.position(position);
+      });
+    }
     const selected = state.cy.getElementById(state.selectedId);
     if (selected.length) selected.select();
     renderSelectionTable(browser, state);
@@ -2372,33 +2468,186 @@ def _relationship_graph_script() -> str:
     return required;
   }
 
+  function typeRankValue(state, type) {
+    const ranks = state && state.traversal && state.traversal.typeRanks || DEFAULT_TYPE_RANKS;
+    const value = ranks[type || "entity"];
+    if (Number.isFinite(value)) return value;
+    const index = TYPE_ORDER.indexOf(type || "entity");
+    return index === -1 ? 99 : index;
+  }
+
+  function projectionRankGroups(state) {
+    const byRank = new Map();
+    for (const type of graphTypes(state.nodes)) {
+      const rank = typeRankValue(state, type);
+      if (!byRank.has(rank)) byRank.set(rank, []);
+      byRank.get(rank).push(type);
+    }
+    return Array.from(byRank.entries())
+      .sort((left, right) => left[0] - right[0])
+      .map(([rank, types], index) => ({
+        id: String(rank),
+        rank,
+        index,
+        label: index === 0 ? "Start" : `Level ${index}`,
+        types: types.sort((left, right) => {
+          const leftOrder = TYPE_ORDER.indexOf(left);
+          const rightOrder = TYPE_ORDER.indexOf(right);
+          if (leftOrder !== -1 || rightOrder !== -1) return (leftOrder === -1 ? 999 : leftOrder) - (rightOrder === -1 ? 999 : rightOrder);
+          return String(TYPE_LABELS[left] || left).localeCompare(String(TYPE_LABELS[right] || right));
+        })
+      }));
+  }
+
+  function defaultProjectionSelections(state) {
+    const result = {};
+    for (const group of projectionRankGroups(state)) {
+      result[group.id] = "__all__";
+    }
+    return result;
+  }
+
+  function encodeProjectionChoice(types) {
+    return types.slice().sort().join("\u001f");
+  }
+
+  function decodeProjectionChoice(choice, groupTypes) {
+    if (choice === "__none__") return [];
+    if (choice === "__all__" || !choice) return groupTypes.slice();
+    const allowed = new Set(groupTypes);
+    return String(choice).split("\u001f").filter((type) => allowed.has(type));
+  }
+
+  function projectionSelectedTypesForGroup(state, group) {
+    const auto = (state.projectionMode || "auto") === "auto";
+    const choice = auto ? "__all__" : (state.projectionSelections && state.projectionSelections[group.id] || "__all__");
+    return new Set(decodeProjectionChoice(choice, group.types));
+  }
+
+  function projectionSelectionValue(group, selected) {
+    const chosen = group.types.filter((type) => selected.has(type));
+    if (!chosen.length) return "__none__";
+    if (chosen.length === group.types.length) return "__all__";
+    return encodeProjectionChoice(chosen);
+  }
+
+  function setProjectionGroupSelection(state, group, selected) {
+    const next = new Set(selected || []);
+    const required = requiredProjectionTypeForRank(state, group.rank);
+    if (required && group.types.includes(required)) next.add(required);
+    if (!state.projectionSelections) state.projectionSelections = {};
+    state.projectionSelections[group.id] = projectionSelectionValue(group, next);
+  }
+
+  function projectionSelectionLabel(state, group) {
+    const selected = projectionSelectedTypesForGroup(state, group);
+    if (!selected.size) return "None";
+    if (selected.size === group.types.length) return "All";
+    const labels = group.types
+      .filter((type) => selected.has(type))
+      .map((type) => TYPE_LABELS[type] || type);
+    if (labels.length <= 2) return labels.join(" + ");
+    return `${labels.length} selected`;
+  }
+
+  function projectionTypesFromSelections(state) {
+    const selected = new Set();
+    const selections = state.projectionSelections || {};
+    for (const group of projectionRankGroups(state)) {
+      const choice = selections[group.id] || "__all__";
+      for (const type of decodeProjectionChoice(choice, group.types)) selected.add(type);
+    }
+    return selected;
+  }
+
+  function setProjectionSelectionsFromTypes(state, types) {
+    const selected = new Set(types || []);
+    const next = {};
+    for (const group of projectionRankGroups(state)) {
+      const chosen = group.types.filter((type) => selected.has(type));
+      if (!chosen.length) {
+        next[group.id] = "__none__";
+      } else if (chosen.length === group.types.length) {
+        next[group.id] = "__all__";
+      } else {
+        next[group.id] = encodeProjectionChoice(chosen);
+      }
+    }
+    state.projectionSelections = next;
+  }
+
+  function applyProjectionSelections(browser, state) {
+    state.enabledTypes = projectionTypesFromSelections(state);
+    refreshTypeFilterState(browser.querySelector("[data-relationship-projection-controls]") || browser, state, graphTypes(state.nodes));
+  }
+
   function ensureFocusFilters(browser, state, nodeId) {
-    const required = focusRequiredTypes(state, nodeId);
-    let changed = false;
-    for (const type of required) {
-      if (state.enabledTypes.has(type)) continue;
-      state.enabledTypes.add(type);
-      changed = true;
+    const node = state.nodesById.get(nodeId);
+    const type = node && (node.type || "entity");
+    if (!type || state.enabledTypes.has(type)) return false;
+    state.enabledTypes.add(type);
+    if (state.projectionMode === "custom") {
+      const group = projectionRankGroups(state).find((item) => item.types.includes(type));
+      if (group) {
+        const current = state.projectionSelections && state.projectionSelections[group.id] || "__all__";
+        const selected = new Set(decodeProjectionChoice(current, group.types));
+        selected.add(type);
+        if (!state.projectionSelections) state.projectionSelections = {};
+        state.projectionSelections[group.id] = selected.size === group.types.length
+          ? "__all__"
+          : encodeProjectionChoice(group.types.filter((candidate) => selected.has(candidate)));
+      }
     }
-    if (changed) {
-      refreshTypeFilterState(browser.querySelector("[data-relationship-type-filter]") || browser, state, graphTypes(state.nodes));
-    }
-    return changed;
+    refreshTypeFilterState(browser.querySelector("[data-relationship-projection-controls]") || browser, state, graphTypes(state.nodes));
+    return true;
+  }
+
+  function focusViewTypes(state, nodeId) {
+    const fallback = focusRequiredTypes(state, nodeId);
+    if (!state.nodesById.has(nodeId)) return fallback;
+    const allTypes = new Set(graphTypes(state.nodes));
+    const focusState = Object.assign({}, state, {
+      selectedId: nodeId,
+      enabledTypes: allTypes
+    });
+    const graph = buildNeighborhood(
+      nodeId,
+      state.nodesById,
+      state.edges,
+      state.adjacency,
+      (node) => node && (node.id === nodeId || isSubfilterEnabled(node, state)),
+      (node) => Boolean(node),
+      activeTraversal(focusState),
+      state.showSecondaryLinks
+    );
+    const types = new Set((graph.nodes || []).map((node) => node.type || "entity"));
+    return types.size ? types : fallback;
+  }
+
+  function resetEntityTypesToFocusView(browser, state, nodeId) {
+    state.enabledTypes = focusViewTypes(state, nodeId);
+    state.projectionMode = "auto";
+    state.projectionSelections = defaultProjectionSelections(state);
+    refreshTypeFilterState(browser.querySelector("[data-relationship-projection-controls]") || browser, state, graphTypes(state.nodes));
   }
 
   function enableAllEntityTypes(browser, state) {
     const types = graphTypes(state.nodes);
     state.enabledTypes = new Set(types);
-    refreshTypeFilterState(browser.querySelector("[data-relationship-type-filter]") || browser, state, types);
+    state.projectionMode = "custom";
+    state.projectionSelections = defaultProjectionSelections(state);
+    refreshTypeFilterState(browser.querySelector("[data-relationship-projection-controls]") || browser, state, types);
   }
 
   function resetGraphFilters(browser, state) {
     state.enabledTypes = new Set(graphTypes(state.nodes));
+    state.projectionMode = "auto";
+    state.projectionSelections = defaultProjectionSelections(state);
     resetSubfilters(state);
     state.activeSubfilterType = "";
     state.activeSubfilterTypes = [];
     state.typeSearchType = "";
-    refreshTypeFilterState(browser.querySelector("[data-relationship-type-filter]") || browser, state, graphTypes(state.nodes));
+    refreshTypeFilterState(browser.querySelector("[data-relationship-projection-controls]") || browser, state, graphTypes(state.nodes));
   }
 
   function childLayerSubfilterTypes(state) {
@@ -2437,11 +2686,17 @@ def _relationship_graph_script() -> str:
     return types.length > 0 && types.every((type) => state.enabledTypes.has(type));
   }
 
+  function projectionSelectionsSnapshot(state) {
+    return Object.assign({}, state.projectionSelections || {});
+  }
+
   function navigationSnapshot(state) {
     return {
       selectedId: state.selectedId,
       activeId: state.activeId,
       enabledTypes: Array.from(state.enabledTypes),
+      projectionMode: state.projectionMode || "auto",
+      projectionSelections: projectionSelectionsSnapshot(state),
       subfilters: serializeSubfilters(state),
       statusFilter: serializeStatusFilter(state),
       graphPage: state.graphPage,
@@ -2466,6 +2721,10 @@ def _relationship_graph_script() -> str:
     state.activeId = state.nodesById.has(snapshot.activeId) ? snapshot.activeId : snapshot.selectedId;
     syncActiveSubfilterType(state);
     state.enabledTypes = new Set(Array.isArray(snapshot.enabledTypes) ? snapshot.enabledTypes : graphTypes(state.nodes));
+    state.projectionMode = snapshot.projectionMode === "custom" ? "custom" : "auto";
+    state.projectionSelections = snapshot.projectionSelections && typeof snapshot.projectionSelections === "object"
+      ? Object.assign({}, snapshot.projectionSelections)
+      : defaultProjectionSelections(state);
     resetSubfilters(state);
     restoreSubfilters(state, snapshot.subfilters);
     restoreStatusFilter(state, snapshot.statusFilter);
@@ -2473,7 +2732,7 @@ def _relationship_graph_script() -> str:
     state.showSecondaryLinks = Boolean(snapshot.showSecondaryLinks);
     state.searchQuery = snapshot.searchQuery || "";
     state.typeSearchType = snapshot.typeSearchType || "";
-    refreshTypeFilterState(browser.querySelector("[data-relationship-type-filter]") || browser, state, graphTypes(state.nodes));
+    refreshTypeFilterState(browser.querySelector("[data-relationship-projection-controls]") || browser, state, graphTypes(state.nodes));
     renderGraph(browser, state);
     renderNodeSelect(browser, state);
     renderDetail(browser, state);
@@ -2607,6 +2866,9 @@ def _relationship_graph_script() -> str:
   function selectNode(browser, state, nodeId, recordHistory, options) {
     if (!state.nodesById.has(nodeId)) return;
     const resetTypes = Boolean(options && options.resetTypes);
+    const preserveTypes = options && Object.prototype.hasOwnProperty.call(options, "preserveTypes")
+      ? Boolean(options.preserveTypes)
+      : (state.projectionMode || "auto") === "custom";
     if (recordHistory && state.selectedId && state.selectedId !== nodeId) {
       state.backStack.push(navigationSnapshot(state));
       state.forwardStack.length = 0;
@@ -2618,9 +2880,12 @@ def _relationship_graph_script() -> str:
     state.activeId = nodeId;
     syncActiveSubfilterType(state);
     state.graphPage = 0;
-    ensureFocusFilters(browser, state, nodeId);
     includeNodeInSubfilters(state, state.nodesById.get(nodeId));
-    refreshTypeFilterState(browser.querySelector("[data-relationship-type-filter]") || browser, state, graphTypes(state.nodes));
+    if (!preserveTypes) {
+      resetEntityTypesToFocusView(browser, state, nodeId);
+    } else {
+      ensureFocusFilters(browser, state, nodeId);
+    }
     renderGraph(browser, state);
     renderNodeSelect(browser, state);
     renderDetail(browser, state);
@@ -2661,7 +2926,7 @@ def _relationship_graph_script() -> str:
     syncActiveSubfilterType(state);
     updateActiveGraphNode(state);
     updateActiveTableRow(browser, state);
-    refreshTypeFilterState(browser.querySelector("[data-relationship-type-filter]") || browser, state, graphTypes(state.nodes));
+    refreshTypeFilterState(browser.querySelector("[data-relationship-projection-controls]") || browser, state, graphTypes(state.nodes));
     renderNodeSelect(browser, state);
     renderDetail(browser, state);
   }
@@ -2707,7 +2972,9 @@ def _relationship_graph_script() -> str:
     if ((node.type || "entity") === "product") return 1;
     const selected = state.nodesById.get(state.selectedId || "");
     if (selected && (node.type || "entity") === (selected.type || "entity")) return 2;
-    return 3;
+    const targetType = state.typeSearchType || "";
+    if (targetType && (node.type || "entity") === targetType) return 3;
+    return 4;
   }
 
   function focusChoiceGroupKey(node, state, degrees) {
@@ -2716,7 +2983,8 @@ def _relationship_graph_script() -> str:
     if (rank === 0) return "00:selected";
     if (rank === 1) return "01:product";
     if (rank === 2) return `02:${node.type || "entity"}`;
-    return `03:${node.type || "entity"}:${degree ? "linked" : "isolated"}`;
+    if (rank === 3) return `03:${node.type || "entity"}`;
+    return `04:${node.type || "entity"}:${degree ? "linked" : "isolated"}`;
   }
 
   function focusChoiceGroupLabel(node, state, degrees, count) {
@@ -2726,6 +2994,7 @@ def _relationship_graph_script() -> str:
     if (rank === 0) return `Selected element ${suffix}`;
     if (rank === 1) return `Product / root ${suffix}`;
     if (rank === 2) return `${nodeTypeLabel(node)} · current focus type ${suffix}`;
+    if (rank === 3) return `${nodeTypeLabel(node)} · focus target ${suffix}`;
     return `${nodeTypeLabel(node)} · ${degree ? "linked" : "no visible links"} ${suffix}`;
   }
 
@@ -2825,7 +3094,6 @@ def _relationship_graph_script() -> str:
 
   function selectableNodes(state, includeSelected, degrees) {
     const query = String(state.searchQuery || "").trim().toLowerCase();
-    const targetType = state.typeSearchType || "";
     const scopeIds = focusScopeIds(state);
     const degreeMap = degrees || visibleNodeDegreeMap(state);
     return state.nodes
@@ -2834,7 +3102,6 @@ def _relationship_graph_script() -> str:
         if (includeSelected && node.id === state.selectedId) return isNodeVisible(node, state);
         return isNodeVisible(node, state);
       })
-      .filter((node) => isPinnedFocusChoice(node, state, query) || !targetType || (node.type || "entity") === targetType)
       .filter((node) => isPinnedFocusChoice(node, state, query) || !query || searchableTextForState(state, node).includes(query))
       .sort((left, right) => {
         const leftGroup = focusChoiceGroupKey(left, state, degreeMap);
@@ -2895,6 +3162,7 @@ def _relationship_graph_script() -> str:
       option.title = node.label || node.id;
       option.className = degree ? "" : "relationship-option-isolated";
       option.setAttribute("data-relationship-visible-links", String(degree));
+      if (node.id === state.selectedId) option.selected = true;
       groups.get(label).appendChild(option);
     }
     if (nodes.length > renderedNodes.length) {
@@ -2904,7 +3172,7 @@ def _relationship_graph_script() -> str:
       option.textContent = `${nodes.length - renderedNodes.length} more matches; narrow search`;
       select.appendChild(option);
     }
-    if (selectedNode) {
+    if (selectedNode && Array.from(select.options).some((option) => option.value === state.selectedId)) {
       select.value = state.selectedId;
     }
     return nodes;
@@ -2955,44 +3223,30 @@ def _relationship_graph_script() -> str:
   }
 
   function refreshTypeFilterState(container, state, types) {
-    const ancestorTypes = new Set();
-    for (const id of focusAncestorIds(state)) {
-      const node = state.nodesById.get(id);
-      if (node && isSubfilterEnabled(node, state)) ancestorTypes.add(node.type || "entity");
-    }
-    container.querySelectorAll("[data-relationship-type]").forEach((checkbox) => {
-      const type = checkbox.value;
-      checkbox.checked = state.enabledTypes.has(type);
-      const total = state.nodes.filter((node) => (node.type || "entity") === type).length;
-      const visible = typeNodeCount(state, type);
-      const inFocus = typeFocusTotal(state, type);
-      const label = checkbox.closest(".relationship-type-filter-item");
-      if (!label) return;
-      label.setAttribute("data-relationship-type-visible", String(visible));
-      label.setAttribute("data-relationship-type-in-focus", String(inFocus));
-      // one meaning only: a dimmed chip is a layer that draws nothing for the current focus,
-      // counting both the focus content and the ancestry the graph always draws above it
-      const isAncestorLayer = ancestorTypes.has(type);
-      const draws = visible > 0 || isAncestorLayer;
-      label.classList.toggle("is-empty", !draws);
-      const action = state.enabledTypes.has(type) ? "hide" : "show";
-      const reason = inFocus === 0
-        ? "nothing of this layer is inside the current focus"
-        : `all ${inFocus} of them are hidden by the current status or filter values`;
-      if (!draws) {
-        label.title = `Draws nothing here: ${reason}. ${total} ${TYPE_LABELS[type] || type} nodes exist in the whole graph. Click to ${action} this layer.`;
-      } else if (visible === 0) {
-        label.title = `Drawn only as the ancestry above the focus; ${reason}. Click to ${action} this layer.`;
-      } else {
-        label.title = `${visible} of ${inFocus} ${TYPE_LABELS[type] || type} nodes inside the current focus pass the current filters; ${total} exist in the whole graph. Click to ${action} this layer.`;
+    const auto = container.querySelector("[data-relationship-projection-auto]");
+    const projectionAuto = (state.projectionMode || "auto") === "auto";
+    if (auto) auto.checked = projectionAuto;
+    const groupsById = new Map(projectionRankGroups(state).map((group) => [group.id, group]));
+    container.querySelectorAll("[data-relationship-projection-level]").forEach((control) => {
+      const level = control.getAttribute("data-relationship-projection-level") || "";
+      const group = groupsById.get(level);
+      if (!group) return;
+      const selected = projectionSelectedTypesForGroup(state, group);
+      const requiredType = requiredProjectionTypeForRank(state, group.rank);
+      const summary = control.querySelector("[data-relationship-projection-summary]");
+      if (summary) summary.textContent = projectionSelectionLabel(state, group);
+      const all = control.querySelector("[data-relationship-projection-all]");
+      if (all) {
+        all.checked = selected.size === group.types.length;
+        all.indeterminate = selected.size > 0 && selected.size < group.types.length;
+        all.disabled = group.types.every((type) => requiredType && type === requiredType);
       }
+      control.querySelectorAll("[data-relationship-projection-type]").forEach((checkbox) => {
+        const type = checkbox.getAttribute("data-relationship-projection-type") || "";
+        checkbox.checked = selected.has(type);
+        checkbox.disabled = Boolean(requiredType && type === requiredType);
+      });
     });
-    const allCheckbox = container.querySelector("[data-relationship-type-all]");
-    if (allCheckbox) {
-      const selectedCount = types.filter((type) => state.enabledTypes.has(type)).length;
-      allCheckbox.checked = types.length > 0 && selectedCount === types.length;
-      allCheckbox.indeterminate = selectedCount > 0 && selectedCount < types.length;
-    }
     const browser = container.closest && container.closest("[data-relationship-browser]") || container;
     renderStatusFilter(browser, state);
     renderFocusTypeSelect(browser, state);
@@ -3017,13 +3271,36 @@ def _relationship_graph_script() -> str:
 
   function statusFilterValues(state) {
     const counts = new Map();
-    for (const value of (state.statusFilter && state.statusFilter.values) || []) counts.set(value, 0);
-    for (const node of state.nodes) {
+    const add = (node) => {
+      if (!node) return;
+      if (node.id !== state.selectedId && !state.enabledTypes.has(node.type || "entity")) return;
+      if (!isNonStatusSubfilterEnabled(node, state)) return;
       const value = fieldValue(node, "status");
-      if (!counts.has(value)) continue;
-      counts.set(value, counts.get(value) + 1);
+      if (!value || !(state.statusFilter && state.statusFilter.values.includes(value))) return;
+      counts.set(value, (counts.get(value) || 0) + 1);
+    };
+    const selected = state.nodesById.get(state.selectedId || "");
+    add(selected);
+    const seen = new Set(selected ? [selected.id] : []);
+    const queue = selected ? [selected.id] : [];
+    while (queue.length) {
+      const fromId = queue.shift();
+      const fromRank = traversalRank(state, state.nodesById.get(fromId));
+      for (const item of state.adjacency.get(fromId) || []) {
+        if (item.edge.source !== fromId || item.edge.target !== item.id) continue;
+        if (isSecondaryEdge(item.edge) && !state.showSecondaryLinks) continue;
+        if (seen.has(item.id)) continue;
+        const node = state.nodesById.get(item.id);
+        if (!node) continue;
+        const rank = traversalRank(state, node);
+        if (rank <= fromRank && !(rank === 99 && fromRank === 99)) continue;
+        seen.add(item.id);
+        queue.push(item.id);
+        add(node);
+      }
     }
-    return Array.from(counts.entries());
+    const order = (state.statusFilter && state.statusFilter.values) || [];
+    return Array.from(counts.entries()).sort((left, right) => order.indexOf(left[0]) - order.indexOf(right[0]));
   }
 
   function isStatusValueEnabled(state, value) {
@@ -3048,7 +3325,7 @@ def _relationship_graph_script() -> str:
     const rerender = () => {
       state.graphPage = 0;
       ensureSelectableFocus(state);
-      refreshTypeFilterState(browser.querySelector("[data-relationship-type-filter]") || browser, state, graphTypes(state.nodes));
+    refreshTypeFilterState(browser.querySelector("[data-relationship-projection-controls]") || browser, state, graphTypes(state.nodes));
       renderGraph(browser, state);
       renderNodeSelect(browser, state);
       renderDetail(browser, state);
@@ -3196,7 +3473,10 @@ def _relationship_graph_script() -> str:
     if (!body) return;
     body.replaceChildren();
     const activeTypes = (state.activeSubfilterTypes && state.activeSubfilterTypes.length ? state.activeSubfilterTypes : [state.activeSubfilterType])
-      .filter((type, index, items) => type && state.enabledTypes.has(type) && items.indexOf(type) === index);
+      .filter((type, index, items) => type && state.enabledTypes.has(type) && items.indexOf(type) === index)
+      .filter((type) => Object.entries(state.subfilters[type] || {}).some(([field, config]) =>
+        field !== "status" && config && Array.isArray(config.values) && config.values.length > 0
+      ));
     const filterCount = activeFilterCount(state);
     if (summary) {
       summary.textContent = filterCount ? `Filters (${filterCount} active)` : "Filters";
@@ -3251,11 +3531,6 @@ def _relationship_graph_script() -> str:
       head.appendChild(actions);
       section.appendChild(head);
       const fields = Object.entries(typeFilters).filter(([field]) => field !== "status");
-      if (!fields.length) {
-        const empty = document.createElement("p");
-        empty.textContent = "No filters beyond status for this type.";
-        section.appendChild(empty);
-      }
       for (const [field, config] of fields) {
         const group = document.createElement("fieldset");
         const legend = document.createElement("legend");
@@ -3314,80 +3589,126 @@ def _relationship_graph_script() -> str:
     body.appendChild(popover);
   }
 
+  function projectionChoiceLabel(types) {
+    return types.map((type) => TYPE_LABELS[type] || type).join(" + ");
+  }
+
+  function requiredProjectionTypeForRank(state, rank) {
+    const selected = state.nodesById && state.nodesById.get(state.selectedId || "");
+    if (!selected) return "";
+    const selectedRank = typeRankValue(state, selected.type || "entity");
+    if (rank !== selectedRank) return "";
+    return selected.type || "entity";
+  }
+
   function renderTypeFilters(browser, state) {
-    const container = browser.querySelector("[data-relationship-type-filter]");
+    const container = browser.querySelector("[data-relationship-projection-controls]");
     if (!container) return;
-    const types = graphTypes(state.nodes);
-    const actions = document.createElement("div");
-    actions.className = "relationship-type-filter-actions";
-    const allLabel = document.createElement("label");
-    allLabel.className = "relationship-type-filter-all";
-    const allCheckbox = document.createElement("input");
-    allCheckbox.type = "checkbox";
-    allCheckbox.setAttribute("data-relationship-type-all", "");
-    allCheckbox.addEventListener("change", () => {
-      pushNavigationSnapshot(state);
-      state.enabledTypes = allCheckbox.checked ? new Set(types) : new Set();
-      state.graphPage = 0;
-      if (!allCheckbox.checked) {
-        const rootId = graphRootId(state);
-        if (rootId && state.nodesById.has(rootId)) {
-          state.selectedId = rootId;
-          state.activeId = rootId;
-          state.searchQuery = "";
-          cancelSearchUpdate(state);
-          const search = browser.querySelector("[data-relationship-search]");
-          if (search) search.value = "";
-          includeNodeInSubfilters(state, state.nodesById.get(rootId));
-          syncActiveSubfilterType(state);
-        }
-      }
-      ensureSelectableFocus(state);
-      refreshTypeFilterState(container, state, types);
-      renderGraph(browser, state);
-      renderNodeSelect(browser, state);
-      renderDetail(browser, state);
-    });
-    allLabel.appendChild(allCheckbox);
-    const allText = document.createElement("span");
-    allText.textContent = "All";
-    allText.title = "Show every layer in the graph";
-    allLabel.appendChild(allText);
-    actions.appendChild(allLabel);
-    const list = document.createElement("div");
-    list.className = "relationship-type-filter-list";
-    for (const type of types) {
-      const label = document.createElement("label");
-      label.className = "relationship-type-filter-item";
-      const checkbox = document.createElement("input");
-      checkbox.type = "checkbox";
-      checkbox.value = type;
-      checkbox.setAttribute("data-relationship-type", type);
-      checkbox.checked = state.enabledTypes.has(type);
-      checkbox.addEventListener("change", () => {
+    const auto = container.querySelector("[data-relationship-projection-auto]");
+    const levels = container.querySelector("[data-relationship-projection-levels]");
+    if (!levels) return;
+    if (auto) {
+      auto.checked = (state.projectionMode || "auto") === "auto";
+      auto.addEventListener("change", () => {
         pushNavigationSnapshot(state);
-        if (checkbox.checked) {
-          state.enabledTypes.add(type);
+        state.projectionMode = auto.checked ? "auto" : "custom";
+        if (state.projectionMode === "auto") {
+          resetEntityTypesToFocusView(browser, state, state.selectedId);
         } else {
-          state.enabledTypes.delete(type);
+          applyProjectionSelections(browser, state);
         }
         state.graphPage = 0;
         ensureSelectableFocus(state);
-        refreshTypeFilterState(container, state, types);
         renderGraph(browser, state);
         renderNodeSelect(browser, state);
         renderDetail(browser, state);
       });
-      const typeText = document.createElement("span");
-      typeText.setAttribute("data-relationship-type-label", type);
-      typeText.textContent = TYPE_LABELS[type] || type;
-      label.appendChild(checkbox);
-      label.appendChild(typeText);
-      list.appendChild(label);
     }
-    container.appendChild(actions);
-    container.appendChild(list);
-    refreshTypeFilterState(container, state, types);
+    levels.replaceChildren();
+    const closeProjectionMenus = (except) => {
+      levels.querySelectorAll(".relationship-projection-menu").forEach((menu) => {
+        if (menu !== except) menu.hidden = true;
+      });
+      levels.querySelectorAll("[data-relationship-projection-summary]").forEach((button) => {
+        const menu = button.closest("[data-relationship-projection-level]") && button.closest("[data-relationship-projection-level]").querySelector(".relationship-projection-menu");
+        button.setAttribute("aria-expanded", menu && !menu.hidden ? "true" : "false");
+      });
+    };
+    for (const group of projectionRankGroups(state)) {
+      const control = document.createElement("div");
+      control.className = "relationship-projection-level";
+      control.setAttribute("data-relationship-projection-level", group.id);
+      const title = document.createElement("span");
+      title.textContent = group.label;
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "relationship-projection-summary";
+      button.setAttribute("data-relationship-projection-summary", "");
+      button.setAttribute("aria-haspopup", "true");
+      button.setAttribute("aria-expanded", "false");
+      button.setAttribute("aria-label", `${group.label} visible entity types`);
+      const menu = document.createElement("div");
+      menu.className = "relationship-projection-menu";
+      menu.hidden = true;
+      const applyGroupSelection = (selected) => {
+        pushNavigationSnapshot(state);
+        state.projectionMode = "custom";
+        setProjectionGroupSelection(state, group, selected);
+        state.graphPage = 0;
+        applyProjectionSelections(browser, state);
+        ensureSelectableFocus(state);
+        renderGraph(browser, state);
+        renderNodeSelect(browser, state);
+        renderDetail(browser, state);
+      };
+      button.addEventListener("click", (event) => {
+        event.stopPropagation();
+        const nextHidden = !menu.hidden;
+        closeProjectionMenus(menu);
+        menu.hidden = nextHidden;
+        button.setAttribute("aria-expanded", menu.hidden ? "false" : "true");
+      });
+      control.addEventListener("click", (event) => event.stopPropagation());
+      const allLabel = document.createElement("label");
+      const allCheckbox = document.createElement("input");
+      allCheckbox.type = "checkbox";
+      allCheckbox.setAttribute("data-relationship-projection-all", "");
+      allCheckbox.addEventListener("change", () => {
+        applyGroupSelection(allCheckbox.checked ? new Set(group.types) : new Set());
+      });
+      allLabel.appendChild(allCheckbox);
+      const allText = document.createElement("span");
+      allText.textContent = "All";
+      allLabel.appendChild(allText);
+      menu.appendChild(allLabel);
+      for (const type of group.types) {
+        const optionLabel = document.createElement("label");
+        const checkbox = document.createElement("input");
+        checkbox.type = "checkbox";
+        checkbox.setAttribute("data-relationship-projection-type", type);
+        checkbox.addEventListener("change", () => {
+          const selected = projectionSelectedTypesForGroup(state, group);
+          if (checkbox.checked) {
+            selected.add(type);
+          } else {
+            selected.delete(type);
+          }
+          applyGroupSelection(selected);
+        });
+        optionLabel.appendChild(checkbox);
+        const text = document.createElement("span");
+        text.textContent = TYPE_LABELS[type] || type;
+        optionLabel.appendChild(text);
+        menu.appendChild(optionLabel);
+      }
+      control.append(title, button, menu);
+      levels.appendChild(control);
+    }
+    if (!levels.dataset.relationshipProjectionOutsideClick) {
+      levels.dataset.relationshipProjectionOutsideClick = "true";
+      document.addEventListener("click", () => closeProjectionMenus(null));
+    }
+    refreshTypeFilterState(container, state, graphTypes(state.nodes));
   }
 
   function initBrowser(browser) {
@@ -3395,9 +3716,13 @@ def _relationship_graph_script() -> str:
     const nodesById = new Map(graph.nodes.map((node) => [node.id, node]));
     if (!nodesById.size) return;
     const preferred =
-      graph.nodes.find((node) => node.type === "vsr" && ["gap", "risk"].includes(String(node.status || ""))) ||
-      graph.nodes.find((node) => node.type === "vsr" && String(node.status || "") === "needs_evidence") ||
-      graph.nodes.find((node) => node.type !== "artifact" && ["gap", "risk", "needs_evidence"].includes(String(node.status || ""))) ||
+      graph.nodes.find((node) => (node.type || "entity") === "product") ||
+      graph.nodes
+        .slice()
+        .sort((left, right) =>
+          typeRank(left) - typeRank(right) ||
+          String(left.label || left.id).localeCompare(String(right.label || right.id))
+        )[0] ||
       graph.nodes[0];
     const state = {
       nodes: graph.nodes,
@@ -3411,8 +3736,6 @@ def _relationship_graph_script() -> str:
       selectedId: preferred.id,
       activeId: preferred.id,
       cy: null,
-      tapTimer: 0,
-      tapTarget: "",
       backStack: [],
       forwardStack: [],
       searchQuery: "",
@@ -3428,8 +3751,11 @@ def _relationship_graph_script() -> str:
       showSecondaryLinks: false,
       graphPage: 0,
       traversal: traversalConfig(graph.traversal),
+      projectionMode: "auto",
+      projectionSelections: {},
       enabledTypes: new Set(graphTypes(graph.nodes))
     };
+    state.projectionSelections = defaultProjectionSelections(state);
     resetSubfilters(state);
     syncActiveSubfilterType(state);
     renderTypeFilters(browser, state);
@@ -3467,7 +3793,7 @@ def _relationship_graph_script() -> str:
         state.typeSearchType = focusType.value || "";
         state.graphPage = 0;
         renderNodeSelect(browser, state);
-        refreshTypeFilterState(browser.querySelector("[data-relationship-type-filter]") || browser, state, graphTypes(state.nodes));
+        refreshTypeFilterState(browser.querySelector("[data-relationship-projection-controls]") || browser, state, graphTypes(state.nodes));
       });
     }
     const focusScope = browser.querySelector("[data-relationship-focus-scope]");
@@ -3678,6 +4004,8 @@ def _relationship_graph_script() -> str:
     if (requested.length) {
       state.enabledTypes = new Set(requested);
       state.enabledTypes.add(state.nodesById.get(focusId).type || "entity");
+      state.projectionMode = "custom";
+      setProjectionSelectionsFromTypes(state, state.enabledTypes);
     }
     applyRelationshipViewFilters(state, view.filters);
     state.graphPage = 0;
@@ -3685,14 +4013,14 @@ def _relationship_graph_script() -> str:
     cancelSearchUpdate(state);
     const search = browser.querySelector("[data-relationship-search]");
     if (search) search.value = "";
-    selectNode(browser, state, focusId, false);
+    selectNode(browser, state, focusId, false, {preserveTypes: true});
     const targetType = view.target_type || "";
     if (targetType && state.enabledTypes.has(targetType)) {
       state.activeSubfilterType = targetType;
       state.activeSubfilterTypes = [targetType];
       state.typeSearchType = targetType;
     }
-    refreshTypeFilterState(browser.querySelector("[data-relationship-type-filter]") || browser, state, types);
+    refreshTypeFilterState(browser.querySelector("[data-relationship-projection-controls]") || browser, state, types);
     renderGraph(browser, state);
     renderNodeSelect(browser, state);
     renderDetail(browser, state);
