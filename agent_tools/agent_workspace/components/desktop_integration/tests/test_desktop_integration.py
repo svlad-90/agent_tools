@@ -7,7 +7,7 @@ from agent_tools.agent_workspace.components.test_support.src.helpers import *
 
 
 def _workspace_root() -> Path:
-    return Path(__file__).resolve().parents[5]
+    return workspace_root()
 
 
 def test_agent_workspace_desktop_uses_icon_name() -> None:

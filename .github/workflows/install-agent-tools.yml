@@ -75,6 +75,9 @@ jobs:
               eval "$TARGET_BOOTSTRAP"
               ./install-agent-tools.py --dev --skip-system-deps --no-desktop
               test -x agent-workspace.sh
+              HOME=/tmp/agent-tools-desktop-smoke agent_tools/.venv/bin/python -m agent_tools.agent_workspace.components.desktop_integration.src.install_desktop
+              test -f /tmp/agent-tools-desktop-smoke/.local/share/icons/hicolor/scalable/apps/agent-workspace.svg
+              test -f /tmp/agent-tools-desktop-smoke/.local/share/applications/agent-workspace.desktop
               agent_tools/.venv/bin/python -c "import yaml, tiktoken; import agent_tools.tools.task_context as tc; assert tc.token_count(\"Agent Workspace\") > 0"
               agent_tools/.venv/bin/python -m agent_tools.tools.rules_sync sync --check
               agent_tools/.venv/bin/python -m pytest -q agent_tools/tools/task_context/tests/test_task_context.py
