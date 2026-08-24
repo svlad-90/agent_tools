@@ -3620,15 +3620,34 @@ class WorkspaceGtkGui:
         _model, selected_iter = selection.get_selected()
         if selected_iter is not None:
             selected_id = store[selected_iter][0]
+        visible_anchor_id = self._ai_debug_visible_anchor_id(tree, store)
+        restore_id = _ai_debug_restore_event_id(
+            [str(event.event_id) for event in events],
+            selected_id=selected_id,
+            visible_anchor_id=visible_anchor_id,
+        )
         self.ai_debug_last_signature = signature
         store.clear()
-        selected_path: Gtk.TreePath | None = None
+        restore_path: Gtk.TreePath | None = None
         for event in events:
             row_iter = store.append(_harness_debug_event_row(event, language=self.language))
-            if selected_id is not None and str(event.event_id) == selected_id:
-                selected_path = store.get_path(row_iter)
-        if selected_path is not None:
-            selection.select_path(selected_path)
+            event_id = str(event.event_id)
+            if restore_id is not None and event_id == restore_id:
+                restore_path = store.get_path(row_iter)
+        if restore_path is not None:
+            if restore_id == selected_id:
+                selection.select_path(restore_path)
+            tree.scroll_to_cell(restore_path, None, False, 0.0, 0.0)
+
+    def _ai_debug_visible_anchor_id(self, tree: Gtk.TreeView, store: Gtk.ListStore) -> str | None:
+        visible_range = tree.get_visible_range()
+        if visible_range is None:
+            return None
+        start_path, _end_path = visible_range
+        row_iter = store.get_iter(start_path)
+        if row_iter is None:
+            return None
+        return str(store[row_iter][0])
 
     def _ai_debug_events_for_task(self, task: TaskSummary) -> list[HarnessDebugEvent]:
         return load_harness_debug_events(task.path)
@@ -4982,6 +5001,18 @@ def _harness_debug_event_row(event: HarnessDebugEvent, *, language: str = "en") 
         _harness_debug_event_outcome(event, language=language),
         _harness_debug_event_message(event, language=language),
     )
+
+
+def _ai_debug_restore_event_id(
+    event_ids: list[str],
+    *,
+    selected_id: str | None,
+    visible_anchor_id: str | None,
+) -> str | None:
+    for candidate in (selected_id, visible_anchor_id):
+        if candidate is not None and candidate in event_ids:
+            return candidate
+    return None
 
 
 def _harness_debug_event_kind(event: HarnessDebugEvent, *, language: str = "en") -> str:

@@ -5,6 +5,7 @@ import pytest
 from agent_tools.agent_workspace.components.gtk_desktop.src.gtk_ui import _harness_debug_event_row
 from agent_tools.agent_workspace.components.gtk_desktop.src.gtk_ui import _harness_debug_event_details_text
 from agent_tools.agent_workspace.components.gtk_desktop.src.gtk_ui import _harness_debug_events_text
+from agent_tools.agent_workspace.components.gtk_desktop.src.gtk_ui import _ai_debug_restore_event_id
 from agent_tools.agent_workspace.components.harness_policy.api import AgentType
 from agent_tools.agent_workspace.components.harness_policy.api import HarnessDebugEvent
 from agent_tools.agent_workspace.components.harness_policy.api import HarnessStatusEvent
@@ -208,6 +209,36 @@ def test_gtk_ai_debug_store_accepts_large_event_id() -> None:
     row_iter = store.append(row)
 
     assert store[row_iter][0] == "1787503705134248638"
+
+
+def test_gtk_ai_debug_restore_prefers_selected_row() -> None:
+    assert (
+        _ai_debug_restore_event_id(
+            ["1", "2", "3"],
+            selected_id="2",
+            visible_anchor_id="1",
+        )
+        == "2"
+    )
+
+
+def test_gtk_ai_debug_restore_uses_visible_anchor_without_selection() -> None:
+    assert (
+        _ai_debug_restore_event_id(
+            ["1", "2", "3"],
+            selected_id=None,
+            visible_anchor_id="2",
+        )
+        == "2"
+    )
+    assert (
+        _ai_debug_restore_event_id(
+            ["1", "2", "3"],
+            selected_id="9",
+            visible_anchor_id="8",
+        )
+        is None
+    )
 
 
 def test_gtk_task_context_status_filter_defaults_to_active_only() -> None:
