@@ -141,6 +141,33 @@ def subscribe_harness_status(callback: StatusCallback) -> HarnessStatusSubscript
     )
 
 
+def record_harness_status(
+    task_dir: Path,
+    *,
+    agent_type: AgentType,
+    session_id: str | None,
+    event: HarnessStatusEvent,
+    icon: str,
+    message: str,
+    hook_event: AgentHookEvent | None = None,
+    tool_name: str | None = None,
+    tool_detail: str = "",
+    outcome: str = "",
+) -> None:
+    _emit(
+        task_dir,
+        agent_type,
+        session_id,
+        event,
+        icon,
+        message,
+        hook_event=hook_event,
+        tool_name=tool_name,
+        tool_detail=tool_detail,
+        outcome=outcome,
+    )
+
+
 def clear_harness_status_subscriptions() -> None:
     _STATUS_CALLBACKS.clear()
 
@@ -216,7 +243,7 @@ def handle_adapter_event(
 
     if event is AgentHookEvent.SESSION_START:
         _update_adapter_state(task_dir, agent_type, request.session_id, last_event=event.value, session_active=True)
-        _emit(task_dir, agent_type, request.session_id, HarnessStatusEvent.SESSION_STARTED, "▶", "Context injected at session start.", hook_event=event, outcome="injected")
+        _emit(task_dir, agent_type, request.session_id, HarnessStatusEvent.SESSION_STARTED, "●", "Context injected at session start.", hook_event=event, outcome="injected")
         return _session_start_message(task_dir)
     if event is AgentHookEvent.SESSION_END:
         _update_adapter_state(task_dir, agent_type, request.session_id, last_event=event.value, session_active=False)
@@ -242,7 +269,7 @@ def handle_adapter_event(
     if event is AgentHookEvent.POST_TOOL_USE:
         _update_adapter_state(task_dir, agent_type, request.session_id, last_event=event.value, work_observed_since_prompt=True)
         _refresh_journal_flag(task_dir, agent_type, request.session_id)
-        _emit(task_dir, agent_type, request.session_id, HarnessStatusEvent.TOOL_FINISHED, "✓", "Tool use finished.", hook_event=event, tool_name=tool_name, tool_detail=tool_detail, outcome="finished")
+        _emit(task_dir, agent_type, request.session_id, HarnessStatusEvent.TOOL_FINISHED, "▷", "Tool use finished.", hook_event=event, tool_name=tool_name, tool_detail=tool_detail, outcome="finished")
         return None
     if event is AgentHookEvent.PRE_COMPACT:
         return _handle_pre_compact(task_dir, agent_type, request.session_id)

@@ -202,12 +202,11 @@ def task_agent_status_text(
     home: Path | None = None,
 ) -> str:
     _ = permission_pending
-    _ = spinner_frame
     parts: list[str] = []
     if external_active:
         return AGENT_EXTERNAL_ACTIVE_MARKER
     if running_agents:
-        return "▷"
+        return spinner_frame or "●"
     markers = list(
         session_markers
         if session_markers is not None

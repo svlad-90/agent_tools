@@ -171,9 +171,9 @@ These rules apply to every task directory under the workspace root.
 5. Identify the task topics before deep work. Read
    `agent_tools/knowledge/README.md` and every matching topic file under
    `agent_tools/knowledge/topics/`, for example Xen/QEMU work reads
-   `topics/xen.md`, workspace tool work reads `topics/agent_tools.md`, and
-   Moulin product work reads `topics/moulin.md`. Record the topic files read
-   through the task context journal.
+  `topics/xen.md`, workspace tool work reads `topics/agent_tools.md`, and
+  Moulin product work reads `topics/moulin.md`. Record the topic files read in
+  the relevant task context slot when they affect current task state.
 6. Maintain task context through singleton SQLite slots:
 
    - `TASK_CONTEXT.sqlite3` is the only task context source.
@@ -213,7 +213,7 @@ These rules apply to every task directory under the workspace root.
    result to 0 warnings and 0 errors. Treat this as a mandatory workspace
    hygiene gate when the tool is available. If `task_check` itself is broken or
    blocked by a missing environment, record the exact command, failure, and
-   follow-up through the task context journal before continuing.
+   follow-up in the relevant task context slot before continuing.
    Agent Workspace runs the compact check once immediately before starting a
    new AI session and includes any failures in the initial agent message.
    The repository pre-commit hook runs the strict task check at the commit
@@ -231,14 +231,14 @@ These rules apply to every task directory under the workspace root.
    building or validating. Record the selected
    `agent_tools/paf_workspace/domains/environments/...` profile/scenario,
    reason for choosing it, PAF scenario/task entry point, and validation
-   command through the task context journal.
+   command in the env or validation task context slot.
    Prefer running the task through its PAF scenario/build-run entry point when
    one exists. If a direct helper command fails or is tempting as a shortcut,
    first check whether the PAF scenario should be run or extended instead.
    For Xen/Zephyr, QEMU, Yocto, Moulin, and other runtime-product tasks,
    expand the task-local PAF scenario or reusable domain tasks so the build and
    validation remain reproducible; use direct helper scripts only as a focused
-   diagnostic and record that exception through the task context journal.
+   diagnostic and record that exception in the relevant task context slot.
 9. Track validation by level instead of using one ambiguous "validated" note:
 
    ```text
@@ -252,8 +252,8 @@ These rules apply to every task directory under the workspace root.
    command or artifact path that supports the status.
 10. When a workspace tool or environment command fails, do not silently bypass
    it. Record the command, short failure summary, whether it blocks exact
-   source analysis or only fast feedback, and the next fix through the task
-   context journal.
+   source analysis or only fast feedback, and the next fix in the relevant task
+   context slot.
 11. Keep source, generated build output, product output, runtime logs, and
    review/report artifacts separate. Fix the source, product definition, or
    reusable environment that reproduces generated output; do not hand-edit

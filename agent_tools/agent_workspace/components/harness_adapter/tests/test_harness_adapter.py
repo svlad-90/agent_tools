@@ -10,10 +10,12 @@ from agent_tools.agent_workspace.components.harness_adapter.src.claude_adapter i
 from agent_tools.agent_workspace.components.harness_adapter.src.codex_adapter import CodexHookEvent
 from agent_tools.agent_workspace.components.harness_adapter.src.codex_adapter import CodexHookRegistry
 from agent_tools.agent_workspace.components.harness_adapter.src.codex_adapter import handle_command_hook as handle_codex_hook
+from agent_tools.agent_workspace.components.harness_adapter.api import AgentType
 from agent_tools.agent_workspace.components.harness_adapter.api import HarnessStatusEvent
 from agent_tools.agent_workspace.components.harness_adapter.api import clear_harness_debug_events
 from agent_tools.agent_workspace.components.harness_adapter.api import clear_harness_status_subscriptions
 from agent_tools.agent_workspace.components.harness_adapter.api import load_harness_debug_events
+from agent_tools.agent_workspace.components.harness_adapter.api import record_harness_status
 from agent_tools.agent_workspace.components.harness_adapter.api import subscribe_harness_status
 from agent_tools.agent_workspace.components.harness_adapter.src.claude_policy import register_claude_adapter
 from agent_tools.agent_workspace.components.harness_adapter.src.commands import handle_claude_adapter_hook
@@ -206,6 +208,7 @@ def test_harness_adapter_records_context_injection_points(tmp_path: Path) -> Non
 
     injected = [event for event in events if event.outcome == "injected"]
     assert [event.hook_event for event in injected] == ["session_start", "post_compact"]
+    assert injected[0].icon == "●"
     assert all("injected" in event.message for event in injected)
 
 
@@ -230,6 +233,39 @@ def test_harness_adapter_records_observed_hook_events(tmp_path: Path) -> None:
     assert events[-1].hook_event == "subagent_start"
     assert events[-1].status_event is HarnessStatusEvent.HOOK_OBSERVED
     assert events[-1].outcome == "observed"
+
+
+def test_harness_adapter_tool_finish_returns_task_to_play_icon(tmp_path: Path) -> None:
+    task_dir = _task(tmp_path)
+    registry = CodexHookRegistry()
+    register_codex_adapter(registry)
+
+    _codex(registry, task_dir, CodexHookEvent.POST_TOOL_USE)
+    events = load_harness_debug_events(task_dir, session_id="s1")
+
+    assert events[-1].status_event is HarnessStatusEvent.TOOL_FINISHED
+    assert events[-1].icon == "▷"
+    assert events[-1].outcome == "finished"
+
+
+def test_harness_adapter_records_runtime_interrupt_status(tmp_path: Path) -> None:
+    task_dir = _task(tmp_path)
+
+    record_harness_status(
+        task_dir,
+        agent_type=AgentType.CODEX,
+        session_id="s1",
+        event=HarnessStatusEvent.HOOK_OBSERVED,
+        icon="○",
+        message="Agent interrupt requested.",
+        tool_name="terminal",
+        outcome="interrupted",
+    )
+    events = load_harness_debug_events(task_dir, session_id="s1")
+
+    assert events[-1].icon == "○"
+    assert events[-1].tool_name == "terminal"
+    assert events[-1].outcome == "interrupted"
 
 
 def _task(tmp_path: Path) -> Path:

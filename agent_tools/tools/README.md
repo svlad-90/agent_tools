@@ -9,7 +9,6 @@ python -m agent_tools.tools.cpp_code_map
 python -m agent_tools.tools.yaml_map
 python -m agent_tools.tools.diff_report
 python -m agent_tools.tools.task_context
-python -m agent_tools.tools.front_desk_bell
 python -m agent_tools.tools.commit_msg
 python -m agent_tools.tools.push_guard
 python -m agent_tools.agent_workspace
@@ -110,9 +109,12 @@ recommended. Move useful legacy material into typed slots, then clear `legacy`.
 Normal Agent Workspace sessions use hook-driven harness adapter from
 `agent_tools.agent_workspace.components.harness_adapter`. The adapter handles
 session lifecycle, task_check Stop gates, durable slot freshness, and compact
-checkpoints through Codex/Claude hooks. Legacy task-local `front_door_bell.py`
-scripts may remain in old tasks as manual fallback only; new task layouts do
-not require or create them.
+checkpoints through supported agent harness hooks. Legacy task-local
+`front_door_bell.py` scripts may remain in old tasks as manual fallback only;
+new task layouts do not require or create them.
+
+`python -m agent_tools.tools.front_desk_bell` is retained only for legacy
+manual fallback/debugging. Do not use it for normal Agent Workspace sessions.
 
 ## Commit Message
 

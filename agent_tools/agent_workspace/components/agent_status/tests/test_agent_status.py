@@ -46,7 +46,7 @@ def test_task_agent_status_text_combines_permission_running_and_saved_sessions(
             spinner_frame="",
             home=home,
         )
-        == "▷"
+        == "●"
     )
 
 
@@ -106,9 +106,13 @@ def test_task_agent_status_text_shows_saved_sessions_only_when_no_agent_is_runni
 
 
 def test_agent_status_tooltip_explains_visible_markers_compactly() -> None:
+    assert agent_status_tooltip_text("●") == "Агент ожидает"
     assert agent_status_tooltip_text("Ⅱ") == "Сессию можно продолжить"
     assert agent_status_tooltip_text("□") == "Нет сохраненной сессии"
-    assert agent_status_tooltip_text("▷") == "Агент запущен"
+    assert agent_status_tooltip_text("▶") == "Пользовательский запрос получен"
+    assert agent_status_tooltip_text("▷") == "Агент готов продолжать"
+    assert agent_status_tooltip_text("⚙") == "Инструмент выполняется"
+    assert agent_status_tooltip_text("○") == "Агент прерван вручную"
     assert agent_status_tooltip_text("×") == "Задача занята другим окном"
 
 
@@ -124,7 +128,7 @@ def test_agent_status_manual_entries_are_structured_for_popup() -> None:
         "Действия",
         "Сброс",
     ]
-    assert [entry[0] for entry in AGENT_STATUS_MANUAL_ENTRIES] == ["Ⅱ", "□", "▷", "×"]
+    assert [entry[0] for entry in AGENT_STATUS_MANUAL_ENTRIES] == ["●", "Ⅱ", "□", "▶", "▷", "⚙", "○", "×"]
     assert all(len(entry) == 3 for entry in AGENT_STATUS_MANUAL_ENTRIES)
 
 
@@ -336,4 +340,3 @@ def test_agent_output_reports_missing_session_detects_cli_error() -> None:
         "No conversation found with session ID: 71ca3372-3c10-4501-ad2a-145c5b9305de"
     )
     assert not agent_output_reports_missing_session("Conversation resumed.")
-

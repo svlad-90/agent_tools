@@ -171,7 +171,7 @@ def test_gtk_ai_debug_event_row_keeps_large_event_id_as_string() -> None:
             session_id="s1",
             hook_event="post_tool_use",
             status_event=HarnessStatusEvent.TOOL_FINISHED,
-            icon="✓",
+            icon="▷",
             message="Tool use finished.",
             tool_name="Bash",
             tool_detail="",
@@ -181,6 +181,82 @@ def test_gtk_ai_debug_event_row_keeps_large_event_id_as_string() -> None:
     )
 
     assert row[0] == "1787503705134248638"
+
+
+def test_gtk_record_agent_interrupt_sets_circle_icon(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    task_dir = tmp_path / "tasks" / "sample"
+    task_dir.mkdir(parents=True)
+    recorded: list[dict[str, object]] = []
+    gui = WorkspaceGtkGui.__new__(WorkspaceGtkGui)
+    gui.harness_status_icon_cache = {task_dir: (1.0, "⚙")}
+    gui._refresh_task_row_styles = lambda: recorded.append({"refresh": True})  # type: ignore[method-assign]
+    monkeypatch.setattr(gtk_ui_module, "record_harness_status", lambda *args, **kwargs: recorded.append(kwargs))
+    session = TerminalSession(
+        session_id=1,
+        task_path=task_dir,
+        kind="codex",
+        terminal=None,  # type: ignore[arg-type]
+        page=None,  # type: ignore[arg-type]
+        busy=True,
+        run_id="run-1",
+    )
+
+    gui._record_agent_interrupt(session)
+
+    assert session.busy is False
+    assert gui.harness_status_icon_cache == {}
+    assert recorded[0]["icon"] == "○"
+    assert recorded[0]["outcome"] == "interrupted"
+    assert recorded[-1] == {"refresh": True}
+
+
+def test_gtk_task_agent_status_prefers_latest_harness_session_start_icon(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    task_dir = tmp_path / "tasks" / "sample"
+    task_dir.mkdir(parents=True)
+    summary = discover_tasks_with_context(task_dir, tmp_path)
+    gui = WorkspaceGtkGui.__new__(WorkspaceGtkGui)
+    gui.workspace = tmp_path
+    gui.harness_status_icon_cache = {}
+    gui.terminal_sessions = {
+        1: TerminalSession(
+            session_id=1,
+            task_path=summary.path,
+            kind="codex",
+            terminal=None,  # type: ignore[arg-type]
+            page=None,  # type: ignore[arg-type]
+            busy=False,
+            run_id="run-1",
+        )
+    }
+    gui._current_task_terminal_sessions = lambda task: list(gui.terminal_sessions.values())  # type: ignore[method-assign]
+    gui._task_has_pending_agent_permission = lambda task: False  # type: ignore[method-assign]
+    gui._task_is_external_active = lambda task: False  # type: ignore[method-assign]
+    gui._task_agent_session_markers = lambda task: ()  # type: ignore[method-assign]
+    monkeypatch.setattr(
+        gtk_ui_module,
+        "load_harness_debug_events",
+        lambda task_path, limit=1: [
+            HarnessDebugEvent(
+                event_id=1,
+                task_dir=summary.path,
+                agent_type=AgentType.CODEX,
+                session_id="run-1",
+                hook_event="session_start",
+                status_event=HarnessStatusEvent.SESSION_STARTED,
+                icon="●",
+                message="Context injected at session start.",
+                tool_name="",
+                tool_detail="",
+                outcome="injected",
+                updated_at="2026-08-24T10:21:59+03:00",
+            )
+        ],
+    )
+
+    assert gui._task_agent_status(summary) == "●"
 
 
 def test_gtk_ai_debug_store_accepts_large_event_id() -> None:
@@ -1419,6 +1495,11 @@ def test_gtk_translates_agent_and_manual_labels() -> None:
     assert GTK_TRANSLATIONS["ru"]["updated"] == "Обновлено"
     assert GTK_TRANSLATIONS["uk"]["manual_usage_section"] == "Основи"
     assert GTK_TRANSLATIONS["uk"]["manual_status_section"] == "Статуси в колонці ШІ"
+    assert GTK_TRANSLATIONS["ru"]["manual_status_label_waiting"] == "Ожидает"
+    assert GTK_TRANSLATIONS["ru"]["manual_status_label_prompt"] == "Запрос"
+    assert GTK_TRANSLATIONS["ru"]["manual_status_label_running"] == "Готов"
+    assert GTK_TRANSLATIONS["ru"]["manual_status_label_tool"] == "Инструмент"
+    assert GTK_TRANSLATIONS["ru"]["manual_status_label_interrupted"] == "Прервано"
     assert GTK_TRANSLATIONS["uk"]["task_agent_status_column"] == "ШІ"
     assert GTK_TRANSLATIONS["uk"]["ai_debug_tab"] == "ШІ дебаг"
     assert GTK_TRANSLATIONS["uk"]["settings_dictionary_preview_text"] == "Текст для перевірки"
@@ -1428,6 +1509,13 @@ def test_gtk_translates_agent_and_manual_labels() -> None:
     assert "контексті поточної задачі" in GTK_TRANSLATIONS["uk"]["manual_usage_agent"]
     assert "Shift" in GTK_TRANSLATIONS["uk"]["manual_usage_copy"]
     assert "TASK_ACTIONS.json" in GTK_TRANSLATIONS["uk"]["manual_usage_actions"]
+
+
+def test_gtk_manual_status_entries_cover_harness_status_icons() -> None:
+    gui = WorkspaceGtkGui.__new__(WorkspaceGtkGui)
+    gui._tr = lambda key: GTK_TRANSLATIONS["ru"][key]  # type: ignore[method-assign]
+
+    assert [entry[0] for entry in gui._manual_status_entries()] == ["●", "Ⅱ", "□", "▶", "▷", "⚙", "○", "×"]
 
 
 def test_agent_workspace_string_json_files_are_package_resources() -> None:

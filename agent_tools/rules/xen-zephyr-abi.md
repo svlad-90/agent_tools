@@ -21,8 +21,8 @@ validation.
    `domctl` or `sysctl` calls before domain creation and policy logic run, so
    errors such as `-EACCES` may be ABI drift rather than a policy or feature
    bug.
-4. Record the checked ABI values and the Xen version or header source through
-   the task context journal when runtime debugging depends on Dom0 control
+4. Record the checked ABI values and the Xen version or header source in the
+   relevant task context slot when runtime debugging depends on Dom0 control
    calls.
 5. Before editing or validating a Zephyr/Xen runtime harness, verify which
    Zephyr module repositories the build actually uses. Do not infer this from
@@ -39,7 +39,7 @@ validation.
    to the checkout used by the relevant build, or reconfigure the build with an
    explicit `EXTRA_ZEPHYR_MODULES` value before drawing runtime conclusions.
 6. When a task has both a review checkout and a harness/build checkout, record
-   the mapping through the task context journal: which repository is reviewed,
+   the mapping in the relevant task context slot: which repository is reviewed,
    which repository builds Dom0, which repository builds DomU, and which
    `compile_commands.json` belongs to each side. Treat a mismatch between the
    edited file and the compiled file as a hard validation blocker.
@@ -68,7 +68,7 @@ validation.
 11. When a runtime investigation needs additional domains such as a Linux
    control/service domain, XenStore domain, driver domain, PV disk backend, or
    console collection domain, model those domains as explicit product
-   components instead of modifying an unrelated Zephyr Dom0 harness. Record
-   through the task context journal which domain owns each role:
+   components instead of modifying an unrelated Zephyr Dom0 harness. Record in
+   the relevant task context slot which domain owns each role:
    control/toolstack, hardware, XenStore server, console collector, backend
    provider, and tested client.

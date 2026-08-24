@@ -55,9 +55,12 @@ from ...agent_runtime.api import build_ai_agent_console_command
 from ...agent_runtime.api import prepare_ai_agent_launch_command
 from ...commands.api import task_action_shell_command
 from ...commands.api import task_check_shell_command
+from ...harness_adapter.api import AgentType
 from ...harness_adapter.api import HarnessDebugEvent
+from ...harness_adapter.api import HarnessStatusEvent
 from ...harness_adapter.api import clear_harness_debug_events
 from ...harness_adapter.api import load_harness_debug_events
+from ...harness_adapter.api import record_harness_status
 from ...task_actions.api import add_task_shortcut as _add_task_shortcut
 from ...task_actions.api import bindings_for_action_run
 from ...task_actions.api import delete_parameter_set_value as _delete_parameter_set_value
@@ -1396,9 +1399,13 @@ class WorkspaceGtkGui:
 
     def _manual_status_entries(self) -> tuple[tuple[str, str, str], ...]:
         return (
+            ("●", self._tr("manual_status_label_waiting"), self._tr("manual_status_waiting")),
             ("Ⅱ", self._tr("manual_status_label_session"), self._tr("manual_status_session")),
             ("□", self._tr("manual_status_label_idle"), self._tr("manual_status_idle")),
+            ("▶", self._tr("manual_status_label_prompt"), self._tr("manual_status_prompt")),
             ("▷", self._tr("manual_status_label_running"), self._tr("manual_status_agent_running")),
+            ("⚙", self._tr("manual_status_label_tool"), self._tr("manual_status_tool")),
+            ("○", self._tr("manual_status_label_interrupted"), self._tr("manual_status_interrupted")),
             ("×", self._tr("manual_status_label_external"), self._tr("manual_status_external")),
         )
 
@@ -3933,6 +3940,27 @@ class WorkspaceGtkGui:
         cache[task.path] = (now, icon)
         return icon
 
+    def _record_agent_interrupt(self, session: TerminalSession) -> None:
+        if not session_is_agent(session_kind=session.kind):
+            return
+        session.busy = False
+        try:
+            agent_type = AgentType(session.kind)
+        except ValueError:
+            return
+        record_harness_status(
+            session.task_path,
+            agent_type=agent_type,
+            session_id=session.run_id,
+            event=HarnessStatusEvent.HOOK_OBSERVED,
+            icon="○",
+            message="Agent interrupt requested.",
+            tool_name="terminal",
+            outcome="interrupted",
+        )
+        self.harness_status_icon_cache.pop(session.task_path, None)
+        self._refresh_task_row_styles()
+
     def _set_agent_session_busy(self, session: TerminalSession, busy: bool) -> None:
         if not session_is_agent(session_kind=session.kind) or session.exited:
             return
@@ -4121,6 +4149,8 @@ class WorkspaceGtkGui:
             self.open_agent_status_manual()
             return True
         session = self._session_for_terminal(terminal)
+        if event.keyval == Gdk.KEY_Escape and session is not None:
+            self._record_agent_interrupt(session)
         submitted_input = event.keyval in {Gdk.KEY_Return, Gdk.KEY_KP_Enter}
         shortcut = _terminal_clipboard_shortcut(
             event.keyval,

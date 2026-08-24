@@ -210,7 +210,7 @@ def _task_check_report_for_repo(repo: Path) -> str | None:
     if not relative_repo.parts:
         return None
     task_dir = workspace / "tasks" / relative_repo.parts[0]
-    if not (task_dir / "TASK_DESCRIPTION.md").is_file():
+    if not _looks_like_task_dir(task_dir):
         return None
     from agent_tools.paf_workspace.task_check import check_task
     from agent_tools.paf_workspace.task_check import render_text
@@ -219,6 +219,13 @@ def _task_check_report_for_repo(repo: Path) -> str | None:
     if not any(check.status in {"FAIL", "WARN"} for check in checks):
         return None
     return render_text(task_dir, checks, errors_only=False)
+
+
+def _looks_like_task_dir(task_dir: Path) -> bool:
+    return any(
+        (task_dir / filename).is_file()
+        for filename in ("TASK_CONTEXT.sqlite3", "TASK_DESCRIPTION.md", "TASK_CONTEXT.md")
+    )
 
 
 def _forbidden_pushed_paths(repo: Path, commits: Sequence[str]) -> list[str]:

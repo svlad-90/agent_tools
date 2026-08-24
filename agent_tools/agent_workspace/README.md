@@ -47,6 +47,9 @@ Main capabilities:
 - remove artifact files through guarded confirmation dialogs;
 - persist theme, language, font sizes, window geometry, the default AI agent,
   each task's selected AI agent, and the task-local AI agent session to resume.
+- show AI harness debug events for the selected task/session, including hook
+  checkpoints, tool start/finish events, context injection points, Stop gates,
+  and compact gates.
 
 If the selected AI agent command is missing from `PATH`, the GUI shows an
 installation prompt instead of opening a broken terminal. Switching a task from
@@ -79,10 +82,20 @@ The Actions view remembers the selected console page per task. Returning from
 Details or Artifacts restores the previous AI-agent or shell tab; on first
 task setup the AI-agent tab is shown by default while a shell tab is still
 created for quick manual commands.
-Before a new or resumed AI session starts, Agent Workspace runs the task check
-once and adds only its error report to the initial agent message. The
-pre-commit and pre-push hooks run task_check for repositories inside
-`tasks/<task>/` and block when it reports task workflow errors.
+Agent Workspace launches Codex and Claude Code with the `harness_adapter`
+component configured as their hook bridge. The launch prompt is intentionally
+small: it identifies the task and tells the agent that workspace policy is
+delivered through hooks. The hook bridge handles session start, user prompt
+events, tool start/finish events, Stop gates, compact checkpoints, and task
+context re-read instructions after compaction. The pre-commit and pre-push
+hooks run task_check for repositories inside `tasks/<task>/` and block when it
+reports task workflow errors.
+The AI status column uses these symbols: `●` means an agent session is open or
+restored and idle, `▶` means a user prompt was received, `⚙` means a tool is
+running, `▷` means the tool completed and the agent can continue, `○` means
+the agent was interrupted manually, `Ⅱ` means a saved session can be resumed,
+`□` means no saved session exists, and `×` means another window owns the
+active agent process for that task.
 Task actions are declared by writing `TASK_ACTIONS.json` at the task root. The
 GUI watches that file and refreshes its action buttons when it changes.
 Task actions launched from the GUI set `PAF_HIDE_TASK_ENV=1`, so PAF does not
@@ -123,7 +136,7 @@ New Agent Workspace code should use component API modules under
 component's `src` package directly.
 
 The component set includes task catalog/context/actions/sessions, artifacts,
-commands, settings, localization, markdown, agent runtime/status, Codex/Claude
-hooks, process runtime, console output, GTK desktop, Tk frontend, VTE terminal,
-web frontend, and workspace service. Root modules are reserved for package
-entrypoints, installation integration, and launcher code.
+commands, settings, localization, markdown, agent runtime/status,
+harness_adapter, process runtime, console output, GTK desktop, Tk frontend,
+VTE terminal, web frontend, and workspace service. Root modules are reserved
+for package entrypoints, installation integration, and launcher code.

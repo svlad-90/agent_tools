@@ -1,4 +1,4 @@
-"""Command line entry point for task context journal."""
+"""Command line entry point for task context slots."""
 
 from . import main
 

@@ -546,11 +546,11 @@ labels   #task-context #gui #validation
 summary  Agent Workspace can show encoded task context with dictionary
 details  Agent Workspace Details encoded-context toggle renders encoded context for humans. GTK encoded view keeps current journal filters, renders Dictionary first, then the same ASCII card layout as decoded view with encoded summary/details containing plain §id aliases. Tk/core encoded markdown also renders Dictionary before entries and uses plain §id aliases. Validation: code_map parse-check passed for changed Agent Workspace Python files; Docker ubuntu:24.04 Agent Workspace pytest passed, 212 tests; task_check --strict-warnings for current task passed.
 labels   #gui #task-context #validation
-summary  task_check now gates active journal size and push
-details  Added task_check active mid..critical journal-size FAIL using rough token budget 25,600, about 10% of 256K context. Agent Workspace feeds task_check FAIL reports into new/resumed prompts through existing include_task_check path. push_guard pre-push now blocks repositories inside tasks/<task>/ when task_check reports issues. Docker validation passed: python:3.12-slim with git ran paf_workspace/tests/test_task_check.py, tools/push_guard/tests/test_push_guard.py, tools/task_context/tests/test_task_context.py -> 47 passed; ubuntu:24.04 with tkinter/GTK/VTE ran agent_workspace/components/gtk_desktop/tests/test_gtk_desktop.py -> 210 passed. code_map parse-check passed for changed Python files.
+summary  task_check now gates current context size and push
+details  Added task_check slot context-size FAIL using rough token budget 25,600, about 10% of 256K context. Agent Workspace feeds task_check FAIL reports into new/resumed prompts through existing include_task_check path. push_guard pre-push now blocks repositories inside tasks/<task>/ when task_check reports issues. Docker validation passed: python:3.12-slim with git ran paf_workspace/tests/test_task_check.py, tools/push_guard/tests/test_push_guard.py, tools/task_context/tests/test_task_context.py -> 47 passed; ubuntu:24.04 with tkinter/GTK/VTE ran agent_workspace/components/gtk_desktop/tests/test_gtk_desktop.py -> 210 passed. code_map parse-check passed for changed Python files.
 labels   #task-context #tooling #validation
 summary  Current task context system state and policy
-details  Current state: task_context uses SQLite-only active context, agent format, persistent append-only dictionary ids rendered as §00, decoded UI default, encoded agent output with selected dictionary subset, named-entity-only compiler, dictionary --add for stable agent-supplied terms, and Agent Workspace prompt injection for new/resumed sessions controlled by inject_task_context_prompt default true. Agent policy: read injected/query active context, keep journal current by resolving/staling superseded active entries, add stable terms through dictionary --add, write terse durable notes. Validation now includes Docker pytest for task_context, task_check, push_guard, and Agent Workspace suites plus code_map parse-check; see active validation entry #28.
+details  Current state: task_context uses SQLite-only slot context, agent format, persistent append-only dictionary ids rendered as §00, decoded UI default, encoded agent output with selected dictionary subset, named-entity-only compiler, dictionary --add for stable agent-supplied terms, and Agent Workspace hook policy for supported harnesses. Agent policy: read current slots, update relevant slots in place, add stable terms through dictionary --add, write terse durable notes. Validation now includes Docker pytest for task_context, task_check, push_guard, and Agent Workspace suites plus code_map parse-check; see validation slot.
 labels   #task-context #handoff #policy #validation
 """
     text = "\n".join(sample for _index in range(3))
@@ -582,7 +582,6 @@ def test_dictionary_preview_default_agent_workspace_sample_uses_repeated_phrases
         "agent_workspace/components/gtk_desktop/tests/test_gtk_desktop.py",
         "tools/task_context/tests/test_task_context.py",
         "TASK_CONTEXT.sqlite3",
-        "inject_task_context_prompt",
     } <= values
     assert {"context", "validation", "settings", "compiler"}.isdisjoint(values)
 
@@ -595,7 +594,7 @@ agent_workspace/components/gtk_desktop/tests/test_gtk_desktop.py validates Agent
 
 tools/task_context/tests/test_task_context.py validates task_context dictionary compilation. tools/task_context/tests/test_task_context.py validates append-only dictionary ids. tools/task_context/tests/test_task_context.py validates codec migration from bracket aliases to paragraph-sign aliases.
 
-task_check --strict-warnings validates TASK_CONTEXT.sqlite3 active journal size. task_check --strict-warnings runs before push_guard. task_check --strict-warnings blocks stale context when the active journal exceeds the rough token budget.
+task_check --strict-warnings validates TASK_CONTEXT.sqlite3 slot context size. task_check --strict-warnings runs before push_guard. task_check --strict-warnings blocks stale context when current slots exceed the rough token budget.
 
 push_guard runs before git push. push_guard blocks repositories inside tasks/<task>/ when task_check reports failures. push_guard keeps task-local workspace state out of public repository payloads.
 

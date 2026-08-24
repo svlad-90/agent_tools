@@ -174,13 +174,14 @@ def test_task_check_report_is_required_for_repositories_inside_tasks(
     repo = workspace / "tasks" / "sample-task" / "dev" / "repo"
     repo.mkdir(parents=True)
     task_dir = workspace / "tasks" / "sample-task"
-    (task_dir / "TASK_DESCRIPTION.md").write_text("# Task\n", encoding="utf-8")
+    (task_dir / "TASK_CONTEXT.sqlite3").write_text("", encoding="utf-8")
     monkeypatch.setenv("AGENT_TOOLS_WORKSPACE_ROOT", str(workspace))
 
     report = _task_check_report_for_repo(repo)
 
     assert report is not None
-    assert "task-context-database-missing" in report
+    assert "Task check:" in report
+    assert "sample-task" in report
 
 
 def test_pre_push_check_blocks_repositories_inside_tasks_when_task_check_fails(
@@ -196,7 +197,7 @@ def test_pre_push_check_blocks_repositories_inside_tasks_when_task_check_fails(
     _git(repo, "add", "README.md")
     _git(repo, "commit", "-m", "Initial")
     task_dir = workspace / "tasks" / "sample-task"
-    (task_dir / "TASK_DESCRIPTION.md").write_text("# Task\n", encoding="utf-8")
+    (task_dir / "TASK_CONTEXT.sqlite3").write_text("", encoding="utf-8")
     monkeypatch.setenv("AGENT_TOOLS_WORKSPACE_ROOT", str(workspace))
     monkeypatch.chdir(repo)
     monkeypatch.setattr(sys, "stdin", io.StringIO(""))
@@ -205,3 +206,21 @@ def test_pre_push_check_blocks_repositories_inside_tasks_when_task_check_fails(
 
     assert result == 1
     assert "push blocked by task_check" in capsys.readouterr().err
+
+
+def test_task_check_report_still_detects_legacy_task_markers(
+    tmp_path: Path,
+    monkeypatch: object,
+) -> None:
+    workspace = tmp_path / "workspace"
+    repo = workspace / "tasks" / "sample-task" / "dev" / "repo"
+    repo.mkdir(parents=True)
+    task_dir = workspace / "tasks" / "sample-task"
+    (task_dir / "TASK_DESCRIPTION.md").write_text("# Task\n", encoding="utf-8")
+    monkeypatch.setenv("AGENT_TOOLS_WORKSPACE_ROOT", str(workspace))
+
+    report = _task_check_report_for_repo(repo)
+
+    assert report is not None
+    assert "Task check:" in report
+    assert "sample-task" in report

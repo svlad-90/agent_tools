@@ -22,8 +22,8 @@ Agent Workspace Tools turns that loose interaction into a structured local
 workflow:
 
 - every unit of work has a task directory with durable, queryable context;
-- long task history is kept in a structured journal while the active context
-  stays compact;
+- task context is kept in current SQLite slots so agents do not carry stale
+  journal history;
 - repeated commands are exposed as task actions instead of ad hoc shell text;
 - validations produce receipts that can be enforced before push;
 - reusable Docker/PAF environments make builds and tests reproducible;
@@ -158,14 +158,14 @@ agent-workspace.command
 agent-workspace.cmd
 ```
 
-Agent Workspace lists tasks, shows descriptions, renders the task context
-journal with filters, opens task artifacts, manages per-task terminals, and
-launches interactive AI sessions with the selected task context. It is
-agent-neutral by design: Codex, Claude Code, shell sessions, and task commands
-all live in the same workspace model.
+Agent Workspace lists tasks, shows the goal slot, renders current task context
+slots, opens task artifacts, manages per-task terminals, and launches
+interactive AI sessions with hook-driven task policy. It is agent-neutral by
+design: Codex, Claude Code, shell sessions, and task commands all live in the
+same workspace model.
 
 Detailed GUI documentation lives in
-[agent_tools/tools/agent_workspace/README.md](agent_tools/tools/agent_workspace/README.md).
+[agent_tools/agent_workspace/README.md](agent_tools/agent_workspace/README.md).
 
 ## Guardrails, Not Just Prompts
 
