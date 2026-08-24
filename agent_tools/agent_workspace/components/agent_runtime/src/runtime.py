@@ -19,9 +19,8 @@ from ...settings.api import normalize_agent
 from ...task_sessions.api import AgentSessionState
 from ...task_sessions.api import prepare_task_agent_session
 from ...task_sessions.api import task_agent_has_saved_resumable_state
-from ...claude_hooks.api import ClaudeHookEvent
-from ...claude_hooks.api import claude_hooks_settings
-from ...codex_hooks.api import CodexHookEvent
+from ...harness_adapter.api import claude_harness_settings
+from ...harness_adapter.api import CodexHarnessEvent
 
 
 @dataclass(frozen=True)
@@ -71,13 +70,13 @@ def append_ai_agent_permission_options(command: list[str], agent: str) -> None:
 def append_ai_agent_hook_options(command: list[str], agent: str) -> None:
     agent = normalize_agent(agent)
     if agent == "claude":
-        settings = claude_hooks_settings("python3 -m agent_tools.agent_workspace.components.harness_policy.claude")
+        settings = claude_harness_settings("python3 -m agent_tools.agent_workspace.components.harness_adapter.claude")
         command.extend(["--settings", json.dumps(settings, ensure_ascii=False)])
         return
     command.append("--dangerously-bypass-hook-trust")
-    hook_command = "python3 -m agent_tools.agent_workspace.components.harness_policy.codex"
-    for event in CodexHookEvent:
-        if event is CodexHookEvent.ALL:
+    hook_command = "python3 -m agent_tools.agent_workspace.components.harness_adapter.codex"
+    for event in CodexHarnessEvent:
+        if event is CodexHarnessEvent.ALL:
             continue
         command.extend(
             [

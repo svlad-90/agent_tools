@@ -15,7 +15,7 @@ import webbrowser
 
 from ...process_runtime.api import acquire_agent_workspace_lock
 from ...process_runtime.api import install_agent_workspace_exception_logger
-from ...harness_policy.api import clear_harness_debug_events
+from ...harness_adapter.api import clear_harness_debug_events
 from ...workspace_service.api import AgentWorkspaceService
 from ...workspace_service.api import TaskContextFilters
 

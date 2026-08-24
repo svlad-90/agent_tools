@@ -154,7 +154,7 @@ These rules apply to every task directory under the workspace root.
    `AGENTS.md`.
 2. Do not run a task-local front-door bell as part of normal task work.
    Workspace policy is enforced by harness hooks when the active agent harness
-   supports them. Hook policy handles session start, user prompt lifecycle,
+   supports them. Hook adapter handles session start, user prompt lifecycle,
    task_check gates, durable slot freshness before Stop, and compact
    checkpoints. Legacy `front_door_bell.py` scripts may remain in old local
    tasks as manual fallback only; do not create or require them for new tasks.

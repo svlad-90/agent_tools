@@ -137,7 +137,7 @@ class ClaudeHookRegistry:
         for subscriber_id, callback in callbacks:
             try:
                 results.append(ClaudeHookResult(subscriber_id=subscriber_id, value=callback(request)))
-            except Exception as exc:  # Hook policy errors are returned to the adapter caller.
+            except Exception as exc:  # Hook adapter errors are returned to the adapter caller.
                 results.append(ClaudeHookResult(subscriber_id=subscriber_id, error=str(exc)))
         return tuple(results)
 
@@ -173,7 +173,7 @@ def clear_subscriptions() -> None:
     _DEFAULT_REGISTRY.clear()
 
 
-def claude_hooks_settings(command: str) -> dict[str, Any]:
+def claude_harness_settings(command: str) -> dict[str, Any]:
     return {
         "hooks": {
             event.value: [{"hooks": [{"type": "command", "command": command}]}]

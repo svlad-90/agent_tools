@@ -2,15 +2,15 @@ from __future__ import annotations
 
 from typing import Any
 
-from agent_tools.agent_workspace.components.claude_hooks.api import ClaudeHookEvent
-from agent_tools.agent_workspace.components.claude_hooks.api import ClaudeHookRegistry
-from agent_tools.agent_workspace.components.claude_hooks.api import ClaudeHookSubscription
+from agent_tools.agent_workspace.components.harness_adapter.src.claude_adapter import ClaudeHookEvent
+from agent_tools.agent_workspace.components.harness_adapter.src.claude_adapter import ClaudeHookRegistry
+from agent_tools.agent_workspace.components.harness_adapter.src.claude_adapter import ClaudeHookSubscription
 
 from .policy import AgentHookEvent
 from .policy import AgentType
-from .policy import HarnessPolicySubscription
-from .policy import handle_policy_event
-from .policy import unsubscribe_policy_subscriptions
+from .policy import HarnessAdapterSubscription
+from .policy import handle_adapter_event
+from .policy import unsubscribe_adapter_subscriptions
 
 
 _CLAUDE_EVENT_MAP = {
@@ -27,24 +27,24 @@ _CLAUDE_EVENT_MAP = {
 }
 
 
-def register_claude_policy(registry: ClaudeHookRegistry) -> HarnessPolicySubscription:
+def register_claude_adapter(registry: ClaudeHookRegistry) -> HarnessAdapterSubscription:
     subscriptions: list[ClaudeHookSubscription] = []
     for claude_event, agent_event in _CLAUDE_EVENT_MAP.items():
         subscriptions.append(
             registry.subscribe(
                 claude_event,
-                lambda request, event=agent_event: handle_policy_event(
+                lambda request, event=agent_event: handle_adapter_event(
                     AgentType.CLAUDE,
                     event,
                     request,
                     format_stop_block=_format_claude_stop_block,
                 ),
-                subscriber_id=f"harness-policy:{claude_event.value}",
+                subscriber_id=f"harness-adapter:{claude_event.value}",
             )
         )
-    return HarnessPolicySubscription(
+    return HarnessAdapterSubscription(
         agent_type=AgentType.CLAUDE,
-        unsubscribe=lambda: unsubscribe_policy_subscriptions(subscriptions),
+        unsubscribe=lambda: unsubscribe_adapter_subscriptions(subscriptions),
     )
 
 

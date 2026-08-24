@@ -6,9 +6,9 @@ from agent_tools.agent_workspace.components.gtk_desktop.src.gtk_ui import _harne
 from agent_tools.agent_workspace.components.gtk_desktop.src.gtk_ui import _harness_debug_event_details_text
 from agent_tools.agent_workspace.components.gtk_desktop.src.gtk_ui import _harness_debug_events_text
 from agent_tools.agent_workspace.components.gtk_desktop.src.gtk_ui import _ai_debug_restore_event_id
-from agent_tools.agent_workspace.components.harness_policy.api import AgentType
-from agent_tools.agent_workspace.components.harness_policy.api import HarnessDebugEvent
-from agent_tools.agent_workspace.components.harness_policy.api import HarnessStatusEvent
+from agent_tools.agent_workspace.components.harness_adapter.api import AgentType
+from agent_tools.agent_workspace.components.harness_adapter.api import HarnessDebugEvent
+from agent_tools.agent_workspace.components.harness_adapter.api import HarnessStatusEvent
 from agent_tools.agent_workspace.components.test_support.src.helpers import *
 
 

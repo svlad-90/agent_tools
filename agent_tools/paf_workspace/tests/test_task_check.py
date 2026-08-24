@@ -26,7 +26,7 @@ def test_initialize_task_layout_creates_context_database_without_description_fil
     assert (task_dir / DATABASE_FILENAME).is_file()
     assert not (task_dir / "front_door_bell.py").exists()
     assert _has_check(initialize_checks, "PASS", "init-task-context-database")
-    assert _has_check(initialize_checks, "PASS", "actualize-harness-policy-ready")
+    assert _has_check(initialize_checks, "PASS", "actualize-harness-adapter-ready")
     assert _has_check(checks, "PASS", "task-context-database")
     assert _has_check(checks, "FAIL", "task-context-slot-required")
 

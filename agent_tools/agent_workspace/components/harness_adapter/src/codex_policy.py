@@ -2,15 +2,15 @@ from __future__ import annotations
 
 from typing import Any
 
-from agent_tools.agent_workspace.components.codex_hooks.api import CodexHookEvent
-from agent_tools.agent_workspace.components.codex_hooks.api import CodexHookRegistry
-from agent_tools.agent_workspace.components.codex_hooks.api import CodexHookSubscription
+from agent_tools.agent_workspace.components.harness_adapter.src.codex_adapter import CodexHookEvent
+from agent_tools.agent_workspace.components.harness_adapter.src.codex_adapter import CodexHookRegistry
+from agent_tools.agent_workspace.components.harness_adapter.src.codex_adapter import CodexHookSubscription
 
 from .policy import AgentHookEvent
 from .policy import AgentType
-from .policy import HarnessPolicySubscription
-from .policy import handle_policy_event
-from .policy import unsubscribe_policy_subscriptions
+from .policy import HarnessAdapterSubscription
+from .policy import handle_adapter_event
+from .policy import unsubscribe_adapter_subscriptions
 
 
 _CODEX_EVENT_MAP = {
@@ -27,24 +27,24 @@ _CODEX_EVENT_MAP = {
 }
 
 
-def register_codex_policy(registry: CodexHookRegistry) -> HarnessPolicySubscription:
+def register_codex_adapter(registry: CodexHookRegistry) -> HarnessAdapterSubscription:
     subscriptions: list[CodexHookSubscription] = []
     for codex_event, agent_event in _CODEX_EVENT_MAP.items():
         subscriptions.append(
             registry.subscribe(
                 codex_event,
-                lambda request, event=agent_event: handle_policy_event(
+                lambda request, event=agent_event: handle_adapter_event(
                     AgentType.CODEX,
                     event,
                     request,
                     format_stop_block=_format_codex_stop_block,
                 ),
-                subscriber_id=f"harness-policy:{codex_event.value}",
+                subscriber_id=f"harness-adapter:{codex_event.value}",
             )
         )
-    return HarnessPolicySubscription(
+    return HarnessAdapterSubscription(
         agent_type=AgentType.CODEX,
-        unsubscribe=lambda: unsubscribe_policy_subscriptions(subscriptions),
+        unsubscribe=lambda: unsubscribe_adapter_subscriptions(subscriptions),
     )
 
 

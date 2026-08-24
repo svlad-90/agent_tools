@@ -10,7 +10,7 @@ description: Legacy fallback for manually driving old task-local front_door_bell
 # Task Front Desk
 
 Normal workspace tasks do not use this skill. Agent Workspace policy is now
-hook-driven through `agent_tools.agent_workspace.components.harness_policy`.
+hook-driven through `agent_tools.agent_workspace.components.harness_adapter`.
 Use this skill only for old local tasks when harness hooks are unavailable and
 the user explicitly asks to drive the legacy manual fallback.
 

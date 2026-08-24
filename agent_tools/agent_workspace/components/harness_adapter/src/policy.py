@@ -107,7 +107,7 @@ class HarnessStatusSubscription:
 
 
 @dataclass(frozen=True)
-class HarnessPolicySubscription:
+class HarnessAdapterSubscription:
     agent_type: AgentType
     unsubscribe: Callable[[], bool]
 
@@ -183,7 +183,8 @@ def load_harness_debug_events(
         events.append(event)
     return events[-limit:]
 
-def handle_policy_event(
+
+def handle_adapter_event(
     agent_type: AgentType,
     event: AgentHookEvent,
     request: _HookRequest,
@@ -199,7 +200,7 @@ def handle_policy_event(
                 session_id=request.session_id,
                 event=HarnessStatusEvent.TASK_UNRESOLVED,
                 icon="?",
-                message="Task directory is unresolved; harness policy is inactive for this event.",
+                message="Task directory is unresolved; harness adapter is inactive for this event.",
                 updated_at=datetime.now().astimezone(),
                 hook_event=event,
                 tool_name=_request_tool_name(request),
@@ -209,21 +210,21 @@ def handle_policy_event(
         return None
 
     ensure_database(task_dir)
-    _ensure_policy_schema(task_dir)
+    _ensure_adapter_schema(task_dir)
     tool_name = _request_tool_name(request)
     tool_detail = _request_tool_detail(request)
 
     if event is AgentHookEvent.SESSION_START:
-        _update_policy_state(task_dir, agent_type, request.session_id, last_event=event.value, session_active=True)
+        _update_adapter_state(task_dir, agent_type, request.session_id, last_event=event.value, session_active=True)
         _emit(task_dir, agent_type, request.session_id, HarnessStatusEvent.SESSION_STARTED, "▶", "Context injected at session start.", hook_event=event, outcome="injected")
         return _session_start_message(task_dir)
     if event is AgentHookEvent.SESSION_END:
-        _update_policy_state(task_dir, agent_type, request.session_id, last_event=event.value, session_active=False)
+        _update_adapter_state(task_dir, agent_type, request.session_id, last_event=event.value, session_active=False)
         _emit(task_dir, agent_type, request.session_id, HarnessStatusEvent.SESSION_ENDED, "■", "Session ended.", hook_event=event, outcome="done")
         return None
     if event is AgentHookEvent.USER_PROMPT_SUBMIT:
         now = _now()
-        _update_policy_state(
+        _update_adapter_state(
             task_dir,
             agent_type,
             request.session_id,
@@ -235,24 +236,24 @@ def handle_policy_event(
         _emit(task_dir, agent_type, request.session_id, HarnessStatusEvent.USER_PROMPT_RECEIVED, "▶", "User prompt observed.", hook_event=event, outcome="observed")
         return None
     if event is AgentHookEvent.PRE_TOOL_USE:
-        _update_policy_state(task_dir, agent_type, request.session_id, last_event=event.value, work_observed_since_prompt=True)
+        _update_adapter_state(task_dir, agent_type, request.session_id, last_event=event.value, work_observed_since_prompt=True)
         _emit(task_dir, agent_type, request.session_id, HarnessStatusEvent.TOOL_STARTED, "⚙", "Tool use started.", hook_event=event, tool_name=tool_name, tool_detail=tool_detail, outcome="started")
         return None
     if event is AgentHookEvent.POST_TOOL_USE:
-        _update_policy_state(task_dir, agent_type, request.session_id, last_event=event.value, work_observed_since_prompt=True)
+        _update_adapter_state(task_dir, agent_type, request.session_id, last_event=event.value, work_observed_since_prompt=True)
         _refresh_journal_flag(task_dir, agent_type, request.session_id)
         _emit(task_dir, agent_type, request.session_id, HarnessStatusEvent.TOOL_FINISHED, "✓", "Tool use finished.", hook_event=event, tool_name=tool_name, tool_detail=tool_detail, outcome="finished")
         return None
     if event is AgentHookEvent.PRE_COMPACT:
         return _handle_pre_compact(task_dir, agent_type, request.session_id)
     if event is AgentHookEvent.POST_COMPACT:
-        _update_policy_state(task_dir, agent_type, request.session_id, last_event=event.value)
+        _update_adapter_state(task_dir, agent_type, request.session_id, last_event=event.value)
         _emit(task_dir, agent_type, request.session_id, HarnessStatusEvent.COMPACT_FINISHED, "🧠", "Context injected after compact.", hook_event=event, outcome="injected")
         return _post_compact_message(task_dir)
     if event is AgentHookEvent.STOP:
         return _handle_stop(task_dir, agent_type, request.session_id, format_stop_block=format_stop_block)
 
-    _update_policy_state(task_dir, agent_type, request.session_id, last_event=event.value)
+    _update_adapter_state(task_dir, agent_type, request.session_id, last_event=event.value)
     _emit(
         task_dir,
         agent_type,
@@ -275,7 +276,7 @@ def _handle_stop(
     *,
     format_stop_block: StopBlockFormatter,
 ) -> HookOutput:
-    _update_policy_state(task_dir, agent_type, session_id, last_event=AgentHookEvent.STOP.value)
+    _update_adapter_state(task_dir, agent_type, session_id, last_event=AgentHookEvent.STOP.value)
     checks = check_task(task_dir, workspace=_workspace_for_task(task_dir))
     failures = [check for check in checks if check.status == "FAIL"]
     if failures:
@@ -290,7 +291,7 @@ def _handle_stop(
         )
 
     _refresh_journal_flag(task_dir, agent_type, session_id)
-    state = _load_policy_state(task_dir, agent_type, session_id)
+    state = _load_adapter_state(task_dir, agent_type, session_id)
     if state.get("work_observed_since_prompt") and not state.get("journal_updated_since_prompt"):
         _emit(task_dir, agent_type, session_id, HarnessStatusEvent.JOURNAL_REQUIRED, "🧾", "Journal update required.", hook_event=AgentHookEvent.STOP, outcome="blocked")
         return format_stop_block(
@@ -304,9 +305,9 @@ def _handle_stop(
 
 
 def _handle_pre_compact(task_dir: Path, agent_type: AgentType, session_id: str | None) -> HookOutput:
-    _update_policy_state(task_dir, agent_type, session_id, last_event=AgentHookEvent.PRE_COMPACT.value)
+    _update_adapter_state(task_dir, agent_type, session_id, last_event=AgentHookEvent.PRE_COMPACT.value)
     _refresh_journal_flag(task_dir, agent_type, session_id)
-    state = _load_policy_state(task_dir, agent_type, session_id)
+    state = _load_adapter_state(task_dir, agent_type, session_id)
     if state.get("work_observed_since_prompt") and not state.get("journal_updated_since_prompt"):
         _emit(
             task_dir,
@@ -327,7 +328,7 @@ def _handle_pre_compact(task_dir: Path, agent_type: AgentType, session_id: str |
 def _session_start_message(task_dir: Path) -> str:
     return (
         "Agent Workspace session started. Task state source is TASK_CONTEXT.sqlite3 slots. "
-        "Use task_context query when task context is needed; hook policy gates Stop and records PreCompact checkpoints. "
+        "Use task_context query when task context is needed; hook adapter gates Stop and records PreCompact checkpoints. "
         f"Task directory: {task_dir}"
     )
 
@@ -404,18 +405,18 @@ def _latest_journal_update(task_dir: Path) -> str | None:
 
 
 def _refresh_journal_flag(task_dir: Path, agent_type: AgentType, session_id: str | None) -> None:
-    state = _load_policy_state(task_dir, agent_type, session_id)
+    state = _load_adapter_state(task_dir, agent_type, session_id)
     prompt_at = state.get("last_user_prompt_at")
     latest_update = _latest_journal_update(task_dir)
     journal_updated = bool(prompt_at and latest_update and latest_update > prompt_at)
-    _update_policy_state(task_dir, agent_type, session_id, journal_updated_since_prompt=journal_updated)
+    _update_adapter_state(task_dir, agent_type, session_id, journal_updated_since_prompt=journal_updated)
 
 
-def _ensure_policy_schema(task_dir: Path) -> None:
+def _ensure_adapter_schema(task_dir: Path) -> None:
     with sqlite3.connect(database_path(task_dir), timeout=10) as connection:
         connection.execute(
             """
-            CREATE TABLE IF NOT EXISTS harness_policy_state (
+            CREATE TABLE IF NOT EXISTS harness_adapter_state (
                 agent_type TEXT NOT NULL,
                 session_id TEXT NOT NULL,
                 last_event TEXT NOT NULL DEFAULT '',
@@ -433,15 +434,15 @@ def _ensure_policy_schema(task_dir: Path) -> None:
         )
 
 
-def _load_policy_state(task_dir: Path, agent_type: AgentType, session_id: str | None) -> dict[str, Any]:
-    _ensure_policy_schema(task_dir)
+def _load_adapter_state(task_dir: Path, agent_type: AgentType, session_id: str | None) -> dict[str, Any]:
+    _ensure_adapter_schema(task_dir)
     key = _session_key(session_id)
     with sqlite3.connect(database_path(task_dir), timeout=10) as connection:
         row = connection.execute(
             """
             SELECT last_event, last_user_prompt_at, work_observed_since_prompt,
                    journal_updated_since_prompt, session_active, updated_at
-            FROM harness_policy_state
+            FROM harness_adapter_state
             WHERE agent_type = ? AND session_id = ?
             """,
             (agent_type.value, key),
@@ -465,7 +466,7 @@ def _load_policy_state(task_dir: Path, agent_type: AgentType, session_id: str | 
     }
 
 
-def _update_policy_state(
+def _update_adapter_state(
     task_dir: Path,
     agent_type: AgentType,
     session_id: str | None,
@@ -476,8 +477,8 @@ def _update_policy_state(
     journal_updated_since_prompt: bool | None = None,
     session_active: bool | None = None,
 ) -> None:
-    _ensure_policy_schema(task_dir)
-    state = _load_policy_state(task_dir, agent_type, session_id)
+    _ensure_adapter_schema(task_dir)
+    state = _load_adapter_state(task_dir, agent_type, session_id)
     values = {
         "last_event": state["last_event"] if last_event is None else last_event,
         "last_user_prompt_at": state["last_user_prompt_at"] if last_user_prompt_at is None else last_user_prompt_at,
@@ -496,7 +497,7 @@ def _update_policy_state(
     with sqlite3.connect(database_path(task_dir), timeout=10) as connection:
         connection.execute(
             """
-            INSERT INTO harness_policy_state (
+            INSERT INTO harness_adapter_state (
                 agent_type, session_id, last_event, last_user_prompt_at,
                 work_observed_since_prompt, journal_updated_since_prompt,
                 session_active, updated_at
@@ -612,7 +613,7 @@ def _unsubscribe_harness_status(subscription_id: str) -> bool:
     return _STATUS_CALLBACKS.pop(subscription_id, None) is not None
 
 
-def unsubscribe_policy_subscriptions(subscriptions: list[Any]) -> bool:
+def unsubscribe_adapter_subscriptions(subscriptions: list[Any]) -> bool:
     changed = False
     for subscription in subscriptions:
         changed = subscription.unsubscribe() or changed

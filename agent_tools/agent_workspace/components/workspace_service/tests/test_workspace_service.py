@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from agent_tools.agent_workspace.components.test_support.src.helpers import *
-from agent_tools.agent_workspace.components.harness_policy.src.commands import handle_codex_policy_hook
+from agent_tools.agent_workspace.components.harness_adapter.src.commands import handle_codex_adapter_hook
 
 
 def test_agent_workspace_service_returns_headless_task_snapshot(tmp_path: Path) -> None:
@@ -28,7 +28,7 @@ def test_agent_workspace_service_returns_headless_task_snapshot(tmp_path: Path) 
     (report / "runtime.log").write_text("log", encoding="utf-8")
 
     service = AgentWorkspaceService(tmp_path)
-    handle_codex_policy_hook(
+    handle_codex_adapter_hook(
         json.dumps(
             {
                 "hook_event_name": "PreToolUse",

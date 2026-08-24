@@ -55,9 +55,9 @@ from ...agent_runtime.api import build_ai_agent_console_command
 from ...agent_runtime.api import prepare_ai_agent_launch_command
 from ...commands.api import task_action_shell_command
 from ...commands.api import task_check_shell_command
-from ...harness_policy.api import HarnessDebugEvent
-from ...harness_policy.api import clear_harness_debug_events
-from ...harness_policy.api import load_harness_debug_events
+from ...harness_adapter.api import HarnessDebugEvent
+from ...harness_adapter.api import clear_harness_debug_events
+from ...harness_adapter.api import load_harness_debug_events
 from ...task_actions.api import add_task_shortcut as _add_task_shortcut
 from ...task_actions.api import bindings_for_action_run
 from ...task_actions.api import delete_parameter_set_value as _delete_parameter_set_value

@@ -1,1 +1,0 @@
-"""Agent Workspace component package."""

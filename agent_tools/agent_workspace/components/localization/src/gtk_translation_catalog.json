@@ -35,7 +35,7 @@
     "ai_debug_message_session_started": "Context injected at session start.",
     "ai_debug_message_stop_allowed": "Stop allowed.",
     "ai_debug_message_task_check_failed": "task_check failed.",
-    "ai_debug_message_task_unresolved": "Task directory is unresolved; harness policy is inactive for this event.",
+    "ai_debug_message_task_unresolved": "Task directory is unresolved; harness adapter is inactive for this event.",
     "ai_debug_message_tool_finished": "Tool use finished.",
     "ai_debug_message_tool_started": "Tool use started.",
     "ai_debug_message_user_prompt_received": "User prompt observed.",

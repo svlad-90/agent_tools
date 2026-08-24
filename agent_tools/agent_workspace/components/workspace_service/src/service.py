@@ -9,7 +9,7 @@ from ...artifacts.api import artifact_updated_label
 from ...artifacts.api import task_artifact_entries
 from ...commands.api import task_action_command
 from ...commands.api import task_check_command
-from ...harness_policy.api import load_harness_debug_events
+from ...harness_adapter.api import load_harness_debug_events
 from ...task_actions.api import TaskAction
 from ...task_actions.api import load_task_actions_config
 from ...task_catalog.api import TaskSummary

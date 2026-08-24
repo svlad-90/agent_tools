@@ -118,7 +118,7 @@ class CodexHookRegistry:
         for subscriber_id, callback in callbacks:
             try:
                 results.append(CodexHookResult(subscriber_id=subscriber_id, value=callback(request)))
-            except Exception as exc:  # Hook policy errors are returned to the adapter caller.
+            except Exception as exc:  # Hook adapter errors are returned to the adapter caller.
                 results.append(CodexHookResult(subscriber_id=subscriber_id, error=str(exc)))
         return tuple(results)
 
@@ -154,7 +154,7 @@ def clear_subscriptions() -> None:
     _DEFAULT_REGISTRY.clear()
 
 
-def codex_hooks_config(command: str) -> dict[str, list[dict[str, Any]]]:
+def codex_harness_config(command: str) -> dict[str, list[dict[str, Any]]]:
     return {
         event.value: [{"hooks": [{"type": "command", "command": command}]}]
         for event in CodexHookEvent

@@ -65,14 +65,14 @@ def actualize_task(task_dir: Path, *, workspace: Path) -> list[ActualizeResult]:
                 str(task_dir),
             )
         ]
-    return [report_harness_policy_ready(task_dir)]
+    return [report_harness_adapter_ready(task_dir)]
 
 
-def report_harness_policy_ready(task_dir: Path) -> ActualizeResult:
+def report_harness_adapter_ready(task_dir: Path) -> ActualizeResult:
     return ActualizeResult(
         "PASS",
-        "actualize-harness-policy-ready",
-        "task uses hook-driven harness policy; no task-local front door bell is required",
+        "actualize-harness-adapter-ready",
+        "task uses hook-driven harness adapter; no task-local front door bell is required",
         str(task_dir),
     )
 

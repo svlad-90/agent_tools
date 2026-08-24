@@ -105,10 +105,10 @@ If `TASK_CONTEXT.sqlite3` is missing, `query` creates it and imports legacy
 `goal` and `operational-memory` are required. `env` and `validation` are
 recommended. Move useful legacy material into typed slots, then clear `legacy`.
 
-## Harness Policy
+## Harness Adapter
 
-Normal Agent Workspace sessions use hook-driven harness policy from
-`agent_tools.agent_workspace.components.harness_policy`. The policy handles
+Normal Agent Workspace sessions use hook-driven harness adapter from
+`agent_tools.agent_workspace.components.harness_adapter`. The adapter handles
 session lifecycle, task_check Stop gates, durable slot freshness, and compact
 checkpoints through Codex/Claude hooks. Legacy task-local `front_door_bell.py`
 scripts may remain in old tasks as manual fallback only; new task layouts do
