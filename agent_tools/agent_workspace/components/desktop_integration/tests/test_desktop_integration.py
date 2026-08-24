@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+from agent_tools.agent_workspace.components.desktop_integration.api import agent_tools_package_root
+from agent_tools.agent_workspace.components.desktop_integration.api import agent_workspace_icon_source
+from agent_tools.agent_workspace.components.desktop_integration.api import workspace_root
 from agent_tools.agent_workspace.components.test_support.src.helpers import *
 
 
@@ -52,6 +55,16 @@ def test_agent_workspace_desktop_entry_uses_current_workspace_path(tmp_path: Pat
     assert f"Exec={tmp_path / 'agent-workspace.sh'}\n" in content
     assert f"Path={tmp_path}\n" in content
     assert "/Projects/new_dev" not in content
+
+
+def test_agent_workspace_desktop_icon_source_resolves_inside_package() -> None:
+    package_root = agent_tools_package_root()
+    icon_source = agent_workspace_icon_source()
+
+    assert package_root.name == "agent_tools"
+    assert workspace_root() == package_root.parent
+    assert icon_source == package_root / "agent_workspace/assets/agent-workspace.svg"
+    assert icon_source.is_file()
 
 
 def test_install_agent_tools_writes_auto_and_web_launchers(tmp_path: Path) -> None:

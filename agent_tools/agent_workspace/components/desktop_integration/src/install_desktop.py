@@ -6,8 +6,8 @@ import subprocess
 
 
 def main() -> int:
-    workspace = Path(__file__).resolve().parents[6]
-    icon_source = workspace / "agent_tools/agent_workspace/assets/agent-workspace.svg"
+    workspace = workspace_root()
+    icon_source = agent_workspace_icon_source()
     icon_target = Path.home() / ".local/share/icons/hicolor/scalable/apps/agent-workspace.svg"
     desktop_target = Path.home() / ".local/share/applications/agent-workspace.desktop"
 
@@ -21,6 +21,18 @@ def main() -> int:
     _run_optional(["gtk-update-icon-cache", "-f", str(icon_target.parents[2])])
     _run_optional(["update-desktop-database", str(desktop_target.parent)])
     return 0
+
+
+def agent_workspace_icon_source() -> Path:
+    return agent_tools_package_root() / "agent_workspace/assets/agent-workspace.svg"
+
+
+def agent_tools_package_root() -> Path:
+    return Path(__file__).resolve().parents[4]
+
+
+def workspace_root() -> Path:
+    return agent_tools_package_root().parent
 
 
 def desktop_entry(workspace: Path) -> str:
