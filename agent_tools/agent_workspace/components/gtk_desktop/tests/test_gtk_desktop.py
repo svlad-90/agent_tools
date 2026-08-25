@@ -183,7 +183,7 @@ def test_gtk_ai_debug_event_row_keeps_large_event_id_as_string() -> None:
             session_id="s1",
             hook_event="post_tool_use",
             status_event=HarnessStatusEvent.TOOL_FINISHED,
-            icon="▹",
+            icon="▸",
             message="Tool use finished.",
             tool_name="Bash",
             tool_detail="",
@@ -1294,11 +1294,11 @@ def test_gtk_animate_agent_status_updates_only_status_column(tmp_path: Path) -> 
     gui.terminal_sessions = {}
     gui._closing = False
     gui._running_agent_sessions = lambda: [object()]
-    gui._task_agent_status = lambda _task: "▹"
+    gui._task_agent_status = lambda _task: "▸"
 
     assert gui._animate_agent_status()
 
-    assert gui.task_store.set_calls == [(0, [0], ["▹"])]
+    assert gui.task_store.set_calls == [(0, [0], ["▸"])]
     assert gui.task_store.rows[0][1:] == [
         "sample-task",
         summary,
@@ -2249,8 +2249,7 @@ def test_gtk_translates_agent_and_manual_labels() -> None:
     assert GTK_TRANSLATIONS["uk"]["manual_usage_section"] == "Основи"
     assert GTK_TRANSLATIONS["uk"]["manual_status_section"] == "Статуси в колонці ШІ"
     assert GTK_TRANSLATIONS["ru"]["manual_status_label_waiting"] == "Ожидает"
-    assert GTK_TRANSLATIONS["ru"]["manual_status_label_prompt"] == "Запрос"
-    assert GTK_TRANSLATIONS["ru"]["manual_status_label_running"] == "Готов"
+    assert GTK_TRANSLATIONS["ru"]["manual_status_label_prompt"] == "Активен"
     assert GTK_TRANSLATIONS["ru"]["manual_status_label_tool"] == "Инструмент"
     assert GTK_TRANSLATIONS["ru"]["manual_status_label_interrupted"] == "Прервано"
     assert GTK_TRANSLATIONS["uk"]["task_agent_status_column"] == "ШІ"
@@ -2268,7 +2267,7 @@ def test_gtk_manual_status_entries_cover_harness_status_icons() -> None:
     gui = WorkspaceGtkGui.__new__(WorkspaceGtkGui)
     gui._tr = lambda key: GTK_TRANSLATIONS["ru"][key]  # type: ignore[method-assign]
 
-    assert [entry[0] for entry in gui._manual_status_entries()] == ["●", "Ⅱ", "□", "▸", "▹", "◆", "○", "×"]
+    assert [entry[0] for entry in gui._manual_status_entries()] == ["●", "Ⅱ", "□", "▸", "◆", "○", "×"]
 
 
 def test_agent_workspace_string_json_files_are_package_resources() -> None:

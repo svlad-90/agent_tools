@@ -692,7 +692,7 @@ class AgentWorkspace:
         row += 1
 
         for marker, label, description in AGENT_STATUS_MANUAL_ENTRIES:
-            display_marker = AGENT_RUNNING_SPINNER_FRAMES[self._agent_spinner_index] if marker.startswith("▹") else marker
+            display_marker = AGENT_RUNNING_SPINNER_FRAMES[self._agent_spinner_index] if marker.startswith("▸") else marker
             tk.Label(
                 frame,
                 text=display_marker,

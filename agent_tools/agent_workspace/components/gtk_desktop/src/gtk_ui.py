@@ -1477,7 +1477,6 @@ class WorkspaceGtkGui:
             ("Ⅱ", self._tr("manual_status_label_session"), self._tr("manual_status_session")),
             ("□", self._tr("manual_status_label_idle"), self._tr("manual_status_idle")),
             (AGENT_PROMPT_MARKER, self._tr("manual_status_label_prompt"), self._tr("manual_status_prompt")),
-            (AGENT_RUNNING_READY_MARKER, self._tr("manual_status_label_running"), self._tr("manual_status_agent_running")),
             (AGENT_TOOL_MARKER, self._tr("manual_status_label_tool"), self._tr("manual_status_tool")),
             ("○", self._tr("manual_status_label_interrupted"), self._tr("manual_status_interrupted")),
             ("×", self._tr("manual_status_label_external"), self._tr("manual_status_external")),

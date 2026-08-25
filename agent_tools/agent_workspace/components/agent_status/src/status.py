@@ -14,7 +14,7 @@ from ...task_sessions.api import task_agent_session_markers
 
 
 AGENT_PROMPT_MARKER = "▸"
-AGENT_RUNNING_READY_MARKER = "▹"
+AGENT_RUNNING_READY_MARKER = AGENT_PROMPT_MARKER
 AGENT_TOOL_MARKER = "◆"
 AGENT_RUNNING_SPINNER_FRAMES = (AGENT_RUNNING_READY_MARKER,)
 ANSI_ESCAPE_RE = re.compile(r"\x1b(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])")
