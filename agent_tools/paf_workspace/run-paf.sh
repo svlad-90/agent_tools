@@ -17,7 +17,35 @@ paf_url="${PAF_URL:-https://github.com/svlad-90/paf.git}"
 paf_ref="${PAF_REF:-d65ca0fb33be9add41c65a194a6c307c2e24656c}"
 paf_root="${PAF_ROOT:-${workspace_root}/agent_tools/.cache/paf}"
 paf_venv="${PAF_VENV:-${workspace_root}/agent_tools/.cache/paf-venv}"
-log_dir="${PAF_LOG_DIR:-${workspace_root}/report/paf}"
+config_path="$1"
+scenario_name="${2:-default}"
+shift
+if [ "$#" -gt 0 ]; then
+  shift
+fi
+
+if [ -n "${PAF_LOG_DIR:-}" ]; then
+  echo "error: PAF_LOG_DIR is not supported; PAF logs are always task-local" >&2
+  echo "set PAF_TASK_DIR or run from a task directory to select the task" >&2
+  exit 2
+fi
+
+export PYTHONPATH="${workspace_root}/agent_tools:${PYTHONPATH:-}"
+
+if command -v python3 >/dev/null 2>&1; then
+  python_bin=python3
+elif command -v python >/dev/null 2>&1; then
+  python_bin=python
+else
+  echo "error: python3/python was not found in PATH" >&2
+  exit 127
+fi
+
+log_dir="$("${python_bin}" -m paf_workspace.logs \
+  --workspace-root "${workspace_root}" \
+  --cwd "${PWD}" \
+  --config "${config_path}")"
+mkdir -p "${log_dir}"
 
 if [ ! -f "${paf_root}/paf_main.py" ]; then
   mkdir -p "$(dirname "${paf_root}")"
@@ -32,18 +60,7 @@ fi
 git -C "${paf_root}" checkout "${paf_ref}"
 git -C "${paf_root}" reset --hard "${paf_ref}" >/dev/null
 
-mkdir -p "${log_dir}"
-
 export PYTHONPATH="${paf_root}:${workspace_root}/agent_tools:${PYTHONPATH:-}"
-
-if command -v python3 >/dev/null 2>&1; then
-  python_bin=python3
-elif command -v python >/dev/null 2>&1; then
-  python_bin=python
-else
-  echo "error: python3/python was not found in PATH" >&2
-  exit 127
-fi
 
 if [ ! -x "${paf_venv}/bin/python" ]; then
   "${python_bin}" -m venv "${paf_venv}"
@@ -73,13 +90,6 @@ then
     "paramiko>=3.0.0" \
     "pytest>=8.0.0" \
     "PyYAML>=5.4.1"
-fi
-
-config_path="$1"
-scenario_name="${2:-default}"
-shift
-if [ "$#" -gt 0 ]; then
-  shift
 fi
 
 "${paf_venv}/bin/python" "${paf_root}/paf_main.py" \
