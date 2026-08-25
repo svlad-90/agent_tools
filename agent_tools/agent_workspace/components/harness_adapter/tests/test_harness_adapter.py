@@ -20,6 +20,7 @@ from agent_tools.agent_workspace.components.harness_adapter.api import notify_wo
 from agent_tools.agent_workspace.components.harness_adapter.api import record_harness_status
 from agent_tools.agent_workspace.components.harness_adapter.api import start_workspace_ipc_server
 from agent_tools.agent_workspace.components.harness_adapter.api import subscribe_harness_status
+from agent_tools.agent_workspace.components.harness_adapter.src.limited_bash import OutputPreview
 from agent_tools.agent_workspace.components.harness_adapter.src.limited_bash import run_limited_bash
 from agent_tools.agent_workspace.components.harness_adapter.src.claude_policy import register_claude_adapter
 from agent_tools.agent_workspace.components.harness_adapter.src.commands import handle_claude_adapter_hook
@@ -367,6 +368,37 @@ def test_limited_bash_blocks_large_output_and_keeps_log(
     assert result.log_base.with_suffix(".stderr.log").exists()
     captured = capsys.readouterr()
     assert "Configured Bash output limit: 5 estimated tokens." in captured.out
+    assert "stdout preview:" in captured.out
+    assert "one two three four five six" in captured.out
+
+
+def test_limited_bash_overflow_preview_keeps_head_and_tail(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    task_dir = _task(tmp_path)
+    monkeypatch.setenv("AGENT_TOOLS_TASK_DIR", str(task_dir))
+
+    result = run_limited_bash("seq 1 30", limit=5, cwd=tmp_path)
+
+    assert result.exceeded is True
+    captured = capsys.readouterr()
+    assert "stdout preview:\n1\n2\n3\n4\n5\n6\n7\n8\n9\n10\n....\n21\n22\n23\n24\n25\n26\n27\n28\n29\n30" in captured.out
+
+
+def test_limited_bash_preview_does_not_duplicate_short_output() -> None:
+    preview = OutputPreview()
+    preview.feed("1\n2\n3\n")
+
+    assert preview.lines() == ["1", "2", "3"]
+
+
+def test_limited_bash_preview_truncates_single_long_line() -> None:
+    preview = OutputPreview(line_count=10, line_chars=5)
+    preview.feed("abcdefghijklmnopqrstuvwxyz")
+
+    assert preview.lines() == ["abcde... [truncated 21 chars]"]
 
 
 def test_limited_bash_does_not_keep_logs_for_output_under_limit(
