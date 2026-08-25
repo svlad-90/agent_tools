@@ -26,11 +26,14 @@ class CodexTerminalMouseStateMachine:
         terminal: Vte.Terminal,
         record_profile_event: Callable[[str, str], None],
         *,
+        profile_area: str | None = None,
         overlay: Gtk.Overlay | None = None,
         event_box: Gtk.EventBox | None = None,
     ) -> None:
         self.terminal = terminal
         self.record_profile_event = record_profile_event
+        if profile_area is not None:
+            self.profile_area = profile_area
         self.overlay = overlay if overlay is not None else Gtk.Overlay()
         self.event_box = event_box if event_box is not None else Gtk.EventBox()
         self.state: CodexTerminalMouseState = "idle"

@@ -147,7 +147,7 @@ def test_ai_agent_environment_exports_front_desk_session_identity(tmp_path: Path
     assert "AGENT_TOOLS_AGENT_SESSION_ID" not in new_env
     assert resumed_env["AGENT_TOOLS_SESSION_ID"] == "codex-session-1"
     assert resumed_env["AGENT_TOOLS_AGENT_SESSION_ID"] == "codex-session-1"
-    assert claude_env["CLAUDE_CODE_DISABLE_MOUSE"] == "1"
+    assert "CLAUDE_CODE_DISABLE_MOUSE" not in claude_env
     assert claude_env["AGENT_TOOLS_LIMITED_BASH_OUTPUT_TOKENS"] == "1200"
     assert resumed_env["AGENT_TOOLS_RUN_ID"] == "run-2"
 
