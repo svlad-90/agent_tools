@@ -14,7 +14,7 @@ if [ "$#" -lt 1 ]; then
 fi
 
 paf_url="${PAF_URL:-https://github.com/svlad-90/paf.git}"
-paf_ref="${PAF_REF:-35d66a21b587c8621d822e66b428a7dc080ea962}"
+paf_ref="${PAF_REF:-d65ca0fb33be9add41c65a194a6c307c2e24656c}"
 paf_root="${PAF_ROOT:-${workspace_root}/agent_tools/.cache/paf}"
 paf_venv="${PAF_VENV:-${workspace_root}/agent_tools/.cache/paf-venv}"
 log_dir="${PAF_LOG_DIR:-${workspace_root}/report/paf}"
@@ -30,6 +30,7 @@ if [ "${PAF_UPDATE:-0}" = "1" ] ||
 fi
 
 git -C "${paf_root}" checkout "${paf_ref}"
+git -C "${paf_root}" reset --hard "${paf_ref}" >/dev/null
 
 mkdir -p "${log_dir}"
 

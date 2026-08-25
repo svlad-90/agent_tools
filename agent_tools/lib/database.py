@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
 import sqlite3
 
@@ -15,13 +17,18 @@ def task_database_path(task_dir: Path) -> Path:
     return task_dir / TASK_CONTEXT_DATABASE_FILENAME
 
 
-def connect_task_database(task_dir: Path) -> sqlite3.Connection:
+@contextmanager
+def connect_task_database(task_dir: Path) -> Iterator[sqlite3.Connection]:
     connection = sqlite3.connect(
         task_database_path(task_dir),
         timeout=TASK_DATABASE_CONNECT_TIMEOUT_SECONDS,
     )
     configure_task_database_connection(connection)
-    return connection
+    try:
+        with connection:
+            yield connection
+    finally:
+        connection.close()
 
 
 def configure_task_database_connection(connection: sqlite3.Connection) -> None:

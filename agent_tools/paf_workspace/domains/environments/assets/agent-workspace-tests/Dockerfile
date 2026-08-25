@@ -17,6 +17,7 @@ RUN apt-get update \
 		python3-pytest \
 		python3-tk \
 		python3-venv \
+		xvfb \
 	&& rm -rf /var/lib/apt/lists/*
 
 RUN python3 -m venv --system-site-packages "${VIRTUAL_ENV}" \

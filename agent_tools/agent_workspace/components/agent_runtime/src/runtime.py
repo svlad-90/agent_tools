@@ -71,6 +71,7 @@ def append_ai_agent_hook_options(command: list[str], agent: str) -> None:
     agent = normalize_agent(agent)
     if agent == "claude":
         settings = claude_harness_settings("python3 -m agent_tools.agent_workspace.components.harness_adapter.claude")
+        settings["prefersReducedMotion"] = True
         command.extend(["--settings", json.dumps(settings, ensure_ascii=False)])
         return
     command.append("--dangerously-bypass-hook-trust")
@@ -83,7 +84,18 @@ def append_ai_agent_hook_options(command: list[str], agent: str) -> None:
                 "-c",
                 f'hooks.{event.value}=[{{hooks=[{{type="command",command="{hook_command}"}}]}}]',
             ]
-        )
+            )
+
+
+def append_codex_low_redraw_tui_options(command: list[str]) -> None:
+    command.extend(
+        [
+            "-c",
+            "tui.animations=false",
+            "-c",
+            "tui.disable_mouse_capture=true",
+        ]
+    )
 
 
 def build_ai_agent_console_command(
@@ -115,6 +127,7 @@ def build_ai_agent_console_command(
     command = [codex_executable]
     append_ai_agent_model_options(command, agent, model=model, reasoning_effort=reasoning_effort)
     append_ai_agent_hook_options(command, agent)
+    append_codex_low_redraw_tui_options(command)
     if resume and resume_session_id:
         command.extend(["resume", "--cd", str(workspace), "--no-alt-screen"])
         command.append(resume_session_id)
@@ -240,6 +253,8 @@ def ai_agent_environment(
     env["AGENT_TOOLS_SESSION_ID"] = session_id
     env["AGENT_TOOLS_TASK_DIR"] = str(task.path)
     env["AGENT_TOOLS_WORKSPACE"] = str(workspace)
+    if agent == "claude":
+        env["CLAUDE_CODE_DISABLE_MOUSE"] = "1"
     if session_state.session_id:
         env["AGENT_TOOLS_AGENT_SESSION_ID"] = session_state.session_id
     if run_id:

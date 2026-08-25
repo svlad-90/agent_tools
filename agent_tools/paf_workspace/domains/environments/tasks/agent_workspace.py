@@ -15,6 +15,8 @@ set -euo pipefail
 export PYTHONPATH=.:agent_tools
 python3 -m pytest -q agent_tools/agent_workspace/components
 """.strip()
+AGENT_WORKSPACE_TEST_TIMEOUT_SEC = 600
+AGENT_WORKSPACE_TESTS_TOOLS_CHECK_TIMEOUT_SEC = 120
 
 
 class ensure_agent_workspace_tests_image(EnvironmentTask):
@@ -62,10 +64,16 @@ class check_agent_workspace_tests_tools(EnvironmentTask):
             "agent-workspace-tests-workspace",
         )
         image_alias = self.environment_string("agent_workspace_tests", "image", "agent-workspace-tests")
+        timeout = int(
+            self.param(
+                "AGENT_WORKSPACE_TESTS_TOOLS_CHECK_TIMEOUT_SEC",
+                str(AGENT_WORKSPACE_TESTS_TOOLS_CHECK_TIMEOUT_SEC),
+            )
+        )
         self.docker_subprocess_must_succeed(
             container_alias,
             runtime.workspace_tool_baseline_check_command(self.image_capabilities(image_alias)),
-            timeout=int(self.param("AGENT_WORKSPACE_TESTS_TOOLS_CHECK_TIMEOUT_SEC", "0") or "0"),
+            timeout=timeout,
             substitute_params=False,
             communication_mode=CommunicationMode.PIPE_OUTPUT,
             interaction_mode=InteractionMode.IGNORE_INPUT,
@@ -81,10 +89,11 @@ class run_agent_workspace_tests(EnvironmentTask):
 
     def execute(self):
         command = self.param("AGENT_WORKSPACE_TEST_COMMAND", AGENT_WORKSPACE_TEST_COMMAND)
+        timeout = int(self.param("AGENT_WORKSPACE_TEST_TIMEOUT_SEC", str(AGENT_WORKSPACE_TEST_TIMEOUT_SEC)))
         self.docker_subprocess_must_succeed(
             self.environment_string("agent_workspace_tests", "container", "agent-workspace-tests-workspace"),
             command,
-            timeout=int(self.param("AGENT_WORKSPACE_TEST_TIMEOUT_SEC", "0") or "0"),
+            timeout=timeout,
             communication_mode=CommunicationMode.PIPE_OUTPUT,
             interaction_mode=InteractionMode.IGNORE_INPUT,
         )
