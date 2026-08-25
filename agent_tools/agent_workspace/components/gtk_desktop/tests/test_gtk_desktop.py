@@ -248,6 +248,14 @@ class FakeArtifactPage:
         return self.adjustment
 
 
+class FakeArtifactTextFilter:
+    def __init__(self, text: str) -> None:
+        self.text = text
+
+    def get_text(self) -> str:
+        return self.text
+
+
 def test_gtk_artifact_load_restores_scroll_when_focus_disappears(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -274,6 +282,36 @@ def test_gtk_artifact_load_restores_scroll_when_focus_disappears(
 
     assert gui.artifact_view.set_cursor_calls == []
     assert gui.artifacts_page.adjustment.set_values == [42.0]
+
+
+def test_gtk_artifact_text_filter_matches_names_and_relative_paths(tmp_path: Path) -> None:
+    task = tmp_path / "tasks" / "sample-task"
+    (task / "report" / "diff").mkdir(parents=True)
+    (task / "report" / "logs").mkdir(parents=True)
+    (task / "report" / "diff" / "review.html").write_text("<html>", encoding="utf-8")
+    (task / "report" / "logs" / "runtime.log").write_text("log", encoding="utf-8")
+    (task / "report" / "notes.md").write_text("notes", encoding="utf-8")
+    summary = TaskSummary("sample-task", task, True, True, 1, 1, False)
+    gui = WorkspaceGtkGui.__new__(WorkspaceGtkGui)
+    gui.artifact_store = Gtk.TreeStore(str, str, object, bool, str)
+    gui.artifact_view = FakeArtifactTreeView()
+    gui.artifact_text_filter = FakeArtifactTextFilter("diff")
+    gui.artifact_sort_column = "name"
+    gui.artifact_sort_descending = False
+    gui._tr = lambda key: key  # type: ignore[method-assign]
+
+    gui._load_task_artifacts(summary)
+
+    diff_iter = gui.artifact_store.iter_nth_child(None, 2)
+    assert gui.artifact_store.iter_n_children(diff_iter) == 1
+    assert gui.artifact_store[gui.artifact_store.iter_children(diff_iter)][0] == "review.html"
+
+    gui.artifact_text_filter = FakeArtifactTextFilter("runtime")
+    gui._load_task_artifacts(summary)
+
+    logs_iter = gui.artifact_store.iter_nth_child(None, 0)
+    assert gui.artifact_store.iter_n_children(logs_iter) == 1
+    assert gui.artifact_store[gui.artifact_store.iter_children(logs_iter)][0] == "runtime.log"
 
 
 def test_gtk_dictionary_preview_shows_char_counts_with_dictionary() -> None:
