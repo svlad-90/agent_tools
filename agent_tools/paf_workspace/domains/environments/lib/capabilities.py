@@ -2,15 +2,21 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-
-
-@dataclass(frozen=True)
 class CapabilityRequirement:
-    apt_packages: tuple[str, ...] = ()
-    pip_packages: tuple[str, ...] = ()
-    python_imports: tuple[str, ...] = ()
-    commands: tuple[str, ...] = ()
+    __slots__ = ("apt_packages", "pip_packages", "python_imports", "commands")
+
+    def __init__(
+        self,
+        *,
+        apt_packages: tuple[str, ...] = (),
+        pip_packages: tuple[str, ...] = (),
+        python_imports: tuple[str, ...] = (),
+        commands: tuple[str, ...] = (),
+    ) -> None:
+        self.apt_packages = apt_packages
+        self.pip_packages = pip_packages
+        self.python_imports = python_imports
+        self.commands = commands
 
 
 CAPABILITY_REQUIREMENTS: dict[str, CapabilityRequirement] = {
