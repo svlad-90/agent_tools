@@ -13,6 +13,7 @@ from agent_tools.tools.task_context import render_slots as render_task_context_s
 
 from ...settings.api import AGENT_WORKSPACE_AGENTS
 from ...settings.api import AGENT_WORKSPACE_DEFAULT_CLAUDE_PERMISSION_MODE
+from ...settings.api import AGENT_WORKSPACE_DEFAULT_LIMITED_BASH_OUTPUT_TOKENS
 from ...settings.api import AgentModelSettings
 from ...settings.api import TASK_CONTEXT_PROMPT_INJECTION_DEFAULT
 from ...settings.api import ai_agent_model_settings
@@ -247,6 +248,7 @@ def ai_agent_environment(
     session_state: AgentSessionState,
     *,
     run_id: str | None = None,
+    limited_bash_output_tokens: int = AGENT_WORKSPACE_DEFAULT_LIMITED_BASH_OUTPUT_TOKENS,
 ) -> dict[str, str]:
     env = dict(base_env)
     agent = normalize_agent(agent)
@@ -255,6 +257,7 @@ def ai_agent_environment(
     env["AGENT_TOOLS_SESSION_ID"] = session_id
     env["AGENT_TOOLS_TASK_DIR"] = str(task.path)
     env["AGENT_TOOLS_WORKSPACE"] = str(workspace)
+    env["AGENT_TOOLS_LIMITED_BASH_OUTPUT_TOKENS"] = str(limited_bash_output_tokens)
     if agent == "claude":
         env["CLAUDE_CODE_DISABLE_MOUSE"] = "1"
     if session_state.session_id:

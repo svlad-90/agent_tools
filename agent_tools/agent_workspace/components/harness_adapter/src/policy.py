@@ -22,6 +22,9 @@ from agent_tools.tools.task_context import ensure_database
 from agent_tools.tools.task_context import load_slots
 from agent_tools.tools.task_context import render_slots
 
+from .limited_bash import limited_bash_shell_command
+from .limited_bash import limit_from_env
+
 
 class AgentHookEvent(StrEnum):
     SESSION_START = "session_start"
@@ -273,7 +276,7 @@ def handle_adapter_event(
     if event is AgentHookEvent.PRE_TOOL_USE:
         _update_adapter_state(task_dir, agent_type, request.session_id, last_event=event.value, work_observed_since_prompt=True)
         _emit(task_dir, agent_type, request.session_id, HarnessStatusEvent.TOOL_STARTED, AGENT_TOOL_MARKER, "Tool use started.", hook_event=event, tool_name=tool_name, tool_detail=tool_detail, outcome="started")
-        return None
+        return _limited_bash_pre_tool_output(task_dir, request)
     if event is AgentHookEvent.POST_TOOL_USE:
         _update_adapter_state(task_dir, agent_type, request.session_id, last_event=event.value, work_observed_since_prompt=True)
         _refresh_journal_flag(task_dir, agent_type, request.session_id)
@@ -698,6 +701,58 @@ def _request_tool_detail(request: _HookRequest) -> str:
             if detail:
                 return detail
     return ""
+
+
+def _limited_bash_pre_tool_output(
+    task_dir: Path,
+    request: _HookRequest,
+) -> HookOutput:
+    tool_name = _request_tool_name(request)
+    if tool_name is None or tool_name.casefold() != "bash":
+        return None
+    tool_input = _request_tool_input(request)
+    if tool_input is None:
+        return None
+    command = tool_input.get("command")
+    if not isinstance(command, str) or not command.strip():
+        return None
+    if "agent_tools.agent_workspace.components.harness_adapter.limited_bash" in command:
+        return None
+    updated_input = dict(tool_input)
+    updated_input["command"] = limited_bash_shell_command(
+        command,
+        limit=limit_from_env(),
+        cwd=_request_cwd(request) or _workspace_for_task(task_dir),
+    )
+    return {
+        "hookSpecificOutput": {
+            "hookEventName": "PreToolUse",
+            "permissionDecision": "allow",
+            "updatedInput": updated_input,
+        }
+    }
+
+
+def _request_tool_input(request: _HookRequest) -> dict[str, Any] | None:
+    for key in ("tool_input", "toolInput", "input", "arguments", "parameters"):
+        value = request.payload.get(key)
+        if isinstance(value, dict):
+            return value
+    tool = request.payload.get("tool")
+    if isinstance(tool, dict):
+        for key in ("input", "arguments", "parameters"):
+            value = tool.get(key)
+            if isinstance(value, dict):
+                return value
+    return None
+
+
+def _request_cwd(request: _HookRequest) -> Path | None:
+    for key in ("cwd", "currentWorkingDirectory", "working_directory", "workingDirectory"):
+        value = request.payload.get(key)
+        if isinstance(value, str) and value:
+            return Path(value)
+    return request.workspace
 
 
 def _request_source(request: _HookRequest) -> str:

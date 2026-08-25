@@ -31,6 +31,7 @@ AGENT_WORKSPACE_DEFAULT_CLAUDE_EFFORT = "medium"
 AGENT_WORKSPACE_DEFAULT_CLAUDE_PERMISSION_MODE = "auto"
 AGENT_WORKSPACE_DEFAULT_CODEX_ANIMATIONS_ENABLED = False
 AGENT_WORKSPACE_DEFAULT_CLAUDE_ANIMATIONS_ENABLED = False
+AGENT_WORKSPACE_DEFAULT_LIMITED_BASH_OUTPUT_TOKENS = 2_000
 AGENT_WORKSPACE_CODEX_MODEL_FALLBACKS = (
     "gpt-5.6-sol",
     "gpt-5.6-sol-wm",
@@ -72,6 +73,7 @@ class AgentWorkspaceRuntimeSettings:
     default_claude_effort: str
     codex_animations_enabled: bool
     claude_animations_enabled: bool
+    limited_bash_output_tokens: int
     inject_task_context_prompt: bool
     task_dictionary_auto_discovery: bool
     task_dictionary_min_occurrences: int
@@ -227,6 +229,13 @@ def agent_workspace_runtime_settings(
             "claude_animations_enabled",
             AGENT_WORKSPACE_DEFAULT_CLAUDE_ANIMATIONS_ENABLED,
         ),
+        limited_bash_output_tokens=_int_range_setting(
+            settings,
+            "limited_bash_output_tokens",
+            AGENT_WORKSPACE_DEFAULT_LIMITED_BASH_OUTPUT_TOKENS,
+            100,
+            200_000,
+        ),
         inject_task_context_prompt=_bool_setting(
             settings,
             "inject_task_context_prompt",
@@ -334,6 +343,11 @@ def load_agent_workspace_settings(path: Path | None = None) -> dict[str, int | f
     default_claude_effort = data.get("default_claude_effort")
     codex_animations_enabled = data.get("codex_animations_enabled")
     claude_animations_enabled = data.get("claude_animations_enabled")
+    limited_bash_output_tokens = data.get("limited_bash_output_tokens")
+    if not isinstance(limited_bash_output_tokens, int) or isinstance(limited_bash_output_tokens, bool):
+        legacy_chars = data.get("limited_bash_output_chars")
+        if isinstance(legacy_chars, int) and not isinstance(legacy_chars, bool):
+            limited_bash_output_tokens = (legacy_chars + 3) // 4
     inject_task_context_prompt = data.get("inject_task_context_prompt")
     task_dictionary_auto_discovery = data.get("task_dictionary_auto_discovery")
     task_dictionary_min_occurrences = data.get("task_dictionary_min_occurrences")
@@ -378,6 +392,7 @@ def load_agent_workspace_settings(path: Path | None = None) -> dict[str, int | f
         ("task_dictionary_min_saving", task_dictionary_min_saving, 0, 10_000),
         ("task_dictionary_min_term_length", task_dictionary_min_term_length, 1, 200),
         ("task_dictionary_max_term_words", task_dictionary_max_term_words, 1, 20),
+        ("limited_bash_output_tokens", limited_bash_output_tokens, 100, 200_000),
     ):
         if isinstance(value, int) and not isinstance(value, bool):
             settings[key] = max(minimum, min(maximum, value))

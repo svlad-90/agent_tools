@@ -325,6 +325,7 @@ class WorkspaceGtkGui:
         self.default_claude_effort = settings.default_claude_effort
         self.codex_animations_enabled = settings.codex_animations_enabled
         self.claude_animations_enabled = settings.claude_animations_enabled
+        self.limited_bash_output_tokens = settings.limited_bash_output_tokens
         self.inject_task_context_prompt = settings.inject_task_context_prompt
         self.task_dictionary_auto_discovery = settings.task_dictionary_auto_discovery
         self.task_dictionary_min_occurrences = settings.task_dictionary_min_occurrences
@@ -2306,6 +2307,8 @@ class WorkspaceGtkGui:
         codex_reasoning_combo = Gtk.ComboBoxText()
         codex_animations_check = Gtk.CheckButton()
         codex_animations_check.set_active(self.codex_animations_enabled)
+        limited_bash_output_tokens = Gtk.SpinButton.new_with_range(100, 200_000, 100)
+        limited_bash_output_tokens.set_value(self.limited_bash_output_tokens)
         claude_model_combo = Gtk.ComboBoxText()
         claude_effort_combo = Gtk.ComboBoxText()
         claude_animations_check = Gtk.CheckButton()
@@ -2438,6 +2441,7 @@ class WorkspaceGtkGui:
                 ]
             )
         general_rows.append((self._tr("codex_animations_enabled"), codex_animations_check))
+        general_rows.append((self._tr("limited_bash_output_tokens"), limited_bash_output_tokens))
         general_rows.append((agent_label("claude"), None))
         if claude_models is not None:
             general_rows.extend(
@@ -2539,6 +2543,7 @@ class WorkspaceGtkGui:
                 self.default_claude_effort = claude_effort_combo.get_active_text() or ""
             self.codex_animations_enabled = codex_animations_check.get_active()
             self.claude_animations_enabled = claude_animations_check.get_active()
+            self.limited_bash_output_tokens = int(limited_bash_output_tokens.get_value())
             self.task_dictionary_auto_discovery = dictionary_auto.get_active()
             self.task_dictionary_min_occurrences = int(dictionary_min_occurrences.get_value())
             self.task_dictionary_min_saving = int(dictionary_min_saving.get_value())
@@ -3892,7 +3897,15 @@ class WorkspaceGtkGui:
             include_task_check=True,
         )
         run_id = new_agent_session_id()
-        env = ai_agent_environment(os.environ.copy(), task, self.workspace, agent, launch.session_state, run_id=run_id)
+        env = ai_agent_environment(
+            os.environ.copy(),
+            task,
+            self.workspace,
+            agent,
+            launch.session_state,
+            run_id=run_id,
+            limited_bash_output_tokens=self.limited_bash_output_tokens,
+        )
         for session in self._current_task_terminal_sessions(task):
             if session.kind == agent:
                 self._activate_terminal(session.session_id)
@@ -5650,6 +5663,7 @@ class WorkspaceGtkGui:
                 "default_claude_effort": self.default_claude_effort,
                 "codex_animations_enabled": self.codex_animations_enabled,
                 "claude_animations_enabled": self.claude_animations_enabled,
+                "limited_bash_output_tokens": self.limited_bash_output_tokens,
                 "inject_task_context_prompt": self.inject_task_context_prompt,
                 "task_dictionary_auto_discovery": self.task_dictionary_auto_discovery,
                 "task_dictionary_min_occurrences": self.task_dictionary_min_occurrences,
