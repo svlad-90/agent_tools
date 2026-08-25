@@ -73,7 +73,9 @@ def test_gtk_artifact_delete_paths_include_hidden_group_files(tmp_path: Path) ->
         "report/puml/flow.puml": "@startuml",
     }
     for rel_path, content in files.items():
-        (task / rel_path).write_text(content, encoding="utf-8")
+        path = task / rel_path
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(content, encoding="utf-8")
     summary = TaskSummary("sample-task", task, True, True, 1, 1, False)
 
     def rels(paths: list[Path]) -> list[str]:

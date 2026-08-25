@@ -1,0 +1,36 @@
+name: agent-workspace-tests
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/agent-workspace-tests.yml"
+      - "agent_tools/agent_workspace/**"
+      - "agent_tools/paf_workspace/**"
+      - "agent_tools/tools/requirements/**"
+      - "agent_tools/tools/task_context/**"
+  pull_request:
+    paths:
+      - ".github/workflows/agent-workspace-tests.yml"
+      - "agent_tools/agent_workspace/**"
+      - "agent_tools/paf_workspace/**"
+      - "agent_tools/tools/requirements/**"
+      - "agent_tools/tools/task_context/**"
+  workflow_dispatch:
+
+jobs:
+  component-tests:
+    name: component tests
+    runs-on: ubuntu-24.04
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Run Agent Workspace component tests
+        run: |
+          agent_tools/paf_workspace/run-paf.sh \
+            agent_tools/paf_workspace/domains/environments/scenarios/agent-workspace-tests.xml \
+            validate \
+            --yaml-config agent_tools/paf_workspace/domains/environments/profiles/agent-workspace-tests.yaml

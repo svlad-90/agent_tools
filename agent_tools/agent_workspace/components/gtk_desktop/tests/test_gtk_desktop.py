@@ -309,20 +309,21 @@ def test_gtk_artifact_load_restores_scroll_when_focus_disappears(
     gui = WorkspaceGtkGui.__new__(WorkspaceGtkGui)
     gui.artifact_store = Gtk.TreeStore(str, str, object, bool, str)
     gui.artifact_view = FakeArtifactTreeView()
-    gui.artifacts_page = FakeArtifactPage(FakeArtifactAdjustment(42.0))
+    gui.artifacts_scrolled = FakeArtifactPage(FakeArtifactAdjustment(42.0))
     gui.artifact_sort_column = "name"
     gui.artifact_sort_descending = False
     gui._tr = lambda key: key  # type: ignore[method-assign]
     monkeypatch.setattr(gtk_ui_module.GLib, "idle_add", lambda callback, *args: callback(*args))
 
     gui._load_task_artifacts(summary)
+    gui.artifacts_scrolled.adjustment.set_values.clear()
     gui.artifact_view.cursor_path = "0:0"
     artifact.unlink()
 
     gui._load_task_artifacts(summary)
 
     assert gui.artifact_view.set_cursor_calls == []
-    assert gui.artifacts_page.adjustment.set_values == [42.0]
+    assert gui.artifacts_scrolled.adjustment.set_values == [42.0]
 
 
 def test_gtk_artifact_text_filter_matches_names_and_relative_paths(tmp_path: Path) -> None:
