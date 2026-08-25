@@ -556,6 +556,9 @@ class WorkspaceGtkGui:
         self.artifact_text_filter.set_placeholder_text(self._tr("artifact_filter_placeholder"))
         self.artifact_text_filter.connect("search-changed", self._on_artifact_filter_changed)
         controls.pack_start(self.artifact_text_filter, True, True, 0)
+        self.artifact_extension_filter = Gtk.ComboBoxText()
+        self.artifact_extension_filter.connect("changed", self._on_artifact_filter_changed)
+        controls.pack_start(self.artifact_extension_filter, False, False, 0)
         self.artifact_store = Gtk.TreeStore(str, str, object, bool, str)
         self.artifact_view = Gtk.TreeView(model=self.artifact_store)
         self.artifact_view.set_enable_search(False)
@@ -1140,6 +1143,7 @@ class WorkspaceGtkGui:
         expanded_groups = self._artifact_expanded_group_ids()
         focus_identity = self._artifact_focus_identity()
         scroll_value = self._artifact_scroll_value()
+        self._refresh_artifact_extension_filter(task)
         self.artifact_store.clear()
         groups = {
             "logs": self.artifact_store.append(None, [self._tr("logs"), "", "logs", True, ""]),
@@ -1165,6 +1169,9 @@ class WorkspaceGtkGui:
             sort_column=self.artifact_sort_column,
             descending=self.artifact_sort_descending,
         )
+        extension = self._artifact_extension_filter_value()
+        if extension is not None:
+            entries = [entry for entry in entries if entry.path.suffix.casefold() == extension]
         query = self._artifact_text_filter_query()
         if query:
             entries = [
@@ -1180,6 +1187,40 @@ class WorkspaceGtkGui:
         if text_filter is None:
             return ""
         return text_filter.get_text().strip().casefold()
+
+    def _artifact_extension_filter_value(self) -> str | None:
+        extension_filter = getattr(self, "artifact_extension_filter", None)
+        if extension_filter is None:
+            return None
+        active_id = extension_filter.get_active_id()
+        if not active_id or active_id == "all":
+            return None
+        return active_id
+
+    def _refresh_artifact_extension_filter(self, task: TaskSummary) -> None:
+        extension_filter = getattr(self, "artifact_extension_filter", None)
+        if extension_filter is None:
+            return
+        current = self._artifact_extension_filter_value()
+        extensions = sorted(
+            {
+                entry.path.suffix.casefold()
+                for entry in _task_artifact_entries(task)
+                if entry.path.suffix
+            }
+        )
+        extension_filter.handler_block_by_func(self._on_artifact_filter_changed)
+        try:
+            extension_filter.remove_all()
+            extension_filter.append("all", self._tr("artifact_extension_all"))
+            for extension in extensions:
+                extension_filter.append(extension, extension)
+            if current in extensions:
+                extension_filter.set_active_id(current)
+            else:
+                extension_filter.set_active_id("all")
+        finally:
+            extension_filter.handler_unblock_by_func(self._on_artifact_filter_changed)
 
     def _on_artifact_filter_changed(self, *_args: object) -> None:
         if self.selected_task is not None and self._artifacts_tab_active():

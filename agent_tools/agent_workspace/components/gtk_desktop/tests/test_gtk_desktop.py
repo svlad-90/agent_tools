@@ -256,6 +256,31 @@ class FakeArtifactTextFilter:
         return self.text
 
 
+class FakeArtifactExtensionFilter:
+    def __init__(self, active_id: str | None = None) -> None:
+        self.active_id = active_id
+        self.items: list[tuple[str, str]] = []
+        self.blocked = False
+
+    def get_active_id(self) -> str | None:
+        return self.active_id
+
+    def handler_block_by_func(self, _func: object) -> None:
+        self.blocked = True
+
+    def handler_unblock_by_func(self, _func: object) -> None:
+        self.blocked = False
+
+    def remove_all(self) -> None:
+        self.items.clear()
+
+    def append(self, item_id: str, label: str) -> None:
+        self.items.append((item_id, label))
+
+    def set_active_id(self, item_id: str) -> None:
+        self.active_id = item_id
+
+
 def test_gtk_artifact_load_restores_scroll_when_focus_disappears(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -312,6 +337,57 @@ def test_gtk_artifact_text_filter_matches_names_and_relative_paths(tmp_path: Pat
     logs_iter = gui.artifact_store.iter_nth_child(None, 0)
     assert gui.artifact_store.iter_n_children(logs_iter) == 1
     assert gui.artifact_store[gui.artifact_store.iter_children(logs_iter)][0] == "runtime.log"
+
+
+def test_gtk_artifact_extension_filter_limits_rows(tmp_path: Path) -> None:
+    task = tmp_path / "tasks" / "sample-task"
+    (task / "report" / "diff").mkdir(parents=True)
+    (task / "report" / "logs").mkdir(parents=True)
+    (task / "report" / "diff" / "review.html").write_text("<html>", encoding="utf-8")
+    (task / "report" / "logs" / "runtime.log").write_text("log", encoding="utf-8")
+    (task / "report" / "notes.md").write_text("notes", encoding="utf-8")
+    summary = TaskSummary("sample-task", task, True, True, 1, 1, False)
+    gui = WorkspaceGtkGui.__new__(WorkspaceGtkGui)
+    gui.artifact_store = Gtk.TreeStore(str, str, object, bool, str)
+    gui.artifact_view = FakeArtifactTreeView()
+    gui.artifact_text_filter = FakeArtifactTextFilter("")
+    gui.artifact_extension_filter = FakeArtifactExtensionFilter(".md")
+    gui.artifact_sort_column = "name"
+    gui.artifact_sort_descending = False
+    gui._tr = lambda key: key  # type: ignore[method-assign]
+
+    gui._load_task_artifacts(summary)
+
+    artifacts_iter = gui.artifact_store.iter_nth_child(None, 3)
+    assert gui.artifact_store.iter_n_children(artifacts_iter) == 1
+    assert gui.artifact_store[gui.artifact_store.iter_children(artifacts_iter)][0] == "notes.md"
+    assert gui.artifact_store.iter_n_children(gui.artifact_store.iter_nth_child(None, 0)) == 0
+    assert gui.artifact_extension_filter.items == [
+        ("all", "artifact_extension_all"),
+        (".html", ".html"),
+        (".log", ".log"),
+        (".md", ".md"),
+    ]
+
+
+def test_gtk_artifact_extension_filter_resets_missing_extension(tmp_path: Path) -> None:
+    task = tmp_path / "tasks" / "sample-task"
+    (task / "report").mkdir(parents=True)
+    (task / "report" / "notes.md").write_text("notes", encoding="utf-8")
+    summary = TaskSummary("sample-task", task, True, True, 1, 1, False)
+    gui = WorkspaceGtkGui.__new__(WorkspaceGtkGui)
+    gui.artifact_store = Gtk.TreeStore(str, str, object, bool, str)
+    gui.artifact_view = FakeArtifactTreeView()
+    gui.artifact_text_filter = FakeArtifactTextFilter("")
+    gui.artifact_extension_filter = FakeArtifactExtensionFilter(".html")
+    gui.artifact_sort_column = "name"
+    gui.artifact_sort_descending = False
+    gui._tr = lambda key: key  # type: ignore[method-assign]
+
+    gui._load_task_artifacts(summary)
+
+    assert gui.artifact_extension_filter.active_id == "all"
+    assert gui.artifact_store.iter_n_children(gui.artifact_store.iter_nth_child(None, 3)) == 1
 
 
 def test_gtk_dictionary_preview_shows_char_counts_with_dictionary() -> None:
