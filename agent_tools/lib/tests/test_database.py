@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 from pathlib import Path
+import sqlite3
+
+import pytest
 
 from agent_tools.lib.database import TASK_CONTEXT_DATABASE_FILENAME
 from agent_tools.lib.database import TASK_DATABASE_BUSY_TIMEOUT_MS
@@ -18,6 +21,14 @@ def test_connect_task_database_sets_busy_timeout(tmp_path: Path) -> None:
         timeout = connection.execute("PRAGMA busy_timeout").fetchone()[0]
 
     assert timeout == TASK_DATABASE_BUSY_TIMEOUT_MS
+
+
+def test_connect_task_database_closes_after_context(tmp_path: Path) -> None:
+    with connect_task_database(tmp_path) as connection:
+        connection.execute("SELECT 1")
+
+    with pytest.raises(sqlite3.ProgrammingError):
+        connection.execute("SELECT 1")
 
 
 def test_configure_task_database_schema_uses_wal(tmp_path: Path) -> None:
