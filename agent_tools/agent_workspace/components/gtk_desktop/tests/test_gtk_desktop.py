@@ -2250,7 +2250,7 @@ def test_gtk_translates_agent_and_manual_labels() -> None:
     assert GTK_TRANSLATIONS["uk"]["manual_status_section"] == "Статуси в колонці ШІ"
     assert GTK_TRANSLATIONS["ru"]["manual_status_label_waiting"] == "Ожидает"
     assert GTK_TRANSLATIONS["ru"]["manual_status_label_prompt"] == "Активен"
-    assert GTK_TRANSLATIONS["ru"]["manual_status_label_tool"] == "Инструмент"
+    assert GTK_TRANSLATIONS["ru"]["manual_status_label_tool"] == "Работа"
     assert GTK_TRANSLATIONS["ru"]["manual_status_label_interrupted"] == "Прервано"
     assert GTK_TRANSLATIONS["uk"]["task_agent_status_column"] == "ШІ"
     assert GTK_TRANSLATIONS["uk"]["ai_debug_tab"] == "ШІ дебаг"

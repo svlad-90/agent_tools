@@ -110,7 +110,7 @@ def test_agent_status_tooltip_explains_visible_markers_compactly() -> None:
     assert agent_status_tooltip_text("Ⅱ") == "Сессию можно продолжить"
     assert agent_status_tooltip_text("□") == "Нет сохраненной сессии"
     assert agent_status_tooltip_text("▸") == "Агент активен или готов продолжать"
-    assert agent_status_tooltip_text("◆") == "Инструмент выполняется"
+    assert agent_status_tooltip_text("◆") == "Инструмент или compact checkpoint"
     assert agent_status_tooltip_text("○") == "Агент прерван вручную"
     assert agent_status_tooltip_text("×") == "Задача занята другим окном"
 
