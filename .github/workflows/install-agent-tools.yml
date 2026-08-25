@@ -2,6 +2,8 @@ name: install-agent-tools
 
 on:
   push:
+    branches:
+      - main
     paths:
       - ".github/workflows/install-agent-tools.yml"
       - "install-agent-tools.py"
@@ -161,11 +163,6 @@ jobs:
             image: archlinux:latest
             bootstrap: pacman -Sy --noconfirm ca-certificates python
             python: python3
-          - distro: opensuse-leap-15.6
-            image: opensuse/leap:15.6
-            bootstrap: zypper --gpg-auto-import-keys --non-interactive refresh && zypper --non-interactive install ca-certificates python311 python311-pip
-            python: python3.11
-
     steps:
       - name: Check out repository
         uses: actions/checkout@v4

@@ -2,6 +2,8 @@ name: commit-msg
 
 on:
   push:
+    branches:
+      - main
     paths:
       - ".github/workflows/commit-msg.yml"
       - "agent_tools/tools/commit_msg/**"

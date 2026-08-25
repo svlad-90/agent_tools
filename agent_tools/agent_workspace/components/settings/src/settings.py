@@ -29,6 +29,8 @@ AGENT_WORKSPACE_DEFAULT_CODEX_REASONING = "medium"
 AGENT_WORKSPACE_DEFAULT_CLAUDE_MODEL = "sonnet"
 AGENT_WORKSPACE_DEFAULT_CLAUDE_EFFORT = "medium"
 AGENT_WORKSPACE_DEFAULT_CLAUDE_PERMISSION_MODE = "auto"
+AGENT_WORKSPACE_DEFAULT_CODEX_ANIMATIONS_ENABLED = False
+AGENT_WORKSPACE_DEFAULT_CLAUDE_ANIMATIONS_ENABLED = False
 AGENT_WORKSPACE_CODEX_MODEL_FALLBACKS = (
     "gpt-5.6-sol",
     "gpt-5.6-sol-wm",
@@ -68,6 +70,8 @@ class AgentWorkspaceRuntimeSettings:
     default_codex_reasoning: str
     default_claude_model: str
     default_claude_effort: str
+    codex_animations_enabled: bool
+    claude_animations_enabled: bool
     inject_task_context_prompt: bool
     task_dictionary_auto_discovery: bool
     task_dictionary_min_occurrences: int
@@ -213,6 +217,16 @@ def agent_workspace_runtime_settings(
         default_claude_effort=agent_workspace_setting_or_default(
             settings, "default_claude_effort", AGENT_WORKSPACE_DEFAULT_CLAUDE_EFFORT
         ),
+        codex_animations_enabled=_bool_setting(
+            settings,
+            "codex_animations_enabled",
+            AGENT_WORKSPACE_DEFAULT_CODEX_ANIMATIONS_ENABLED,
+        ),
+        claude_animations_enabled=_bool_setting(
+            settings,
+            "claude_animations_enabled",
+            AGENT_WORKSPACE_DEFAULT_CLAUDE_ANIMATIONS_ENABLED,
+        ),
         inject_task_context_prompt=_bool_setting(
             settings,
             "inject_task_context_prompt",
@@ -318,6 +332,8 @@ def load_agent_workspace_settings(path: Path | None = None) -> dict[str, int | f
     default_codex_reasoning = data.get("default_codex_reasoning")
     default_claude_model = data.get("default_claude_model")
     default_claude_effort = data.get("default_claude_effort")
+    codex_animations_enabled = data.get("codex_animations_enabled")
+    claude_animations_enabled = data.get("claude_animations_enabled")
     inject_task_context_prompt = data.get("inject_task_context_prompt")
     task_dictionary_auto_discovery = data.get("task_dictionary_auto_discovery")
     task_dictionary_min_occurrences = data.get("task_dictionary_min_occurrences")
@@ -349,6 +365,10 @@ def load_agent_workspace_settings(path: Path | None = None) -> dict[str, int | f
         settings["default_claude_model"] = default_claude_model.strip()
     if isinstance(default_claude_effort, str) and default_claude_effort in AGENT_WORKSPACE_REASONING_EFFORTS:
         settings["default_claude_effort"] = default_claude_effort
+    if isinstance(codex_animations_enabled, bool):
+        settings["codex_animations_enabled"] = codex_animations_enabled
+    if isinstance(claude_animations_enabled, bool):
+        settings["claude_animations_enabled"] = claude_animations_enabled
     if isinstance(inject_task_context_prompt, bool):
         settings["inject_task_context_prompt"] = inject_task_context_prompt
     if isinstance(task_dictionary_auto_discovery, bool):

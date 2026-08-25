@@ -2,6 +2,8 @@ name: diff-report
 
 on:
   push:
+    branches:
+      - main
     paths:
       - ".github/workflows/diff-report.yml"
       - "agent_tools/tools/diff_report/**"
