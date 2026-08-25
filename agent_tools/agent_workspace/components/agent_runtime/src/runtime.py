@@ -7,6 +7,7 @@ from typing import Any
 
 from agent_tools.paf_workspace.task_check import check_task
 from agent_tools.paf_workspace.task_check import render_text
+from agent_tools.tools.task_context import agent_visible_slots as agent_visible_task_context_slots
 from agent_tools.tools.task_context import load_slots as load_task_context_slots
 from agent_tools.tools.task_context import render_slots as render_task_context_slots
 
@@ -161,7 +162,7 @@ def active_task_context_prompt(task: Any) -> str:
     )
     try:
         rendered = render_task_context_slots(
-            load_task_context_slots(task.path),
+            agent_visible_task_context_slots(load_task_context_slots(task.path)),
             format_name="agent",
             task_dir=task.path,
         )

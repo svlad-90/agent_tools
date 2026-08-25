@@ -925,6 +925,10 @@ def render_slots(
     raise ValueError(f"unknown format: {format_name}")
 
 
+def agent_visible_slots(slots: Iterable[TaskContextSlot]) -> list[TaskContextSlot]:
+    return [slot for slot in slots if slot.category != "legacy"]
+
+
 def compact_context(
     task_dir: Path,
     *,
@@ -938,7 +942,7 @@ def compact_context(
 ) -> str:
     slots = load_slots(task_dir)
     if agent_context:
-        return render_slots(slots, format_name="agent", task_dir=task_dir)
+        return render_slots(agent_visible_slots(slots), format_name="agent", task_dir=task_dir)
     now = datetime.now().astimezone().isoformat(timespec="seconds")
     lines = [
         "# Task Context",

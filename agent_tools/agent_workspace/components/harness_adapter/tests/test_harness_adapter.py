@@ -129,7 +129,13 @@ def test_harness_adapter_postcompact_injects_current_task_slots(tmp_path: Path) 
     register_claude_adapter(registry)
 
     result = handle_claude_hook(
-        json.dumps({"hook_event_name": ClaudeHookEvent.POST_COMPACT.value, "task_dir": str(task_dir), "session_id": "s1"}),
+        json.dumps(
+            {
+                "hook_event_name": ClaudeHookEvent.POST_COMPACT.value,
+                "task_dir": str(task_dir),
+                "session_id": "s1",
+            }
+        ),
         registry=registry,
     )
 
@@ -138,6 +144,24 @@ def test_harness_adapter_postcompact_injects_current_task_slots(tmp_path: Path) 
     assert "Current task state from TASK_CONTEXT.sqlite3 is injected below" in additional_context
     assert "Test goal." in additional_context
     assert "Initial memory." in additional_context
+
+
+def test_harness_adapter_postcompact_does_not_inject_legacy_slot(tmp_path: Path) -> None:
+    task_dir = _task(tmp_path)
+    set_slot(task_dir, "legacy", "Old imported context.")
+    registry = ClaudeHookRegistry()
+    register_claude_adapter(registry)
+
+    result = handle_claude_hook(
+        json.dumps({"hook_event_name": ClaudeHookEvent.POST_COMPACT.value, "task_dir": str(task_dir), "session_id": "s1"}),
+        registry=registry,
+    )
+
+    assert result.exit_code == 0
+    additional_context = json.loads(result.stdout)["hookSpecificOutput"]["additionalContext"]
+    assert "Test goal." in additional_context
+    assert "Old imported context." not in additional_context
+    assert "| Legacy" not in additional_context
 
 
 def test_harness_adapter_codex_command_entrypoint_registers_default_adapter(tmp_path: Path) -> None:

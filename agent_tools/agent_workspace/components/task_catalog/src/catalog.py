@@ -7,6 +7,7 @@ from agent_tools.paf_workspace.task_check import check_task
 from agent_tools.paf_workspace.task_check import render_text
 from agent_tools.tools.task_actualize import actualize_task
 from agent_tools.tools.task_context import DATABASE_FILENAME as TASK_CONTEXT_DATABASE_FILE
+from agent_tools.tools.task_context import agent_visible_slots as agent_visible_task_context_slots
 from agent_tools.tools.task_context import filter_entries as filter_task_context_entries
 from agent_tools.tools.task_context import load_entries as load_task_context_entries
 from agent_tools.tools.task_context import load_slots as load_task_context_slots
@@ -99,7 +100,7 @@ def _task_context_tokens(task_path: Path) -> int:
 
 def _slot_context_tokens(task_path: Path) -> int:
     try:
-        slots = load_task_context_slots(task_path)
+        slots = agent_visible_task_context_slots(load_task_context_slots(task_path))
     except (OSError, ValueError):
         return 0
     if not slots:

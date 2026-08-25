@@ -16,6 +16,7 @@ from agent_tools.agent_workspace.components.agent_status.api import AGENT_RUNNIN
 from agent_tools.agent_workspace.components.agent_status.api import AGENT_TOOL_MARKER
 from agent_tools.paf_workspace.task_check import check_task
 from agent_tools.paf_workspace.task_check import render_text
+from agent_tools.tools.task_context import agent_visible_slots
 from agent_tools.tools.task_context import database_path
 from agent_tools.tools.task_context import ensure_database
 from agent_tools.tools.task_context import load_slots
@@ -364,7 +365,11 @@ def _session_start_message(task_dir: Path) -> str:
 
 
 def _post_compact_message(task_dir: Path) -> str:
-    rendered = render_slots(load_slots(task_dir), format_name="agent", task_dir=task_dir).strip()
+    rendered = render_slots(
+        agent_visible_slots(load_slots(task_dir)),
+        format_name="agent",
+        task_dir=task_dir,
+    ).strip()
     header = (
         "Compaction completed. Current task state from TASK_CONTEXT.sqlite3 is injected below. "
         "Treat these slots as source of truth; if a detail is missing or truncated, query TASK_CONTEXT.sqlite3. "
