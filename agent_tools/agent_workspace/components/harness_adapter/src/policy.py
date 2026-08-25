@@ -11,6 +11,9 @@ from time import time_ns
 from typing import Any, Protocol
 from uuid import uuid4
 
+from agent_tools.agent_workspace.components.agent_status.api import AGENT_PROMPT_MARKER
+from agent_tools.agent_workspace.components.agent_status.api import AGENT_RUNNING_READY_MARKER
+from agent_tools.agent_workspace.components.agent_status.api import AGENT_TOOL_MARKER
 from agent_tools.paf_workspace.task_check import check_task
 from agent_tools.paf_workspace.task_check import render_text
 from agent_tools.tools.task_context import database_path
@@ -260,22 +263,22 @@ def handle_adapter_event(
             work_observed_since_prompt=False,
             journal_updated_since_prompt=False,
         )
-        _emit(task_dir, agent_type, request.session_id, HarnessStatusEvent.USER_PROMPT_RECEIVED, "▶", "User prompt observed.", hook_event=event, outcome="observed")
+        _emit(task_dir, agent_type, request.session_id, HarnessStatusEvent.USER_PROMPT_RECEIVED, AGENT_PROMPT_MARKER, "User prompt observed.", hook_event=event, outcome="observed")
         return None
     if event is AgentHookEvent.PRE_TOOL_USE:
         _update_adapter_state(task_dir, agent_type, request.session_id, last_event=event.value, work_observed_since_prompt=True)
-        _emit(task_dir, agent_type, request.session_id, HarnessStatusEvent.TOOL_STARTED, "⚙", "Tool use started.", hook_event=event, tool_name=tool_name, tool_detail=tool_detail, outcome="started")
+        _emit(task_dir, agent_type, request.session_id, HarnessStatusEvent.TOOL_STARTED, AGENT_TOOL_MARKER, "Tool use started.", hook_event=event, tool_name=tool_name, tool_detail=tool_detail, outcome="started")
         return None
     if event is AgentHookEvent.POST_TOOL_USE:
         _update_adapter_state(task_dir, agent_type, request.session_id, last_event=event.value, work_observed_since_prompt=True)
         _refresh_journal_flag(task_dir, agent_type, request.session_id)
-        _emit(task_dir, agent_type, request.session_id, HarnessStatusEvent.TOOL_FINISHED, "▷", "Tool use finished.", hook_event=event, tool_name=tool_name, tool_detail=tool_detail, outcome="finished")
+        _emit(task_dir, agent_type, request.session_id, HarnessStatusEvent.TOOL_FINISHED, AGENT_RUNNING_READY_MARKER, "Tool use finished.", hook_event=event, tool_name=tool_name, tool_detail=tool_detail, outcome="finished")
         return None
     if event is AgentHookEvent.PRE_COMPACT:
         return _handle_pre_compact(task_dir, agent_type, request.session_id)
     if event is AgentHookEvent.POST_COMPACT:
         _update_adapter_state(task_dir, agent_type, request.session_id, last_event=event.value)
-        _emit(task_dir, agent_type, request.session_id, HarnessStatusEvent.COMPACT_FINISHED, "🧠", "Context injected after compact.", hook_event=event, outcome="injected")
+        _emit(task_dir, agent_type, request.session_id, HarnessStatusEvent.COMPACT_FINISHED, AGENT_TOOL_MARKER, "Context injected after compact.", hook_event=event, outcome="injected")
         return _post_compact_message(task_dir)
     if event is AgentHookEvent.STOP:
         return _handle_stop(task_dir, agent_type, request.session_id, format_stop_block=format_stop_block)
@@ -348,7 +351,7 @@ def _handle_pre_compact(task_dir: Path, agent_type: AgentType, session_id: str |
         )
         return None
 
-    _emit(task_dir, agent_type, session_id, HarnessStatusEvent.COMPACT_CHECKPOINT, "🧠", "PreCompact checkpoint passed.", hook_event=AgentHookEvent.PRE_COMPACT, outcome="allowed")
+    _emit(task_dir, agent_type, session_id, HarnessStatusEvent.COMPACT_CHECKPOINT, AGENT_TOOL_MARKER, "PreCompact checkpoint passed.", hook_event=AgentHookEvent.PRE_COMPACT, outcome="allowed")
     return None
 
 
