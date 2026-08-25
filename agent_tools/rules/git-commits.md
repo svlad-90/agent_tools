@@ -28,8 +28,8 @@ These rules apply to every repository under the workspace root.
    granted earlier in a long-running task, mention that permission before
    pushing so the user can stop or correct the push.
 
-   For Zephyr pull requests that used AI assistance, include an
-   `Assisted-by` trailer in the contribution metadata:
+   When an AI agent was used to write code for a commit, include an
+   `Assisted-by` trailer after the other contribution trailers:
 
    ```text
    Assisted-by: Codex:gpt-5 <specialized-tool>
@@ -38,6 +38,9 @@ These rules apply to every repository under the workspace root.
    Use the current agent and model name, and list only specialized analysis
    tools that materially assisted the contribution. Do not list basic
    development tools such as `git`, compilers, build systems, or editors.
+
+   For Zephyr pull requests that used AI assistance, the same `Assisted-by`
+   trailer is required in the contribution metadata.
 
 3. Paragraphs in the commit body are allowed. Do not add gratuitous blank
    lines that create empty paragraphs.
