@@ -4,7 +4,9 @@ Docker image source for the Agent Workspace test environment.
 
 The image contains the Python, Tk, GTK, and VTE dependencies required by the
 Agent Workspace component test tree under
-`agent_tools/agent_workspace/components`.
+`agent_tools/agent_workspace/components`. It also includes `xvfb-run` for GTK
+tests that must realize widgets and exercise event delivery through a real
+display connection.
 
 Build and run the validation through PAF:
 

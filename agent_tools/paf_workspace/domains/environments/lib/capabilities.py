@@ -56,6 +56,7 @@ CAPABILITY_REQUIREMENTS: dict[str, CapabilityRequirement] = {
             "python3-gi",
             "python3-pytest",
             "python3-tk",
+            "xvfb",
         ),
         python_imports=(
             "gi",
@@ -63,6 +64,7 @@ CAPABILITY_REQUIREMENTS: dict[str, CapabilityRequirement] = {
         ),
         commands=(
             "python3 -m pytest --version",
+            "xvfb-run --help",
         ),
     ),
 }
