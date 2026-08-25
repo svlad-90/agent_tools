@@ -90,6 +90,74 @@ def test_gtk_artifact_group_double_click_opens_group_folder(
     assert calls == [task / "report" / "logs"]
 
 
+class FakeArtifactTreeView:
+    def __init__(self) -> None:
+        self.expanded_paths: set[str] = set()
+        self.expand_all_calls = 0
+        self.expand_row_calls: list[str] = []
+        self.collapse_row_calls: list[str] = []
+
+    def row_expanded(self, tree_path: Gtk.TreePath) -> bool:
+        return tree_path.to_string() in self.expanded_paths
+
+    def expand_all(self) -> None:
+        self.expand_all_calls += 1
+
+    def expand_row(self, tree_path: Gtk.TreePath, _open_all: bool) -> None:
+        value = tree_path.to_string()
+        self.expanded_paths.add(value)
+        self.expand_row_calls.append(value)
+
+    def collapse_row(self, tree_path: Gtk.TreePath) -> None:
+        value = tree_path.to_string()
+        self.expanded_paths.discard(value)
+        self.collapse_row_calls.append(value)
+
+
+def test_gtk_artifact_load_expands_groups_on_first_load(tmp_path: Path) -> None:
+    task = tmp_path / "tasks" / "sample-task"
+    (task / "report" / "logs").mkdir(parents=True)
+    (task / "report" / "logs" / "runtime.log").write_text("log", encoding="utf-8")
+    summary = TaskSummary("sample-task", task, True, True, 1, 1, False)
+    gui = WorkspaceGtkGui.__new__(WorkspaceGtkGui)
+    gui.artifact_store = Gtk.TreeStore(str, str, object, bool, str)
+    gui.artifact_view = FakeArtifactTreeView()
+    gui.artifact_sort_column = "name"
+    gui.artifact_sort_descending = False
+    gui._tr = lambda key: key  # type: ignore[method-assign]
+
+    gui._load_task_artifacts(summary)
+
+    assert gui.artifact_view.expand_all_calls == 1
+
+
+def test_gtk_artifact_load_preserves_collapsed_groups(tmp_path: Path) -> None:
+    task = tmp_path / "tasks" / "sample-task"
+    (task / "report" / "logs").mkdir(parents=True)
+    (task / "report" / "puml").mkdir(parents=True)
+    (task / "report" / "logs" / "runtime.log").write_text("log", encoding="utf-8")
+    (task / "report" / "puml" / "flow.svg").write_text("<svg>", encoding="utf-8")
+    summary = TaskSummary("sample-task", task, True, True, 1, 1, False)
+    gui = WorkspaceGtkGui.__new__(WorkspaceGtkGui)
+    gui.artifact_store = Gtk.TreeStore(str, str, object, bool, str)
+    gui.artifact_view = FakeArtifactTreeView()
+    gui.artifact_sort_column = "name"
+    gui.artifact_sort_descending = False
+    gui._tr = lambda key: key  # type: ignore[method-assign]
+
+    gui._load_task_artifacts(summary)
+    gui.artifact_view.expand_all_calls = 0
+    gui.artifact_view.expanded_paths = {"1"}
+    gui.artifact_view.expand_row_calls.clear()
+    gui.artifact_view.collapse_row_calls.clear()
+
+    gui._load_task_artifacts(summary)
+
+    assert gui.artifact_view.expand_all_calls == 0
+    assert gui.artifact_view.expand_row_calls == ["1"]
+    assert set(gui.artifact_view.collapse_row_calls) == {"0", "2", "3"}
+
+
 def test_gtk_dictionary_preview_shows_char_counts_with_dictionary() -> None:
     path = "agent_workspace/components/gtk_desktop/tests/test_gtk_desktop.py"
     text = f"{path} validates settings. {path} validates preview. {path} validates counts."

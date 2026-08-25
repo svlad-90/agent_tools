@@ -1126,6 +1126,8 @@ class WorkspaceGtkGui:
             self._load_task_artifacts(self.selected_task)
 
     def _load_task_artifacts(self, task: TaskSummary) -> None:
+        had_rows = self.artifact_store.iter_n_children(None) > 0
+        expanded_groups = self._artifact_expanded_group_ids()
         self.artifact_store.clear()
         groups = {
             "logs": self.artifact_store.append(None, [self._tr("logs"), "", "logs", True, ""]),
@@ -1143,7 +1145,32 @@ class WorkspaceGtkGui:
                 groups[entry.group],
                 [entry.path.name, rel_path, entry.path, False, _artifact_updated_label(entry.updated)],
             )
-        self.artifact_view.expand_all()
+        if had_rows:
+            self._restore_artifact_expanded_groups(groups, expanded_groups)
+        else:
+            self.artifact_view.expand_all()
+
+    def _artifact_expanded_group_ids(self) -> set[str]:
+        expanded: set[str] = set()
+        row_iter = self.artifact_store.get_iter_first()
+        while row_iter is not None:
+            value = self.artifact_store[row_iter][2]
+            if isinstance(value, str) and self.artifact_view.row_expanded(self.artifact_store.get_path(row_iter)):
+                expanded.add(value)
+            row_iter = self.artifact_store.iter_next(row_iter)
+        return expanded
+
+    def _restore_artifact_expanded_groups(
+        self,
+        groups: dict[str, Gtk.TreeIter],
+        expanded_groups: set[str],
+    ) -> None:
+        for group, row_iter in groups.items():
+            tree_path = self.artifact_store.get_path(row_iter)
+            if group in expanded_groups:
+                self.artifact_view.expand_row(tree_path, False)
+            else:
+                self.artifact_view.collapse_row(tree_path)
 
     def _refresh_selected_task_artifacts(self, *_args: object) -> None:
         if self.selected_task is not None:
