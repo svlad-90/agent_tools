@@ -58,9 +58,12 @@ from ...commands.api import task_check_shell_command
 from ...harness_adapter.api import AgentType
 from ...harness_adapter.api import HarnessDebugEvent
 from ...harness_adapter.api import HarnessStatusEvent
+from ...harness_adapter.api import WorkspaceIpcEvent
+from ...harness_adapter.api import WorkspaceIpcServer
 from ...harness_adapter.api import clear_harness_debug_events
 from ...harness_adapter.api import load_harness_debug_events
 from ...harness_adapter.api import record_harness_status
+from ...harness_adapter.api import start_workspace_ipc_server
 from ...task_actions.api import add_task_shortcut as _add_task_shortcut
 from ...task_actions.api import bindings_for_action_run
 from ...task_actions.api import delete_parameter_set_value as _delete_parameter_set_value
@@ -306,6 +309,7 @@ class WorkspaceGtkGui:
         self.profiling_output_view: Gtk.TextView | None = None
         self.profiling_refresh_source_id: int | None = None
         self.profiling_paused_for_settings = False
+        self.workspace_ipc_server: WorkspaceIpcServer | None = None
         self.active_main_page: Gtk.Widget | None = None
 
         settings = agent_workspace_runtime_settings(load_agent_workspace_settings(), default_font_size=13)
@@ -399,6 +403,7 @@ class WorkspaceGtkGui:
         self.window.connect("key-press-event", self._on_window_key_press)
         self.window.connect("delete-event", self._on_window_delete_event)
         self.window.connect("destroy", self.close)
+        self.workspace_ipc_server = start_workspace_ipc_server(self.workspace, self._on_workspace_ipc_event)
         self._apply_window_geometry()
         self._build_ui()
         self._apply_css()
@@ -4059,6 +4064,9 @@ class WorkspaceGtkGui:
             self._refresh_ai_debug()
         return True
 
+    def _on_workspace_ipc_event(self, event: WorkspaceIpcEvent) -> None:
+        _ = event
+
     def _refresh_ai_debug(self) -> None:
         task = self.selected_task
         store = getattr(self, "ai_debug_store", None)
@@ -5359,6 +5367,10 @@ class WorkspaceGtkGui:
         if source_id is not None:
             GLib.source_remove(source_id)
             self.ai_debug_refresh_source_id = None
+        workspace_ipc_server = getattr(self, "workspace_ipc_server", None)
+        if workspace_ipc_server is not None:
+            workspace_ipc_server.close()
+            self.workspace_ipc_server = None
         if self.task_actions_monitor is not None:
             self.task_actions_monitor.cancel()
         self._close_all_terminal_sessions()

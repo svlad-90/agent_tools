@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import os
+
 from paf.paf_impl import CommunicationMode
 from paf.paf_impl import InteractionMode
 from paf.paf_impl import logger
@@ -88,7 +90,10 @@ class run_agent_workspace_tests(EnvironmentTask):
         self.set_name(run_agent_workspace_tests.__name__)
 
     def execute(self):
-        command = self.param("AGENT_WORKSPACE_TEST_COMMAND", AGENT_WORKSPACE_TEST_COMMAND)
+        command = self.param(
+            "AGENT_WORKSPACE_TEST_COMMAND",
+            os.environ.get("AGENT_WORKSPACE_TEST_COMMAND", AGENT_WORKSPACE_TEST_COMMAND),
+        )
         timeout = int(self.param("AGENT_WORKSPACE_TEST_TIMEOUT_SEC", str(AGENT_WORKSPACE_TEST_TIMEOUT_SEC)))
         self.docker_subprocess_must_succeed(
             self.environment_string("agent_workspace_tests", "container", "agent-workspace-tests-workspace"),
