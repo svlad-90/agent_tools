@@ -2,6 +2,8 @@ name: install-agent-tools
 
 on:
   push:
+    branches:
+      - main
     paths:
       - ".github/workflows/install-agent-tools.yml"
       - "install-agent-tools.py"
