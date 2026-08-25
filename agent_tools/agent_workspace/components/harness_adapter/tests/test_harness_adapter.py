@@ -181,7 +181,7 @@ def test_harness_adapter_precompact_logs_pending_claude_checkpoint_when_journal_
     assert events[-1].outcome == "pending"
 
 
-def test_harness_adapter_postcompact_injects_current_task_slots(tmp_path: Path) -> None:
+def test_harness_adapter_postcompact_defers_context_injection(tmp_path: Path) -> None:
     task_dir = _task(tmp_path)
     registry = ClaudeHookRegistry()
     register_claude_adapter(registry)
@@ -198,10 +198,7 @@ def test_harness_adapter_postcompact_injects_current_task_slots(tmp_path: Path) 
     )
 
     assert result.exit_code == 0
-    additional_context = json.loads(result.stdout)["hookSpecificOutput"]["additionalContext"]
-    assert "Current task state from TASK_CONTEXT.sqlite3 is injected below" in additional_context
-    assert "Test goal." in additional_context
-    assert "Initial memory." in additional_context
+    assert result.stdout == ""
 
 
 def test_harness_adapter_claude_context_injection_names_hook_event(tmp_path: Path) -> None:
@@ -225,14 +222,21 @@ def test_harness_adapter_claude_context_injection_names_hook_event(tmp_path: Pat
     assert "Agent Workspace session started" in hook_output["additionalContext"]
 
 
-def test_harness_adapter_postcompact_does_not_inject_legacy_slot(tmp_path: Path) -> None:
+def test_harness_adapter_compacted_session_start_does_not_inject_legacy_slot(tmp_path: Path) -> None:
     task_dir = _task(tmp_path)
     set_slot(task_dir, "legacy", "Old imported context.")
     registry = ClaudeHookRegistry()
     register_claude_adapter(registry)
 
     result = handle_claude_hook(
-        json.dumps({"hook_event_name": ClaudeHookEvent.POST_COMPACT.value, "task_dir": str(task_dir), "session_id": "s1"}),
+        json.dumps(
+            {
+                "hook_event_name": ClaudeHookEvent.SESSION_START.value,
+                "task_dir": str(task_dir),
+                "session_id": "s1",
+                "source": "compact",
+            }
+        ),
         registry=registry,
     )
 
@@ -428,10 +432,11 @@ def test_harness_adapter_records_context_injection_points(tmp_path: Path) -> Non
     _codex(registry, task_dir, CodexHookEvent.SESSION_START)
     _codex(registry, task_dir, CodexHookEvent.USER_PROMPT_SUBMIT)
     _codex(registry, task_dir, CodexHookEvent.POST_COMPACT)
+    _codex(registry, task_dir, CodexHookEvent.SESSION_START, extra={"source": "compact"})
     events = load_harness_debug_events(task_dir, session_id="s1")
 
     injected = [event for event in events if event.outcome == "injected"]
-    assert [event.hook_event for event in injected] == ["session_start", "post_compact"]
+    assert [event.hook_event for event in injected] == ["session_start", "session_start"]
     assert injected[0].icon == "●"
     assert all("injected" in event.message for event in injected)
 
@@ -503,9 +508,12 @@ def _task(tmp_path: Path) -> Path:
     return task_dir
 
 
-def _codex(registry: CodexHookRegistry, task_dir: Path, event: CodexHookEvent):
+def _codex(registry: CodexHookRegistry, task_dir: Path, event: CodexHookEvent, *, extra: dict[str, object] | None = None):
+    payload: dict[str, object] = {"hook_event_name": event.value, "task_dir": str(task_dir), "session_id": "s1"}
+    if extra:
+        payload.update(extra)
     return handle_codex_hook(
-        json.dumps({"hook_event_name": event.value, "task_dir": str(task_dir), "session_id": "s1"}),
+        json.dumps(payload),
         registry=registry,
     )
 
