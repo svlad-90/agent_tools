@@ -16,9 +16,11 @@ AGENT_WORKSPACE_TEST_COMMAND = """
 set -euo pipefail
 export PYTHONPATH=.:agent_tools
 export PYTHONUNBUFFERED=1
+echo "Agent Workspace component tests: start"
 timeout --foreground --signal=INT --kill-after=10s 300s \
   xvfb-run -a python3 -X faulthandler -m pytest -vv --maxfail=1 -ra \
   agent_tools/agent_workspace/components
+echo "Agent Workspace component tests: passed"
 """.strip()
 AGENT_WORKSPACE_TEST_TIMEOUT_SEC = 600
 AGENT_WORKSPACE_TESTS_TOOLS_CHECK_TIMEOUT_SEC = 120
