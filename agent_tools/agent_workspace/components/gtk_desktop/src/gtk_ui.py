@@ -103,15 +103,12 @@ from ...task_actions.api import load_task_actions
 from ...task_actions.api import load_task_actions_config
 from ...task_actions.api import load_task_actions_data
 from ...task_actions.api import save_task_actions_data
-from ...agent_status.api import AGENT_RUNNING_SPINNER_FRAMES
-from ...agent_status.api import agent_output_state_update
+from ...agent_status.api import agent_output_reports_missing_session
 from ...agent_status.api import agent_status_tooltip_text
-from ...agent_status.api import analyze_agent_output
 from ...agent_status.api import session_is_agent
 from ...agent_status.api import session_is_running_agent
 from ...agent_status.api import session_marks_task_pending_permission
 from ...agent_status.api import session_marks_task_running_agent
-from ...agent_status.api import session_should_clear_pending_permission
 from ...agent_status.api import task_agent_status_text
 from ...agent_status.api import task_for_path
 from ...settings.api import AgentModelSettings
@@ -123,6 +120,7 @@ from ...settings.api import AGENT_WORKSPACE_REASONING_EFFORTS
 from ...settings.api import AGENT_WORKSPACE_THEMES
 from ...localization.api import AGENT_STATUS_MANUAL_MENU_LABEL
 from ...localization.api import AGENT_STATUS_MANUAL_TITLE
+from ...process_runtime.api import abort_agent_workspace_with_stack_dump
 from ...process_runtime.api import acquire_agent_workspace_lock
 from ...settings.api import agent_executable
 from ...settings.api import agent_install_command
@@ -157,6 +155,7 @@ from ...task_context.api import load_task_context_slots as _load_task_context_sl
 from ...task_context.api import render_task_context_slots as _render_task_context_slots
 from ...task_context.api import task_goal_slot_markdown as _task_goal_slot_markdown
 from ...markdown.api import render_markdown_chunks
+from .codex_terminal_mouse import CodexTerminalMouseStateMachine
 from .gtk_terminal import feed_terminal as _feed_terminal
 from .gtk_terminal import terminal_env as _terminal_env
 from .gtk_terminal import terminal_palette as _terminal_palette
@@ -211,7 +210,19 @@ _TASK_ACTIONS_MONITOR_EVENTS = {
     if event is not None
 }
 
-AGENT_BUSY_IDLE_DELAY_MS = 1800
+# X11 core event type codes. Gdk.Window.add_filter sees native events before
+# they are translated to populated Gdk.Event instances.
+_X11_MOTION_NOTIFY = 6
+_X11_ENTER_NOTIFY = 7
+_X11_LEAVE_NOTIFY = 8
+_X11_PASSIVE_POINTER_EVENT_TYPES = {
+    _X11_MOTION_NOTIFY,
+    _X11_ENTER_NOTIFY,
+    _X11_LEAVE_NOTIFY,
+}
+
+AGENT_RESTORE_OUTPUT_CHECK_MS = 1000
+AGENT_RESTORE_OUTPUT_CHECK_WINDOW_SECONDS = 12.0
 TASK_CONTEXT_DEFAULT_STATUS_FILTER = ("active",)
 
 
@@ -230,12 +241,12 @@ class TerminalSession:
     kind: str
     terminal: Vte.Terminal
     page: Gtk.Widget
+    terminal_mouse: CodexTerminalMouseStateMachine | None = None
     child_pid: int | None = None
     permission_pending: bool = False
     exited: bool = False
     busy: bool = False
     run_id: str | None = None
-    output_generation: int = 0
     permission_signature: str | None = None
     ignored_permission_signature: str | None = None
 
@@ -261,6 +272,8 @@ class WorkspaceGtkGui:
         self.task_action_play_buttons: dict[str, Gtk.Button] = {}
         self.task_action_item_widgets: dict[str, Gtk.Widget] = {}
         self.task_action_reflow_source_id: int | None = None
+        self.task_action_reflow_width: int | None = None
+        self.task_action_reflow_layout: tuple[int, tuple[tuple[str, ...], ...]] | None = None
         self.global_task_parameter_box: Gtk.FlowBox | None = None
         self.task_action_errors: list[str] = []
         self.status_message = ""
@@ -278,8 +291,18 @@ class WorkspaceGtkGui:
         self._refreshing_console_tabs = False
         self._updating_agent_selection = False
         self._updating_task_selection = False
-        self._agent_spinner_index = 0
         self._closing = False
+        self.hover_suppressed_widget_ids: set[int] = set()
+        self.codex_terminal_window_filters: dict[int, list[tuple[object, object]]] = {}
+        self.profiling_enabled = False
+        self.profiling_counts: dict[tuple[str, str], int] = {}
+        self.profiling_draw_area: dict[str, float] = {}
+        self.profiling_previous_draw_area: dict[str, float] = {}
+        self.profiling_previous_counts: dict[tuple[str, str], int] = {}
+        self.profiling_allocations: dict[str, tuple[int, int]] = {}
+        self.profiling_output_view: Gtk.TextView | None = None
+        self.profiling_refresh_source_id: int | None = None
+        self.profiling_paused_for_settings = False
         self.active_main_page: Gtk.Widget | None = None
 
         settings = agent_workspace_runtime_settings(load_agent_workspace_settings(), default_font_size=13)
@@ -376,15 +399,20 @@ class WorkspaceGtkGui:
         self._apply_css()
         self.refresh_tasks()
         self.ai_debug_refresh_source_id = GLib.timeout_add_seconds(1, self._refresh_ai_debug_if_visible)
-        GLib.timeout_add(120, self._animate_agent_status)
+        GLib.timeout_add_seconds(1, self._animate_agent_status)
 
     def _build_ui(self) -> None:
         root = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
         self.window.add(root)
+        self._profile_widget("window", self.window)
+        self._profile_widget("root", root)
+        self._disable_codex_console_boundary_tracking(self.window)
+        self._disable_codex_console_boundary_tracking(root)
 
         toolbar = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
         toolbar.set_border_width(6)
         root.pack_start(toolbar, False, False, 0)
+        self._profile_widget("toolbar", toolbar)
         toolbar.pack_start(self._button("settings", self.open_settings), False, False, 0)
         self.summary_label = Gtk.Label(label="")
         self.summary_label.set_xalign(0)
@@ -396,11 +424,16 @@ class WorkspaceGtkGui:
         main.connect("button-press-event", self._on_main_pane_button_press)
         main.connect("notify::position", self._on_main_pane_position_changed)
         main.connect("size-allocate", self._on_main_pane_size_allocate)
+        self._disable_codex_console_boundary_tracking(main)
         root.pack_start(main, True, True, 0)
 
         self.task_store = Gtk.ListStore(str, str, object, str, bool, str, bool, int, bool)
         self.task_view = Gtk.TreeView(model=self.task_store)
         self.task_view.set_enable_search(False)
+        self.task_view.set_hover_selection(False)
+        self.task_view.set_hover_expand(False)
+        self.task_view.set_rubber_banding(False)
+        self._disable_tree_hover_tracking(self.task_view)
         status_renderer = Gtk.CellRendererText()
         status_renderer.set_property("xalign", 0.5)
         self.task_status_header = Gtk.Label(label=self._tr("task_agent_status_column"))
@@ -426,17 +459,21 @@ class WorkspaceGtkGui:
         self.task_view.get_selection().connect("changed", self._on_task_selected)
         self.task_view.connect("key-press-event", self._on_task_view_key_press)
         self.task_view.connect("row-activated", lambda *_: self.open_task())
-        self.task_view.set_has_tooltip(True)
-        self.task_view.connect("query-tooltip", self._on_task_view_query_tooltip)
         self.task_view.add_events(Gdk.EventMask.BUTTON_PRESS_MASK)
         self.task_view.connect("button-press-event", self._on_task_view_button_press)
         task_scroll = Gtk.ScrolledWindow()
+        task_scroll.set_overlay_scrolling(False)
         task_scroll.set_min_content_width(360)
         task_scroll.add(self.task_view)
         main.pack1(task_scroll, resize=False, shrink=False)
+        self._profile_widget("main-pane", main)
+        self._profile_widget("task-scroll", task_scroll)
+        self._profile_widget("task-scroll-vbar", task_scroll.get_vscrollbar())
+        self._profile_widget("task-view", self.task_view)
 
         self.notebook = Gtk.Notebook()
         main.pack2(self.notebook, resize=True, shrink=False)
+        self._profile_widget("main-notebook", self.notebook)
         self._add_actions_tab()
         self._add_details_tab()
         self._add_artifacts_tab()
@@ -455,6 +492,9 @@ class WorkspaceGtkGui:
         self.context_view = _text_view(self.text_font_size, editable=False)
         self._register_detail_view(self.description_view, "goal")
         self.context_view.connect("button-release-event", self._on_context_view_button_release)
+        self._profile_widget("details-pane", pane)
+        self._profile_widget("description-view", self.description_view)
+        self._profile_widget("context-view", self.context_view)
         pane.pack1(_scrolled(self.description_view), resize=True, shrink=False)
         context_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
         context_box.set_border_width(4)
@@ -502,10 +542,12 @@ class WorkspaceGtkGui:
         label_popover.add(label_box)
         label_button.set_popover(label_popover)
         self.task_context_label_box = label_box
+        self._disable_action_hover_tracking(label_button)
         box.pack_start(label_button, False, False, 0)
 
         self.task_context_encoded_check = Gtk.CheckButton(label=self._tr("context_view_encoded"))
         self.task_context_encoded_check.connect("toggled", self._on_task_context_filter_changed)
+        self._disable_action_hover_tracking(self.task_context_encoded_check)
         box.pack_start(self.task_context_encoded_check, False, False, 0)
         box.pack_start(self._button("context_filter_clear", self._clear_task_context_filters), False, False, 0)
         self._update_task_context_date_buttons()
@@ -525,12 +567,15 @@ class WorkspaceGtkGui:
         all_check = Gtk.CheckButton(label=self._tr("context_filter_select_all"))
         all_check.set_active(True)
         all_check.connect("toggled", self._on_task_context_all_toggled, group, target)
+        self._disable_action_hover_tracking(button)
+        self._disable_action_hover_tracking(all_check)
         self.task_context_filter_all_checks[group] = all_check
         content.pack_start(all_check, False, False, 0)
         for value in values:
             check = Gtk.CheckButton(label=value)
             check.set_active(value in self._task_context_default_group_values(group, values))
             check.connect("toggled", self._on_task_context_item_toggled, group, target)
+            self._disable_action_hover_tracking(check)
             target[value] = check
             content.pack_start(check, False, False, 0)
         self._update_task_context_all_check(group, target)
@@ -542,6 +587,11 @@ class WorkspaceGtkGui:
     def _add_artifacts_tab(self) -> None:
         self.artifact_store = Gtk.TreeStore(str, str, object, bool, str)
         self.artifact_view = Gtk.TreeView(model=self.artifact_store)
+        self.artifact_view.set_enable_search(False)
+        self.artifact_view.set_hover_selection(False)
+        self.artifact_view.set_hover_expand(False)
+        self.artifact_view.set_rubber_banding(False)
+        self._disable_tree_hover_tracking(self.artifact_view)
         name_column = Gtk.TreeViewColumn(self._tr("artifacts"), Gtk.CellRendererText(), text=0)
         self.artifact_name_column = name_column
         name_column.set_expand(False)
@@ -559,8 +609,12 @@ class WorkspaceGtkGui:
         self.artifact_view.add_events(Gdk.EventMask.BUTTON_PRESS_MASK)
         self.artifact_view.connect("button-press-event", self._on_artifact_view_button_press)
         scrolled = Gtk.ScrolledWindow()
+        scrolled.set_overlay_scrolling(False)
         scrolled.add(self.artifact_view)
         self.artifacts_page = scrolled
+        self._profile_widget("artifacts-page", scrolled)
+        self._profile_widget("artifacts-page-vbar", scrolled.get_vscrollbar())
+        self._profile_widget("artifact-view", self.artifact_view)
         self.artifacts_tab_label = Gtk.Label(label=self._tr("artifacts"))
         self.notebook.append_page(scrolled, self.artifacts_tab_label)
 
@@ -579,6 +633,8 @@ class WorkspaceGtkGui:
         actions_pane.connect("button-press-event", self._on_actions_pane_button_press)
         actions_pane.connect("size-allocate", self._on_actions_pane_size_allocate)
         box.pack_start(actions_pane, True, True, 0)
+        self._profile_widget("actions-page", box)
+        self._profile_widget("actions-pane", actions_pane)
 
         controls_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=3)
         controls_box.set_border_width(0)
@@ -589,6 +645,8 @@ class WorkspaceGtkGui:
         controls_scrolled.add(controls_box)
         actions_pane.pack1(controls_scrolled, resize=False, shrink=True)
         actions_pane.connect("notify::position", self._on_actions_pane_position_changed)
+        self._profile_widget("actions-controls-scroll", controls_scrolled)
+        self._profile_widget("actions-controls", controls_box)
 
         top_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=3)
         top_row.set_border_width(0)
@@ -597,6 +655,7 @@ class WorkspaceGtkGui:
         self.task_actions_box = self._add_framed_action_group(top_row, self._s("actions.group"), expand=True)
         self.task_actions_box.connect("size-allocate", self._on_task_actions_box_size_allocate)
         self._connect_task_reorder_box(self.task_actions_box, "action")
+        self._profile_widget("task-actions-box", self.task_actions_box)
 
         parameter_frame = Gtk.Frame(label=self._s("action.parameters"))
         controls_box.pack_start(parameter_frame, False, False, 0)
@@ -639,10 +698,12 @@ class WorkspaceGtkGui:
         controls_box.pack_start(self.actions_message, False, False, 0)
 
         self.console_notebook = Gtk.Notebook()
+        self.console_notebook.get_style_context().add_class("console-notebook")
         self.console_notebook.add_events(Gdk.EventMask.BUTTON_PRESS_MASK)
         self.console_notebook.connect("button-press-event", self._on_console_notebook_button_press)
         self.console_notebook.connect("switch-page", self._on_console_notebook_switch_page)
         actions_pane.pack2(self.console_notebook, resize=True, shrink=False)
+        self._profile_widget("console-notebook", self.console_notebook)
         self._on_actions_pane_position_changed(actions_pane, None)
         self._ensure_ai_agent_console_page()
         self._ensure_ai_debug_page()
@@ -699,6 +760,7 @@ class WorkspaceGtkGui:
             self.ai_debug_tree = Gtk.TreeView(model=self.ai_debug_store)
             self.ai_debug_tree.set_enable_search(False)
             self.ai_debug_tree.connect("row-activated", self._on_ai_debug_row_activated)
+            self._profile_widget("ai-debug-tree", self.ai_debug_tree)
             self.ai_debug_columns = {}
             for key, column_index, width in (
                 ("ai_debug_column_time", 1, 180),
@@ -724,6 +786,7 @@ class WorkspaceGtkGui:
             self.ai_debug_tree.append_column(content_column)
             self.ai_debug_columns["ai_debug_column_content"] = content_column
             self.ai_debug_page = _scrolled(self.ai_debug_tree)
+            self._profile_widget("ai-debug-page", self.ai_debug_page)
         if self.console_notebook.page_num(self.ai_debug_page) < 0:
             self.ai_debug_tab_label = Gtk.Label(label=self._tr("ai_debug_tab"))
             self.console_notebook.insert_page(self.ai_debug_page, self.ai_debug_tab_label, 1)
@@ -928,6 +991,7 @@ class WorkspaceGtkGui:
         if labels:
             all_check = Gtk.CheckButton(label=self._tr("context_filter_select_all"))
             all_check.connect("toggled", self._on_task_context_all_toggled, "label", self.task_context_label_checks)
+            self._disable_action_hover_tracking(all_check)
             self.task_context_filter_all_checks["label"] = all_check
             label_box.pack_start(all_check, False, False, 0)
         if not labels:
@@ -938,6 +1002,7 @@ class WorkspaceGtkGui:
             check = Gtk.CheckButton(label=value)
             check.set_active(value in selected)
             check.connect("toggled", self._on_task_context_item_toggled, "label", self.task_context_label_checks)
+            self._disable_action_hover_tracking(check)
             self.task_context_label_checks[value] = check
             label_box.pack_start(check, False, False, 0)
         self._update_task_context_all_check("label", self.task_context_label_checks)
@@ -1040,6 +1105,8 @@ class WorkspaceGtkGui:
         buttons = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
         clear_button = Gtk.Button(label=self._tr("context_filter_clear_date"))
         ok_button = Gtk.Button(label=self._tr("ok"))
+        self._disable_action_hover_tracking(clear_button)
+        self._disable_action_hover_tracking(ok_button)
         buttons.pack_start(clear_button, True, True, 0)
         buttons.pack_start(ok_button, True, True, 0)
         box.pack_start(buttons, False, False, 0)
@@ -1274,6 +1341,7 @@ class WorkspaceGtkGui:
         _keyboard_mode: bool,
         tooltip: Gtk.Tooltip,
     ) -> bool:
+        self._record_profile_event("task-view", "tooltip")
         hit = tree.get_path_at_pos(x, y)
         if hit is None:
             return False
@@ -1369,7 +1437,7 @@ class WorkspaceGtkGui:
         grid.set_row_spacing(8)
         box.pack_start(grid, False, False, 2)
         for row, (marker, label, description) in enumerate(self._manual_status_entries()):
-            display_marker = AGENT_RUNNING_SPINNER_FRAMES[self._agent_spinner_index] if marker.startswith("▷") else marker
+            display_marker = "▷" if marker.startswith("▷") else marker
             marker_label = Gtk.Label(label=display_marker)
             marker_label.set_width_chars(4)
             marker_label.set_xalign(0.5)
@@ -1644,7 +1712,330 @@ class WorkspaceGtkGui:
         view.set_editable(False)
         view.set_cursor_visible(False)
 
+    def _disable_tree_hover_tracking(self, tree: Gtk.TreeView) -> None:
+        tree.add_events(
+            Gdk.EventMask.POINTER_MOTION_MASK
+            | Gdk.EventMask.ENTER_NOTIFY_MASK
+            | Gdk.EventMask.LEAVE_NOTIFY_MASK
+        )
+        tree.connect("event", self._consume_tree_hover_event)
+
+    def _consume_tree_hover_event(self, _tree: Gtk.TreeView, event: Gdk.Event) -> bool:
+        return getattr(event, "type", None) in {
+            Gdk.EventType.MOTION_NOTIFY,
+            Gdk.EventType.ENTER_NOTIFY,
+            Gdk.EventType.LEAVE_NOTIFY,
+        }
+
+    def _disable_action_hover_tracking(self, widget: Gtk.Widget) -> None:
+        if not hasattr(self, "hover_suppressed_widget_ids"):
+            self.hover_suppressed_widget_ids = set()
+        key = id(widget)
+        if key in self.hover_suppressed_widget_ids:
+            return
+        self.hover_suppressed_widget_ids.add(key)
+        widget.add_events(
+            Gdk.EventMask.ENTER_NOTIFY_MASK
+            | Gdk.EventMask.LEAVE_NOTIFY_MASK
+        )
+        widget.connect("event", self._consume_action_hover_event)
+        widget.connect("motion-notify-event", self._consume_action_hover_event)
+        widget.connect("enter-notify-event", self._consume_action_hover_event)
+        widget.connect("leave-notify-event", self._consume_action_hover_event)
+
+    def _disable_button_hover_tracking_recursive(self, widget: Gtk.Widget) -> None:
+        if isinstance(widget, (Gtk.Button, Gtk.SpinButton)):
+            self._disable_action_hover_tracking(widget)
+        if isinstance(widget, Gtk.Container):
+            for child in widget.get_children():
+                self._disable_button_hover_tracking_recursive(child)
+
+    def _consume_action_hover_event(self, _widget: Gtk.Widget, event: Gdk.Event) -> bool:
+        return getattr(event, "type", None) in {
+            Gdk.EventType.MOTION_NOTIFY,
+            Gdk.EventType.ENTER_NOTIFY,
+            Gdk.EventType.LEAVE_NOTIFY,
+        }
+
+    def _disable_terminal_passive_pointer_tracking(self, widget: Gtk.Widget) -> None:
+        widget.connect("event", self._consume_terminal_passive_pointer_event)
+        widget.connect("motion-notify-event", self._consume_terminal_passive_pointer_event)
+        widget.connect("enter-notify-event", self._consume_terminal_passive_pointer_event)
+        widget.connect("leave-notify-event", self._consume_terminal_passive_pointer_event)
+        widget.connect("proximity-in-event", self._consume_terminal_passive_pointer_event)
+        widget.connect("proximity-out-event", self._consume_terminal_passive_pointer_event)
+
+    def _consume_terminal_passive_pointer_event(self, _widget: Gtk.Widget, event: Gdk.Event) -> bool:
+        if not self._is_passive_pointer_event(event):
+            return False
+        self._record_profile_event("codex-terminal-pointer-filter", self._gdk_event_profile_name(event))
+        return True
+
+    def _is_passive_pointer_event(self, event: Gdk.Event) -> bool:
+        event_type = getattr(event, "type", None)
+        if event_type in {
+            Gdk.EventType.ENTER_NOTIFY,
+            Gdk.EventType.LEAVE_NOTIFY,
+            Gdk.EventType.PROXIMITY_IN,
+            Gdk.EventType.PROXIMITY_OUT,
+        }:
+            return True
+        if event_type != Gdk.EventType.MOTION_NOTIFY:
+            return False
+        return not (int(getattr(event, "state", 0)) & int(Gdk.ModifierType.BUTTON1_MASK))
+
+    def _gdk_event_profile_name(self, event: Gdk.Event) -> str:
+        event_type = getattr(event, "type", None)
+        name = getattr(event_type, "value_nick", None) or str(event_type)
+        return f"drop-{name}"
+
+    def _native_event_type(self, native_event: object) -> int | None:
+        event_type = getattr(native_event, "type", None)
+        if event_type is None:
+            return None
+        try:
+            return int(event_type)
+        except (TypeError, ValueError):
+            return None
+
+    def _is_native_passive_pointer_event(self, native_event: object) -> bool:
+        event_type = self._native_event_type(native_event)
+        return event_type in _X11_PASSIVE_POINTER_EVENT_TYPES
+
+    def _install_codex_terminal_window_filter(self, terminal: Vte.Terminal) -> None:
+        window = terminal.get_window()
+        if window is None:
+            return
+        key = id(terminal)
+        if key in self.codex_terminal_window_filters:
+            return
+        callback = self._filter_codex_terminal_window_event
+        installed: list[tuple[object, object]] = []
+        for filtered_window in self._terminal_gdk_windows(window):
+            add_filter = getattr(filtered_window, "add_filter", None)
+            if add_filter is None:
+                continue
+            try:
+                add_filter(callback, None)
+            except (TypeError, RuntimeError):
+                continue
+            installed.append((filtered_window, callback))
+        if installed:
+            self.codex_terminal_window_filters[key] = installed
+
+    def _terminal_gdk_windows(self, window: object) -> list[object]:
+        windows = [window]
+        get_children = getattr(window, "get_children", None)
+        if get_children is None:
+            return windows
+        try:
+            children = get_children()
+        except (TypeError, RuntimeError):
+            return windows
+        for child in children or []:
+            windows.extend(self._terminal_gdk_windows(child))
+        return windows
+
+    def _remove_codex_terminal_window_filter(self, terminal: Vte.Terminal) -> None:
+        filters = getattr(self, "codex_terminal_window_filters", None)
+        if filters is None:
+            return
+        entries = filters.pop(id(terminal), None)
+        if not entries:
+            return
+        for window, callback in entries:
+            remove_filter = getattr(window, "remove_filter", None)
+            if remove_filter is None:
+                continue
+            try:
+                remove_filter(callback, None)
+            except (TypeError, RuntimeError):
+                pass
+
+    def _filter_codex_terminal_window_event(self, native_event: object, event: Gdk.Event, _data: object) -> object:
+        if self._is_native_passive_pointer_event(native_event):
+            self._record_profile_event("codex-vte-native-filter", f"drop-x11-{self._native_event_type(native_event)}")
+            return Gdk.FilterReturn.REMOVE
+        if self._is_passive_pointer_event(event):
+            self._record_profile_event("codex-vte-gdk-filter", self._gdk_event_profile_name(event))
+            return Gdk.FilterReturn.REMOVE
+        return Gdk.FilterReturn.CONTINUE
+
+    def _disable_codex_console_boundary_tracking(self, widget: Gtk.Widget) -> None:
+        widget.connect("event", self._consume_codex_console_boundary_event)
+        widget.connect("motion-notify-event", self._consume_codex_console_boundary_event)
+        widget.connect("enter-notify-event", self._consume_codex_console_boundary_event)
+        widget.connect("leave-notify-event", self._consume_codex_console_boundary_event)
+        widget.connect("proximity-in-event", self._consume_codex_console_boundary_event)
+        widget.connect("proximity-out-event", self._consume_codex_console_boundary_event)
+
+    def _consume_codex_console_boundary_event(self, widget: Gtk.Widget, event: Gdk.Event) -> bool:
+        event_type = getattr(event, "type", None)
+        if event_type not in {
+            Gdk.EventType.MOTION_NOTIFY,
+            Gdk.EventType.ENTER_NOTIFY,
+            Gdk.EventType.LEAVE_NOTIFY,
+            Gdk.EventType.PROXIMITY_IN,
+            Gdk.EventType.PROXIMITY_OUT,
+        }:
+            return False
+        if event_type == Gdk.EventType.MOTION_NOTIFY and int(getattr(event, "state", 0)) & int(Gdk.ModifierType.BUTTON1_MASK):
+            return False
+        return self._event_is_over_active_codex_console(widget, event)
+
+    def _active_codex_terminal_session(self) -> TerminalSession | None:
+        console_notebook = getattr(self, "console_notebook", None)
+        if console_notebook is None:
+            return None
+        page_num = console_notebook.get_current_page()
+        if page_num < 0:
+            return None
+        page = console_notebook.get_nth_page(page_num)
+        session = self._session_for_page(page)
+        if session is None or session.kind != "codex":
+            return None
+        return session
+
+    def _event_is_over_active_codex_console(self, widget: Gtk.Widget, event: Gdk.Event) -> bool:
+        session = self._active_codex_terminal_session()
+        if session is None:
+            return False
+        if widget is session.terminal or widget is session.page:
+            return True
+        try:
+            translated = session.page.translate_coordinates(widget, 0, 0)
+        except (AttributeError, TypeError, RuntimeError):
+            return False
+        if translated is None:
+            return False
+        allocation = session.page.get_allocation()
+        x = float(getattr(event, "x", -1))
+        y = float(getattr(event, "y", -1))
+        return translated[0] <= x < translated[0] + allocation.width and translated[1] <= y < translated[1] + allocation.height
+
+    def _profile_widget(self, name: str, widget: Gtk.Widget) -> None:
+        try:
+            widget.connect("draw", self._on_profile_draw, name)
+            widget.connect("size-allocate", self._on_profile_size_allocate, name)
+        except (TypeError, RuntimeError):
+            return
+
+    def _on_profile_draw(self, _widget: Gtk.Widget, context: object, name: str) -> bool:
+        self._record_profile_event(name, "draw")
+        if self.profiling_enabled and hasattr(context, "clip_extents"):
+            try:
+                x1, y1, x2, y2 = context.clip_extents()
+            except Exception:
+                return False
+            self.profiling_draw_area[name] = self.profiling_draw_area.get(name, 0.0) + max(0.0, x2 - x1) * max(0.0, y2 - y1)
+        return False
+
+    def _on_profile_size_allocate(self, _widget: Gtk.Widget, allocation: Gdk.Rectangle, name: str) -> None:
+        current = (allocation.width, allocation.height)
+        previous = self.profiling_allocations.get(name)
+        self.profiling_allocations[name] = current
+        self._record_profile_event(name, "size")
+        if previous is not None and current != previous:
+            self._record_profile_event(name, "resize")
+
+    def _record_profile_event(self, name: str, event: str) -> None:
+        if not getattr(self, "profiling_enabled", False) or getattr(self, "profiling_paused_for_settings", False):
+            return
+        key = (name, event)
+        self.profiling_counts[key] = self.profiling_counts.get(key, 0) + 1
+
+    def _set_profiling_enabled(self, enabled: bool) -> None:
+        self.profiling_enabled = enabled
+        self.profiling_previous_counts = dict(self.profiling_counts)
+        self.profiling_previous_draw_area = dict(self.profiling_draw_area)
+        if enabled and self.profiling_refresh_source_id is None:
+            self.profiling_refresh_source_id = GLib.timeout_add_seconds(1, self._refresh_profiling_tick)
+        elif not enabled and self.profiling_refresh_source_id is not None:
+            GLib.source_remove(self.profiling_refresh_source_id)
+            self.profiling_refresh_source_id = None
+        self._refresh_profiling_output()
+
+    def _clear_profiling_counts(self) -> None:
+        self.profiling_counts.clear()
+        self.profiling_previous_counts.clear()
+        self.profiling_draw_area.clear()
+        self.profiling_previous_draw_area.clear()
+        self.profiling_allocations.clear()
+        self._refresh_profiling_output()
+
+    def _abort_with_stack_dump(self) -> None:
+        abort_agent_workspace_with_stack_dump(self.workspace, "gtk")
+
+    def _refresh_profiling_tick(self) -> bool:
+        if self._closing or not self.profiling_enabled or self.profiling_paused_for_settings:
+            self.profiling_refresh_source_id = None
+            return False
+        self._refresh_profiling_output()
+        return True
+
+    def _pause_profiling_for_settings(self) -> None:
+        if not self.profiling_enabled:
+            self.profiling_paused_for_settings = False
+            return
+        self.profiling_paused_for_settings = True
+        if self.profiling_refresh_source_id is not None:
+            GLib.source_remove(self.profiling_refresh_source_id)
+            self.profiling_refresh_source_id = None
+
+    def _resume_profiling_after_settings(self) -> None:
+        if not self.profiling_paused_for_settings:
+            return
+        self.profiling_paused_for_settings = False
+        if self.profiling_enabled and self.profiling_refresh_source_id is None:
+            self.profiling_refresh_source_id = GLib.timeout_add_seconds(1, self._refresh_profiling_tick)
+
+    def _refresh_profiling_output(self) -> None:
+        view = self.profiling_output_view
+        if view is None:
+            return
+        rows: list[tuple[int, int, int, int, int, str, str]] = []
+        for (area, event), total in self.profiling_counts.items():
+            previous = self.profiling_previous_counts.get((area, event), 0)
+            draw_area = 0
+            if event == "draw":
+                draw_area = int(
+                    (
+                        self.profiling_draw_area.get(area, 0.0)
+                        - self.profiling_previous_draw_area.get(area, 0.0)
+                    )
+                    / 1_000
+                )
+            delta = total - previous
+            average_draw_area = int(draw_area / delta) if event == "draw" and delta > 0 else 0
+            allocation = self.profiling_allocations.get(area, (0, 0))
+            allocation_area = max(0, allocation[0]) * max(0, allocation[1])
+            average_draw_percent = (
+                int(round(average_draw_area * 100_000_000 / allocation_area))
+                if event == "draw" and allocation_area > 0
+                else 0
+            )
+            rows.append((delta, total, draw_area, average_draw_area, average_draw_percent, area, event))
+        rows.sort(key=lambda row: (-row[0], -row[2], row[5], row[6]))
+        lines = [
+            f"{self._tr('settings_profiling_status')}: "
+            f"{self._tr('settings_profiling_on') if self.profiling_enabled else self._tr('settings_profiling_off')}",
+            "",
+            f"{'last/s':>8}  {'total':>8}  {'kpx/s':>8}  {'avg-kpx':>8}  {'avg%':>6}  {'area':<28}  event",
+        ]
+        if rows:
+            lines.extend(
+                f"{delta:8d}  {total:8d}  {draw_area:8d}  {average_draw_area:8d}  "
+                f"{average_draw_percent / 1000:5.1f}%  {area:<28}  {event}"
+                for delta, total, draw_area, average_draw_area, average_draw_percent, area, event in rows
+            )
+        else:
+            lines.append(self._tr("settings_profiling_empty"))
+        view.get_buffer().set_text("\n".join(lines))
+        self.profiling_previous_counts = dict(self.profiling_counts)
+        self.profiling_previous_draw_area = dict(self.profiling_draw_area)
+
     def open_settings(self, *_args: object) -> None:
+        self._pause_profiling_for_settings()
         dialog = Gtk.Dialog(
             title=self._tr("settings_title"),
             transient_for=self.window,
@@ -1664,8 +2055,30 @@ class WorkspaceGtkGui:
         dictionary_scrolled.set_hexpand(True)
         dictionary_scrolled.set_vexpand(True)
         dictionary_grid = Gtk.Grid(column_spacing=10, row_spacing=8)
+        profiling_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        profiling_box.set_border_width(12)
+        profiling_controls = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        profiling_enabled = Gtk.CheckButton(label=self._tr("settings_profiling_enable"))
+        profiling_enabled.set_active(self.profiling_enabled)
+        profiling_clear = Gtk.Button(label=self._tr("settings_profiling_clear"))
+        profiling_crash = Gtk.Button(label=self._tr("settings_profiling_crash_dump"))
+        profiling_controls.pack_start(profiling_enabled, False, False, 0)
+        profiling_controls.pack_start(profiling_clear, False, False, 0)
+        profiling_controls.pack_start(profiling_crash, False, False, 0)
+        profiling_output = _text_view(self.text_font_size, editable=False)
+        profiling_output.set_monospace(True)
+        profiling_output_scrolled = _scrolled(profiling_output)
+        profiling_output_scrolled.set_hexpand(True)
+        profiling_output_scrolled.set_vexpand(True)
+        profiling_note = Gtk.Label(label=self._tr("settings_profiling_note"))
+        profiling_note.set_xalign(0)
+        profiling_note.set_line_wrap(True)
+        profiling_box.pack_start(profiling_controls, False, False, 0)
+        profiling_box.pack_start(profiling_note, False, False, 0)
+        profiling_box.pack_start(profiling_output_scrolled, True, True, 0)
         notebook.append_page(general_grid, Gtk.Label(label=self._tr("settings_dictionary_general")))
         notebook.append_page(dictionary_scrolled, Gtk.Label(label=self._tr("settings_dictionary_dictionary")))
+        notebook.append_page(profiling_box, Gtk.Label(label=self._tr("settings_profiling")))
 
         text_size = Gtk.SpinButton.new_with_range(8, 28, 1)
         text_size.set_value(self.text_font_size)
@@ -1852,6 +2265,12 @@ class WorkspaceGtkGui:
             widget.connect(signal, update_dictionary_preview)
         preview_input.get_buffer().connect("changed", update_dictionary_preview)
         update_dictionary_preview()
+        self.profiling_output_view = profiling_output
+        profiling_enabled.connect("toggled", lambda button: self._set_profiling_enabled(button.get_active()))
+        profiling_clear.connect("clicked", lambda _button: self._clear_profiling_counts())
+        profiling_crash.connect("clicked", lambda _button: self._abort_with_stack_dump())
+        self._refresh_profiling_output()
+        self._disable_button_hover_tracking_recursive(dialog)
 
         dialog.show_all()
         settings_open = {"value": True}
@@ -1876,6 +2295,9 @@ class WorkspaceGtkGui:
         text_size.grab_focus()
         response = dialog.run()
         settings_open["value"] = False
+        if self.profiling_output_view is profiling_output:
+            self.profiling_output_view = None
+        self._resume_profiling_after_settings()
         if response == Gtk.ResponseType.OK:
             self.text_font_size = int(text_size.get_value())
             self.button_font_size = int(button_size.get_value())
@@ -1937,6 +2359,7 @@ class WorkspaceGtkGui:
         self._update_actions_message()
 
     def _clear_task_action_buttons(self) -> None:
+        self.task_action_reflow_layout = None
         for child in self.task_actions_box.get_children():
             self.task_actions_box.remove(child)
         self.task_action_item_widgets = {}
@@ -2004,7 +2427,11 @@ class WorkspaceGtkGui:
         self.task_shortcuts_box.show_all()
         self.task_action_parameter_box.show_all()
 
-    def _on_task_actions_box_size_allocate(self, *_args: object) -> None:
+    def _on_task_actions_box_size_allocate(self, _widget: Gtk.Widget, allocation: Gdk.Rectangle) -> None:
+        width = max(1, allocation.width - self.task_actions_box.get_border_width() * 2)
+        if width == self.task_action_reflow_width and self.task_action_reflow_layout is not None:
+            return
+        self.task_action_reflow_width = width
         self._schedule_task_action_reflow()
 
     def _schedule_task_action_reflow(self) -> None:
@@ -2015,17 +2442,41 @@ class WorkspaceGtkGui:
         self.task_action_reflow_source_id = None
         if not hasattr(self, "task_actions_box"):
             return False
+        width = max(1, self.task_actions_box.get_allocated_width() - self.task_actions_box.get_border_width() * 2)
+        layout_rows: list[tuple[str, ...]] = []
+        row_ids: list[str] = []
+        row_width = 0
+        widgets: list[tuple[str, Gtk.Widget, int]] = []
+        order = self.task_action_reorder_preview if self.task_reorder_group == "action" else None
+        for action_id in order or self._task_action_order():
+            widget = self.task_action_item_widgets.get(action_id)
+            if widget is None:
+                continue
+            _minimum_width, natural_width = widget.get_preferred_width()
+            next_width = natural_width if row_width == 0 else row_width + 3 + natural_width
+            if row_ids and next_width > width:
+                layout_rows.append(tuple(row_ids))
+                row_ids = []
+                row_width = 0
+            row_ids.append(action_id)
+            row_width = natural_width if row_width == 0 else row_width + 3 + natural_width
+            widgets.append((action_id, widget, natural_width))
+        if row_ids:
+            layout_rows.append(tuple(row_ids))
+        layout = (width, tuple(layout_rows))
+        self.task_action_reflow_width = width
+        if layout == self.task_action_reflow_layout:
+            return False
+        self.task_action_reflow_layout = layout
         for widget in self.task_action_item_widgets.values():
             parent = widget.get_parent()
             if isinstance(parent, Gtk.Container):
                 parent.remove(widget)
         for row in self.task_actions_box.get_children():
             self.task_actions_box.remove(row)
-        width = max(1, self.task_actions_box.get_allocated_width() - self.task_actions_box.get_border_width() * 2)
         row: Gtk.Box | None = None
         row_width = 0
-        for widget in self._task_action_reorder_children():
-            _minimum_width, natural_width = widget.get_preferred_width()
+        for _action_id, widget, natural_width in widgets:
             next_width = natural_width if row_width == 0 else row_width + 3 + natural_width
             if row is not None and next_width > width:
                 row = None
@@ -2046,12 +2497,16 @@ class WorkspaceGtkGui:
         return [self.task_action_item_widgets[action_id] for action_id in action_ids if action_id in self.task_action_item_widgets]
 
     def _task_action_button(self, action: TaskAction, *, shortcut: bool) -> Gtk.Widget:
-        button = _compact_button(action.label, lambda _button, item=action: self._on_task_action_clicked(item))
+        button = _compact_button(
+            action.label,
+            lambda _button, item=action: self._on_task_action_clicked(item),
+            tooltip=False,
+        )
         button.set_size_request(-1, 20)
         button.set_focus_on_click(False)
         button.add_events(Gdk.EventMask.BUTTON_PRESS_MASK)
+        self._disable_action_hover_tracking(button)
         if shortcut:
-            button.set_tooltip_text(self._s("action.shortcut_tooltip"))
             button.connect("button-press-event", self._on_task_shortcut_button_press, action)
             return button
         button.connect("button-press-event", self._on_task_action_button_press, action)
@@ -2067,9 +2522,9 @@ class WorkspaceGtkGui:
         play.set_no_show_all(True)
         play.set_visible(False)
         play.set_sensitive(False)
-        play.set_tooltip_text(self._s("action.play_tooltip"))
         play.get_style_context().add_class("task-action-play-button")
         play.add_events(Gdk.EventMask.BUTTON_PRESS_MASK)
+        self._disable_action_hover_tracking(play)
         play.connect("clicked", self._on_task_action_play_clicked, action)
         play.connect("button-press-event", self._on_task_action_play_button_press, action)
         self.task_action_play_buttons[action.action_id] = play
@@ -2472,7 +2927,7 @@ class WorkspaceGtkGui:
         for child in self.global_task_parameter_box.get_children():
             self.global_task_parameter_box.remove(child)
         for parameter in self._global_task_parameters():
-            button = _compact_button(self._parameter_button_label(parameter), None, max_width_chars=18)
+            button = _compact_button(self._parameter_button_label(parameter), None, max_width_chars=18, tooltip=False)
             button.set_size_request(-1, 20)
             button.add_events(Gdk.EventMask.BUTTON_PRESS_MASK)
             button.connect("clicked", self._on_task_parameter_clicked, parameter)
@@ -2512,12 +2967,12 @@ class WorkspaceGtkGui:
             return
         local_parameters = [parameter for parameter in action.parameters if not parameter.global_name]
         if not local_parameters:
-            no_parameters = _compact_button(self._s("action.no_parameters"), None, max_width_chars=18)
+            no_parameters = _compact_button(self._s("action.no_parameters"), None, max_width_chars=18, tooltip=False)
             no_parameters.set_size_request(-1, 20)
             no_parameters.set_sensitive(False)
             _flow_box_add(self.task_action_parameter_box, no_parameters)
         for parameter in local_parameters:
-            button = _compact_button(self._parameter_button_label(parameter), None, max_width_chars=18)
+            button = _compact_button(self._parameter_button_label(parameter), None, max_width_chars=18, tooltip=False)
             button.set_size_request(-1, 20)
             button.add_events(Gdk.EventMask.BUTTON_PRESS_MASK)
             button.connect("clicked", self._on_task_parameter_clicked, parameter)
@@ -2542,7 +2997,7 @@ class WorkspaceGtkGui:
                     label=shortcut.label,
                 ),
             )
-        shortcut_button = _compact_button(self._s("action.save_shortcut"), None, max_width_chars=24)
+        shortcut_button = _compact_button(self._s("action.save_shortcut"), None, max_width_chars=24, tooltip=False)
         shortcut_button.set_size_request(-1, 20)
         shortcut_button.connect("clicked", lambda _button: self._save_selected_action_as_shortcut())
         self.save_task_shortcut_box.pack_start(shortcut_button, False, False, 0)
@@ -2777,6 +3232,7 @@ class WorkspaceGtkGui:
 
     def _invalidate_task_reorder_group_sort(self, group: str) -> None:
         if group == "action":
+            self.task_action_reflow_layout = None
             self._schedule_task_action_reflow()
         elif group == "parameter":
             self.task_action_parameter_box.invalidate_sort()
@@ -3390,13 +3846,15 @@ class WorkspaceGtkGui:
         self.next_terminal_id += 1
         terminal = Vte.Terminal()
         terminal.set_scrollback_lines(20_000)
-        terminal.set_font(Pango.FontDescription(f"Monospace {self.text_font_size}"))
+        self._configure_terminal_rendering(terminal)
+        if kind == "codex":
+            self._configure_codex_terminal_pointer_rendering(terminal)
         self._apply_terminal_theme(terminal)
-        terminal.add_events(Gdk.EventMask.BUTTON_PRESS_MASK)
+        self._profile_widget(f"vte-{kind}-{session_id}", terminal)
+        terminal.add_events(Gdk.EventMask.BUTTON_PRESS_MASK | Gdk.EventMask.BUTTON_RELEASE_MASK)
         terminal.connect("button-press-event", self._on_terminal_button_press)
         terminal.connect("popup-menu", self._on_terminal_popup_menu)
         terminal.connect("key-press-event", self._on_terminal_key_press)
-        terminal.connect("contents-changed", self._on_terminal_contents_changed)
         terminal.connect("child-exited", self._on_terminal_child_exited)
         terminal.spawn_async(
             Vte.PtyFlags.DEFAULT,
@@ -3412,19 +3870,36 @@ class WorkspaceGtkGui:
             None,
         )
         scrolled = Gtk.ScrolledWindow()
-        scrolled.add(terminal)
+        scrolled.get_style_context().add_class("terminal-page")
+        terminal_child: Gtk.Widget = terminal
+        terminal_mouse: CodexTerminalMouseStateMachine | None = None
+        if kind == "codex":
+            terminal_mouse = CodexTerminalMouseStateMachine(terminal, self._record_profile_event)
+            terminal_child = terminal_mouse.widget
+        scrolled.add(terminal_child)
+        if kind == "codex":
+            self._profile_widget(f"terminal-proxy-{kind}-{session_id}", terminal_child)
+        self._profile_widget(f"terminal-page-{kind}-{session_id}", scrolled)
         session = TerminalSession(
             session_id=session_id,
             task_path=task.path,
             kind=kind,
             terminal=terminal,
             page=scrolled,
+            terminal_mouse=terminal_mouse,
             busy=session_is_agent(session_kind=kind),
             run_id=run_id if session_is_agent(session_kind=kind) else None,
         )
         self.terminal_sessions[session_id] = session
         if session.run_id is not None:
             save_task_active_agent_run(task, kind, session.run_id)
+        if session_is_agent(session_kind=kind):
+            GLib.timeout_add(
+                AGENT_RESTORE_OUTPUT_CHECK_MS,
+                self._check_agent_restore_output,
+                session_id,
+                time.monotonic() + AGENT_RESTORE_OUTPUT_CHECK_WINDOW_SECONDS,
+            )
         self._renumber_terminal_tabs(task)
         if self.selected_task is not None and self.selected_task.path == task.path:
             self._show_terminal_tab(session)
@@ -3532,8 +4007,10 @@ class WorkspaceGtkGui:
         if session is None:
             return
         page_num = self.console_notebook.page_num(session.page)
+        session_page_visible = False
         if page_num >= 0:
             self.console_notebook.set_current_page(page_num)
+            session_page_visible = True
             if remember:
                 self.last_active_terminal_by_task[session.task_path] = session.session_id
         elif session_is_agent(session_kind=session.kind) and self.ai_agent_page is not None:
@@ -3543,6 +4020,8 @@ class WorkspaceGtkGui:
                 if remember:
                     self.last_active_terminal_by_task[session.task_path] = session.session_id
         session.terminal.grab_focus()
+        if session_page_visible:
+            self._on_visible_terminal_session_changed(session)
 
     def _remember_current_console_tab(self) -> None:
         task = getattr(self, "selected_task", None)
@@ -3556,10 +4035,12 @@ class WorkspaceGtkGui:
         page = self.console_notebook.get_nth_page(page_num)
         if task is not None and page is getattr(self, "ai_agent_page", None):
             page_memory[task.path] = "ai-agent"
+            self._deactivate_codex_terminal_mouse()
             return
         if task is not None and page is getattr(self, "ai_debug_page", None):
             page_memory[task.path] = "ai-debug"
             self._refresh_ai_debug()
+            self._deactivate_codex_terminal_mouse()
             return
         session = self._session_for_page(page)
         if session is not None:
@@ -3607,8 +4088,9 @@ class WorkspaceGtkGui:
 
     def _refresh_ai_debug_if_visible(self) -> bool:
         if self._closing:
+            self.ai_debug_refresh_source_id = None
             return False
-        if self.selected_task is not None and self._actions_tab_active():
+        if self.selected_task is not None:
             self._refresh_ai_debug()
         return True
 
@@ -3729,12 +4211,33 @@ class WorkspaceGtkGui:
             self.last_active_console_page_by_task = page_memory
         task = getattr(self, "selected_task", None)
         if page is getattr(self, "ai_agent_page", None) and task is not None:
+            self._deactivate_codex_terminal_mouse()
             page_memory[task.path] = "ai-agent"
+            return
+        if page is getattr(self, "ai_debug_page", None) and task is not None:
+            self._deactivate_codex_terminal_mouse()
+            page_memory[task.path] = "ai-debug"
+            self._refresh_ai_debug()
             return
         session = self._session_for_page(page)
         if session is not None:
             self.last_active_terminal_by_task[session.task_path] = session.session_id
             page_memory[session.task_path] = f"session:{session.session_id}"
+            self._on_visible_terminal_session_changed(session)
+
+    def _on_visible_terminal_session_changed(self, session: TerminalSession) -> None:
+        for known_session in getattr(self, "terminal_sessions", {}).values():
+            terminal_mouse = known_session.terminal_mouse
+            if known_session.kind != "codex" or terminal_mouse is None:
+                continue
+            if known_session.session_id != session.session_id:
+                terminal_mouse.deactivate()
+
+    def _deactivate_codex_terminal_mouse(self) -> None:
+        for session in getattr(self, "terminal_sessions", {}).values():
+            if session.kind != "codex" or session.terminal_mouse is None:
+                continue
+            session.terminal_mouse.deactivate()
 
     def _on_console_notebook_button_press(self, notebook: Gtk.Notebook, event: Gdk.EventButton) -> bool:
         if event.type != Gdk.EventType.DOUBLE_BUTTON_PRESS or event.button != 1:
@@ -3755,6 +4258,8 @@ class WorkspaceGtkGui:
     ) -> bool:
         if confirm and not self._confirm_close_console():
             return False
+        if session.terminal_mouse is not None:
+            session.terminal_mouse.deactivate()
         task = self._task_for_path(session.task_path)
         page_num = self.console_notebook.page_num(session.page)
         if page_num >= 0:
@@ -3779,6 +4284,7 @@ class WorkspaceGtkGui:
         session.ignored_permission_signature = None
         session.busy = False
         session.exited = True
+        self._remove_codex_terminal_window_filter(session.terminal)
         if session.run_id is not None:
             clear_task_active_agent_run(
                 self._task_for_path(session.task_path),
@@ -3797,6 +4303,7 @@ class WorkspaceGtkGui:
             self._close_console_session(session, confirm=False, ensure_default=False)
 
     def _disconnect_terminal_callbacks(self, terminal: Vte.Terminal) -> None:
+        self._remove_codex_terminal_window_filter(terminal)
         disconnect = getattr(terminal, "disconnect_by_func", None)
         if disconnect is None:
             return
@@ -3804,7 +4311,6 @@ class WorkspaceGtkGui:
             self._on_terminal_button_press,
             self._on_terminal_popup_menu,
             self._on_terminal_key_press,
-            self._on_terminal_contents_changed,
             self._on_terminal_child_exited,
         ):
             try:
@@ -3911,18 +4417,13 @@ class WorkspaceGtkGui:
         if harness_icon:
             return harness_icon
         running_agents = self._task_running_agent_kinds(task)
-        has_busy_agent = any(
-            session.busy
-            for session in self._current_task_terminal_sessions(task)
-            if session_is_running_agent(session_kind=session.kind, exited=session.exited)
-        )
         return task_agent_status_text(
             task,
             self.workspace,
             permission_pending=self._task_has_pending_agent_permission(task),
             running_agents=running_agents,
             external_active=self._task_is_external_active(task),
-            spinner_frame=AGENT_RUNNING_SPINNER_FRAMES[self._agent_spinner_index] if has_busy_agent else "",
+            spinner_frame="",
             session_markers=self._task_agent_session_markers(task),
         )
 
@@ -3960,35 +4461,6 @@ class WorkspaceGtkGui:
         )
         self.harness_status_icon_cache.pop(session.task_path, None)
         self._refresh_task_row_styles()
-
-    def _set_agent_session_busy(self, session: TerminalSession, busy: bool) -> None:
-        if not session_is_agent(session_kind=session.kind) or session.exited:
-            return
-        if session.busy == busy:
-            return
-        session.busy = busy
-        self._refresh_task_row_styles()
-
-    def _schedule_agent_idle_after_output(self, session: TerminalSession) -> None:
-        if not session_is_agent(session_kind=session.kind) or session.exited or session.permission_pending:
-            return
-        session.output_generation += 1
-        generation = session.output_generation
-        GLib.timeout_add(
-            AGENT_BUSY_IDLE_DELAY_MS,
-            self._mark_agent_idle_if_output_quiet,
-            session.session_id,
-            generation,
-        )
-
-    def _mark_agent_idle_if_output_quiet(self, session_id: int, expected_generation: int) -> bool:
-        session = self.terminal_sessions.get(session_id)
-        if session is None or session.output_generation != expected_generation:
-            return False
-        if session.exited or session.permission_pending:
-            return False
-        self._set_agent_session_busy(session, False)
-        return False
 
     def _handle_agent_restore_failed(self, session: TerminalSession) -> None:
         task = self._task_for_path(session.task_path)
@@ -4075,7 +4547,6 @@ class WorkspaceGtkGui:
     def _animate_agent_status(self) -> bool:
         if self._closing:
             return False
-        self._agent_spinner_index = (self._agent_spinner_index + 1) % len(AGENT_RUNNING_SPINNER_FRAMES)
         if self._running_agent_sessions():
             self._refresh_task_agent_status_cells()
         return True
@@ -4161,66 +4632,26 @@ class WorkspaceGtkGui:
             _copy_terminal_selection(terminal)
             return True
         if shortcut == "paste":
-            if session is not None and session_is_agent(session_kind=session.kind):
-                if session_should_clear_pending_permission(
-                    session_kind=session.kind,
-                    permission_pending=session.permission_pending,
-                ):
-                    session.ignored_permission_signature = session.permission_signature
-                    session.permission_signature = None
-                    session.permission_pending = False
-                    self._refresh_task_row_styles()
-                self._set_agent_session_busy(session, True)
             terminal.paste_clipboard()
             return True
-        if (
-            session is not None
-            and session_is_agent(session_kind=session.kind)
-            and submitted_input
-        ):
-            if session_should_clear_pending_permission(
-                session_kind=session.kind,
-                permission_pending=session.permission_pending,
-            ):
-                session.ignored_permission_signature = session.permission_signature
-                session.permission_signature = None
-                session.permission_pending = False
-                self._refresh_task_row_styles()
-            self._set_agent_session_busy(session, True)
+        if session is not None and session_is_agent(session_kind=session.kind) and submitted_input:
+            self.harness_status_icon_cache.pop(session.task_path, None)
+            self._refresh_task_agent_status_cells()
         return False
 
-    def _on_terminal_contents_changed(self, terminal: Vte.Terminal) -> None:
-        session = self._session_for_terminal(terminal)
-        if session is None or not session_is_agent(session_kind=session.kind):
-            return
+    def _check_agent_restore_output(self, session_id: int, until: float) -> bool:
+        session = self.terminal_sessions.get(session_id)
+        if session is None or session.exited or not session_is_agent(session_kind=session.kind):
+            return False
+        if time.monotonic() > until:
+            return False
         if hasattr(self, "tasks") and hasattr(self, "workspace"):
             task = self._task_for_path(session.task_path)
             reconcile_task_agent_run_session(task, self.workspace, session.kind, session.run_id)
-        tail = _terminal_text_tail(terminal)
-        analysis = analyze_agent_output(tail)
-        if (
-            session.ignored_permission_signature is not None
-            and analysis.permission_signature != session.ignored_permission_signature
-        ):
-            session.ignored_permission_signature = None
-        update = agent_output_state_update(
-            tail,
-            exited=session.exited,
-            permission_pending=session.permission_pending,
-        )
-        if update.missing_session:
+        if agent_output_reports_missing_session(_terminal_text_tail(session.terminal)):
             self._handle_agent_restore_failed(session)
-            return
-        if update.permission_requested:
-            if analysis.permission_signature != session.ignored_permission_signature:
-                session.permission_signature = analysis.permission_signature
-                session.permission_pending = update.permission_pending
-                session.busy = False
-                self._refresh_task_row_styles()
-            else:
-                self._schedule_agent_idle_after_output(session)
-            return
-        self._schedule_agent_idle_after_output(session)
+            return False
+        return True
 
     def _terminal_context_menu(self, terminal: Vte.Terminal) -> Gtk.Menu:
         menu = Gtk.Menu()
@@ -4428,6 +4859,7 @@ class WorkspaceGtkGui:
 
     def _button(self, label_key: str, callback: object) -> Gtk.Button:
         button = _button(self._tr(label_key), callback)
+        self._disable_action_hover_tracking(button)
         self.label_widgets[label_key] = button
         return button
 
@@ -4622,8 +5054,28 @@ class WorkspaceGtkGui:
             color: {colors['foreground']};
             border-color: {colors['border']};
         }}
-        button:hover {{
-            background: {colors['control_hover_background']};
+        button:hover,
+        button:prelight,
+        button:focus {{
+            background: {colors['control_background']};
+            color: {colors['foreground']};
+            border-color: {colors['border']};
+            box-shadow: none;
+            outline-style: none;
+            outline-width: 0;
+        }}
+        checkbutton:hover,
+        checkbutton:prelight,
+        checkbutton:focus,
+        spinbutton:hover,
+        spinbutton:prelight,
+        spinbutton:focus {{
+            background: {colors['control_background']};
+            color: {colors['foreground']};
+            border-color: {colors['border']};
+            box-shadow: none;
+            outline-style: none;
+            outline-width: 0;
         }}
         .actions-panel frame {{
             padding: 1px;
@@ -4633,9 +5085,24 @@ class WorkspaceGtkGui:
             min-height: 0;
             min-width: 0;
         }}
+        .actions-panel button:hover,
+        .actions-panel button:prelight {{
+            background: {colors['control_background']};
+            color: {colors['foreground']};
+            border-color: {colors['border']};
+        }}
         .actions-panel flowboxchild {{
             padding: 0;
             margin: 0;
+        }}
+        .actions-panel flowboxchild:hover,
+        .actions-panel flowboxchild:prelight,
+        .actions-panel eventbox:hover,
+        .actions-panel eventbox:prelight {{
+            background: transparent;
+            box-shadow: none;
+            outline-style: none;
+            outline-width: 0;
         }}
         button.task-action-play-button {{
             padding-left: 2px;
@@ -4646,6 +5113,22 @@ class WorkspaceGtkGui:
         button.task-action-play-button {{
             outline-width: 0;
             outline-offset: 0;
+            box-shadow: none;
+        }}
+        button.task-action-label-button:hover,
+        button.task-action-label-button:prelight,
+        button.task-action-label-button:focus,
+        button.task-action-label-button:active,
+        button.task-action-play-button:hover,
+        button.task-action-play-button:prelight,
+        button.task-action-play-button:focus,
+        button.task-action-play-button:active {{
+            background: {colors['control_background']};
+            color: {colors['foreground']};
+            border-color: {colors['border']};
+            box-shadow: none;
+            outline-style: none;
+            outline-width: 0;
         }}
         button.task-action-label-button:focus,
         button.task-action-play-button:focus {{
@@ -4657,17 +5140,50 @@ class WorkspaceGtkGui:
             color: {colors['codex_running_foreground']};
             border-color: {colors['codex_running_border']};
         }}
+        button.task-action-selected:hover,
+        button.task-action-selected:prelight,
+        button.task-action-selected:focus,
+        button.task-action-selected:active {{
+            background: {colors['codex_running_background']};
+            color: {colors['codex_running_foreground']};
+            border-color: {colors['codex_running_border']};
+            box-shadow: none;
+            outline-style: none;
+            outline-width: 0;
+        }}
         button.task-action-run-armed {{
             background: #8a6d1f;
             color: #fff4cf;
             border-color: #f2c94c;
             box-shadow: 0 0 6px #f2c94c;
         }}
+        button.task-action-run-armed:hover,
+        button.task-action-run-armed:prelight,
+        button.task-action-run-armed:focus,
+        button.task-action-run-armed:active {{
+            background: #8a6d1f;
+            color: #fff4cf;
+            border-color: #f2c94c;
+            box-shadow: 0 0 6px #f2c94c;
+            outline-style: none;
+            outline-width: 0;
+        }}
         button.task-action-run-fired {{
             background: #1f7a3a;
             color: #eafff0;
             border-color: #35d06f;
             box-shadow: 0 0 7px #35d06f;
+        }}
+        button.task-action-run-fired:hover,
+        button.task-action-run-fired:prelight,
+        button.task-action-run-fired:focus,
+        button.task-action-run-fired:active {{
+            background: #1f7a3a;
+            color: #eafff0;
+            border-color: #35d06f;
+            box-shadow: 0 0 7px #35d06f;
+            outline-style: none;
+            outline-width: 0;
         }}
         button.task-action-dragging,
         .task-action-dragging button {{
@@ -4688,6 +5204,17 @@ class WorkspaceGtkGui:
             border-color: {colors['codex_running_border']};
             box-shadow: 0 0 8px {colors['codex_running_glow']};
         }}
+        button.codex-running:hover,
+        button.codex-running:prelight,
+        button.codex-running:focus,
+        button.codex-running:active {{
+            background: {colors['codex_running_background']};
+            color: {colors['codex_running_foreground']};
+            border-color: {colors['codex_running_border']};
+            box-shadow: 0 0 8px {colors['codex_running_glow']};
+            outline-style: none;
+            outline-width: 0;
+        }}
         notebook tab {{
             background: {colors['tab_background']};
             color: {colors['muted_foreground']};
@@ -4701,6 +5228,28 @@ class WorkspaceGtkGui:
             background: {colors['terminal_background']};
             color: {colors['foreground']};
         }}
+        notebook.console-notebook,
+        notebook.console-notebook:hover,
+        notebook.console-notebook:prelight,
+        notebook.console-notebook:focus,
+        scrolledwindow.terminal-page,
+        scrolledwindow.terminal-page:hover,
+        scrolledwindow.terminal-page:prelight,
+        scrolledwindow.terminal-page:focus,
+        vte,
+        vte:hover,
+        vte:prelight,
+        vte:focus,
+        terminal-screen,
+        terminal-screen:hover,
+        terminal-screen:prelight,
+        terminal-screen:focus {{
+            background: {colors['terminal_background']};
+            color: {colors['foreground']};
+            box-shadow: none;
+            outline-style: none;
+            outline-width: 0;
+        }}
         paned > separator {{
             background: {colors['separator']};
             min-width: 3px;
@@ -4713,7 +5262,17 @@ class WorkspaceGtkGui:
             background: {colors['text_background']};
             color: {colors['foreground']};
         }}
+        treeview:hover,
+        treeview:prelight {{
+            background: {colors['text_background']};
+            color: {colors['foreground']};
+        }}
         treeview:selected {{
+            background: {colors['selection_background']};
+            color: {colors['selection_foreground']};
+        }}
+        treeview:selected:hover,
+        treeview:selected:prelight {{
             background: {colors['selection_background']};
             color: {colors['selection_foreground']};
         }}
@@ -4721,7 +5280,8 @@ class WorkspaceGtkGui:
             background: {colors['menu_background']};
             color: {colors['foreground']};
         }}
-        menuitem:hover {{
+        menuitem:hover,
+        menuitem:prelight {{
             background: {colors['selection_background']};
             color: {colors['selection_foreground']};
         }}
@@ -4748,6 +5308,63 @@ class WorkspaceGtkGui:
             _rgba(colors["terminal_background"]),
             [_rgba(color) for color in _terminal_palette(self.theme)],
         )
+
+    def _configure_terminal_rendering(self, terminal: Vte.Terminal) -> None:
+        terminal.set_font(Pango.FontDescription(f"Monospace {self.text_font_size}"))
+        terminal.set_cursor_blink_mode(Vte.CursorBlinkMode.OFF)
+        set_text_blink_mode = getattr(terminal, "set_text_blink_mode", None)
+        if set_text_blink_mode is not None:
+            set_text_blink_mode(Vte.TextBlinkMode.NEVER)
+        set_enable_bidi = getattr(terminal, "set_enable_bidi", None)
+        if set_enable_bidi is not None:
+            set_enable_bidi(False)
+        set_enable_shaping = getattr(terminal, "set_enable_shaping", None)
+        if set_enable_shaping is not None:
+            set_enable_shaping(False)
+        terminal.set_redraw_on_allocate(False)
+        set_rewrap_on_resize = getattr(terminal, "set_rewrap_on_resize", None)
+        if set_rewrap_on_resize is not None:
+            set_rewrap_on_resize(False)
+
+    def _configure_codex_terminal_pointer_rendering(self, terminal: Vte.Terminal) -> None:
+        set_mouse_autohide = getattr(terminal, "set_mouse_autohide", None)
+        if set_mouse_autohide is not None:
+            set_mouse_autohide(False)
+        set_allow_hyperlink = getattr(terminal, "set_allow_hyperlink", None)
+        if set_allow_hyperlink is not None:
+            set_allow_hyperlink(False)
+
+    def _configure_agent_terminal_event_mask(self, terminal: Vte.Terminal) -> None:
+        motion_masks = (
+            Gdk.EventMask.POINTER_MOTION_MASK
+            | Gdk.EventMask.POINTER_MOTION_HINT_MASK
+            | Gdk.EventMask.BUTTON_MOTION_MASK
+            | Gdk.EventMask.BUTTON2_MOTION_MASK
+            | Gdk.EventMask.BUTTON3_MOTION_MASK
+            | Gdk.EventMask.ENTER_NOTIFY_MASK
+            | Gdk.EventMask.LEAVE_NOTIFY_MASK
+            | Gdk.EventMask.PROXIMITY_IN_MASK
+            | Gdk.EventMask.PROXIMITY_OUT_MASK
+        )
+        required_masks = (
+            Gdk.EventMask.BUTTON_PRESS_MASK
+            | Gdk.EventMask.BUTTON_RELEASE_MASK
+            | Gdk.EventMask.BUTTON1_MOTION_MASK
+        )
+        try:
+            terminal.set_events((terminal.get_events() | required_masks) & ~motion_masks)
+        except (AttributeError, TypeError, RuntimeError):
+            pass
+        window = terminal.get_window()
+        if window is None:
+            return
+        try:
+            window.set_events((window.get_events() | required_masks) & ~motion_masks)
+        except (AttributeError, TypeError, RuntimeError):
+            pass
+
+    def _on_agent_terminal_realize(self, terminal: Vte.Terminal) -> None:
+        self._configure_agent_terminal_event_mask(terminal)
 
     def _apply_runtime_style(self) -> None:
         self._apply_css()
@@ -4935,6 +5552,7 @@ def _context_entry_reference_at_iter(buffer: Gtk.TextBuffer, cursor_iter: Gtk.Te
 
 def _scrolled(widget: Gtk.Widget) -> Gtk.ScrolledWindow:
     scrolled = Gtk.ScrolledWindow()
+    scrolled.set_overlay_scrolling(False)
     scrolled.add(widget)
     return scrolled
 
@@ -5203,6 +5821,7 @@ def main(argv: list[str] | None = None) -> int:
     clear_harness_debug_events(workspace)
     gui = WorkspaceGtkGui(workspace)
     gui.window.show_all()
+    gui._disable_button_hover_tracking_recursive(gui.window)
     Gtk.main()
     return 0
 

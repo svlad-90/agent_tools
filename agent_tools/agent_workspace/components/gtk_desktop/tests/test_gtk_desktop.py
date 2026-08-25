@@ -1,15 +1,27 @@
 from __future__ import annotations
 
+import subprocess
+import sys
+import textwrap
+import time
+
 import pytest
 
 from agent_tools.agent_workspace.components.gtk_desktop.src.gtk_ui import _harness_debug_event_row
 from agent_tools.agent_workspace.components.gtk_desktop.src.gtk_ui import _harness_debug_event_details_text
 from agent_tools.agent_workspace.components.gtk_desktop.src.gtk_ui import _harness_debug_events_text
 from agent_tools.agent_workspace.components.gtk_desktop.src.gtk_ui import _ai_debug_restore_event_id
+from agent_tools.agent_workspace.components.gtk_desktop.src.gtk_ui import Vte
+from agent_tools.agent_workspace.components.gtk_desktop.src.codex_terminal_mouse import CodexTerminalMouseStateMachine
 from agent_tools.agent_workspace.components.harness_adapter.api import AgentType
 from agent_tools.agent_workspace.components.harness_adapter.api import HarnessDebugEvent
 from agent_tools.agent_workspace.components.harness_adapter.api import HarnessStatusEvent
 from agent_tools.agent_workspace.components.test_support.src.helpers import *
+
+
+def _drain_gtk_events() -> None:
+    while Gtk.events_pending():
+        Gtk.main_iteration_do(False)
 
 
 def test_gtk_artifact_sort_column_click_toggles_indicator() -> None:
@@ -181,6 +193,705 @@ def test_gtk_ai_debug_event_row_keeps_large_event_id_as_string() -> None:
     )
 
     assert row[0] == "1787503705134248638"
+
+
+def test_gtk_ai_debug_refresh_tick_runs_even_when_ai_debug_tab_is_hidden() -> None:
+    gui = WorkspaceGtkGui.__new__(WorkspaceGtkGui)
+    gui._closing = False
+    gui.selected_task = object()
+    refreshes: list[str] = []
+    gui._refresh_ai_debug = lambda: refreshes.append("refresh")  # type: ignore[method-assign]
+
+    assert gui._refresh_ai_debug_if_visible() is True
+    assert refreshes == ["refresh"]
+
+    assert gui._refresh_ai_debug_if_visible() is True
+    assert refreshes == ["refresh", "refresh"]
+
+
+def test_gtk_ai_debug_refresh_tick_stops_on_close() -> None:
+    gui = WorkspaceGtkGui.__new__(WorkspaceGtkGui)
+    gui._closing = True
+    gui.selected_task = object()
+    gui.ai_debug_refresh_source_id = 88
+
+    assert gui._refresh_ai_debug_if_visible() is False
+
+    assert gui.ai_debug_refresh_source_id is None
+
+
+def test_gtk_task_action_reflow_skips_unchanged_layout(monkeypatch: pytest.MonkeyPatch) -> None:
+    class FakeActionWidget:
+        def __init__(self, width: int) -> None:
+            self.width = width
+            self.parent: object | None = None
+
+        def get_preferred_width(self) -> tuple[int, int]:
+            return (self.width, self.width)
+
+        def get_parent(self) -> object | None:
+            return self.parent
+
+    class FakeRow:
+        def __init__(self, *args: object, **kwargs: object) -> None:
+            self.children: list[FakeActionWidget] = []
+
+        def set_halign(self, _align: object) -> None:
+            return
+
+        def pack_start(self, widget: FakeActionWidget, *_args: object) -> None:
+            widget.parent = self
+            self.children.append(widget)
+
+    class FakeActionsBox:
+        def __init__(self, width: int) -> None:
+            self.width = width
+            self.children: list[FakeRow] = []
+            self.pack_count = 0
+            self.remove_count = 0
+            self.show_count = 0
+
+        def get_allocated_width(self) -> int:
+            return self.width
+
+        def get_border_width(self) -> int:
+            return 0
+
+        def get_children(self) -> list[FakeRow]:
+            return list(self.children)
+
+        def pack_start(self, row: FakeRow, *_args: object) -> None:
+            self.pack_count += 1
+            self.children.append(row)
+
+        def remove(self, row: FakeRow) -> None:
+            self.remove_count += 1
+            self.children.remove(row)
+
+        def show_all(self) -> None:
+            self.show_count += 1
+
+    gui = WorkspaceGtkGui.__new__(WorkspaceGtkGui)
+    gui.task_action_reflow_source_id = 99
+    gui.task_action_reflow_layout = None
+    gui.task_reorder_group = None
+    gui.task_action_reorder_preview = []
+    gui.task_action_item_widgets = {
+        "a": FakeActionWidget(10),
+        "b": FakeActionWidget(10),
+    }
+    gui._task_action_order = lambda: ["a", "b"]  # type: ignore[method-assign]
+    gui._update_task_action_button_selection = lambda: None  # type: ignore[method-assign]
+    gui.task_actions_box = FakeActionsBox(width=100)
+    monkeypatch.setattr(gtk_ui_module.Gtk, "Box", FakeRow)
+
+    assert gui._reflow_task_action_buttons() is False
+
+    assert gui.task_action_reflow_source_id is None
+    assert gui.task_actions_box.pack_count == 1
+    assert gui.task_actions_box.show_count == 1
+
+    assert gui._reflow_task_action_buttons() is False
+
+    assert gui.task_actions_box.pack_count == 1
+    assert gui.task_actions_box.remove_count == 0
+    assert gui.task_actions_box.show_count == 1
+
+    gui.task_actions_box.width = 15
+
+    assert gui._reflow_task_action_buttons() is False
+
+    assert gui.task_actions_box.pack_count == 3
+    assert gui.task_actions_box.remove_count == 1
+    assert gui.task_actions_box.show_count == 2
+
+
+def test_gtk_task_action_size_allocate_skips_unchanged_width(monkeypatch: pytest.MonkeyPatch) -> None:
+    class FakeActionsBox:
+        def get_border_width(self) -> int:
+            return 0
+
+    class FakeAllocation:
+        def __init__(self, width: int) -> None:
+            self.width = width
+
+    gui = WorkspaceGtkGui.__new__(WorkspaceGtkGui)
+    gui.task_actions_box = FakeActionsBox()
+    gui.task_action_reflow_width = None
+    gui.task_action_reflow_layout = None
+    gui.task_action_reflow_source_id = None
+    idle_callbacks: list[object] = []
+    monkeypatch.setattr(gtk_ui_module.GLib, "idle_add", lambda callback: idle_callbacks.append(callback) or 77)
+
+    gui._on_task_actions_box_size_allocate(gui.task_actions_box, FakeAllocation(100))
+
+    assert gui.task_action_reflow_width == 100
+    assert gui.task_action_reflow_source_id == 77
+    assert idle_callbacks == [gui._reflow_task_action_buttons]
+
+    gui.task_action_reflow_source_id = None
+    gui.task_action_reflow_layout = (100, (("a",),))
+
+    gui._on_task_actions_box_size_allocate(gui.task_actions_box, FakeAllocation(100))
+
+    assert len(idle_callbacks) == 1
+    assert gui.task_action_reflow_source_id is None
+
+    gui._on_task_actions_box_size_allocate(gui.task_actions_box, FakeAllocation(120))
+
+    assert gui.task_action_reflow_width == 120
+    assert gui.task_action_reflow_source_id == 77
+    assert len(idle_callbacks) == 2
+
+
+def test_gtk_terminal_rendering_disables_blink_and_rewrap() -> None:
+    class FakeTerminal:
+        def __init__(self) -> None:
+            self.calls: list[tuple[str, object]] = []
+
+        def set_font(self, value: object) -> None:
+            self.calls.append(("font", value))
+
+        def set_cursor_blink_mode(self, value: object) -> None:
+            self.calls.append(("cursor_blink", value))
+
+        def set_text_blink_mode(self, value: object) -> None:
+            self.calls.append(("text_blink", value))
+
+        def set_enable_bidi(self, value: object) -> None:
+            self.calls.append(("bidi", value))
+
+        def set_enable_shaping(self, value: object) -> None:
+            self.calls.append(("shaping", value))
+
+        def set_redraw_on_allocate(self, value: object) -> None:
+            self.calls.append(("redraw_on_allocate", value))
+
+        def set_rewrap_on_resize(self, value: object) -> None:
+            self.calls.append(("rewrap_on_resize", value))
+
+    gui = WorkspaceGtkGui.__new__(WorkspaceGtkGui)
+    gui.text_font_size = 13
+    terminal = FakeTerminal()
+
+    gui._configure_terminal_rendering(terminal)  # type: ignore[arg-type]
+
+    assert ("cursor_blink", Vte.CursorBlinkMode.OFF) in terminal.calls
+    assert ("text_blink", Vte.TextBlinkMode.NEVER) in terminal.calls
+    assert ("bidi", False) in terminal.calls
+    assert ("shaping", False) in terminal.calls
+    assert ("redraw_on_allocate", False) in terminal.calls
+    assert ("rewrap_on_resize", False) in terminal.calls
+
+
+def test_gtk_codex_terminal_pointer_rendering_disables_vte_mouse_state_churn() -> None:
+    class FakeTerminal:
+        def __init__(self) -> None:
+            self.calls: list[tuple[str, object]] = []
+
+        def set_mouse_autohide(self, value: bool) -> None:
+            self.calls.append(("mouse_autohide", value))
+
+        def set_allow_hyperlink(self, value: bool) -> None:
+            self.calls.append(("allow_hyperlink", value))
+
+    gui = WorkspaceGtkGui.__new__(WorkspaceGtkGui)
+    terminal = FakeTerminal()
+
+    gui._configure_codex_terminal_pointer_rendering(terminal)  # type: ignore[arg-type]
+
+    assert terminal.calls == [
+        ("mouse_autohide", False),
+        ("allow_hyperlink", False),
+    ]
+
+
+def test_gtk_agent_terminal_event_mask_ignores_plain_pointer_motion() -> None:
+    class FakeWindow:
+        def __init__(self) -> None:
+            self.events = (
+                Gdk.EventMask.POINTER_MOTION_MASK
+                | Gdk.EventMask.ENTER_NOTIFY_MASK
+                | Gdk.EventMask.LEAVE_NOTIFY_MASK
+            )
+
+        def get_events(self) -> object:
+            return self.events
+
+        def set_events(self, events: object) -> None:
+            self.events = events
+
+    class FakeTerminal(FakeWindow):
+        def __init__(self) -> None:
+            super().__init__()
+            self.window = FakeWindow()
+
+        def get_window(self) -> FakeWindow:
+            return self.window
+
+    gui = WorkspaceGtkGui.__new__(WorkspaceGtkGui)
+    terminal = FakeTerminal()
+
+    gui._configure_agent_terminal_event_mask(terminal)  # type: ignore[arg-type]
+
+    motion_masks = (
+        Gdk.EventMask.POINTER_MOTION_MASK
+        | Gdk.EventMask.POINTER_MOTION_HINT_MASK
+        | Gdk.EventMask.ENTER_NOTIFY_MASK
+        | Gdk.EventMask.LEAVE_NOTIFY_MASK
+    )
+    required_masks = (
+        Gdk.EventMask.BUTTON_PRESS_MASK
+        | Gdk.EventMask.BUTTON_RELEASE_MASK
+        | Gdk.EventMask.BUTTON1_MOTION_MASK
+    )
+    assert terminal.events & motion_masks == 0
+    assert terminal.window.events & motion_masks == 0
+    assert terminal.events & required_masks == required_masks
+    assert terminal.window.events & required_masks == required_masks
+
+
+def test_gtk_button_helper_disables_hover_tracking() -> None:
+    class FakeButton:
+        def __init__(self) -> None:
+            self.events: list[object] = []
+            self.connections: list[tuple[str, object]] = []
+
+        def add_events(self, events: object) -> None:
+            self.events.append(events)
+
+        def connect(self, signal: str, callback: object) -> None:
+            self.connections.append((signal, callback))
+
+    gui = WorkspaceGtkGui.__new__(WorkspaceGtkGui)
+    gui.label_widgets = {}
+    gui._tr = lambda key: key  # type: ignore[method-assign]
+    button = FakeButton()
+    original_button = gtk_ui_module._button
+    gtk_ui_module._button = lambda _label, _callback: button  # type: ignore[assignment]
+    try:
+        assert gui._button("settings", object()) is button
+    finally:
+        gtk_ui_module._button = original_button  # type: ignore[assignment]
+
+    assert button.events
+    assert not (int(button.events[0]) & int(Gdk.EventMask.POINTER_MOTION_MASK))
+    assert ("event", gui._consume_action_hover_event) in button.connections
+    assert ("motion-notify-event", gui._consume_action_hover_event) in button.connections
+    assert gui.label_widgets["settings"] is button
+
+
+def test_gtk_hover_filter_consumes_motion_enter_leave_only() -> None:
+    class FakeEvent:
+        def __init__(self, event_type: object, state: int = 0) -> None:
+            self.type = event_type
+            self.state = state
+
+    gui = WorkspaceGtkGui.__new__(WorkspaceGtkGui)
+
+    assert gui._consume_action_hover_event(None, FakeEvent(Gdk.EventType.ENTER_NOTIFY)) is True
+    assert gui._consume_action_hover_event(None, FakeEvent(Gdk.EventType.LEAVE_NOTIFY)) is True
+    assert gui._consume_action_hover_event(None, FakeEvent(Gdk.EventType.MOTION_NOTIFY)) is True
+    assert gui._consume_action_hover_event(None, FakeEvent(Gdk.EventType.BUTTON_PRESS)) is False
+
+
+def test_gtk_terminal_passive_pointer_filter_preserves_selection_drag() -> None:
+    class FakeEvent:
+        def __init__(self, event_type: object, state: int = 0) -> None:
+            self.type = event_type
+            self.state = state
+
+    gui = WorkspaceGtkGui.__new__(WorkspaceGtkGui)
+
+    assert gui._consume_terminal_passive_pointer_event(None, FakeEvent(Gdk.EventType.ENTER_NOTIFY)) is True
+    assert gui._consume_terminal_passive_pointer_event(None, FakeEvent(Gdk.EventType.LEAVE_NOTIFY)) is True
+    assert gui._consume_terminal_passive_pointer_event(None, FakeEvent(Gdk.EventType.PROXIMITY_IN)) is True
+    assert gui._consume_terminal_passive_pointer_event(None, FakeEvent(Gdk.EventType.PROXIMITY_OUT)) is True
+    assert gui._consume_terminal_passive_pointer_event(None, FakeEvent(Gdk.EventType.MOTION_NOTIFY)) is True
+    assert (
+        gui._consume_terminal_passive_pointer_event(
+            None,
+            FakeEvent(Gdk.EventType.MOTION_NOTIFY, int(Gdk.ModifierType.BUTTON1_MASK)),
+        )
+        is False
+    )
+    assert gui._consume_terminal_passive_pointer_event(None, FakeEvent(Gdk.EventType.BUTTON_PRESS)) is False
+
+
+def test_codex_terminal_mouse_state_machine_controls_overlay() -> None:
+    class FakeOverlay:
+        def __init__(self) -> None:
+            self.children: list[object] = []
+            self.overlay_children: list[object] = []
+
+        def add(self, child: object) -> None:
+            self.children.append(child)
+
+        def add_overlay(self, child: object) -> None:
+            self.overlay_children.append(child)
+
+    class FakeEventBox:
+        def __init__(self) -> None:
+            self.above_child: list[bool] = []
+            self.sensitive: list[bool] = []
+            self.visible: list[bool] = []
+            self.children: list[object] = []
+            self.connected: list[str] = []
+
+        def set_above_child(self, value: bool) -> None:
+            self.above_child.append(value)
+
+        def set_sensitive(self, value: bool) -> None:
+            self.sensitive.append(value)
+
+        def hide(self) -> None:
+            self.visible.append(False)
+
+        def show(self) -> None:
+            self.visible.append(True)
+
+        def set_visible_window(self, _value: bool) -> None:
+            pass
+
+        def set_app_paintable(self, _value: bool) -> None:
+            pass
+
+        def set_halign(self, _value: object) -> None:
+            pass
+
+        def set_opacity(self, _value: float) -> None:
+            pass
+
+        def set_valign(self, _value: object) -> None:
+            pass
+
+        def set_hexpand(self, _value: bool) -> None:
+            pass
+
+        def set_vexpand(self, _value: bool) -> None:
+            pass
+
+        def set_size_request(self, _width: int, _height: int) -> None:
+            pass
+
+        def add_events(self, _events: object) -> None:
+            pass
+
+        def connect(self, signal: str, _callback: object) -> None:
+            self.connected.append(signal)
+
+    class FakeTerminal:
+        def __init__(self) -> None:
+            self.focus_count = 0
+            self.connected: list[str] = []
+
+        def grab_focus(self) -> None:
+            self.focus_count += 1
+
+        def add_events(self, _events: object) -> None:
+            pass
+
+        def connect(self, signal: str, _callback: object) -> None:
+            self.connected.append(signal)
+
+    class FakeEvent:
+        def __init__(self, event_type: object, *, button: int = 0, state: int = 0) -> None:
+            self.type = event_type
+            self.button = button
+            self.state = state
+
+    overlay = FakeOverlay()
+    event_box = FakeEventBox()
+    terminal = FakeTerminal()
+    events: list[tuple[str, str]] = []
+    mouse = CodexTerminalMouseStateMachine(
+        terminal,  # type: ignore[arg-type]
+        lambda area, event: events.append((area, event)),
+        overlay=overlay,  # type: ignore[arg-type]
+        event_box=event_box,  # type: ignore[arg-type]
+    )
+    motion = FakeEvent(Gdk.EventType.MOTION_NOTIFY)
+    drag_motion = FakeEvent(Gdk.EventType.MOTION_NOTIFY, state=int(Gdk.ModifierType.BUTTON1_MASK))
+    left_press = FakeEvent(Gdk.EventType.BUTTON_PRESS, button=1)
+    left_release = FakeEvent(Gdk.EventType.BUTTON_RELEASE, button=1)
+    leave = FakeEvent(Gdk.EventType.LEAVE_NOTIFY)
+
+    assert mouse.state == "idle"
+    assert mouse.widget is overlay
+    assert overlay.children == [terminal]
+    assert overlay.overlay_children == [event_box]
+    assert event_box.above_child == [True]
+    assert event_box.sensitive == [True]
+    assert event_box.visible == []
+    assert event_box.children == []
+    assert "button-press-event" in event_box.connected
+    assert "button-release-event" in event_box.connected
+    assert "motion-notify-event" in event_box.connected
+    assert "focus-in-event" in terminal.connected
+    assert "focus-out-event" in terminal.connected
+
+    assert mouse.on_proxy_passive_pointer_event(event_box, motion) is True  # type: ignore[arg-type]
+    assert events == [("codex-terminal-mouse", "drop-motion-notify")]
+
+    assert mouse.on_proxy_button_press(event_box, left_press) is True  # type: ignore[arg-type]
+    assert mouse.state == "active"
+    assert terminal.focus_count == 1
+    assert event_box.above_child == [True, False]
+    assert event_box.sensitive == [True, False]
+    assert event_box.visible == [False]
+
+    assert mouse.on_proxy_passive_pointer_event(event_box, drag_motion) is True  # type: ignore[arg-type]
+    assert mouse.state == "active"
+    assert event_box.above_child == [True, False]
+    assert event_box.sensitive == [True, False]
+    assert event_box.visible == [False]
+
+    assert mouse.on_terminal_button_release(terminal, left_release) is False  # type: ignore[arg-type]
+    assert mouse.state == "active"
+    assert event_box.above_child == [True, False]
+
+    assert mouse.on_terminal_leave_notify(terminal, leave) is False  # type: ignore[arg-type]
+    assert mouse.state == "active"
+    assert event_box.above_child == [True, False]
+
+    assert mouse.on_proxy_button_release(event_box, left_release) is True  # type: ignore[arg-type]
+    assert mouse.state == "active"
+    assert event_box.above_child == [True, False]
+
+    mouse.deactivate()
+    assert mouse.state == "idle"
+    assert event_box.above_child == [True, False, True]
+    assert event_box.sensitive == [True, False, True]
+    assert event_box.visible == [False, True]
+
+    assert mouse.on_terminal_focus_in(terminal, leave) is False  # type: ignore[arg-type]
+    assert mouse.state == "active"
+    assert event_box.above_child == [True, False, True, False]
+    assert event_box.sensitive == [True, False, True, False]
+    assert event_box.visible == [False, True, False]
+
+    assert mouse.on_terminal_focus_out(terminal, leave) is False  # type: ignore[arg-type]
+    assert mouse.state == "idle"
+    assert event_box.above_child == [True, False, True, False, True]
+    assert event_box.sensitive == [True, False, True, False, True]
+    assert event_box.visible == [False, True, False, True]
+
+
+def test_codex_terminal_mouse_state_machine_receives_realized_gtk_button_signals() -> None:
+    if Gdk.Display.get_default() is None:
+        pytest.skip("real GTK event delivery requires DISPLAY")
+
+    script = textwrap.dedent(
+        """
+        import sys
+
+        import gi
+
+        gi.require_version("Gdk", "3.0")
+        gi.require_version("Gtk", "3.0")
+
+        from gi.repository import Gdk
+        from gi.repository import GLib
+        from gi.repository import Gtk
+
+        from agent_tools.agent_workspace.components.gtk_desktop.src.codex_terminal_mouse import (
+            CodexTerminalMouseStateMachine,
+        )
+
+        def drain():
+            while Gtk.events_pending():
+                Gtk.main_iteration_do(False)
+
+        terminal = Gtk.Label(label="terminal")
+        records = []
+        mouse = CodexTerminalMouseStateMachine(terminal, lambda area, event: records.append((area, event)))
+        window = Gtk.Window()
+        window.set_default_size(240, 120)
+        window.add(mouse.widget)
+        window.show_all()
+        drain()
+
+        event_window = mouse.event_box.get_window()
+        if event_window is None:
+            print("event window is missing")
+            sys.exit(2)
+
+        allocation = mouse.event_box.get_allocation()
+        press = Gdk.Event.new(Gdk.EventType.BUTTON_PRESS)
+        press.button = 1
+        release = Gdk.Event.new(Gdk.EventType.BUTTON_RELEASE)
+        release.button = 1
+
+        press_ok = mouse.event_box.emit("button-press-event", press)
+        drain()
+        release_ok = mouse.event_box.emit("button-release-event", release)
+        drain()
+        window.destroy()
+        drain()
+
+        print(
+            f"press_ok={press_ok} release_ok={release_ok} state={mouse.state} "
+            f"allocation={allocation.width}x{allocation.height} "
+            f"event_box_visible={mouse.event_box.get_visible()} "
+            f"event_box_sensitive={mouse.event_box.get_sensitive()} "
+            f"event_window={event_window is not None} records={records!r}"
+        )
+        expected = [
+            ("codex-terminal-mouse", "activate-button-press"),
+            ("codex-terminal-mouse", "keep-active-proxy-button-release"),
+        ]
+        sys.exit(
+            0
+            if (
+                press_ok
+                and release_ok
+                and mouse.state == "active"
+                and not mouse.event_box.get_visible()
+                and not mouse.event_box.get_sensitive()
+                and allocation.width > 0
+                and allocation.height > 0
+                and all(item in records for item in expected)
+            )
+            else 3
+        )
+        """
+    )
+    result = subprocess.run(
+        [sys.executable, "-c", script],
+        check=False,
+        capture_output=True,
+        text=True,
+        timeout=5,
+    )
+
+    assert result.returncode == 0, result.stdout + result.stderr
+
+
+def test_gtk_codex_terminal_window_filter_removes_passive_pointer_events() -> None:
+    class FakeNativeEvent:
+        def __init__(self, event_type: int) -> None:
+            self.type = event_type
+
+    class FakeEvent:
+        def __init__(self, event_type: object, state: int = 0) -> None:
+            self.type = event_type
+            self.state = state
+
+    gui = WorkspaceGtkGui.__new__(WorkspaceGtkGui)
+
+    assert gui._filter_codex_terminal_window_event(None, FakeEvent(Gdk.EventType.ENTER_NOTIFY), None) == Gdk.FilterReturn.REMOVE
+    assert gui._filter_codex_terminal_window_event(None, FakeEvent(Gdk.EventType.LEAVE_NOTIFY), None) == Gdk.FilterReturn.REMOVE
+    assert gui._filter_codex_terminal_window_event(None, FakeEvent(Gdk.EventType.PROXIMITY_IN), None) == Gdk.FilterReturn.REMOVE
+    assert gui._filter_codex_terminal_window_event(None, FakeEvent(Gdk.EventType.PROXIMITY_OUT), None) == Gdk.FilterReturn.REMOVE
+    assert gui._filter_codex_terminal_window_event(None, FakeEvent(Gdk.EventType.MOTION_NOTIFY), None) == Gdk.FilterReturn.REMOVE
+    assert gui._filter_codex_terminal_window_event(FakeNativeEvent(6), FakeEvent(Gdk.EventType.NOTHING), None) == Gdk.FilterReturn.REMOVE
+    assert gui._filter_codex_terminal_window_event(FakeNativeEvent(7), FakeEvent(Gdk.EventType.NOTHING), None) == Gdk.FilterReturn.REMOVE
+    assert gui._filter_codex_terminal_window_event(FakeNativeEvent(8), FakeEvent(Gdk.EventType.NOTHING), None) == Gdk.FilterReturn.REMOVE
+    assert (
+        gui._filter_codex_terminal_window_event(
+            None,
+            FakeEvent(Gdk.EventType.MOTION_NOTIFY, int(Gdk.ModifierType.BUTTON1_MASK)),
+            None,
+        )
+        == Gdk.FilterReturn.CONTINUE
+    )
+    assert gui._filter_codex_terminal_window_event(None, FakeEvent(Gdk.EventType.BUTTON_PRESS), None) == Gdk.FilterReturn.CONTINUE
+
+
+def test_gtk_codex_terminal_window_filter_installs_and_removes() -> None:
+    class FakeWindow:
+        def __init__(self, children: list[object] | None = None) -> None:
+            self.filters: list[tuple[object, object]] = []
+            self.children = children or []
+
+        def add_filter(self, callback: object, data: object) -> None:
+            self.filters.append((callback, data))
+
+        def remove_filter(self, callback: object, data: object) -> None:
+            self.filters.remove((callback, data))
+
+        def get_children(self) -> list[object]:
+            return self.children
+
+    class FakeTerminal:
+        def __init__(self) -> None:
+            self.child_window = FakeWindow()
+            self.window = FakeWindow([self.child_window])
+
+        def get_window(self) -> FakeWindow:
+            return self.window
+
+    gui = WorkspaceGtkGui.__new__(WorkspaceGtkGui)
+    gui.codex_terminal_window_filters = {}
+    terminal = FakeTerminal()
+
+    gui._install_codex_terminal_window_filter(terminal)  # type: ignore[arg-type]
+    gui._install_codex_terminal_window_filter(terminal)  # type: ignore[arg-type]
+
+    assert len(terminal.window.filters) == 1
+    assert len(terminal.child_window.filters) == 1
+    assert len(gui.codex_terminal_window_filters) == 1
+
+    gui._remove_codex_terminal_window_filter(terminal)  # type: ignore[arg-type]
+
+    assert terminal.window.filters == []
+    assert terminal.child_window.filters == []
+    assert gui.codex_terminal_window_filters == {}
+
+
+def test_gtk_codex_console_boundary_filter_is_codex_scoped() -> None:
+    class FakeAllocation:
+        width = 100
+        height = 80
+
+    class FakePage:
+        def translate_coordinates(self, _widget: object, _x: int, _y: int) -> tuple[int, int]:
+            return (10, 20)
+
+        def get_allocation(self) -> FakeAllocation:
+            return FakeAllocation()
+
+    class FakeEvent:
+        def __init__(self, event_type: object, x: int = 0, y: int = 0, state: int = 0) -> None:
+            self.type = event_type
+            self.x = x
+            self.y = y
+            self.state = state
+
+    gui = WorkspaceGtkGui.__new__(WorkspaceGtkGui)
+    session = TerminalSession(1, Path("/tmp/task"), "codex", object(), FakePage())  # type: ignore[arg-type]
+    gui._active_codex_terminal_session = lambda: session  # type: ignore[method-assign]
+
+    assert gui._event_is_over_active_codex_console(object(), FakeEvent(Gdk.EventType.ENTER_NOTIFY, 15, 25))
+    assert gui._consume_codex_console_boundary_event(object(), FakeEvent(Gdk.EventType.ENTER_NOTIFY, 15, 25))
+    assert gui._consume_codex_console_boundary_event(object(), FakeEvent(Gdk.EventType.LEAVE_NOTIFY, 15, 25))
+    assert gui._consume_codex_console_boundary_event(object(), FakeEvent(Gdk.EventType.PROXIMITY_IN, 15, 25))
+    assert gui._consume_codex_console_boundary_event(object(), FakeEvent(Gdk.EventType.PROXIMITY_OUT, 15, 25))
+    assert gui._consume_codex_console_boundary_event(object(), FakeEvent(Gdk.EventType.MOTION_NOTIFY, 15, 25))
+    assert not gui._consume_codex_console_boundary_event(
+        object(),
+        FakeEvent(Gdk.EventType.MOTION_NOTIFY, 15, 25, int(Gdk.ModifierType.BUTTON1_MASK)),
+    )
+    assert not gui._consume_codex_console_boundary_event(object(), FakeEvent(Gdk.EventType.ENTER_NOTIFY, 500, 25))
+
+    gui._active_codex_terminal_session = lambda: None  # type: ignore[method-assign]
+
+    assert not gui._consume_codex_console_boundary_event(object(), FakeEvent(Gdk.EventType.ENTER_NOTIFY, 15, 25))
+
+
+def test_gtk_abort_with_stack_dump_uses_workspace(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    calls: list[tuple[Path, str]] = []
+    gui = WorkspaceGtkGui.__new__(WorkspaceGtkGui)
+    gui.workspace = tmp_path
+    monkeypatch.setattr(
+        gtk_ui_module,
+        "abort_agent_workspace_with_stack_dump",
+        lambda workspace, frontend: calls.append((workspace, frontend)),
+    )
+
+    gui._abort_with_stack_dump()
+
+    assert calls == [(tmp_path, "gtk")]
 
 
 def test_gtk_record_agent_interrupt_sets_circle_icon(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -500,7 +1211,6 @@ def test_gtk_task_agent_status_shows_external_legacy_workspace_lock(tmp_path: Pa
     gui = WorkspaceGtkGui.__new__(WorkspaceGtkGui)
     gui.workspace = tmp_path
     gui.terminal_sessions = {}
-    gui._agent_spinner_index = 0
     gui._local_agent_run_ids = lambda: set()
 
     assert gui._task_agent_status(summary) == "×"
@@ -583,7 +1293,6 @@ def test_gtk_animate_agent_status_updates_only_status_column(tmp_path: Path) -> 
     )
     gui.terminal_sessions = {}
     gui._closing = False
-    gui._agent_spinner_index = 0
     gui._running_agent_sessions = lambda: [object()]
     gui._task_agent_status = lambda _task: "▷"
 
@@ -622,7 +1331,6 @@ def test_gtk_animate_agent_status_reuses_session_marker_cache(
     gui.theme = "dark"
     gui.selected_task = None
     gui._closing = False
-    gui._agent_spinner_index = 0
     gui._task_is_external_active = lambda _task: False
     gui._task_has_pending_agent_permission = lambda _task: False
     gui._running_agent_sessions = lambda: [object()]
@@ -901,6 +1609,51 @@ def test_gtk_console_notebook_refresh_switch_does_not_replace_active_task_termin
     gui._on_console_notebook_switch_page(object(), page, 0)  # type: ignore[arg-type]
 
     assert gui.last_active_terminal_by_task == {summary.path: 3}
+
+
+def test_gtk_console_notebook_switch_deactivates_codex_terminal_mouse(tmp_path: Path) -> None:
+    class FakeCodexMouse:
+        def __init__(self) -> None:
+            self.deactivate_count = 0
+
+        def deactivate(self) -> None:
+            self.deactivate_count += 1
+
+    task = tmp_path / "tasks" / "sample-task"
+    task.mkdir(parents=True)
+    summary = discover_tasks_with_context(task, tmp_path)
+    codex_page = object()
+    shell_page = object()
+    mouse = FakeCodexMouse()
+    codex_session = TerminalSession(
+        7,
+        summary.path,
+        "codex",
+        object(),  # type: ignore[arg-type]
+        codex_page,  # type: ignore[arg-type]
+        terminal_mouse=mouse,  # type: ignore[arg-type]
+    )
+    shell_session = TerminalSession(8, summary.path, "shell", object(), shell_page)  # type: ignore[arg-type]
+    gui = WorkspaceGtkGui.__new__(WorkspaceGtkGui)
+    gui.terminal_sessions = {
+        codex_session.session_id: codex_session,
+        shell_session.session_id: shell_session,
+    }
+    gui.last_active_terminal_by_task = {}
+    gui._refreshing_console_tabs = False
+    gui.last_active_console_page_by_task = {}
+
+    gui._on_console_notebook_switch_page(object(), codex_page, 0)  # type: ignore[arg-type]
+
+    assert mouse.deactivate_count == 0
+
+    gui._on_console_notebook_switch_page(object(), shell_page, 1)  # type: ignore[arg-type]
+
+    assert mouse.deactivate_count == 1
+
+    gui._on_console_notebook_switch_page(object(), codex_page, 0)  # type: ignore[arg-type]
+
+    assert mouse.deactivate_count == 1
 
 
 def test_gtk_remember_current_console_tab_uses_visible_page_for_task(tmp_path: Path) -> None:
@@ -1616,3 +2369,48 @@ def test_gtk_agent_restore_failure_clears_session_closes_console_and_sets_status
     assert page.destroyed
     assert not load_task_agent_session(summary, "claude").resume
     assert "Не удалось восстановить сохраненную сессию Claude Code" in gui.status_message
+
+
+def test_gtk_agent_restore_output_check_clears_missing_session(tmp_path: Path) -> None:
+    task = tmp_path / "tasks" / "sample-task"
+    task.mkdir(parents=True)
+    summary = discover_tasks_with_context(task, tmp_path)
+    save_task_agent_session(summary, "codex", session_id="71ca3372-3c10-4501-ad2a-145c5b9305de")
+    page = FakeFrame()
+    terminal = FakeGtkTextTerminal(
+        "No conversation found with session ID: 71ca3372-3c10-4501-ad2a-145c5b9305de"
+    )
+    session = TerminalSession(1, summary.path, "codex", terminal, page)
+    gui = WorkspaceGtkGui.__new__(WorkspaceGtkGui)
+    gui.terminal_sessions = {1: session}
+    gui.last_active_terminal_by_task = {summary.path: session.session_id}
+    gui.selected_task = summary
+    gui.console_notebook = type("Notebook", (), {"page_num": lambda self, page: -1})()
+    gui._task_for_path = lambda task_path: summary  # type: ignore[method-assign]
+    gui._tr = lambda key: GTK_TRANSLATIONS["ru"][key]  # type: ignore[method-assign]
+    gui._set_status_message = lambda message: setattr(gui, "status_message", message)  # type: ignore[method-assign]
+    gui._update_codex_button_state = lambda: None  # type: ignore[method-assign]
+    gui._refresh_task_row_styles = lambda: None  # type: ignore[method-assign]
+
+    assert not gui._check_agent_restore_output(session.session_id, time.monotonic() + 10)
+
+    assert session.session_id not in gui.terminal_sessions
+    assert page.destroyed
+    assert not load_task_agent_session(summary, "codex").resume
+
+
+def test_gtk_agent_restore_output_check_ignores_permission_prompt(tmp_path: Path) -> None:
+    task = tmp_path / "tasks" / "sample-task"
+    task.mkdir(parents=True)
+    summary = discover_tasks_with_context(task, tmp_path)
+    page = FakeFrame()
+    terminal = FakeGtkTextTerminal("Allow this command to run? [y/N]")
+    session = TerminalSession(1, summary.path, "codex", terminal, page, busy=True)
+    gui = WorkspaceGtkGui.__new__(WorkspaceGtkGui)
+    gui.terminal_sessions = {1: session}
+    gui._refresh_task_row_styles = lambda: pytest.fail("permission prompt should not refresh rows")  # type: ignore[method-assign]
+
+    assert gui._check_agent_restore_output(session.session_id, time.monotonic() + 10)
+
+    assert session.busy
+    assert not session.permission_pending

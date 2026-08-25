@@ -14,14 +14,21 @@ def button(label: str, callback: object) -> Gtk.Button:
     return widget
 
 
-def compact_button(label: str, callback: object | None, *, max_width_chars: int = 22) -> Gtk.Button:
+def compact_button(
+    label: str,
+    callback: object | None,
+    *,
+    max_width_chars: int = 22,
+    tooltip: bool = True,
+) -> Gtk.Button:
     widget = Gtk.Button()
     text = Gtk.Label(label=label)
     text.set_ellipsize(Pango.EllipsizeMode.END)
     text.set_max_width_chars(max_width_chars)
     text.set_width_chars(min(max_width_chars, max(4, min(len(label), max_width_chars))))
     widget.add(text)
-    widget.set_tooltip_text(label)
+    if tooltip:
+        widget.set_tooltip_text(label)
     widget.set_size_request(-1, 26)
     if callback is not None:
         widget.connect("clicked", callback)
