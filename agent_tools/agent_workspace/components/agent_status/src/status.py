@@ -13,7 +13,10 @@ from ...task_sessions.api import AGENT_IDLE_MARKER
 from ...task_sessions.api import task_agent_session_markers
 
 
-AGENT_RUNNING_SPINNER_FRAMES = ("▷",)
+AGENT_PROMPT_MARKER = "▸"
+AGENT_RUNNING_READY_MARKER = AGENT_PROMPT_MARKER
+AGENT_TOOL_MARKER = "◆"
+AGENT_RUNNING_SPINNER_FRAMES = (AGENT_RUNNING_READY_MARKER,)
 ANSI_ESCAPE_RE = re.compile(r"\x1b(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])")
 ANSI_OSC_RE = re.compile(r"\x1b\][^\x07]*(?:\x07|\x1b\\)")
 AGENT_MISSING_SESSION_RE = re.compile(
@@ -222,7 +225,7 @@ def agent_status_tooltip_text(status_text: str) -> str:
         return ""
     labels: list[str] = []
     for marker in status_text.split():
-        if marker.startswith("▷"):
+        if marker.startswith(AGENT_RUNNING_READY_MARKER):
             label = AGENT_STATUS_RUNNING_LABEL
         else:
             label = AGENT_STATUS_TOOLTIPS.get(marker, "")

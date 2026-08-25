@@ -692,7 +692,7 @@ class AgentWorkspace:
         row += 1
 
         for marker, label, description in AGENT_STATUS_MANUAL_ENTRIES:
-            display_marker = AGENT_RUNNING_SPINNER_FRAMES[self._agent_spinner_index] if marker.startswith("▷") else marker
+            display_marker = AGENT_RUNNING_SPINNER_FRAMES[self._agent_spinner_index] if marker.startswith("▸") else marker
             tk.Label(
                 frame,
                 text=display_marker,
@@ -1400,7 +1400,7 @@ class AgentWorkspace:
     def _task_label(self, task: TaskSummary) -> str:
         discovery = getattr(self, "task_session_discovery", None)
         if discovery is not None and discovery.is_pending(task):
-            return f"⚙ {task.name}"
+            return f"◆ {task.name}"
         return task.name
 
     def _task_agent_status(self, task: TaskSummary) -> str:

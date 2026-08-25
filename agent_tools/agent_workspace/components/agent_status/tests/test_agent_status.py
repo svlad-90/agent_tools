@@ -21,10 +21,10 @@ def test_task_agent_status_text_combines_permission_running_and_saved_sessions(
             workspace,
             permission_pending=True,
             running_agents=("codex",),
-            spinner_frame="▷",
+            spinner_frame="▸",
             home=home,
         )
-        == "▷"
+        == "▸"
     )
     assert (
         task_agent_status_text(
@@ -32,10 +32,10 @@ def test_task_agent_status_text_combines_permission_running_and_saved_sessions(
             workspace,
             permission_pending=False,
             running_agents=("codex",),
-            spinner_frame="▷",
+            spinner_frame="▸",
             home=home,
         )
-        == "▷"
+        == "▸"
     )
     assert (
         task_agent_status_text(
@@ -74,7 +74,7 @@ def test_task_agent_status_text_shows_saved_sessions_only_when_no_agent_is_runni
             permission_pending=False,
             running_agents=(),
             external_active=True,
-            spinner_frame="▷",
+            spinner_frame="▸",
             home=home,
         )
         == "×"
@@ -86,7 +86,7 @@ def test_task_agent_status_text_shows_saved_sessions_only_when_no_agent_is_runni
             permission_pending=False,
             running_agents=("codex",),
             external_active=True,
-            spinner_frame="▷",
+            spinner_frame="▸",
             home=home,
         )
         == "×"
@@ -98,7 +98,7 @@ def test_task_agent_status_text_shows_saved_sessions_only_when_no_agent_is_runni
             permission_pending=False,
             running_agents=(),
             external_active=False,
-            spinner_frame="▷",
+            spinner_frame="▸",
             home=home,
         )
         == "Ⅱ"
@@ -109,9 +109,8 @@ def test_agent_status_tooltip_explains_visible_markers_compactly() -> None:
     assert agent_status_tooltip_text("●") == "Агент ожидает"
     assert agent_status_tooltip_text("Ⅱ") == "Сессию можно продолжить"
     assert agent_status_tooltip_text("□") == "Нет сохраненной сессии"
-    assert agent_status_tooltip_text("▶") == "Пользовательский запрос получен"
-    assert agent_status_tooltip_text("▷") == "Агент готов продолжать"
-    assert agent_status_tooltip_text("⚙") == "Инструмент выполняется"
+    assert agent_status_tooltip_text("▸") == "Агент активен или готов продолжать"
+    assert agent_status_tooltip_text("◆") == "Инструмент или compact checkpoint"
     assert agent_status_tooltip_text("○") == "Агент прерван вручную"
     assert agent_status_tooltip_text("×") == "Задача занята другим окном"
 
@@ -128,7 +127,7 @@ def test_agent_status_manual_entries_are_structured_for_popup() -> None:
         "Действия",
         "Сброс",
     ]
-    assert [entry[0] for entry in AGENT_STATUS_MANUAL_ENTRIES] == ["●", "Ⅱ", "□", "▶", "▷", "⚙", "○", "×"]
+    assert [entry[0] for entry in AGENT_STATUS_MANUAL_ENTRIES] == ["●", "Ⅱ", "□", "▸", "◆", "○", "×"]
     assert all(len(entry) == 3 for entry in AGENT_STATUS_MANUAL_ENTRIES)
 
 

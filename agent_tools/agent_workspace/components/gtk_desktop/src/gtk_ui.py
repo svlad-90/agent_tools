@@ -105,6 +105,9 @@ from ...task_actions.api import load_task_actions_data
 from ...task_actions.api import save_task_actions_data
 from ...agent_status.api import agent_output_reports_missing_session
 from ...agent_status.api import agent_status_tooltip_text
+from ...agent_status.api import AGENT_PROMPT_MARKER
+from ...agent_status.api import AGENT_RUNNING_READY_MARKER
+from ...agent_status.api import AGENT_TOOL_MARKER
 from ...agent_status.api import session_is_agent
 from ...agent_status.api import session_is_running_agent
 from ...agent_status.api import session_marks_task_pending_permission
@@ -436,6 +439,8 @@ class WorkspaceGtkGui:
         self._disable_tree_hover_tracking(self.task_view)
         status_renderer = Gtk.CellRendererText()
         status_renderer.set_property("xalign", 0.5)
+        status_renderer.set_property("font-desc", Pango.FontDescription(f"DejaVu Sans Mono {self.text_font_size}"))
+        status_renderer.set_fixed_height_from_font(1)
         self.task_status_header = Gtk.Label(label=self._tr("task_agent_status_column"))
         self.task_status_header.show()
         self.task_status_column = Gtk.TreeViewColumn("", status_renderer, text=0)
@@ -444,6 +449,7 @@ class WorkspaceGtkGui:
         self.task_status_column.set_fixed_width(92)
         self.task_view.append_column(self.task_status_column)
         task_renderer = Gtk.CellRendererText()
+        task_renderer.set_fixed_height_from_font(1)
         self.task_column = Gtk.TreeViewColumn(
             self._tr("task"),
             task_renderer,
@@ -1437,7 +1443,7 @@ class WorkspaceGtkGui:
         grid.set_row_spacing(8)
         box.pack_start(grid, False, False, 2)
         for row, (marker, label, description) in enumerate(self._manual_status_entries()):
-            display_marker = "▷" if marker.startswith("▷") else marker
+            display_marker = AGENT_RUNNING_READY_MARKER if marker.startswith(AGENT_RUNNING_READY_MARKER) else marker
             marker_label = Gtk.Label(label=display_marker)
             marker_label.set_width_chars(4)
             marker_label.set_xalign(0.5)
@@ -1470,9 +1476,8 @@ class WorkspaceGtkGui:
             ("●", self._tr("manual_status_label_waiting"), self._tr("manual_status_waiting")),
             ("Ⅱ", self._tr("manual_status_label_session"), self._tr("manual_status_session")),
             ("□", self._tr("manual_status_label_idle"), self._tr("manual_status_idle")),
-            ("▶", self._tr("manual_status_label_prompt"), self._tr("manual_status_prompt")),
-            ("▷", self._tr("manual_status_label_running"), self._tr("manual_status_agent_running")),
-            ("⚙", self._tr("manual_status_label_tool"), self._tr("manual_status_tool")),
+            (AGENT_PROMPT_MARKER, self._tr("manual_status_label_prompt"), self._tr("manual_status_prompt")),
+            (AGENT_TOOL_MARKER, self._tr("manual_status_label_tool"), self._tr("manual_status_tool")),
             ("○", self._tr("manual_status_label_interrupted"), self._tr("manual_status_interrupted")),
             ("×", self._tr("manual_status_label_external"), self._tr("manual_status_external")),
         )
@@ -2626,13 +2631,11 @@ class WorkspaceGtkGui:
             if action_id == selected_id:
                 context.add_class("task-action-selected")
                 if play is not None:
-                    play.get_style_context().add_class("task-action-selected")
                     play.set_visible(True)
                     play.set_sensitive(True)
             else:
                 context.remove_class("task-action-selected")
                 if play is not None:
-                    play.get_style_context().remove_class("task-action-selected")
                     play.set_visible(False)
                     play.set_sensitive(False)
 
@@ -4713,7 +4716,7 @@ class WorkspaceGtkGui:
     def _task_label(self, task: TaskSummary) -> str:
         discovery = getattr(self, "task_session_discovery", None)
         if discovery is not None and discovery.is_pending(task):
-            return f"⚙ {task.name}"
+            return f"{AGENT_TOOL_MARKER} {task.name}"
         return task.name
 
     def _require_task(self, show_dialog: bool = True) -> TaskSummary | None:

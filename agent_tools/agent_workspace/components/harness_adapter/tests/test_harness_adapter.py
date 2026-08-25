@@ -244,7 +244,7 @@ def test_harness_adapter_tool_finish_returns_task_to_play_icon(tmp_path: Path) -
     events = load_harness_debug_events(task_dir, session_id="s1")
 
     assert events[-1].status_event is HarnessStatusEvent.TOOL_FINISHED
-    assert events[-1].icon == "▷"
+    assert events[-1].icon == "▸"
     assert events[-1].outcome == "finished"
 
 

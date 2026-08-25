@@ -134,7 +134,7 @@ def test_tk_task_label_shows_session_discovery_pending_marker(tmp_path: Path) ->
     gui = AgentWorkspace.__new__(AgentWorkspace)
     gui.task_session_discovery = TaskSessionDiscoveryState(pending={summary.path})
 
-    assert gui._task_label(summary) == "⚙ sample-task"
+    assert gui._task_label(summary) == "◆ sample-task"
 
     gui.task_session_discovery.finish(summary.path)
 
