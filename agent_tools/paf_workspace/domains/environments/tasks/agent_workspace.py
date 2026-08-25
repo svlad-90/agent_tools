@@ -104,6 +104,6 @@ class run_agent_workspace_tests(EnvironmentTask):
             self.environment_string("agent_workspace_tests", "container", "agent-workspace-tests-workspace"),
             command,
             timeout=timeout,
-            communication_mode=CommunicationMode.PIPE_OUTPUT,
+            communication_mode=CommunicationMode.USE_PTY,
             interaction_mode=InteractionMode.IGNORE_INPUT,
         )
