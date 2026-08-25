@@ -193,6 +193,8 @@ class AgentWorkspace:
         self.default_codex_reasoning = settings.default_codex_reasoning
         self.default_claude_model = settings.default_claude_model
         self.default_claude_effort = settings.default_claude_effort
+        self.codex_animations_enabled = settings.codex_animations_enabled
+        self.claude_animations_enabled = settings.claude_animations_enabled
         self.inject_task_context_prompt = settings.inject_task_context_prompt
         self.task_dictionary_auto_discovery = settings.task_dictionary_auto_discovery
         self.task_dictionary_min_occurrences = settings.task_dictionary_min_occurrences
@@ -1199,6 +1201,8 @@ class AgentWorkspace:
             codex_executable=_codex_executable(),
             claude_executable=_claude_executable(),
             inject_task_context=self.inject_task_context_prompt,
+            codex_animations_enabled=self.codex_animations_enabled,
+            claude_animations_enabled=self.claude_animations_enabled,
             include_task_check=True,
         )
         run_id = new_agent_session_id()
@@ -2334,6 +2338,8 @@ class AgentWorkspace:
                 "default_codex_reasoning": self.default_codex_reasoning,
                 "default_claude_model": self.default_claude_model,
                 "default_claude_effort": self.default_claude_effort,
+                "codex_animations_enabled": self.codex_animations_enabled,
+                "claude_animations_enabled": self.claude_animations_enabled,
                 "inject_task_context_prompt": self.inject_task_context_prompt,
                 "task_dictionary_auto_discovery": self.task_dictionary_auto_discovery,
                 "task_dictionary_min_occurrences": self.task_dictionary_min_occurrences,
@@ -2378,6 +2384,8 @@ def ai_agent_console_command(
     resume_session_id: str | None = None,
     model: str = "",
     reasoning_effort: str = "",
+    codex_animations_enabled: bool = False,
+    claude_animations_enabled: bool = False,
 ) -> list[str]:
     return build_ai_agent_console_command(
         workspace,
@@ -2389,6 +2397,8 @@ def ai_agent_console_command(
         resume_session_id=resume_session_id,
         model=model,
         reasoning_effort=reasoning_effort,
+        codex_animations_enabled=codex_animations_enabled,
+        claude_animations_enabled=claude_animations_enabled,
     )
 
 
@@ -2400,6 +2410,7 @@ def codex_console_command(
     resume_session_id: str | None = None,
     model: str = "",
     reasoning_effort: str = "",
+    codex_animations_enabled: bool = False,
 ) -> list[str]:
     return build_ai_agent_console_command(
         workspace,
@@ -2411,6 +2422,7 @@ def codex_console_command(
         resume_session_id=resume_session_id,
         model=model,
         reasoning_effort=reasoning_effort,
+        codex_animations_enabled=codex_animations_enabled,
     )
 
 

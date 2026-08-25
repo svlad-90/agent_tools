@@ -17,6 +17,8 @@ def test_agent_workspace_settings_persist_font_size(tmp_path: Path) -> None:
             "default_codex_reasoning": "medium",
             "default_claude_model": "sonnet",
             "default_claude_effort": "low",
+            "codex_animations_enabled": True,
+            "claude_animations_enabled": True,
             "inject_task_context_prompt": False,
             "task_dictionary_auto_discovery": False,
             "task_dictionary_min_occurrences": 3,
@@ -43,6 +45,8 @@ def test_agent_workspace_settings_persist_font_size(tmp_path: Path) -> None:
         "default_codex_reasoning": "medium",
         "default_claude_model": "sonnet",
         "default_claude_effort": "low",
+        "codex_animations_enabled": True,
+        "claude_animations_enabled": True,
         "inject_task_context_prompt": False,
         "task_dictionary_auto_discovery": False,
         "task_dictionary_min_occurrences": 3,
@@ -78,6 +82,13 @@ def test_agent_workspace_setting_or_default_treats_blank_as_missing() -> None:
     assert agent_workspace_setting_or_default(settings, "default_claude_effort", "medium") == "medium"
 
 
+def test_agent_workspace_runtime_settings_disables_agent_animations_by_default() -> None:
+    settings = agent_workspace_runtime_settings({}, default_font_size=13)
+
+    assert settings.codex_animations_enabled is False
+    assert settings.claude_animations_enabled is False
+
+
 def test_agent_workspace_runtime_settings_normalizes_ui_defaults() -> None:
     settings = agent_workspace_runtime_settings(
         {
@@ -90,6 +101,8 @@ def test_agent_workspace_runtime_settings_normalizes_ui_defaults() -> None:
             "default_codex_reasoning": " ",
             "default_claude_model": "",
             "default_claude_effort": "",
+            "codex_animations_enabled": True,
+            "claude_animations_enabled": True,
             "inject_task_context_prompt": False,
             "task_dictionary_auto_discovery": False,
             "task_dictionary_min_occurrences": 4,
@@ -115,6 +128,8 @@ def test_agent_workspace_runtime_settings_normalizes_ui_defaults() -> None:
     assert settings.default_codex_reasoning == "medium"
     assert settings.default_claude_model == "sonnet"
     assert settings.default_claude_effort == "medium"
+    assert settings.codex_animations_enabled is True
+    assert settings.claude_animations_enabled is True
     assert settings.inject_task_context_prompt is False
     assert settings.task_dictionary_auto_discovery is False
     assert settings.task_dictionary_min_occurrences == 4

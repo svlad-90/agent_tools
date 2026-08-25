@@ -2253,6 +2253,8 @@ def test_gtk_translates_agent_and_manual_labels() -> None:
     assert GTK_TRANSLATIONS["ru"]["default_agent"] == "ИИ агент по умолчанию"
     assert GTK_TRANSLATIONS["ru"]["default_claude_model"] == "Модель Claude"
     assert GTK_TRANSLATIONS["ru"]["default_codex_model"] == "Модель Codex"
+    assert GTK_TRANSLATIONS["ru"]["codex_animations_enabled"] == "Анимации Codex"
+    assert GTK_TRANSLATIONS["ru"]["claude_animations_enabled"] == "Анимации Claude"
     assert GTK_TRANSLATIONS["ru"]["ok"] == "ОК"
     assert GTK_TRANSLATIONS["ru"]["ai_debug_tab"] == "ИИ дебаг"
     assert GTK_TRANSLATIONS["ru"]["ai_debug_column_tool"] == "Инструмент"

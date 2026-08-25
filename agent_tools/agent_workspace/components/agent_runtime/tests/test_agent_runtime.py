@@ -20,6 +20,34 @@ def _assert_codex_low_redraw_tui_options(command: list[str]) -> None:
     assert "-c tui.disable_mouse_capture=true" in joined_pairs
 
 
+def test_codex_tui_animations_can_be_enabled(tmp_path: Path) -> None:
+    command = build_ai_agent_console_command(
+        tmp_path,
+        "task prompt",
+        "codex",
+        codex_executable="codex-bin",
+        claude_executable="claude-bin",
+        codex_animations_enabled=True,
+    )
+
+    joined_pairs = _joined_pairs(command)
+    assert "-c tui.animations=false" not in joined_pairs
+    assert "-c tui.disable_mouse_capture=true" in joined_pairs
+
+
+def test_claude_tui_animations_can_be_enabled(tmp_path: Path) -> None:
+    command = build_ai_agent_console_command(
+        tmp_path,
+        "task prompt",
+        "claude",
+        codex_executable="codex-bin",
+        claude_executable="claude-bin",
+        claude_animations_enabled=True,
+    )
+
+    assert _claude_settings(command)["prefersReducedMotion"] is False
+
+
 def test_codex_task_context_message_points_at_selected_task(tmp_path: Path) -> None:
     task = tmp_path / "tasks" / "sample-task"
     task.mkdir(parents=True)

@@ -67,11 +67,11 @@ def append_ai_agent_permission_options(command: list[str], agent: str) -> None:
         command.extend(["--permission-mode", AGENT_WORKSPACE_DEFAULT_CLAUDE_PERMISSION_MODE])
 
 
-def append_ai_agent_hook_options(command: list[str], agent: str) -> None:
+def append_ai_agent_hook_options(command: list[str], agent: str, *, animations_enabled: bool = False) -> None:
     agent = normalize_agent(agent)
     if agent == "claude":
         settings = claude_harness_settings("python3 -m agent_tools.agent_workspace.components.harness_adapter.claude")
-        settings["prefersReducedMotion"] = True
+        settings["prefersReducedMotion"] = not animations_enabled
         command.extend(["--settings", json.dumps(settings, ensure_ascii=False)])
         return
     command.append("--dangerously-bypass-hook-trust")
@@ -87,15 +87,10 @@ def append_ai_agent_hook_options(command: list[str], agent: str) -> None:
             )
 
 
-def append_codex_low_redraw_tui_options(command: list[str]) -> None:
-    command.extend(
-        [
-            "-c",
-            "tui.animations=false",
-            "-c",
-            "tui.disable_mouse_capture=true",
-        ]
-    )
+def append_codex_low_redraw_tui_options(command: list[str], *, animations_enabled: bool = False) -> None:
+    if not animations_enabled:
+        command.extend(["-c", "tui.animations=false"])
+    command.extend(["-c", "tui.disable_mouse_capture=true"])
 
 
 def build_ai_agent_console_command(
@@ -109,13 +104,15 @@ def build_ai_agent_console_command(
     resume_session_id: str | None = None,
     model: str = "",
     reasoning_effort: str = "",
+    codex_animations_enabled: bool = False,
+    claude_animations_enabled: bool = False,
 ) -> list[str]:
     agent = normalize_agent(agent)
     if agent == "claude":
         command = [claude_executable]
         append_ai_agent_permission_options(command, agent)
         append_ai_agent_model_options(command, agent, model=model, reasoning_effort=reasoning_effort)
-        append_ai_agent_hook_options(command, agent)
+        append_ai_agent_hook_options(command, agent, animations_enabled=claude_animations_enabled)
         if resume and resume_session_id:
             command.extend(["--resume", resume_session_id])
         else:
@@ -127,7 +124,7 @@ def build_ai_agent_console_command(
     command = [codex_executable]
     append_ai_agent_model_options(command, agent, model=model, reasoning_effort=reasoning_effort)
     append_ai_agent_hook_options(command, agent)
-    append_codex_low_redraw_tui_options(command)
+    append_codex_low_redraw_tui_options(command, animations_enabled=codex_animations_enabled)
     if resume and resume_session_id:
         command.extend(["resume", "--cd", str(workspace), "--no-alt-screen"])
         command.append(resume_session_id)
@@ -203,6 +200,8 @@ def prepare_ai_agent_launch_command(
     prompt_suffix: str = "",
     include_task_check: bool = False,
     inject_task_context: bool = TASK_CONTEXT_PROMPT_INJECTION_DEFAULT,
+    codex_animations_enabled: bool = False,
+    claude_animations_enabled: bool = False,
 ) -> AgentLaunchCommand:
     agent = normalize_agent(agent)
     session_state = prepare_task_agent_session(task, workspace, agent)
@@ -231,6 +230,8 @@ def prepare_ai_agent_launch_command(
             resume_session_id=session_state.session_id,
             model=model_settings.model,
             reasoning_effort=model_settings.reasoning_effort,
+            codex_animations_enabled=codex_animations_enabled,
+            claude_animations_enabled=claude_animations_enabled,
         ),
         session_state=session_state,
         model_settings=model_settings,

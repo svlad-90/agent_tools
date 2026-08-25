@@ -318,6 +318,8 @@ class WorkspaceGtkGui:
         self.default_codex_reasoning = settings.default_codex_reasoning
         self.default_claude_model = settings.default_claude_model
         self.default_claude_effort = settings.default_claude_effort
+        self.codex_animations_enabled = settings.codex_animations_enabled
+        self.claude_animations_enabled = settings.claude_animations_enabled
         self.inject_task_context_prompt = settings.inject_task_context_prompt
         self.task_dictionary_auto_discovery = settings.task_dictionary_auto_discovery
         self.task_dictionary_min_occurrences = settings.task_dictionary_min_occurrences
@@ -2038,8 +2040,12 @@ class WorkspaceGtkGui:
         default_agent_combo = Gtk.ComboBoxText()
         codex_model_combo = Gtk.ComboBoxText()
         codex_reasoning_combo = Gtk.ComboBoxText()
+        codex_animations_check = Gtk.CheckButton()
+        codex_animations_check.set_active(self.codex_animations_enabled)
         claude_model_combo = Gtk.ComboBoxText()
         claude_effort_combo = Gtk.ComboBoxText()
+        claude_animations_check = Gtk.CheckButton()
+        claude_animations_check.set_active(self.claude_animations_enabled)
         codex_available = agent_executable("codex") is not None
         claude_available = agent_executable("claude") is not None
         for theme in AGENT_WORKSPACE_THEMES:
@@ -2152,12 +2158,13 @@ class WorkspaceGtkGui:
             preview_output.get_buffer().set_text(_dictionary_preview_text(text, preview, language=self.language))
             preview_metrics.get_buffer().set_text(_dictionary_preview_metrics_text(text, preview, language=self.language))
 
-        general_rows: list[tuple[str, Gtk.Widget]] = [
+        general_rows: list[tuple[str, Gtk.Widget | None]] = [
             (self._tr("text_font_size"), text_size),
             (self._tr("button_font_size"), button_size),
             (self._tr("theme"), theme_combo),
             (self._tr("language"), language_combo),
             (self._tr("default_agent"), default_agent_combo),
+            (agent_label("codex"), None),
         ]
         if codex_models is not None:
             general_rows.extend(
@@ -2166,6 +2173,8 @@ class WorkspaceGtkGui:
                     (self._tr("default_codex_reasoning"), codex_reasoning_combo),
                 ]
             )
+        general_rows.append((self._tr("codex_animations_enabled"), codex_animations_check))
+        general_rows.append((agent_label("claude"), None))
         if claude_models is not None:
             general_rows.extend(
                 [
@@ -2173,9 +2182,14 @@ class WorkspaceGtkGui:
                     (self._tr("default_claude_effort"), claude_effort_combo),
                 ]
             )
+        general_rows.append((self._tr("claude_animations_enabled"), claude_animations_check))
         for row, (label, widget) in enumerate(general_rows):
             label_widget = Gtk.Label(label=label)
             label_widget.set_xalign(0)
+            if widget is None:
+                label_widget.get_style_context().add_class("settings-section-heading")
+                general_grid.attach(label_widget, 0, row, 2, 1)
+                continue
             if isinstance(widget, Gtk.Label):
                 widget.set_xalign(0)
             general_grid.attach(label_widget, 0, row, 1, 1)
@@ -2259,6 +2273,8 @@ class WorkspaceGtkGui:
             if claude_available:
                 self.default_claude_model = claude_model_combo.get_active_text() or ""
                 self.default_claude_effort = claude_effort_combo.get_active_text() or ""
+            self.codex_animations_enabled = codex_animations_check.get_active()
+            self.claude_animations_enabled = claude_animations_check.get_active()
             self.task_dictionary_auto_discovery = dictionary_auto.get_active()
             self.task_dictionary_min_occurrences = int(dictionary_min_occurrences.get_value())
             self.task_dictionary_min_saving = int(dictionary_min_saving.get_value())
@@ -3607,6 +3623,8 @@ class WorkspaceGtkGui:
             claude_executable=_claude_executable(),
             prompt_suffix=CODEX_LANGUAGE_INSTRUCTIONS.get(self.language, CODEX_LANGUAGE_INSTRUCTIONS["en"]),
             inject_task_context=self.inject_task_context_prompt,
+            codex_animations_enabled=self.codex_animations_enabled,
+            claude_animations_enabled=self.claude_animations_enabled,
             include_task_check=True,
         )
         run_id = new_agent_session_id()
@@ -5359,6 +5377,8 @@ class WorkspaceGtkGui:
                 "default_codex_reasoning": self.default_codex_reasoning,
                 "default_claude_model": self.default_claude_model,
                 "default_claude_effort": self.default_claude_effort,
+                "codex_animations_enabled": self.codex_animations_enabled,
+                "claude_animations_enabled": self.claude_animations_enabled,
                 "inject_task_context_prompt": self.inject_task_context_prompt,
                 "task_dictionary_auto_discovery": self.task_dictionary_auto_discovery,
                 "task_dictionary_min_occurrences": self.task_dictionary_min_occurrences,
@@ -5683,6 +5703,8 @@ def ai_agent_console_command(
     resume_session_id: str | None = None,
     model: str = "",
     reasoning_effort: str = "",
+    codex_animations_enabled: bool = False,
+    claude_animations_enabled: bool = False,
 ) -> list[str]:
     return build_ai_agent_console_command(
         workspace,
@@ -5694,6 +5716,8 @@ def ai_agent_console_command(
         resume_session_id=resume_session_id,
         model=model,
         reasoning_effort=reasoning_effort,
+        codex_animations_enabled=codex_animations_enabled,
+        claude_animations_enabled=claude_animations_enabled,
     )
 
 
@@ -5706,6 +5730,7 @@ def codex_console_command(
     resume_session_id: str | None = None,
     model: str = "",
     reasoning_effort: str = "",
+    codex_animations_enabled: bool = False,
 ) -> list[str]:
     return build_ai_agent_console_command(
         workspace,
@@ -5717,6 +5742,7 @@ def codex_console_command(
         resume_session_id=resume_session_id,
         model=model,
         reasoning_effort=reasoning_effort,
+        codex_animations_enabled=codex_animations_enabled,
     )
 
 
