@@ -7,7 +7,8 @@ def test_gtk_task_artifact_entries_groups_task_outputs(tmp_path: Path) -> None:
     task = tmp_path / "tasks" / "sample-task"
     (task / "report" / "diff").mkdir(parents=True)
     (task / "report" / "puml").mkdir(parents=True)
-    (task / "report" / "runtime.log").write_text("log", encoding="utf-8")
+    (task / "report" / "logs").mkdir(parents=True)
+    (task / "report" / "logs" / "runtime.log").write_text("log", encoding="utf-8")
     (task / "report" / "diff" / "review.html").write_text("<html>", encoding="utf-8")
     (task / "report" / "diff" / "review.diff").write_text("diff", encoding="utf-8")
     (task / "report" / "diff" / "comments.json").write_text("{}", encoding="utf-8")
@@ -63,7 +64,7 @@ def test_gtk_artifact_delete_paths_include_hidden_group_files(tmp_path: Path) ->
     (task / "report" / "diff").mkdir(parents=True)
     (task / "report" / "puml").mkdir(parents=True)
     files = {
-        "report/runtime.log": "log",
+        "report/logs/runtime.log": "log",
         "report/notes.md": "notes",
         "report/diff/review.html": "<html>",
         "report/diff/review.diff": "diff",
@@ -78,10 +79,10 @@ def test_gtk_artifact_delete_paths_include_hidden_group_files(tmp_path: Path) ->
     def rels(paths: list[Path]) -> list[str]:
         return sorted(str(path.relative_to(task)) for path in paths)
 
-    assert gtk_artifact_delete_paths(summary, artifact_path=task / "report" / "runtime.log") == [
-        task / "report" / "runtime.log"
+    assert gtk_artifact_delete_paths(summary, artifact_path=task / "report" / "logs" / "runtime.log") == [
+        task / "report" / "logs" / "runtime.log"
     ]
-    assert rels(gtk_artifact_delete_paths(summary, group="logs")) == ["report/runtime.log"]
+    assert rels(gtk_artifact_delete_paths(summary, group="logs")) == ["report/logs/runtime.log"]
     assert rels(gtk_artifact_delete_paths(summary, group="diagrams")) == [
         "report/puml/flow.puml",
         "report/puml/flow.svg",
@@ -121,4 +122,3 @@ def test_gtk_artifact_selectable_path_stays_inside_task(tmp_path: Path) -> None:
 def test_gtk_artifact_updated_label_formats_timestamp() -> None:
     assert gtk_artifact_updated_label(0) == ""
     assert gtk_artifact_updated_label(100) == datetime.fromtimestamp(100).strftime("%Y-%m-%d %H:%M")
-

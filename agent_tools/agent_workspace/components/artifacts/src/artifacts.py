@@ -9,9 +9,6 @@ import os
 from ...task_catalog.api import TaskSummary
 
 
-_LOG_SUFFIXES = {".log"}
-
-
 @dataclass(frozen=True)
 class ArtifactEntry:
     group: str
@@ -62,7 +59,6 @@ def task_artifact_files(task: TaskSummary) -> Iterator[Path]:
 
 
 def artifact_group(task: TaskSummary, path: Path) -> str | None:
-    suffix = path.suffix.casefold()
     try:
         rel = path.relative_to(task.path)
     except ValueError:
@@ -74,7 +70,7 @@ def artifact_group(task: TaskSummary, path: Path) -> str | None:
         return "diff_reports"
     if len(parts) >= 2 and parts[1] == "puml":
         return "diagrams"
-    if suffix in _LOG_SUFFIXES:
+    if len(parts) >= 2 and parts[1] == "logs":
         return "logs"
     return "artifacts"
 
@@ -82,6 +78,18 @@ def artifact_group(task: TaskSummary, path: Path) -> str | None:
 def artifact_group_sort_key(group: str) -> int:
     order = {"logs": 0, "diagrams": 1, "diff_reports": 2, "artifacts": 3}
     return order.get(group, 99)
+
+
+def artifact_group_folder(task: TaskSummary, group: str) -> Path | None:
+    if group == "logs":
+        return task.path / "report" / "logs"
+    if group == "diagrams":
+        return task.path / "report" / "puml"
+    if group == "diff_reports":
+        return task.path / "report" / "diff"
+    if group == "artifacts":
+        return task.path / "report"
+    return None
 
 
 def artifact_relative_label(task: TaskSummary, path: Path) -> str:
@@ -120,11 +128,7 @@ def artifact_delete_paths(
     if delete_all:
         return files_under(task.path / "report")
     if group == "logs":
-        return [
-            path
-            for path in files_under(task.path / "report")
-            if path.suffix.casefold() in _LOG_SUFFIXES
-        ]
+        return files_under(task.path / "report" / "logs")
     if group == "diagrams":
         return files_under(task.path / "report" / "puml")
     if group == "diff_reports":

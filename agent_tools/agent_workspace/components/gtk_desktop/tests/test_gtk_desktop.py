@@ -64,6 +64,218 @@ def test_gtk_artifact_manual_refresh_loads_selected_task(tmp_path: Path) -> None
     assert calls == [summary]
 
 
+def test_gtk_artifact_group_double_click_opens_group_folder(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    task = tmp_path / "tasks" / "sample-task"
+    task.mkdir(parents=True)
+    summary = TaskSummary("sample-task", task, True, True, 1, 1, False)
+    calls: list[Path] = []
+    gui = WorkspaceGtkGui.__new__(WorkspaceGtkGui)
+    gui.selected_task = summary
+
+    class Store:
+        def get_iter(self, _tree_path: object) -> int:
+            return 0
+
+        def __getitem__(self, _row_iter: int) -> list[object]:
+            return ["Logs", "", "logs", True, ""]
+
+    gui.artifact_store = Store()
+    monkeypatch.setattr(gtk_ui_module, "open_path", lambda path: calls.append(path))
+
+    gui._on_artifact_row_activated(object(), object(), object())  # type: ignore[arg-type]
+
+    assert calls == [task / "report" / "logs"]
+
+
+class FakeArtifactTreeView:
+    def __init__(self) -> None:
+        self.expanded_paths: set[str] = set()
+        self.expand_all_calls = 0
+        self.expand_row_calls: list[str] = []
+        self.collapse_row_calls: list[str] = []
+        self.cursor_path: str | None = None
+        self.selected_paths: list[str] = []
+        self.set_cursor_calls: list[str] = []
+        self.scroll_to_cell_calls: list[str] = []
+
+    def row_expanded(self, tree_path: Gtk.TreePath) -> bool:
+        return tree_path.to_string() in self.expanded_paths
+
+    def get_cursor(self) -> tuple[Gtk.TreePath | None, None]:
+        if self.cursor_path is None:
+            return None, None
+        return Gtk.TreePath.new_from_string(self.cursor_path), None
+
+    def get_selection(self) -> object:
+        view = self
+
+        class Selection:
+            def select_path(self, tree_path: Gtk.TreePath) -> None:
+                view.selected_paths.append(tree_path.to_string())
+
+        return Selection()
+
+    def set_cursor(self, tree_path: Gtk.TreePath) -> None:
+        value = tree_path.to_string()
+        self.cursor_path = value
+        self.set_cursor_calls.append(value)
+
+    def scroll_to_cell(
+        self,
+        tree_path: Gtk.TreePath,
+        _column: object,
+        _use_align: bool,
+        _row_align: float,
+        _col_align: float,
+    ) -> None:
+        self.scroll_to_cell_calls.append(tree_path.to_string())
+
+    def expand_all(self) -> None:
+        self.expand_all_calls += 1
+
+    def expand_row(self, tree_path: Gtk.TreePath, _open_all: bool) -> None:
+        value = tree_path.to_string()
+        self.expanded_paths.add(value)
+        self.expand_row_calls.append(value)
+
+    def collapse_row(self, tree_path: Gtk.TreePath) -> None:
+        value = tree_path.to_string()
+        self.expanded_paths.discard(value)
+        self.collapse_row_calls.append(value)
+
+
+def test_gtk_artifact_load_expands_groups_on_first_load(tmp_path: Path) -> None:
+    task = tmp_path / "tasks" / "sample-task"
+    (task / "report" / "logs").mkdir(parents=True)
+    (task / "report" / "logs" / "runtime.log").write_text("log", encoding="utf-8")
+    summary = TaskSummary("sample-task", task, True, True, 1, 1, False)
+    gui = WorkspaceGtkGui.__new__(WorkspaceGtkGui)
+    gui.artifact_store = Gtk.TreeStore(str, str, object, bool, str)
+    gui.artifact_view = FakeArtifactTreeView()
+    gui.artifact_sort_column = "name"
+    gui.artifact_sort_descending = False
+    gui._tr = lambda key: key  # type: ignore[method-assign]
+
+    gui._load_task_artifacts(summary)
+
+    assert gui.artifact_view.expand_all_calls == 1
+
+
+def test_gtk_artifact_load_preserves_collapsed_groups(tmp_path: Path) -> None:
+    task = tmp_path / "tasks" / "sample-task"
+    (task / "report" / "logs").mkdir(parents=True)
+    (task / "report" / "puml").mkdir(parents=True)
+    (task / "report" / "logs" / "runtime.log").write_text("log", encoding="utf-8")
+    (task / "report" / "puml" / "flow.svg").write_text("<svg>", encoding="utf-8")
+    summary = TaskSummary("sample-task", task, True, True, 1, 1, False)
+    gui = WorkspaceGtkGui.__new__(WorkspaceGtkGui)
+    gui.artifact_store = Gtk.TreeStore(str, str, object, bool, str)
+    gui.artifact_view = FakeArtifactTreeView()
+    gui.artifact_sort_column = "name"
+    gui.artifact_sort_descending = False
+    gui._tr = lambda key: key  # type: ignore[method-assign]
+
+    gui._load_task_artifacts(summary)
+    gui.artifact_view.expand_all_calls = 0
+    gui.artifact_view.expanded_paths = {"1"}
+    gui.artifact_view.expand_row_calls.clear()
+    gui.artifact_view.collapse_row_calls.clear()
+
+    gui._load_task_artifacts(summary)
+
+    assert gui.artifact_view.expand_all_calls == 0
+    assert gui.artifact_view.expand_row_calls == ["1"]
+    assert set(gui.artifact_view.collapse_row_calls) == {"0", "2", "3"}
+
+
+def test_gtk_artifact_load_restores_existing_focus(tmp_path: Path) -> None:
+    task = tmp_path / "tasks" / "sample-task"
+    (task / "report" / "logs").mkdir(parents=True)
+    artifact = task / "report" / "logs" / "runtime.log"
+    artifact.write_text("log", encoding="utf-8")
+    summary = TaskSummary("sample-task", task, True, True, 1, 1, False)
+    gui = WorkspaceGtkGui.__new__(WorkspaceGtkGui)
+    gui.artifact_store = Gtk.TreeStore(str, str, object, bool, str)
+    gui.artifact_view = FakeArtifactTreeView()
+    gui.artifact_sort_column = "name"
+    gui.artifact_sort_descending = False
+    gui._tr = lambda key: key  # type: ignore[method-assign]
+
+    gui._load_task_artifacts(summary)
+    gui.artifact_view.cursor_path = "0:0"
+    gui.artifact_view.selected_paths.clear()
+    gui.artifact_view.set_cursor_calls.clear()
+    gui.artifact_view.scroll_to_cell_calls.clear()
+
+    gui._load_task_artifacts(summary)
+
+    assert gui.artifact_view.selected_paths == ["0:0"]
+    assert gui.artifact_view.set_cursor_calls == ["0:0"]
+    assert gui.artifact_view.scroll_to_cell_calls == ["0:0"]
+
+
+class FakeArtifactAdjustment:
+    def __init__(self, value: float, upper: float = 100.0, page_size: float = 20.0) -> None:
+        self.value = value
+        self.upper = upper
+        self.page_size = page_size
+        self.set_values: list[float] = []
+
+    def get_value(self) -> float:
+        return self.value
+
+    def get_lower(self) -> float:
+        return 0.0
+
+    def get_upper(self) -> float:
+        return self.upper
+
+    def get_page_size(self) -> float:
+        return self.page_size
+
+    def set_value(self, value: float) -> None:
+        self.set_values.append(value)
+
+
+class FakeArtifactPage:
+    def __init__(self, adjustment: FakeArtifactAdjustment) -> None:
+        self.adjustment = adjustment
+
+    def get_vadjustment(self) -> FakeArtifactAdjustment:
+        return self.adjustment
+
+
+def test_gtk_artifact_load_restores_scroll_when_focus_disappears(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    task = tmp_path / "tasks" / "sample-task"
+    (task / "report" / "logs").mkdir(parents=True)
+    artifact = task / "report" / "logs" / "runtime.log"
+    artifact.write_text("log", encoding="utf-8")
+    summary = TaskSummary("sample-task", task, True, True, 1, 1, False)
+    gui = WorkspaceGtkGui.__new__(WorkspaceGtkGui)
+    gui.artifact_store = Gtk.TreeStore(str, str, object, bool, str)
+    gui.artifact_view = FakeArtifactTreeView()
+    gui.artifacts_page = FakeArtifactPage(FakeArtifactAdjustment(42.0))
+    gui.artifact_sort_column = "name"
+    gui.artifact_sort_descending = False
+    gui._tr = lambda key: key  # type: ignore[method-assign]
+    monkeypatch.setattr(gtk_ui_module.GLib, "idle_add", lambda callback, *args: callback(*args))
+
+    gui._load_task_artifacts(summary)
+    gui.artifact_view.cursor_path = "0:0"
+    artifact.unlink()
+
+    gui._load_task_artifacts(summary)
+
+    assert gui.artifact_view.set_cursor_calls == []
+    assert gui.artifacts_page.adjustment.set_values == [42.0]
+
+
 def test_gtk_dictionary_preview_shows_char_counts_with_dictionary() -> None:
     path = "agent_workspace/components/gtk_desktop/tests/test_gtk_desktop.py"
     text = f"{path} validates settings. {path} validates preview. {path} validates counts."
