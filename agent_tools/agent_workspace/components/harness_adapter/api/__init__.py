@@ -20,6 +20,10 @@ from ..src.policy import clear_harness_status_subscriptions
 from ..src.policy import load_harness_debug_events
 from ..src.policy import record_harness_status
 from ..src.policy import subscribe_harness_status
+from ..src.ipc import WorkspaceIpcEvent
+from ..src.ipc import WorkspaceIpcServer
+from ..src.ipc import notify_workspace_ipc
+from ..src.ipc import start_workspace_ipc_server
 
 
 def claude_harness_settings(command: str) -> dict[str, Any]:
@@ -40,11 +44,15 @@ __all__ = [
     "HarnessStatusSubscription",
     "HarnessStatusUpdate",
     "StatusCallback",
+    "WorkspaceIpcEvent",
+    "WorkspaceIpcServer",
     "claude_harness_settings",
     "clear_harness_debug_events",
     "clear_harness_status_subscriptions",
     "codex_harness_config",
     "load_harness_debug_events",
+    "notify_workspace_ipc",
     "record_harness_status",
     "subscribe_harness_status",
+    "start_workspace_ipc_server",
 ]

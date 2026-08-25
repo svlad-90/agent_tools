@@ -247,6 +247,10 @@ def handle_adapter_event(
 
     if event is AgentHookEvent.SESSION_START:
         _update_adapter_state(task_dir, agent_type, request.session_id, last_event=event.value, session_active=True)
+        source = _request_source(request)
+        if source in {"clear", "compact"}:
+            _emit(task_dir, agent_type, request.session_id, HarnessStatusEvent.COMPACT_FINISHED, AGENT_TOOL_MARKER, "Context injected after compact.", hook_event=event, outcome="injected")
+            return _post_compact_message(task_dir)
         _emit(task_dir, agent_type, request.session_id, HarnessStatusEvent.SESSION_STARTED, "●", "Context injected at session start.", hook_event=event, outcome="injected")
         return _session_start_message(task_dir)
     if event is AgentHookEvent.SESSION_END:
@@ -335,7 +339,11 @@ def _handle_stop(
     return None
 
 
-def _handle_pre_compact(task_dir: Path, agent_type: AgentType, session_id: str | None) -> HookOutput:
+def _handle_pre_compact(
+    task_dir: Path,
+    agent_type: AgentType,
+    session_id: str | None,
+) -> HookOutput:
     _update_adapter_state(task_dir, agent_type, session_id, last_event=AgentHookEvent.PRE_COMPACT.value)
     _refresh_journal_flag(task_dir, agent_type, session_id)
     state = _load_adapter_state(task_dir, agent_type, session_id)
@@ -689,6 +697,14 @@ def _request_tool_detail(request: _HookRequest) -> str:
             detail = _tool_detail_from_value(tool.get(key))
             if detail:
                 return detail
+    return ""
+
+
+def _request_source(request: _HookRequest) -> str:
+    for key in ("source", "startup_source", "startupSource", "session_source", "sessionSource"):
+        value = request.payload.get(key)
+        if isinstance(value, str) and value:
+            return value.casefold()
     return ""
 
 

@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 import sqlite3
+import threading
 
 from agent_tools.agent_workspace.components.harness_adapter.src.claude_adapter import ClaudeHookEvent
 from agent_tools.agent_workspace.components.harness_adapter.src.claude_adapter import ClaudeHookRegistry
@@ -15,7 +16,9 @@ from agent_tools.agent_workspace.components.harness_adapter.api import HarnessSt
 from agent_tools.agent_workspace.components.harness_adapter.api import clear_harness_debug_events
 from agent_tools.agent_workspace.components.harness_adapter.api import clear_harness_status_subscriptions
 from agent_tools.agent_workspace.components.harness_adapter.api import load_harness_debug_events
+from agent_tools.agent_workspace.components.harness_adapter.api import notify_workspace_ipc
 from agent_tools.agent_workspace.components.harness_adapter.api import record_harness_status
+from agent_tools.agent_workspace.components.harness_adapter.api import start_workspace_ipc_server
 from agent_tools.agent_workspace.components.harness_adapter.api import subscribe_harness_status
 from agent_tools.agent_workspace.components.harness_adapter.src.claude_policy import register_claude_adapter
 from agent_tools.agent_workspace.components.harness_adapter.src.commands import handle_claude_adapter_hook
@@ -85,6 +88,59 @@ def test_harness_adapter_precompact_is_silent_when_current(tmp_path: Path) -> No
 
     assert result.exit_code == 0
     assert result.stdout == ""
+
+
+def test_harness_adapter_session_start_clear_injects_context_after_manual_clear(tmp_path: Path) -> None:
+    task_dir = _task(tmp_path)
+    registry = CodexHookRegistry()
+    register_codex_adapter(registry)
+
+    result = handle_codex_hook(
+        json.dumps(
+            {
+                "hook_event_name": CodexHookEvent.SESSION_START.value,
+                "task_dir": str(task_dir),
+                "session_id": "s1",
+                "source": "clear",
+            }
+        ),
+        registry=registry,
+    )
+
+    assert result.exit_code == 0
+    output = json.loads(result.stdout)
+    assert "Current task state from TASK_CONTEXT.sqlite3 is injected below" in output["systemMessage"]
+
+
+def test_harness_adapter_workspace_ipc_delivers_event(tmp_path: Path) -> None:
+    seen = []
+    delivered_event = threading.Event()
+
+    def on_event(event) -> None:
+        seen.append(event)
+        delivered_event.set()
+
+    server = start_workspace_ipc_server(tmp_path, on_event)
+    assert server is not None
+    try:
+        delivered = notify_workspace_ipc(
+            tmp_path,
+            "test_event",
+            {
+                "task_dir": str(tmp_path / "tasks" / "sample"),
+                "agent_type": "codex",
+                "session_id": "s1",
+                "request_id": "r1",
+            },
+        )
+        assert delivered is True
+        assert delivered_event.wait(1.0)
+    finally:
+        server.close()
+
+    assert len(seen) == 1
+    assert seen[0].event_type == "test_event"
+    assert seen[0].payload["session_id"] == "s1"
 
 
 def test_harness_adapter_precompact_logs_pending_codex_checkpoint_when_journal_is_stale(tmp_path: Path) -> None:
