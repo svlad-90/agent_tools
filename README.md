@@ -164,6 +164,12 @@ interactive AI sessions with hook-driven task policy. It is agent-neutral by
 design: Codex, Claude Code, shell sessions, and task commands all live in the
 same workspace model.
 
+Embedded Codex and Claude Code sessions use low-redraw terminal settings and a
+GTK mouse proxy around agent VTE widgets. Agent hooks also wrap Bash commands
+with a token-limited output guard: oversized stdout/stderr is summarized with a
+bounded first/last line preview and saved completely under the task's
+`report/logs/limited-bash/` directory.
+
 Detailed GUI documentation lives in
 [agent_tools/agent_workspace/README.md](agent_tools/agent_workspace/README.md).
 

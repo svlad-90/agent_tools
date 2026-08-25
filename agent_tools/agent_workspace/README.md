@@ -44,12 +44,15 @@ Main capabilities:
   active task terminal;
 - manage per-task terminal tabs and one interactive AI agent terminal per task;
 - open task artifacts from `report/`, `report/diff/`, and `report/puml/`;
+- filter task artifacts by extension and path/name text;
 - remove artifact files through guarded confirmation dialogs;
 - persist theme, language, font sizes, window geometry, the default AI agent,
   each task's selected AI agent, and the task-local AI agent session to resume.
 - show AI harness debug events for the selected task/session, including hook
   checkpoints, tool start/finish events, context injection points, Stop gates,
   and compact gates.
+- collect GTK profiling counters from Settings > Profiling when diagnosing
+  redraw, motion, size, and terminal event overhead.
 
 If the selected AI agent command is missing from `PATH`, the GUI shows an
 installation prompt instead of opening a broken terminal. Switching a task from
@@ -74,6 +77,16 @@ values leave the agent CLI defaults in control. Initial defaults are Codex
 `gpt-5.5` with `medium` reasoning and Claude Code `sonnet` with `medium`
 effort, so new Agent Workspace installs do not silently launch Claude's
 highest-cost default model.
+Agent animations are disabled by default and can be enabled separately for
+Codex and Claude Code. Codex launches always keep `tui.disable_mouse_capture`
+enabled; Claude Code keeps its normal mouse support so terminal scrollback
+continues to work. Both Codex and Claude Code terminals use the same GTK mouse
+proxy around the embedded VTE widget to reduce passive pointer redraw overhead.
+The Bash output token limit setting controls hook-driven command output
+guarding for both agents. The default limit is 2000 estimated tokens. When a
+Bash command exceeds that limit, Agent Workspace returns a short first/last
+line preview and guidance to the agent while saving the complete stdout,
+stderr, and metadata under the task's `report/logs/limited-bash/` directory.
 The reset-session button forgets only the selected task's selected AI-agent
 session in `.agent-workspace-state.json`; it does not delete the underlying
 Codex or Claude Code conversation data, and it does not affect another agent
@@ -87,9 +100,10 @@ component configured as their hook bridge. The launch prompt is intentionally
 small: it identifies the task and tells the agent that workspace policy is
 delivered through hooks. The hook bridge handles session start, user prompt
 events, tool start/finish events, Stop gates, compact checkpoints, and task
-context re-read instructions after compaction. The pre-commit and pre-push
-hooks run task_check for repositories inside `tasks/<task>/` and block when it
-reports task workflow errors.
+context injection at session start. Bash tool calls are wrapped by
+`limited_bash` before execution so oversized output does not flood the model
+context. The pre-commit and pre-push hooks run task_check for repositories
+inside `tasks/<task>/` and block when it reports task workflow errors.
 The AI status column uses these symbols: `●` means an agent session is open or
 restored and idle, `▶` means a user prompt was received, `⚙` means a tool is
 running, `▷` means the tool completed and the agent can continue, `○` means

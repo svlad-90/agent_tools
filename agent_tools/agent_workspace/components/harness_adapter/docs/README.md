@@ -30,9 +30,27 @@ Stop and compact hooks enforce task context freshness. They use
 `TASK_CONTEXT.sqlite3` slots as the durable state source and emit blocking hook
 output only when policy requires agent action.
 
+`PreToolUse` wraps Bash tool calls for both Codex and Claude Code with the
+`limited_bash` runner. The wrapper executes the original command through Bash,
+counts combined stdout/stderr output with an estimated token limit, and leaves
+normal output unchanged while it stays under the limit. When output exceeds the
+limit, the wrapper returns a concise message instead of the full output:
+
+- the configured and observed token counts;
+- a bounded stdout preview with the first 10 and last 10 logical lines;
+- a bounded stderr preview with the same shape when stderr is present;
+- a reminder to rerun with narrower output;
+- paths to complete stdout, stderr, and metadata logs.
+
+Preview lines are individually capped so a single long line cannot flood agent
+context. Complete logs are published only on overflow, under the task's
+`report/logs/limited-bash/` directory when `AGENT_TOOLS_TASK_DIR` or
+`PAF_TASK_DIR` is available.
+
 Command entry points:
 
 ```sh
 python -m agent_tools.agent_workspace.components.harness_adapter.codex
 python -m agent_tools.agent_workspace.components.harness_adapter.claude
+python -m agent_tools.agent_workspace.components.harness_adapter.limited_bash
 ```
