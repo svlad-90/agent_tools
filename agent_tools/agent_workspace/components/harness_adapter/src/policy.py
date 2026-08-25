@@ -3,7 +3,6 @@ from __future__ import annotations
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime
-from enum import StrEnum
 import json
 import sqlite3
 from pathlib import Path
@@ -22,6 +21,7 @@ from agent_tools.tools.task_context import ensure_database
 from agent_tools.tools.task_context import load_slots
 from agent_tools.tools.task_context import render_slots
 
+from ._compat import StrEnum
 from .limited_bash import limited_bash_shell_command
 from .limited_bash import limit_from_env
 

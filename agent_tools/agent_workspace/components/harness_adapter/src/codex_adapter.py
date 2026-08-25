@@ -3,13 +3,14 @@ from __future__ import annotations
 from collections import defaultdict
 from collections.abc import Callable
 from dataclasses import dataclass
-from enum import StrEnum
 import json
 import os
 from pathlib import Path
 import sys
 from typing import Any
 from uuid import uuid4
+
+from ._compat import StrEnum
 
 
 class CodexHookEvent(StrEnum):
