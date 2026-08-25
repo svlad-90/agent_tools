@@ -4115,11 +4115,15 @@ class WorkspaceGtkGui:
         scrolled.get_style_context().add_class("terminal-page")
         terminal_child: Gtk.Widget = terminal
         terminal_mouse: CodexTerminalMouseStateMachine | None = None
-        if kind == "codex":
-            terminal_mouse = CodexTerminalMouseStateMachine(terminal, self._record_profile_event)
+        if kind in {"codex", "claude"}:
+            terminal_mouse = CodexTerminalMouseStateMachine(
+                terminal,
+                self._record_profile_event,
+                profile_area=f"{kind}-terminal-mouse",
+            )
             terminal_child = terminal_mouse.widget
         scrolled.add(terminal_child)
-        if kind == "codex":
+        if terminal_mouse is not None:
             self._profile_widget(f"terminal-proxy-{kind}-{session_id}", terminal_child)
         self._profile_widget(f"terminal-page-{kind}-{session_id}", scrolled)
         session = TerminalSession(
@@ -4277,12 +4281,12 @@ class WorkspaceGtkGui:
         page = self.console_notebook.get_nth_page(page_num)
         if task is not None and page is getattr(self, "ai_agent_page", None):
             page_memory[task.path] = "ai-agent"
-            self._deactivate_codex_terminal_mouse()
+            self._deactivate_agent_terminal_mouse()
             return
         if task is not None and page is getattr(self, "ai_debug_page", None):
             page_memory[task.path] = "ai-debug"
             self._refresh_ai_debug()
-            self._deactivate_codex_terminal_mouse()
+            self._deactivate_agent_terminal_mouse()
             return
         session = self._session_for_page(page)
         if session is not None:
@@ -4456,11 +4460,11 @@ class WorkspaceGtkGui:
             self.last_active_console_page_by_task = page_memory
         task = getattr(self, "selected_task", None)
         if page is getattr(self, "ai_agent_page", None) and task is not None:
-            self._deactivate_codex_terminal_mouse()
+            self._deactivate_agent_terminal_mouse()
             page_memory[task.path] = "ai-agent"
             return
         if page is getattr(self, "ai_debug_page", None) and task is not None:
-            self._deactivate_codex_terminal_mouse()
+            self._deactivate_agent_terminal_mouse()
             page_memory[task.path] = "ai-debug"
             self._refresh_ai_debug()
             return
@@ -4473,14 +4477,14 @@ class WorkspaceGtkGui:
     def _on_visible_terminal_session_changed(self, session: TerminalSession) -> None:
         for known_session in getattr(self, "terminal_sessions", {}).values():
             terminal_mouse = known_session.terminal_mouse
-            if known_session.kind != "codex" or terminal_mouse is None:
+            if terminal_mouse is None:
                 continue
             if known_session.session_id != session.session_id:
                 terminal_mouse.deactivate()
 
-    def _deactivate_codex_terminal_mouse(self) -> None:
+    def _deactivate_agent_terminal_mouse(self) -> None:
         for session in getattr(self, "terminal_sessions", {}).values():
-            if session.kind != "codex" or session.terminal_mouse is None:
+            if session.terminal_mouse is None:
                 continue
             session.terminal_mouse.deactivate()
 

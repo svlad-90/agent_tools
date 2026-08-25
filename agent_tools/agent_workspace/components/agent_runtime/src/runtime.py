@@ -258,8 +258,6 @@ def ai_agent_environment(
     env["AGENT_TOOLS_TASK_DIR"] = str(task.path)
     env["AGENT_TOOLS_WORKSPACE"] = str(workspace)
     env["AGENT_TOOLS_LIMITED_BASH_OUTPUT_TOKENS"] = str(limited_bash_output_tokens)
-    if agent == "claude":
-        env["CLAUDE_CODE_DISABLE_MOUSE"] = "1"
     if session_state.session_id:
         env["AGENT_TOOLS_AGENT_SESSION_ID"] = session_state.session_id
     if run_id:

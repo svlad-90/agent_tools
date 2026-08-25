@@ -15,7 +15,12 @@ from paf_workspace.domains.environments.tasks.base import EnvironmentTask
 AGENT_WORKSPACE_TEST_COMMAND = """
 set -euo pipefail
 export PYTHONPATH=.:agent_tools
-python3 -m pytest -q agent_tools/agent_workspace/components
+export PYTHONUNBUFFERED=1
+echo "Agent Workspace component tests: start"
+timeout --foreground --signal=INT --kill-after=10s 300s \
+  xvfb-run -a python3 -X faulthandler -m pytest -vv --maxfail=1 -ra \
+  agent_tools/agent_workspace/components
+echo "Agent Workspace component tests: passed"
 """.strip()
 AGENT_WORKSPACE_TEST_TIMEOUT_SEC = 600
 AGENT_WORKSPACE_TESTS_TOOLS_CHECK_TIMEOUT_SEC = 120
@@ -99,6 +104,6 @@ class run_agent_workspace_tests(EnvironmentTask):
             self.environment_string("agent_workspace_tests", "container", "agent-workspace-tests-workspace"),
             command,
             timeout=timeout,
-            communication_mode=CommunicationMode.PIPE_OUTPUT,
+            communication_mode=CommunicationMode.USE_PTY,
             interaction_mode=InteractionMode.IGNORE_INPUT,
         )

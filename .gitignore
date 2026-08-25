@@ -22,6 +22,7 @@
 !.github/workflows/install-agent-tools.yml
 !.github/workflows/paf-workspace.yml
 !.github/workflows/commit-msg.yml
+!.github/workflows/agent-workspace-tests.yml
 !agent_tools/
 !agent_tools/**
 agent_tools/.venv/

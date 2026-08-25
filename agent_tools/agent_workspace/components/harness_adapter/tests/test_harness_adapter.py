@@ -20,6 +20,7 @@ from agent_tools.agent_workspace.components.harness_adapter.api import notify_wo
 from agent_tools.agent_workspace.components.harness_adapter.api import record_harness_status
 from agent_tools.agent_workspace.components.harness_adapter.api import start_workspace_ipc_server
 from agent_tools.agent_workspace.components.harness_adapter.api import subscribe_harness_status
+from agent_tools.agent_workspace.components.harness_adapter.src.limited_bash import OutputPreview
 from agent_tools.agent_workspace.components.harness_adapter.src.limited_bash import run_limited_bash
 from agent_tools.agent_workspace.components.harness_adapter.src.claude_policy import register_claude_adapter
 from agent_tools.agent_workspace.components.harness_adapter.src.commands import handle_claude_adapter_hook
@@ -180,7 +181,7 @@ def test_harness_adapter_precompact_logs_pending_claude_checkpoint_when_journal_
     assert events[-1].outcome == "pending"
 
 
-def test_harness_adapter_postcompact_injects_current_task_slots(tmp_path: Path) -> None:
+def test_harness_adapter_postcompact_defers_context_injection(tmp_path: Path) -> None:
     task_dir = _task(tmp_path)
     registry = ClaudeHookRegistry()
     register_claude_adapter(registry)
@@ -197,10 +198,7 @@ def test_harness_adapter_postcompact_injects_current_task_slots(tmp_path: Path) 
     )
 
     assert result.exit_code == 0
-    additional_context = json.loads(result.stdout)["hookSpecificOutput"]["additionalContext"]
-    assert "Current task state from TASK_CONTEXT.sqlite3 is injected below" in additional_context
-    assert "Test goal." in additional_context
-    assert "Initial memory." in additional_context
+    assert result.stdout == ""
 
 
 def test_harness_adapter_claude_context_injection_names_hook_event(tmp_path: Path) -> None:
@@ -224,14 +222,21 @@ def test_harness_adapter_claude_context_injection_names_hook_event(tmp_path: Pat
     assert "Agent Workspace session started" in hook_output["additionalContext"]
 
 
-def test_harness_adapter_postcompact_does_not_inject_legacy_slot(tmp_path: Path) -> None:
+def test_harness_adapter_compacted_session_start_does_not_inject_legacy_slot(tmp_path: Path) -> None:
     task_dir = _task(tmp_path)
     set_slot(task_dir, "legacy", "Old imported context.")
     registry = ClaudeHookRegistry()
     register_claude_adapter(registry)
 
     result = handle_claude_hook(
-        json.dumps({"hook_event_name": ClaudeHookEvent.POST_COMPACT.value, "task_dir": str(task_dir), "session_id": "s1"}),
+        json.dumps(
+            {
+                "hook_event_name": ClaudeHookEvent.SESSION_START.value,
+                "task_dir": str(task_dir),
+                "session_id": "s1",
+                "source": "compact",
+            }
+        ),
         registry=registry,
     )
 
@@ -367,6 +372,37 @@ def test_limited_bash_blocks_large_output_and_keeps_log(
     assert result.log_base.with_suffix(".stderr.log").exists()
     captured = capsys.readouterr()
     assert "Configured Bash output limit: 5 estimated tokens." in captured.out
+    assert "stdout preview:" in captured.out
+    assert "one two three four five six" in captured.out
+
+
+def test_limited_bash_overflow_preview_keeps_head_and_tail(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    task_dir = _task(tmp_path)
+    monkeypatch.setenv("AGENT_TOOLS_TASK_DIR", str(task_dir))
+
+    result = run_limited_bash("seq 1 30", limit=5, cwd=tmp_path)
+
+    assert result.exceeded is True
+    captured = capsys.readouterr()
+    assert "stdout preview:\n1\n2\n3\n4\n5\n6\n7\n8\n9\n10\n....\n21\n22\n23\n24\n25\n26\n27\n28\n29\n30" in captured.out
+
+
+def test_limited_bash_preview_does_not_duplicate_short_output() -> None:
+    preview = OutputPreview()
+    preview.feed("1\n2\n3\n")
+
+    assert preview.lines() == ["1", "2", "3"]
+
+
+def test_limited_bash_preview_truncates_single_long_line() -> None:
+    preview = OutputPreview(line_count=10, line_chars=5)
+    preview.feed("abcdefghijklmnopqrstuvwxyz")
+
+    assert preview.lines() == ["abcde... [truncated 21 chars]"]
 
 
 def test_limited_bash_does_not_keep_logs_for_output_under_limit(
@@ -396,10 +432,11 @@ def test_harness_adapter_records_context_injection_points(tmp_path: Path) -> Non
     _codex(registry, task_dir, CodexHookEvent.SESSION_START)
     _codex(registry, task_dir, CodexHookEvent.USER_PROMPT_SUBMIT)
     _codex(registry, task_dir, CodexHookEvent.POST_COMPACT)
+    _codex(registry, task_dir, CodexHookEvent.SESSION_START, extra={"source": "compact"})
     events = load_harness_debug_events(task_dir, session_id="s1")
 
     injected = [event for event in events if event.outcome == "injected"]
-    assert [event.hook_event for event in injected] == ["session_start", "post_compact"]
+    assert [event.hook_event for event in injected] == ["session_start", "session_start"]
     assert injected[0].icon == "●"
     assert all("injected" in event.message for event in injected)
 
@@ -471,9 +508,12 @@ def _task(tmp_path: Path) -> Path:
     return task_dir
 
 
-def _codex(registry: CodexHookRegistry, task_dir: Path, event: CodexHookEvent):
+def _codex(registry: CodexHookRegistry, task_dir: Path, event: CodexHookEvent, *, extra: dict[str, object] | None = None):
+    payload: dict[str, object] = {"hook_event_name": event.value, "task_dir": str(task_dir), "session_id": "s1"}
+    if extra:
+        payload.update(extra)
     return handle_codex_hook(
-        json.dumps({"hook_event_name": event.value, "task_dir": str(task_dir), "session_id": "s1"}),
+        json.dumps(payload),
         registry=registry,
     )
 

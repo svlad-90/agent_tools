@@ -1,0 +1,46 @@
+name: agent-workspace-tests
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/agent-workspace-tests.yml"
+      - "agent_tools/agent_workspace/**"
+      - "agent_tools/paf_workspace/**"
+      - "agent_tools/tools/requirements/**"
+      - "agent_tools/tools/task_context/**"
+  pull_request:
+    paths:
+      - ".github/workflows/agent-workspace-tests.yml"
+      - "agent_tools/agent_workspace/**"
+      - "agent_tools/paf_workspace/**"
+      - "agent_tools/tools/requirements/**"
+      - "agent_tools/tools/task_context/**"
+  workflow_dispatch:
+
+jobs:
+  component-tests:
+    name: component tests
+    runs-on: ubuntu-24.04
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Prepare CI task context
+        run: |
+          mkdir -p tasks/ci-agent-workspace-tests
+          python3 -m agent_tools.tools.task_context slot \
+            --task tasks/ci-agent-workspace-tests \
+            --category goal \
+            --content "Run Agent Workspace component tests in CI."
+
+      - name: Run Agent Workspace component tests
+        env:
+          PAF_TASK_DIR: ${{ github.workspace }}/tasks/ci-agent-workspace-tests
+        run: |
+          agent_tools/paf_workspace/run-paf.sh \
+            agent_tools/paf_workspace/domains/environments/scenarios/agent-workspace-tests.xml \
+            validate \
+            --yaml-config agent_tools/paf_workspace/domains/environments/profiles/agent-workspace-tests.yaml

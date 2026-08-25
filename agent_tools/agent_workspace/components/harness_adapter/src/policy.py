@@ -286,8 +286,17 @@ def handle_adapter_event(
         return _handle_pre_compact(task_dir, agent_type, request.session_id)
     if event is AgentHookEvent.POST_COMPACT:
         _update_adapter_state(task_dir, agent_type, request.session_id, last_event=event.value)
-        _emit(task_dir, agent_type, request.session_id, HarnessStatusEvent.COMPACT_FINISHED, AGENT_TOOL_MARKER, "Context injected after compact.", hook_event=event, outcome="injected")
-        return _post_compact_message(task_dir)
+        _emit(
+            task_dir,
+            agent_type,
+            request.session_id,
+            HarnessStatusEvent.HOOK_OBSERVED,
+            AGENT_TOOL_MARKER,
+            "PostCompact observed; context injection is deferred to compacted session start.",
+            hook_event=event,
+            outcome="observed",
+        )
+        return None
     if event is AgentHookEvent.STOP:
         return _handle_stop(task_dir, agent_type, request.session_id, format_stop_block=format_stop_block)
 

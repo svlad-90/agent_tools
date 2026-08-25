@@ -309,20 +309,21 @@ def test_gtk_artifact_load_restores_scroll_when_focus_disappears(
     gui = WorkspaceGtkGui.__new__(WorkspaceGtkGui)
     gui.artifact_store = Gtk.TreeStore(str, str, object, bool, str)
     gui.artifact_view = FakeArtifactTreeView()
-    gui.artifacts_page = FakeArtifactPage(FakeArtifactAdjustment(42.0))
+    gui.artifacts_scrolled = FakeArtifactPage(FakeArtifactAdjustment(42.0))
     gui.artifact_sort_column = "name"
     gui.artifact_sort_descending = False
     gui._tr = lambda key: key  # type: ignore[method-assign]
     monkeypatch.setattr(gtk_ui_module.GLib, "idle_add", lambda callback, *args: callback(*args))
 
     gui._load_task_artifacts(summary)
+    gui.artifacts_scrolled.adjustment.set_values.clear()
     gui.artifact_view.cursor_path = "0:0"
     artifact.unlink()
 
     gui._load_task_artifacts(summary)
 
     assert gui.artifact_view.set_cursor_calls == []
-    assert gui.artifacts_page.adjustment.set_values == [42.0]
+    assert gui.artifacts_scrolled.adjustment.set_values == [42.0]
 
 
 def test_gtk_artifact_text_filter_matches_names_and_relative_paths(tmp_path: Path) -> None:
@@ -1998,8 +1999,8 @@ def test_gtk_console_notebook_refresh_switch_does_not_replace_active_task_termin
     assert gui.last_active_terminal_by_task == {summary.path: 3}
 
 
-def test_gtk_console_notebook_switch_deactivates_codex_terminal_mouse(tmp_path: Path) -> None:
-    class FakeCodexMouse:
+def test_gtk_console_notebook_switch_deactivates_agent_terminal_mouse(tmp_path: Path) -> None:
+    class FakeAgentMouse:
         def __init__(self) -> None:
             self.deactivate_count = 0
 
@@ -2010,20 +2011,31 @@ def test_gtk_console_notebook_switch_deactivates_codex_terminal_mouse(tmp_path: 
     task.mkdir(parents=True)
     summary = discover_tasks_with_context(task, tmp_path)
     codex_page = object()
+    claude_page = object()
     shell_page = object()
-    mouse = FakeCodexMouse()
+    codex_mouse = FakeAgentMouse()
+    claude_mouse = FakeAgentMouse()
     codex_session = TerminalSession(
         7,
         summary.path,
         "codex",
         object(),  # type: ignore[arg-type]
         codex_page,  # type: ignore[arg-type]
-        terminal_mouse=mouse,  # type: ignore[arg-type]
+        terminal_mouse=codex_mouse,  # type: ignore[arg-type]
+    )
+    claude_session = TerminalSession(
+        9,
+        summary.path,
+        "claude",
+        object(),  # type: ignore[arg-type]
+        claude_page,  # type: ignore[arg-type]
+        terminal_mouse=claude_mouse,  # type: ignore[arg-type]
     )
     shell_session = TerminalSession(8, summary.path, "shell", object(), shell_page)  # type: ignore[arg-type]
     gui = WorkspaceGtkGui.__new__(WorkspaceGtkGui)
     gui.terminal_sessions = {
         codex_session.session_id: codex_session,
+        claude_session.session_id: claude_session,
         shell_session.session_id: shell_session,
     }
     gui.last_active_terminal_by_task = {}
@@ -2032,15 +2044,18 @@ def test_gtk_console_notebook_switch_deactivates_codex_terminal_mouse(tmp_path: 
 
     gui._on_console_notebook_switch_page(object(), codex_page, 0)  # type: ignore[arg-type]
 
-    assert mouse.deactivate_count == 0
+    assert codex_mouse.deactivate_count == 0
+    assert claude_mouse.deactivate_count == 1
 
     gui._on_console_notebook_switch_page(object(), shell_page, 1)  # type: ignore[arg-type]
 
-    assert mouse.deactivate_count == 1
+    assert codex_mouse.deactivate_count == 1
+    assert claude_mouse.deactivate_count == 2
 
     gui._on_console_notebook_switch_page(object(), codex_page, 0)  # type: ignore[arg-type]
 
-    assert mouse.deactivate_count == 1
+    assert codex_mouse.deactivate_count == 1
+    assert claude_mouse.deactivate_count == 3
 
 
 def test_gtk_remember_current_console_tab_uses_visible_page_for_task(tmp_path: Path) -> None:
