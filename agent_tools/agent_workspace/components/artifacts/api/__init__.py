@@ -6,6 +6,7 @@ from ..src.artifacts import ArtifactEntry
 from ..src.artifacts import artifact_context_action
 from ..src.artifacts import artifact_delete_paths
 from ..src.artifacts import artifact_group
+from ..src.artifacts import artifact_group_folder
 from ..src.artifacts import artifact_group_sort_key
 from ..src.artifacts import artifact_relative_label
 from ..src.artifacts import artifact_selectable_path
@@ -20,6 +21,7 @@ __all__ = [
     "artifact_context_action",
     "artifact_delete_paths",
     "artifact_group",
+    "artifact_group_folder",
     "artifact_group_sort_key",
     "artifact_relative_label",
     "artifact_selectable_path",

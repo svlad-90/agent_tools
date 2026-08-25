@@ -39,6 +39,7 @@ from ...artifacts.api import ArtifactEntry
 from ...artifacts.api import artifact_context_action as _artifact_context_action
 from ...artifacts.api import artifact_delete_paths as _artifact_delete_paths
 from ...artifacts.api import artifact_group as _artifact_group
+from ...artifacts.api import artifact_group_folder as _artifact_group_folder
 from ...artifacts.api import artifact_group_sort_key as _artifact_group_sort_key
 from ...artifacts.api import artifact_relative_label as _artifact_relative_label
 from ...artifacts.api import artifact_selectable_path as _artifact_selectable_path
@@ -1179,7 +1180,12 @@ class WorkspaceGtkGui:
         row_iter = self.artifact_store.get_iter(tree_path)
         is_group = bool(self.artifact_store[row_iter][3])
         artifact_path = self.artifact_store[row_iter][2]
-        if is_group or artifact_path is None:
+        if is_group and isinstance(artifact_path, str) and self.selected_task is not None:
+            folder = _artifact_group_folder(self.selected_task, artifact_path)
+            if folder is not None:
+                open_path(folder)
+            return
+        if artifact_path is None:
             return
         open_artifact_path(artifact_path)
 

@@ -64,6 +64,32 @@ def test_gtk_artifact_manual_refresh_loads_selected_task(tmp_path: Path) -> None
     assert calls == [summary]
 
 
+def test_gtk_artifact_group_double_click_opens_group_folder(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    task = tmp_path / "tasks" / "sample-task"
+    task.mkdir(parents=True)
+    summary = TaskSummary("sample-task", task, True, True, 1, 1, False)
+    calls: list[Path] = []
+    gui = WorkspaceGtkGui.__new__(WorkspaceGtkGui)
+    gui.selected_task = summary
+
+    class Store:
+        def get_iter(self, _tree_path: object) -> int:
+            return 0
+
+        def __getitem__(self, _row_iter: int) -> list[object]:
+            return ["Logs", "", "logs", True, ""]
+
+    gui.artifact_store = Store()
+    monkeypatch.setattr(gtk_ui_module, "open_path", lambda path: calls.append(path))
+
+    gui._on_artifact_row_activated(object(), object(), object())  # type: ignore[arg-type]
+
+    assert calls == [task / "report" / "logs"]
+
+
 def test_gtk_dictionary_preview_shows_char_counts_with_dictionary() -> None:
     path = "agent_workspace/components/gtk_desktop/tests/test_gtk_desktop.py"
     text = f"{path} validates settings. {path} validates preview. {path} validates counts."
