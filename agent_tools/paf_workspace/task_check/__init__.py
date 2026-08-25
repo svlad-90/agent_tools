@@ -524,7 +524,7 @@ def _check_task_context_quality(task_dir: Path, slots: list[TaskContextSlot]) ->
     if legacy is not None and legacy.content.strip():
         checks.append(
             Check(
-                "WARN",
+                "FAIL",
                 "task-context-slot-legacy",
                 "legacy task context slot is non-empty; move current facts into typed slots",
                 str(task_dir / TASK_CONTEXT_DATABASE_FILE),

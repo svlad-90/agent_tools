@@ -23,6 +23,19 @@ def test_discover_tasks_reports_description_context_and_budget(tmp_path: Path) -
     assert tasks[0].context_over_budget
 
 
+def test_discover_tasks_ignores_legacy_slot_for_context_budget(tmp_path: Path) -> None:
+    task = tmp_path / "tasks" / "sample-task"
+    task.mkdir(parents=True)
+    set_slot(task, "goal", "Goal.")
+    set_slot(task, "operational-memory", "Current.")
+    set_slot(task, "legacy", "word " * (TASK_CONTEXT_BUDGET + 1))
+
+    tasks = discover_tasks(tmp_path)
+
+    assert len(tasks) == 1
+    assert not tasks[0].context_over_budget
+
+
 def test_discover_tasks_does_not_create_front_door_bell_for_existing_task(tmp_path: Path) -> None:
     task = tmp_path / "tasks" / "sample-task"
     task.mkdir(parents=True)

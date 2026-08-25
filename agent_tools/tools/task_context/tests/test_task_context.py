@@ -26,6 +26,7 @@ from agent_tools.tools.task_context import preview_dictionary_compile
 from agent_tools.tools.task_context import render_agent_entries
 from agent_tools.tools.task_context import render_entries
 from agent_tools.tools.task_context import load_slots
+from agent_tools.tools.task_context import set_slot
 from agent_tools.tools.task_context import token_count
 import agent_tools.tools.task_context as task_context_module
 from agent_tools.tools.task_context import _candidate_net_saving
@@ -919,6 +920,19 @@ def test_slot_api_sets_queries_and_compacts_current_context(tmp_path: Path, caps
     compact_output = capsys.readouterr().out
     assert "| Goal" in compact_output
     assert not (tmp_path / "TASK_CONTEXT.md").exists()
+
+
+def test_compact_agent_context_excludes_legacy_slot(tmp_path: Path, capsys: object) -> None:
+    set_slot(tmp_path, "goal", "Build slot-based task context.")
+    set_slot(tmp_path, "operational-memory", "Current memory.")
+    set_slot(tmp_path, "legacy", "Old imported context.")
+
+    assert main(["compact", "--task", str(tmp_path), "--agent-context"]) == 0
+    compact_output = capsys.readouterr().out
+
+    assert "| Goal" in compact_output
+    assert "Old imported context." not in compact_output
+    assert "| Legacy" not in compact_output
 
 
 def test_slot_agent_format_encodes_content_and_renders_dictionary(tmp_path: Path, capsys: object) -> None:

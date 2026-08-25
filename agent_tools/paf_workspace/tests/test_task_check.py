@@ -105,6 +105,19 @@ def test_legacy_task_context_markdown_is_non_strict_warning(tmp_path: Path) -> N
     assert result == 1
 
 
+def test_non_empty_legacy_task_context_slot_is_failure(tmp_path: Path) -> None:
+    task_dir = tmp_path / "tasks" / "sample-task"
+    initialize_task_layout(task_dir, workspace=tmp_path)
+    set_slot(task_dir, "goal", "Goal.")
+    set_slot(task_dir, "operational-memory", "Current: ready.")
+    set_slot(task_dir, "legacy", "Old imported context.")
+
+    checks = check_task(task_dir, workspace=tmp_path)
+
+    assert _has_check(checks, "FAIL", "task-context-slot-legacy")
+    assert not _has_check(checks, "WARN", "task-context-slot-legacy")
+
+
 def test_strict_warnings_ignores_auto_runtime_readiness_warnings(tmp_path: Path) -> None:
     task_dir = tmp_path / "tasks" / "sample-task"
     initialize_task_layout(task_dir, workspace=tmp_path)
