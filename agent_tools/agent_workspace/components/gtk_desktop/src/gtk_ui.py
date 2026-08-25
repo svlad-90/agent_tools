@@ -552,13 +552,16 @@ class WorkspaceGtkGui:
         page.set_border_width(3)
         controls = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
         page.pack_start(controls, False, False, 0)
+        self.artifact_extension_filter_value = "all"
+        self.artifact_filter_was_active = False
+        self.artifact_extension_filter = Gtk.Button(label=self._tr("artifact_extension_all"))
+        self.artifact_extension_filter.connect("clicked", self._on_artifact_extension_filter_clicked)
+        self._disable_action_hover_tracking(self.artifact_extension_filter)
+        controls.pack_start(self.artifact_extension_filter, False, False, 0)
         self.artifact_text_filter = Gtk.SearchEntry()
         self.artifact_text_filter.set_placeholder_text(self._tr("artifact_filter_placeholder"))
         self.artifact_text_filter.connect("search-changed", self._on_artifact_filter_changed)
         controls.pack_start(self.artifact_text_filter, True, True, 0)
-        self.artifact_extension_filter = Gtk.ComboBoxText()
-        self.artifact_extension_filter.connect("changed", self._on_artifact_filter_changed)
-        controls.pack_start(self.artifact_extension_filter, False, False, 0)
         self.artifact_store = Gtk.TreeStore(str, str, object, bool, str)
         self.artifact_view = Gtk.TreeView(model=self.artifact_store)
         self.artifact_view.set_enable_search(False)
@@ -1144,7 +1147,11 @@ class WorkspaceGtkGui:
         focus_identity = self._artifact_focus_identity()
         scroll_value = self._artifact_scroll_value()
         self._refresh_artifact_extension_filter(task)
+        filter_active = self._artifact_filter_active()
+        filter_was_cleared = getattr(self, "artifact_filter_was_active", False) and not filter_active
+        self.artifact_filter_was_active = filter_active
         self.artifact_store.clear()
+        filtered_group_counts = dict.fromkeys(("logs", "diagrams", "diff_reports", "artifacts"), 0)
         groups = {
             "logs": self.artifact_store.append(None, [self._tr("logs"), "", "logs", True, ""]),
             "diagrams": self.artifact_store.append(None, [self._tr("diagrams"), "", "diagrams", True, ""]),
@@ -1152,12 +1159,17 @@ class WorkspaceGtkGui:
             "artifacts": self.artifact_store.append(None, [self._tr("other_artifacts"), "", "artifacts", True, ""]),
         }
         for entry in self._filtered_artifact_entries(task):
+            filtered_group_counts[entry.group] += 1
             rel_path = _artifact_relative_label(task, entry.path)
             self.artifact_store.append(
                 groups[entry.group],
                 [entry.path.name, rel_path, entry.path, False, _artifact_updated_label(entry.updated)],
             )
-        if had_rows:
+        if filter_active:
+            self._expand_artifact_groups_with_matches(groups, filtered_group_counts)
+        elif filter_was_cleared:
+            self.artifact_view.expand_all()
+        elif had_rows:
             self._restore_artifact_expanded_groups(groups, expanded_groups)
         else:
             self.artifact_view.expand_all()
@@ -1189,13 +1201,13 @@ class WorkspaceGtkGui:
         return text_filter.get_text().strip().casefold()
 
     def _artifact_extension_filter_value(self) -> str | None:
-        extension_filter = getattr(self, "artifact_extension_filter", None)
-        if extension_filter is None:
-            return None
-        active_id = extension_filter.get_active_id()
-        if not active_id or active_id == "all":
+        active_id = getattr(self, "artifact_extension_filter_value", "all")
+        if active_id == "all":
             return None
         return active_id
+
+    def _artifact_filter_active(self) -> bool:
+        return bool(self._artifact_text_filter_query()) or self._artifact_extension_filter_value() is not None
 
     def _refresh_artifact_extension_filter(self, task: TaskSummary) -> None:
         extension_filter = getattr(self, "artifact_extension_filter", None)
@@ -1209,18 +1221,42 @@ class WorkspaceGtkGui:
                 if entry.path.suffix
             }
         )
-        extension_filter.handler_block_by_func(self._on_artifact_filter_changed)
-        try:
-            extension_filter.remove_all()
-            extension_filter.append("all", self._tr("artifact_extension_all"))
-            for extension in extensions:
-                extension_filter.append(extension, extension)
-            if current in extensions:
-                extension_filter.set_active_id(current)
-            else:
-                extension_filter.set_active_id("all")
-        finally:
-            extension_filter.handler_unblock_by_func(self._on_artifact_filter_changed)
+        if current not in extensions:
+            current = None
+            self.artifact_extension_filter_value = "all"
+        label = current or self._tr("artifact_extension_all")
+        extension_filter.set_label(label)
+        menu = Gtk.Menu()
+        group: list[Gtk.RadioMenuItem] = []
+        all_item = Gtk.RadioMenuItem.new_with_label(group, self._tr("artifact_extension_all"))
+        group = all_item.get_group()
+        all_item.set_active(current is None)
+        all_item.connect("activate", self._on_artifact_extension_selected, "all")
+        menu.append(all_item)
+        for extension in extensions:
+            item = Gtk.RadioMenuItem.new_with_label(group, extension)
+            item.set_active(extension == current)
+            item.connect("activate", self._on_artifact_extension_selected, extension)
+            menu.append(item)
+        menu.show_all()
+        self.artifact_extension_filter_menu = menu
+
+    def _on_artifact_extension_filter_clicked(self, button: Gtk.Button) -> None:
+        menu = getattr(self, "artifact_extension_filter_menu", None)
+        if menu is None and self.selected_task is not None:
+            self._refresh_artifact_extension_filter(self.selected_task)
+            menu = getattr(self, "artifact_extension_filter_menu", None)
+        if menu is not None:
+            menu.popup_at_widget(button, Gdk.Gravity.SOUTH_WEST, Gdk.Gravity.NORTH_WEST, None)
+
+    def _on_artifact_extension_selected(self, item: Gtk.RadioMenuItem, extension: str) -> None:
+        if not item.get_active():
+            return
+        if self.artifact_extension_filter_value == extension:
+            return
+        self.artifact_extension_filter_value = extension
+        if self.selected_task is not None and self._artifacts_tab_active():
+            self._load_task_artifacts(self.selected_task)
 
     def _on_artifact_filter_changed(self, *_args: object) -> None:
         if self.selected_task is not None and self._artifacts_tab_active():
@@ -1275,6 +1311,18 @@ class WorkspaceGtkGui:
         for group, row_iter in groups.items():
             tree_path = self.artifact_store.get_path(row_iter)
             if group in expanded_groups:
+                self.artifact_view.expand_row(tree_path, False)
+            else:
+                self.artifact_view.collapse_row(tree_path)
+
+    def _expand_artifact_groups_with_matches(
+        self,
+        groups: dict[str, Gtk.TreeIter],
+        group_counts: dict[str, int],
+    ) -> None:
+        for group, row_iter in groups.items():
+            tree_path = self.artifact_store.get_path(row_iter)
+            if group_counts.get(group, 0) > 0:
                 self.artifact_view.expand_row(tree_path, False)
             else:
                 self.artifact_view.collapse_row(tree_path)
@@ -1377,6 +1425,8 @@ class WorkspaceGtkGui:
         open_artifact_path(artifact_path)
 
     def _on_artifact_view_button_press(self, tree: Gtk.TreeView, event: Gdk.EventButton) -> bool:
+        if event.button == 1 and self._toggle_artifact_group_expander_at_pos(tree, event):
+            return True
         if event.button != 3:
             return False
         hit = tree.get_path_at_pos(int(event.x), int(event.y))
@@ -1386,6 +1436,22 @@ class WorkspaceGtkGui:
         else:
             tree.get_selection().unselect_all()
         self._artifact_context_menu().popup_at_pointer(event)
+        return True
+
+    def _toggle_artifact_group_expander_at_pos(self, tree: Gtk.TreeView, event: Gdk.EventButton) -> bool:
+        if int(event.x) > 32:
+            return False
+        hit = tree.get_path_at_pos(int(event.x), int(event.y))
+        if hit is None:
+            return False
+        tree_path, _column, _cell_x, _cell_y = hit
+        row_iter = self.artifact_store.get_iter(tree_path)
+        if not bool(self.artifact_store[row_iter][3]):
+            return False
+        if tree.row_expanded(tree_path):
+            tree.collapse_row(tree_path)
+        else:
+            tree.expand_row(tree_path, False)
         return True
 
     def _artifact_context_menu(self) -> Gtk.Menu:
@@ -1862,19 +1928,19 @@ class WorkspaceGtkGui:
         view.set_cursor_visible(False)
 
     def _disable_tree_hover_tracking(self, tree: Gtk.TreeView) -> None:
+        tree.set_hover_selection(False)
+        tree.set_hover_expand(False)
         tree.add_events(
             Gdk.EventMask.POINTER_MOTION_MASK
             | Gdk.EventMask.ENTER_NOTIFY_MASK
             | Gdk.EventMask.LEAVE_NOTIFY_MASK
         )
-        tree.connect("event", self._consume_tree_hover_event)
+        tree.connect("motion-notify-event", self._consume_tree_hover_event)
+        tree.connect("enter-notify-event", self._consume_tree_hover_event)
+        tree.connect("leave-notify-event", self._consume_tree_hover_event)
 
-    def _consume_tree_hover_event(self, _tree: Gtk.TreeView, event: Gdk.Event) -> bool:
-        return getattr(event, "type", None) in {
-            Gdk.EventType.MOTION_NOTIFY,
-            Gdk.EventType.ENTER_NOTIFY,
-            Gdk.EventType.LEAVE_NOTIFY,
-        }
+    def _consume_tree_hover_event(self, _tree: Gtk.TreeView, _event: Gdk.Event) -> bool:
+        return True
 
     def _disable_action_hover_tracking(self, widget: Gtk.Widget) -> None:
         if not hasattr(self, "hover_suppressed_widget_ids"):

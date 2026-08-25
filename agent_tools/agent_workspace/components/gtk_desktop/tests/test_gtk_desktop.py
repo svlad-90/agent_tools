@@ -146,6 +146,16 @@ class FakeArtifactTreeView:
         self.expanded_paths.discard(value)
         self.collapse_row_calls.append(value)
 
+    def get_path_at_pos(self, _x: int, _y: int) -> tuple[Gtk.TreePath, None, int, int]:
+        return Gtk.TreePath.new_from_string("0"), None, 0, 0
+
+
+class FakeArtifactButtonEvent:
+    def __init__(self, button: int, x: float = 8.0, y: float = 8.0) -> None:
+        self.button = button
+        self.x = x
+        self.y = y
+
 
 def test_gtk_artifact_load_expands_groups_on_first_load(tmp_path: Path) -> None:
     task = tmp_path / "tasks" / "sample-task"
@@ -162,6 +172,29 @@ def test_gtk_artifact_load_expands_groups_on_first_load(tmp_path: Path) -> None:
     gui._load_task_artifacts(summary)
 
     assert gui.artifact_view.expand_all_calls == 1
+
+
+def test_gtk_artifact_expander_click_toggles_group() -> None:
+    gui = WorkspaceGtkGui.__new__(WorkspaceGtkGui)
+    gui.artifact_store = Gtk.TreeStore(str, str, object, bool, str)
+    gui.artifact_store.append(None, ["Logs", "", "logs", True, ""])
+    tree = FakeArtifactTreeView()
+
+    assert gui._toggle_artifact_group_expander_at_pos(tree, FakeArtifactButtonEvent(1))
+    assert tree.expand_row_calls == ["0"]
+
+    assert gui._toggle_artifact_group_expander_at_pos(tree, FakeArtifactButtonEvent(1))
+    assert tree.collapse_row_calls == ["0"]
+
+
+def test_gtk_artifact_expander_click_ignores_group_label_area() -> None:
+    gui = WorkspaceGtkGui.__new__(WorkspaceGtkGui)
+    gui.artifact_store = Gtk.TreeStore(str, str, object, bool, str)
+    gui.artifact_store.append(None, ["Logs", "", "logs", True, ""])
+    tree = FakeArtifactTreeView()
+
+    assert not gui._toggle_artifact_group_expander_at_pos(tree, FakeArtifactButtonEvent(1, x=64.0))
+    assert tree.expand_row_calls == []
 
 
 def test_gtk_artifact_load_preserves_collapsed_groups(tmp_path: Path) -> None:
@@ -257,28 +290,11 @@ class FakeArtifactTextFilter:
 
 
 class FakeArtifactExtensionFilter:
-    def __init__(self, active_id: str | None = None) -> None:
-        self.active_id = active_id
-        self.items: list[tuple[str, str]] = []
-        self.blocked = False
+    def __init__(self) -> None:
+        self.label = ""
 
-    def get_active_id(self) -> str | None:
-        return self.active_id
-
-    def handler_block_by_func(self, _func: object) -> None:
-        self.blocked = True
-
-    def handler_unblock_by_func(self, _func: object) -> None:
-        self.blocked = False
-
-    def remove_all(self) -> None:
-        self.items.clear()
-
-    def append(self, item_id: str, label: str) -> None:
-        self.items.append((item_id, label))
-
-    def set_active_id(self, item_id: str) -> None:
-        self.active_id = item_id
+    def set_label(self, label: str) -> None:
+        self.label = label
 
 
 def test_gtk_artifact_load_restores_scroll_when_focus_disappears(
@@ -339,6 +355,52 @@ def test_gtk_artifact_text_filter_matches_names_and_relative_paths(tmp_path: Pat
     assert gui.artifact_store[gui.artifact_store.iter_children(logs_iter)][0] == "runtime.log"
 
 
+def test_gtk_artifact_filter_expands_groups_with_matches(tmp_path: Path) -> None:
+    task = tmp_path / "tasks" / "sample-task"
+    (task / "report" / "logs").mkdir(parents=True)
+    (task / "report" / "logs" / "runtime.log").write_text("log", encoding="utf-8")
+    (task / "report" / "notes.md").write_text("notes", encoding="utf-8")
+    summary = TaskSummary("sample-task", task, True, True, 1, 1, False)
+    gui = WorkspaceGtkGui.__new__(WorkspaceGtkGui)
+    gui.artifact_store = Gtk.TreeStore(str, str, object, bool, str)
+    gui.artifact_view = FakeArtifactTreeView()
+    gui.artifact_text_filter = FakeArtifactTextFilter("runtime")
+    gui.artifact_extension_filter_value = "all"
+    gui.artifact_sort_column = "name"
+    gui.artifact_sort_descending = False
+    gui._tr = lambda key: key  # type: ignore[method-assign]
+
+    gui._load_task_artifacts(summary)
+
+    assert gui.artifact_view.expand_row_calls == ["0"]
+    assert set(gui.artifact_view.collapse_row_calls) == {"1", "2", "3"}
+
+
+def test_gtk_artifact_load_expands_all_when_filter_is_cleared(tmp_path: Path) -> None:
+    task = tmp_path / "tasks" / "sample-task"
+    (task / "report" / "logs").mkdir(parents=True)
+    (task / "report" / "logs" / "runtime.log").write_text("log", encoding="utf-8")
+    (task / "report" / "notes.md").write_text("notes", encoding="utf-8")
+    summary = TaskSummary("sample-task", task, True, True, 1, 1, False)
+    gui = WorkspaceGtkGui.__new__(WorkspaceGtkGui)
+    gui.artifact_store = Gtk.TreeStore(str, str, object, bool, str)
+    gui.artifact_view = FakeArtifactTreeView()
+    gui.artifact_text_filter = FakeArtifactTextFilter("runtime")
+    gui.artifact_extension_filter_value = "all"
+    gui.artifact_filter_was_active = False
+    gui.artifact_sort_column = "name"
+    gui.artifact_sort_descending = False
+    gui._tr = lambda key: key  # type: ignore[method-assign]
+
+    gui._load_task_artifacts(summary)
+    gui.artifact_view.expand_all_calls = 0
+    gui.artifact_text_filter = FakeArtifactTextFilter("")
+
+    gui._load_task_artifacts(summary)
+
+    assert gui.artifact_view.expand_all_calls == 1
+
+
 def test_gtk_artifact_extension_filter_limits_rows(tmp_path: Path) -> None:
     task = tmp_path / "tasks" / "sample-task"
     (task / "report" / "diff").mkdir(parents=True)
@@ -351,7 +413,8 @@ def test_gtk_artifact_extension_filter_limits_rows(tmp_path: Path) -> None:
     gui.artifact_store = Gtk.TreeStore(str, str, object, bool, str)
     gui.artifact_view = FakeArtifactTreeView()
     gui.artifact_text_filter = FakeArtifactTextFilter("")
-    gui.artifact_extension_filter = FakeArtifactExtensionFilter(".md")
+    gui.artifact_extension_filter = FakeArtifactExtensionFilter()
+    gui.artifact_extension_filter_value = ".md"
     gui.artifact_sort_column = "name"
     gui.artifact_sort_descending = False
     gui._tr = lambda key: key  # type: ignore[method-assign]
@@ -362,12 +425,8 @@ def test_gtk_artifact_extension_filter_limits_rows(tmp_path: Path) -> None:
     assert gui.artifact_store.iter_n_children(artifacts_iter) == 1
     assert gui.artifact_store[gui.artifact_store.iter_children(artifacts_iter)][0] == "notes.md"
     assert gui.artifact_store.iter_n_children(gui.artifact_store.iter_nth_child(None, 0)) == 0
-    assert gui.artifact_extension_filter.items == [
-        ("all", "artifact_extension_all"),
-        (".html", ".html"),
-        (".log", ".log"),
-        (".md", ".md"),
-    ]
+    assert gui.artifact_extension_filter.label == ".md"
+    assert gui.artifact_extension_filter_menu is not None
 
 
 def test_gtk_artifact_extension_filter_resets_missing_extension(tmp_path: Path) -> None:
@@ -379,14 +438,16 @@ def test_gtk_artifact_extension_filter_resets_missing_extension(tmp_path: Path) 
     gui.artifact_store = Gtk.TreeStore(str, str, object, bool, str)
     gui.artifact_view = FakeArtifactTreeView()
     gui.artifact_text_filter = FakeArtifactTextFilter("")
-    gui.artifact_extension_filter = FakeArtifactExtensionFilter(".html")
+    gui.artifact_extension_filter = FakeArtifactExtensionFilter()
+    gui.artifact_extension_filter_value = ".html"
     gui.artifact_sort_column = "name"
     gui.artifact_sort_descending = False
     gui._tr = lambda key: key  # type: ignore[method-assign]
 
     gui._load_task_artifacts(summary)
 
-    assert gui.artifact_extension_filter.active_id == "all"
+    assert gui.artifact_extension_filter_value == "all"
+    assert gui.artifact_extension_filter.label == "artifact_extension_all"
     assert gui.artifact_store.iter_n_children(gui.artifact_store.iter_nth_child(None, 3)) == 1
 
 
