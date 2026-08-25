@@ -1128,6 +1128,8 @@ class WorkspaceGtkGui:
     def _load_task_artifacts(self, task: TaskSummary) -> None:
         had_rows = self.artifact_store.iter_n_children(None) > 0
         expanded_groups = self._artifact_expanded_group_ids()
+        focus_identity = self._artifact_focus_identity()
+        scroll_value = self._artifact_scroll_value()
         self.artifact_store.clear()
         groups = {
             "logs": self.artifact_store.append(None, [self._tr("logs"), "", "logs", True, ""]),
@@ -1149,6 +1151,33 @@ class WorkspaceGtkGui:
             self._restore_artifact_expanded_groups(groups, expanded_groups)
         else:
             self.artifact_view.expand_all()
+        self._restore_artifact_tree_position(focus_identity, scroll_value)
+
+    def _artifact_focus_identity(self) -> tuple[str, str] | None:
+        tree_path, _column = self.artifact_view.get_cursor()
+        if tree_path is None:
+            return None
+        try:
+            row_iter = self.artifact_store.get_iter(tree_path)
+        except (TypeError, ValueError):
+            return None
+        return self._artifact_row_identity(row_iter)
+
+    def _artifact_row_identity(self, row_iter: Gtk.TreeIter) -> tuple[str, str] | None:
+        is_group = bool(self.artifact_store[row_iter][3])
+        value = self.artifact_store[row_iter][2]
+        if is_group and isinstance(value, str):
+            return ("group", value)
+        if isinstance(value, Path):
+            return ("artifact", str(value))
+        return None
+
+    def _artifact_scroll_value(self) -> float | None:
+        artifacts_page = getattr(self, "artifacts_page", None)
+        if artifacts_page is None:
+            return None
+        vadjustment = artifacts_page.get_vadjustment()
+        return vadjustment.get_value()
 
     def _artifact_expanded_group_ids(self) -> set[str]:
         expanded: set[str] = set()
@@ -1171,6 +1200,60 @@ class WorkspaceGtkGui:
                 self.artifact_view.expand_row(tree_path, False)
             else:
                 self.artifact_view.collapse_row(tree_path)
+
+    def _restore_artifact_tree_position(
+        self,
+        focus_identity: tuple[str, str] | None,
+        scroll_value: float | None,
+    ) -> None:
+        tree_path = self._artifact_tree_path_for_identity(focus_identity)
+        if tree_path is not None:
+            self.artifact_view.get_selection().select_path(tree_path)
+            self.artifact_view.set_cursor(tree_path)
+            self.artifact_view.scroll_to_cell(tree_path, None, False, 0.0, 0.0)
+            return
+        if scroll_value is not None:
+            GLib.idle_add(self._restore_artifact_scroll_value, scroll_value)
+
+    def _artifact_tree_path_for_identity(
+        self,
+        focus_identity: tuple[str, str] | None,
+    ) -> Gtk.TreePath | None:
+        if focus_identity is None:
+            return None
+        row_iter = self.artifact_store.get_iter_first()
+        while row_iter is not None:
+            tree_path = self._artifact_tree_path_for_identity_from_iter(row_iter, focus_identity)
+            if tree_path is not None:
+                return tree_path
+            row_iter = self.artifact_store.iter_next(row_iter)
+        return None
+
+    def _artifact_tree_path_for_identity_from_iter(
+        self,
+        row_iter: Gtk.TreeIter,
+        focus_identity: tuple[str, str],
+    ) -> Gtk.TreePath | None:
+        if self._artifact_row_identity(row_iter) == focus_identity:
+            return self.artifact_store.get_path(row_iter)
+        child_iter = self.artifact_store.iter_children(row_iter)
+        while child_iter is not None:
+            tree_path = self._artifact_tree_path_for_identity_from_iter(child_iter, focus_identity)
+            if tree_path is not None:
+                return tree_path
+            child_iter = self.artifact_store.iter_next(child_iter)
+        return None
+
+    def _restore_artifact_scroll_value(self, scroll_value: float) -> bool:
+        artifacts_page = getattr(self, "artifacts_page", None)
+        if artifacts_page is None:
+            return False
+        vadjustment = artifacts_page.get_vadjustment()
+        upper = vadjustment.get_upper()
+        page_size = vadjustment.get_page_size()
+        lower = vadjustment.get_lower()
+        vadjustment.set_value(max(lower, min(scroll_value, upper - page_size)))
+        return False
 
     def _refresh_selected_task_artifacts(self, *_args: object) -> None:
         if self.selected_task is not None:
