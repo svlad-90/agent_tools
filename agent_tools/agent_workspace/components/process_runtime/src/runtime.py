@@ -102,3 +102,16 @@ def install_agent_workspace_exception_logger(workspace: Path, frontend: str) -> 
     if hasattr(threading, "excepthook"):
         threading.excepthook = threading_excepthook
     return log_path
+
+
+def abort_agent_workspace_with_stack_dump(workspace: Path, frontend: str) -> None:
+    log_path = agent_workspace_crash_log_path(workspace)
+    try:
+        with log_path.open("a", encoding="utf-8") as stream:
+            timestamp = datetime.now().isoformat(timespec="seconds")
+            stream.write(f"\n[{timestamp}] Agent Workspace {frontend} forced stack dump pid={os.getpid()}\n")
+            faulthandler.dump_traceback(file=stream, all_threads=True)
+            stream.flush()
+    except OSError:
+        pass
+    os.abort()
