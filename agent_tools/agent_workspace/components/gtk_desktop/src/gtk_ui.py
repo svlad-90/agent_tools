@@ -487,76 +487,25 @@ class WorkspaceGtkGui:
         self.notebook.connect("switch-page", self._on_main_notebook_switch_page)
 
     def _add_details_tab(self) -> None:
-        pane = Gtk.Paned(orientation=Gtk.Orientation.VERTICAL)
-        self.details_page = pane
-        self.details_pane = pane
-        pane.add_events(Gdk.EventMask.BUTTON_PRESS_MASK)
-        pane.connect("button-press-event", self._on_details_pane_button_press)
-        pane.connect("notify::position", self._on_details_pane_position_changed)
-        pane.connect("size-allocate", self._on_details_pane_size_allocate)
-        self.description_view = _text_view(self.text_font_size, editable=False)
-        self.context_view = _text_view(self.text_font_size, editable=False)
-        self._register_detail_view(self.description_view, "goal")
-        self.context_view.connect("button-release-event", self._on_context_view_button_release)
-        self._profile_widget("details-pane", pane)
-        self._profile_widget("description-view", self.description_view)
-        self._profile_widget("context-view", self.context_view)
-        pane.pack1(_scrolled(self.description_view), resize=True, shrink=False)
         context_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
         context_box.set_border_width(4)
+        self.details_page = context_box
+        self.context_view = _text_view(self.text_font_size, editable=False)
+        self.context_view.connect("button-release-event", self._on_context_view_button_release)
+        self._profile_widget("details-pane", context_box)
+        self._profile_widget("context-view", self.context_view)
         context_box.pack_start(self._task_context_filter_bar(), False, False, 0)
         context_box.pack_start(_scrolled(self.context_view), True, True, 0)
-        pane.pack2(context_box, resize=True, shrink=False)
-        self.details_tab_label = Gtk.Label(label=self._tr("details"))
-        self.notebook.append_page(pane, self.details_tab_label)
+        self.details_tab_label = Gtk.Label(label=self._tr("context_journal"))
+        self.notebook.append_page(context_box, self.details_tab_label)
 
     def _task_context_filter_bar(self) -> Gtk.Widget:
         box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
         box.get_style_context().add_class("task-context-filter-bar")
-
-        self.task_context_since_button = self._button("context_filter_since_any", self._choose_task_context_since)
-        self.task_context_until_button = self._button("context_filter_until_any", self._choose_task_context_until)
-        box.pack_start(self.task_context_since_button, False, False, 0)
-        box.pack_start(self.task_context_until_button, False, False, 0)
-
-        box.pack_start(
-            self._task_context_check_menu(
-                "severity",
-                self._tr("context_filter_levels"),
-                ("note", "low", "mid", "high", "critical"),
-                self.task_context_severity_checks,
-            ),
-            False,
-            False,
-            0,
-        )
-        box.pack_start(
-            self._task_context_check_menu(
-                "status",
-                self._tr("context_filter_statuses"),
-                TASK_CONTEXT_STATUSES,
-                self.task_context_status_checks,
-            ),
-            False,
-            False,
-            0,
-        )
-        label_button = Gtk.MenuButton(label=self._tr("context_filter_labels"))
-        label_popover = Gtk.Popover()
-        label_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
-        label_box.set_border_width(8)
-        label_popover.add(label_box)
-        label_button.set_popover(label_popover)
-        self.task_context_label_box = label_box
-        self._disable_action_hover_tracking(label_button)
-        box.pack_start(label_button, False, False, 0)
-
         self.task_context_encoded_check = Gtk.CheckButton(label=self._tr("context_view_encoded"))
         self.task_context_encoded_check.connect("toggled", self._on_task_context_filter_changed)
         self._disable_action_hover_tracking(self.task_context_encoded_check)
         box.pack_start(self.task_context_encoded_check, False, False, 0)
-        box.pack_start(self._button("context_filter_clear", self._clear_task_context_filters), False, False, 0)
-        self._update_task_context_date_buttons()
         return box
 
     def _task_context_check_menu(
@@ -900,8 +849,6 @@ class WorkspaceGtkGui:
 
     def _clear_selected_task_view(self) -> None:
         self.selected_task = None
-        if hasattr(self, "description_view"):
-            self._set_markdown(self.description_view, "")
         if hasattr(self, "context_view"):
             self._set_markdown(self.context_view, "")
         if hasattr(self, "task_actions_box"):
@@ -916,11 +863,6 @@ class WorkspaceGtkGui:
     def _refresh_selected_task_details(self, *, leave_edit: bool = False) -> None:
         if self.selected_task is None:
             return
-        editing_description = getattr(self, "detail_editing", {}).get(self.description_view, False)
-        if leave_edit or not editing_description:
-            if leave_edit:
-                self._leave_detail_edit_mode(self.description_view)
-            self._set_markdown(self.description_view, _task_goal_slot_markdown(self.selected_task.path))
         self._render_task_context_details()
 
     def _render_task_context_details(self) -> None:
@@ -936,8 +878,10 @@ class WorkspaceGtkGui:
         if not slots:
             self._set_markdown(self.context_view, f"# {self._tr('context_journal')}\n\n- {self._tr('context_filter_no_matches')}\n")
             return
+        ordered_slots = [slot for slot in slots if slot.category == "goal"]
+        ordered_slots.extend(slot for slot in slots if slot.category != "goal")
         body = _render_task_context_slots(
-            [slot for slot in slots if slot.category != "goal"],
+            ordered_slots,
             format_name="agent" if self.task_context_encoded_check.get_active() else "markdown",
             task_dir=self.selected_task.path,
         )
@@ -4878,7 +4822,7 @@ class WorkspaceGtkGui:
         self.artifact_name_column.set_title(self._tr("artifacts"))
         self.artifact_updated_column.set_title(self._tr("updated"))
         self._update_artifact_sort_indicators()
-        self.details_tab_label.set_text(self._tr("details"))
+        self.details_tab_label.set_text(self._tr("context_journal"))
         self.artifacts_tab_label.set_text(self._tr("artifacts"))
         self.actions_tab_label.set_text(self._tr("actions"))
         if self.ai_agent_tab_label is not None:
@@ -5371,10 +5315,8 @@ class WorkspaceGtkGui:
 
     def _apply_runtime_style(self) -> None:
         self._apply_css()
-        self.description_view.modify_font(Pango.FontDescription(f"Monospace {self.text_font_size}"))
         self.context_view.modify_font(Pango.FontDescription(f"Monospace {self.text_font_size}"))
         if self.selected_task is not None:
-            self._set_markdown(self.description_view, _task_goal_slot_markdown(self.selected_task.path))
             self._render_task_context_details()
         for session in self.terminal_sessions.values():
             self._apply_terminal_theme(session.terminal)

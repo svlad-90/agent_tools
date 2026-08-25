@@ -1882,6 +1882,29 @@ def test_gtk_task_selection_refreshes_details_only_when_details_tab_is_active(tm
     assert calls == ["details:True"]
 
 
+def test_gtk_task_context_journal_renders_goal_first(tmp_path: Path) -> None:
+    task = tmp_path / "tasks" / "sample-task"
+    task.mkdir(parents=True)
+    set_slot(task, "findings", "Finding body")
+    set_slot(task, "goal", "Goal body")
+    summary = discover_tasks_with_context(task, tmp_path)
+    gui = WorkspaceGtkGui.__new__(WorkspaceGtkGui)
+    gui.selected_task = summary
+    gui.language = "en"
+    gui.task_context_encoded_check = FakeGtkCheckButton(False)
+    gui.context_view = object()
+    gui._refresh_task_context_label_filter = lambda _entries: None
+    rendered: list[str] = []
+    gui._set_markdown = lambda _view, text: rendered.append(text)
+
+    gui._render_task_context_details()
+
+    assert rendered
+    assert rendered[0].index("| Goal") < rendered[0].index("| Findings")
+    assert "Goal body" in rendered[0]
+    assert "Finding body" in rendered[0]
+
+
 def test_gtk_main_notebook_switch_loads_artifacts_lazily(tmp_path: Path) -> None:
     task = tmp_path / "tasks" / "sample-task"
     task.mkdir(parents=True)
