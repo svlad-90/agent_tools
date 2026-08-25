@@ -11,6 +11,12 @@ Existing cached PAF checkouts are reused as local storage, but the wrapper
 checks out `PAF_REF` before execution. Set `PAF_UPDATE=1` when the wrapper
 must fetch the configured revision again.
 
+`run-paf.sh` writes PAF framework logs under the current task by default:
+`tasks/<task>/report/logs/paf`. The wrapper must be able to resolve the task
+from `PAF_TASK_DIR`, `AGENT_TOOLS_TASK_DIR`, the current directory, or a
+task-local scenario path. It fails instead of writing to a workspace-global log
+directory when no task can be resolved.
+
 The purpose of this directory is to collect reusable automation work in the
 same spirit as `/home/vladyslav_goncharuk/Projects/tools/aasig_dev_platform/build/`:
 separate automation domains keep their own scenarios, profiles, templates, and
