@@ -20,6 +20,7 @@ from agent_tools.agent_workspace.components.harness_adapter.api import notify_wo
 from agent_tools.agent_workspace.components.harness_adapter.api import record_harness_status
 from agent_tools.agent_workspace.components.harness_adapter.api import start_workspace_ipc_server
 from agent_tools.agent_workspace.components.harness_adapter.api import subscribe_harness_status
+from agent_tools.agent_workspace.components.harness_adapter.src.limited_bash import run_limited_bash
 from agent_tools.agent_workspace.components.harness_adapter.src.claude_policy import register_claude_adapter
 from agent_tools.agent_workspace.components.harness_adapter.src.commands import handle_claude_adapter_hook
 from agent_tools.agent_workspace.components.harness_adapter.src.commands import handle_codex_adapter_hook
@@ -202,6 +203,27 @@ def test_harness_adapter_postcompact_injects_current_task_slots(tmp_path: Path) 
     assert "Initial memory." in additional_context
 
 
+def test_harness_adapter_claude_context_injection_names_hook_event(tmp_path: Path) -> None:
+    task_dir = _task(tmp_path)
+    registry = ClaudeHookRegistry()
+    register_claude_adapter(registry)
+
+    result = handle_claude_hook(
+        json.dumps(
+            {
+                "hook_event_name": ClaudeHookEvent.SESSION_START.value,
+                "task_dir": str(task_dir),
+                "session_id": "s1",
+            }
+        ),
+        registry=registry,
+    )
+
+    hook_output = json.loads(result.stdout)["hookSpecificOutput"]
+    assert hook_output["hookEventName"] == "SessionStart"
+    assert "Agent Workspace session started" in hook_output["additionalContext"]
+
+
 def test_harness_adapter_postcompact_does_not_inject_legacy_slot(tmp_path: Path) -> None:
     task_dir = _task(tmp_path)
     set_slot(task_dir, "legacy", "Old imported context.")
@@ -273,6 +295,96 @@ def test_harness_adapter_records_debug_events_with_tool_name(tmp_path: Path) -> 
             "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'harness_debug_events'"
         ).fetchone()
     assert table is None
+
+
+def test_harness_adapter_codex_rewrites_bash_to_limited_bash(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    task_dir = _task(tmp_path)
+    registry = CodexHookRegistry()
+    register_codex_adapter(registry)
+    monkeypatch.setenv("AGENT_TOOLS_LIMITED_BASH_OUTPUT_TOKENS", "700")
+
+    result = handle_codex_hook(
+        json.dumps(
+            {
+                "hook_event_name": CodexHookEvent.PRE_TOOL_USE.value,
+                "task_dir": str(task_dir),
+                "session_id": "s1",
+                "tool_name": "Bash",
+                "tool_input": {"command": "printf hello", "description": "small"},
+            }
+        ),
+        registry=registry,
+    )
+
+    hook_output = json.loads(result.stdout)["hookSpecificOutput"]
+    assert hook_output["hookEventName"] == "PreToolUse"
+    assert hook_output["permissionDecision"] == "allow"
+    assert hook_output["updatedInput"]["description"] == "small"
+    assert "limited_bash" in hook_output["updatedInput"]["command"]
+    assert "printf hello" not in hook_output["updatedInput"]["command"]
+    assert "--limit 700" in hook_output["updatedInput"]["command"]
+
+
+def test_harness_adapter_claude_rewrites_bash_to_limited_bash(tmp_path: Path) -> None:
+    task_dir = _task(tmp_path)
+    registry = ClaudeHookRegistry()
+    register_claude_adapter(registry)
+
+    result = handle_claude_hook(
+        json.dumps(
+            {
+                "hook_event_name": ClaudeHookEvent.PRE_TOOL_USE.value,
+                "task_dir": str(task_dir),
+                "session_id": "s1",
+                "tool_name": "Bash",
+                "tool_input": {"command": "printf hello"},
+            }
+        ),
+        registry=registry,
+    )
+
+    hook_output = json.loads(result.stdout)["hookSpecificOutput"]
+    assert hook_output["hookEventName"] == "PreToolUse"
+    assert hook_output["permissionDecision"] == "allow"
+    assert "limited_bash" in hook_output["updatedInput"]["command"]
+
+
+def test_limited_bash_blocks_large_output_and_keeps_log(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    task_dir = _task(tmp_path)
+    monkeypatch.setenv("AGENT_TOOLS_TASK_DIR", str(task_dir))
+
+    result = run_limited_bash("printf 'one two three four five six'", limit=5, cwd=tmp_path)
+
+    assert result.exit_code == 2
+    assert result.exceeded is True
+    assert result.output_tokens > 5
+    assert result.log_base is not None
+    assert result.log_base.with_suffix(".stdout.log").read_text(encoding="utf-8") == "one two three four five six"
+    assert result.log_base.with_suffix(".stderr.log").exists()
+    captured = capsys.readouterr()
+    assert "Configured Bash output limit: 5 estimated tokens." in captured.out
+
+
+def test_limited_bash_does_not_keep_logs_for_output_under_limit(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    task_dir = _task(tmp_path)
+    monkeypatch.setenv("AGENT_TOOLS_TASK_DIR", str(task_dir))
+
+    result = run_limited_bash("printf ok", limit=100, cwd=tmp_path)
+
+    assert result.exit_code == 0
+    assert result.exceeded is False
+    assert result.log_base is None
+    assert capsys.readouterr().out == "ok"
+    log_dir = task_dir / "report" / "logs" / "limited-bash"
+    assert not log_dir.exists() or list(log_dir.iterdir()) == []
 
 
 def test_harness_adapter_records_context_injection_points(tmp_path: Path) -> None:

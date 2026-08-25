@@ -19,6 +19,7 @@ def test_agent_workspace_settings_persist_font_size(tmp_path: Path) -> None:
             "default_claude_effort": "low",
             "codex_animations_enabled": True,
             "claude_animations_enabled": True,
+            "limited_bash_output_tokens": 12_000,
             "inject_task_context_prompt": False,
             "task_dictionary_auto_discovery": False,
             "task_dictionary_min_occurrences": 3,
@@ -47,6 +48,7 @@ def test_agent_workspace_settings_persist_font_size(tmp_path: Path) -> None:
         "default_claude_effort": "low",
         "codex_animations_enabled": True,
         "claude_animations_enabled": True,
+        "limited_bash_output_tokens": 12_000,
         "inject_task_context_prompt": False,
         "task_dictionary_auto_discovery": False,
         "task_dictionary_min_occurrences": 3,
@@ -87,6 +89,7 @@ def test_agent_workspace_runtime_settings_disables_agent_animations_by_default()
 
     assert settings.codex_animations_enabled is False
     assert settings.claude_animations_enabled is False
+    assert settings.limited_bash_output_tokens == AGENT_WORKSPACE_DEFAULT_LIMITED_BASH_OUTPUT_TOKENS
 
 
 def test_agent_workspace_runtime_settings_normalizes_ui_defaults() -> None:
@@ -103,6 +106,7 @@ def test_agent_workspace_runtime_settings_normalizes_ui_defaults() -> None:
             "default_claude_effort": "",
             "codex_animations_enabled": True,
             "claude_animations_enabled": True,
+            "limited_bash_output_tokens": 4_000,
             "inject_task_context_prompt": False,
             "task_dictionary_auto_discovery": False,
             "task_dictionary_min_occurrences": 4,
@@ -130,6 +134,7 @@ def test_agent_workspace_runtime_settings_normalizes_ui_defaults() -> None:
     assert settings.default_claude_effort == "medium"
     assert settings.codex_animations_enabled is True
     assert settings.claude_animations_enabled is True
+    assert settings.limited_bash_output_tokens == 4_000
     assert settings.inject_task_context_prompt is False
     assert settings.task_dictionary_auto_discovery is False
     assert settings.task_dictionary_min_occurrences == 4
@@ -164,6 +169,7 @@ def test_agent_workspace_runtime_settings_falls_back_for_invalid_values() -> Non
             "task_dictionary_min_saving": -1,
             "task_dictionary_min_term_length": 0,
             "task_dictionary_max_term_words": 99,
+            "limited_bash_output_tokens": 12,
             "task_dictionary_preview_text": "",
             "geometry": 42,
             "main_split_ratio": 2.0,
@@ -185,6 +191,7 @@ def test_agent_workspace_runtime_settings_falls_back_for_invalid_values() -> Non
     assert settings.task_dictionary_min_saving == 0
     assert settings.task_dictionary_min_term_length == 1
     assert settings.task_dictionary_max_term_words == 20
+    assert settings.limited_bash_output_tokens == 100
     assert settings.task_dictionary_strip_articles is True
     assert settings.task_dictionary_preview_text == DICTIONARY_PREVIEW_TEXT
     assert len(settings.task_dictionary_preview_text) > 5_000
@@ -194,6 +201,17 @@ def test_agent_workspace_runtime_settings_falls_back_for_invalid_values() -> Non
     assert settings.main_split_ratio == 0.25
     assert settings.details_split_ratio == 0.25
     assert settings.actions_split_ratio == 0.38
+
+
+def test_agent_workspace_settings_migrates_legacy_bash_char_limit(tmp_path: Path) -> None:
+    settings_path = tmp_path / "settings.json"
+    settings_path.write_text('{"limited_bash_output_chars": 8000}', encoding="utf-8")
+
+    loaded = load_agent_workspace_settings(settings_path)
+    settings = agent_workspace_runtime_settings(loaded, default_font_size=13)
+
+    assert loaded["limited_bash_output_tokens"] == 2_000
+    assert settings.limited_bash_output_tokens == 2_000
 
 
 def test_agent_workspace_runtime_settings_migrates_legacy_dictionary_preview_text() -> None:

@@ -199,7 +199,7 @@ def handle_command_hook(
         request = ClaudeHookRequest.from_payload(payload)
     except ValueError as exc:
         return ClaudeHookCommandResult(exit_code=1, stderr=str(exc))
-    return _command_result_from_hook_results(registry.dispatch(request))
+    return _command_result_from_hook_results(request.event, registry.dispatch(request))
 
 
 def main() -> int:
@@ -211,20 +211,23 @@ def main() -> int:
     return result.exit_code
 
 
-def _command_result_from_hook_results(results: tuple[ClaudeHookResult, ...]) -> ClaudeHookCommandResult:
+def _command_result_from_hook_results(
+    event: ClaudeHookEvent,
+    results: tuple[ClaudeHookResult, ...],
+) -> ClaudeHookCommandResult:
     output: dict[str, Any] = {}
     errors = [result.error for result in results if result.error]
     for result in results:
         if result.error or result.value is None:
             continue
         if isinstance(result.value, str):
-            _merge_hook_output(output, {"hookSpecificOutput": {"additionalContext": result.value}})
+            _merge_hook_output(output, {"hookSpecificOutput": {"hookEventName": event.value, "additionalContext": result.value}})
         elif isinstance(result.value, dict):
             _merge_hook_output(output, result.value)
         else:
-            _merge_hook_output(output, {"hookSpecificOutput": {"additionalContext": str(result.value)}})
+            _merge_hook_output(output, {"hookSpecificOutput": {"hookEventName": event.value, "additionalContext": str(result.value)}})
     if errors:
-        _merge_hook_output(output, {"hookSpecificOutput": {"additionalContext": "\n".join(errors)}})
+        _merge_hook_output(output, {"hookSpecificOutput": {"hookEventName": event.value, "additionalContext": "\n".join(errors)}})
     stdout = f"{json.dumps(output, ensure_ascii=False)}\n" if output else ""
     return ClaudeHookCommandResult(exit_code=0, stdout=stdout)
 

@@ -195,6 +195,7 @@ class AgentWorkspace:
         self.default_claude_effort = settings.default_claude_effort
         self.codex_animations_enabled = settings.codex_animations_enabled
         self.claude_animations_enabled = settings.claude_animations_enabled
+        self.limited_bash_output_tokens = settings.limited_bash_output_tokens
         self.inject_task_context_prompt = settings.inject_task_context_prompt
         self.task_dictionary_auto_discovery = settings.task_dictionary_auto_discovery
         self.task_dictionary_min_occurrences = settings.task_dictionary_min_occurrences
@@ -781,6 +782,7 @@ class AgentWorkspace:
         codex_reasoning_var = tk.StringVar(value=self.default_codex_reasoning)
         claude_model_var = tk.StringVar(value=self.default_claude_model)
         claude_effort_var = tk.StringVar(value=self.default_claude_effort)
+        limited_bash_output_tokens_var = tk.IntVar(value=self.limited_bash_output_tokens)
         codex_available = agent_executable("codex") is not None
         claude_available = agent_executable("claude") is not None
         codex_models = codex_model_choices_info(use_cli=False) if codex_available else None
@@ -835,6 +837,17 @@ class AgentWorkspace:
         )
         agent_combo.grid(row=3, column=1, sticky=tk.W, pady=4)
         row = 4
+        ttk.Label(frame, text="Bash output limit, tokens").grid(row=row, column=0, sticky=tk.W, pady=4)
+        tk.Spinbox(
+            frame,
+            from_=100,
+            to=200_000,
+            increment=100,
+            textvariable=limited_bash_output_tokens_var,
+            width=10,
+            font=self.ui_font,
+        ).grid(row=row, column=1, sticky=tk.W, pady=4)
+        row += 1
         if codex_models is not None:
             ttk.Label(frame, text="Codex model").grid(row=row, column=0, sticky=tk.W, pady=4)
             codex_model_combo = ttk.Combobox(
@@ -893,6 +906,7 @@ class AgentWorkspace:
                 codex_reasoning_var,
                 claude_model_var,
                 claude_effort_var,
+                limited_bash_output_tokens_var,
             ),
         ).pack(side=tk.LEFT, padx=2)
         ttk.Button(
@@ -908,6 +922,7 @@ class AgentWorkspace:
                 codex_reasoning_var,
                 claude_model_var,
                 claude_effort_var,
+                limited_bash_output_tokens_var,
             ),
         ).pack(side=tk.LEFT, padx=2)
         ttk.Button(buttons, text=tk_string("cancel"), command=window.destroy).pack(side=tk.LEFT, padx=2)
@@ -936,6 +951,7 @@ class AgentWorkspace:
         codex_reasoning_var: tk.StringVar,
         claude_model_var: tk.StringVar,
         claude_effort_var: tk.StringVar,
+        limited_bash_output_tokens_var: tk.IntVar,
     ) -> None:
         self._apply_settings_values(
             text_size_var,
@@ -946,6 +962,7 @@ class AgentWorkspace:
             codex_reasoning_var,
             claude_model_var,
             claude_effort_var,
+            limited_bash_output_tokens_var,
         )
         window.destroy()
 
@@ -959,10 +976,12 @@ class AgentWorkspace:
         codex_reasoning_var: tk.StringVar,
         claude_model_var: tk.StringVar,
         claude_effort_var: tk.StringVar,
+        limited_bash_output_tokens_var: tk.IntVar,
     ) -> None:
         try:
             text_font_size = text_size_var.get()
             button_font_size = button_size_var.get()
+            limited_bash_output_tokens = limited_bash_output_tokens_var.get()
         except tk.TclError:
             return
         theme = theme_var.get()
@@ -978,6 +997,7 @@ class AgentWorkspace:
         self.default_claude_effort = (
             claude_effort_var.get() if claude_effort_var.get() in AGENT_WORKSPACE_REASONING_EFFORTS else ""
         )
+        self.limited_bash_output_tokens = max(100, min(200_000, limited_bash_output_tokens))
         if self.selected_task is None:
             self._set_agent_selection(self.default_agent)
         self._apply_font_size()
@@ -1206,7 +1226,15 @@ class AgentWorkspace:
             include_task_check=True,
         )
         run_id = new_agent_session_id()
-        env = ai_agent_environment(os.environ.copy(), task, self.workspace, agent, launch.session_state, run_id=run_id)
+        env = ai_agent_environment(
+            os.environ.copy(),
+            task,
+            self.workspace,
+            agent,
+            launch.session_state,
+            run_id=run_id,
+            limited_bash_output_tokens=self.limited_bash_output_tokens,
+        )
         self._update_ai_agent_button_label()
         self._refresh_task_session_indicators()
         for session in self._current_task_console_sessions(task):
@@ -2340,6 +2368,7 @@ class AgentWorkspace:
                 "default_claude_effort": self.default_claude_effort,
                 "codex_animations_enabled": self.codex_animations_enabled,
                 "claude_animations_enabled": self.claude_animations_enabled,
+                "limited_bash_output_tokens": self.limited_bash_output_tokens,
                 "inject_task_context_prompt": self.inject_task_context_prompt,
                 "task_dictionary_auto_discovery": self.task_dictionary_auto_discovery,
                 "task_dictionary_min_occurrences": self.task_dictionary_min_occurrences,
