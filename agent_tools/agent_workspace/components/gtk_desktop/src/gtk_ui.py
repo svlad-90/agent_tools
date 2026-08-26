@@ -63,6 +63,7 @@ from ...harness_adapter.api import WorkspaceIpcEvent
 from ...harness_adapter.api import WorkspaceIpcServer
 from ...harness_adapter.api import clear_harness_debug_events
 from ...harness_adapter.api import load_harness_debug_events
+from ...harness_adapter.api import load_latest_harness_debug_events_by_task
 from ...harness_adapter.api import record_harness_status
 from ...harness_adapter.api import start_workspace_ipc_server
 from ...task_actions.api import add_task_shortcut as _add_task_shortcut
@@ -310,6 +311,8 @@ class WorkspaceGtkGui:
         self.profiling_output_view: Gtk.TextView | None = None
         self.profiling_refresh_source_id: int | None = None
         self.profiling_paused_for_settings = False
+        self.harness_debug_snapshot_signature: tuple[int, int] | None = None
+        self.harness_debug_latest_by_task: dict[Path, HarnessDebugEvent] = {}
         self.workspace_ipc_server: WorkspaceIpcServer | None = None
         self.active_main_page: Gtk.Widget | None = None
 
@@ -372,7 +375,6 @@ class WorkspaceGtkGui:
         self.ai_debug_columns: dict[str, Gtk.TreeViewColumn] = {}
         self.ai_debug_last_signature: tuple[object, ...] = ()
         self.ai_debug_refresh_source_id: int | None = None
-        self.harness_status_icon_cache: dict[Path, tuple[float, str]] = {}
         self.actions_controls_box: Gtk.Box | None = None
         self.task_reorder_group: str | None = None
         self.task_action_drag_source_id: str | None = None
@@ -828,12 +830,14 @@ class WorkspaceGtkGui:
             self._refresh_selected_task_details(leave_edit=True)
         self._reset_actions()
         self._watch_task_actions(self.selected_task)
-        self._refresh_ai_debug()
+        if self._ai_debug_tab_active():
+            self._refresh_ai_debug()
         if self._artifacts_tab_active():
             self._load_task_artifacts(self.selected_task)
         else:
             self.artifact_store.clear()
-        self._load_task_action_buttons()
+        if self._actions_tab_active():
+            self._load_task_action_buttons()
         self._set_selected_agent(
             task_agent_selection_with_resumable_fallback(
                 self.selected_task,
@@ -1147,7 +1151,12 @@ class WorkspaceGtkGui:
         expanded_groups = self._artifact_expanded_group_ids()
         focus_identity = self._artifact_focus_identity()
         scroll_value = self._artifact_scroll_value()
-        self._refresh_artifact_extension_filter(task)
+        entries = _task_artifact_entries(
+            task,
+            sort_column=self.artifact_sort_column,
+            descending=self.artifact_sort_descending,
+        )
+        self._refresh_artifact_extension_filter(task, entries)
         filter_active = self._artifact_filter_active()
         filter_was_cleared = getattr(self, "artifact_filter_was_active", False) and not filter_active
         self.artifact_filter_was_active = filter_active
@@ -1159,7 +1168,7 @@ class WorkspaceGtkGui:
             "diff_reports": self.artifact_store.append(None, [self._tr("diff_reports"), "", "diff_reports", True, ""]),
             "artifacts": self.artifact_store.append(None, [self._tr("other_artifacts"), "", "artifacts", True, ""]),
         }
-        for entry in self._filtered_artifact_entries(task):
+        for entry in self._filtered_artifact_entries(task, entries):
             filtered_group_counts[entry.group] += 1
             rel_path = _artifact_relative_label(task, entry.path)
             self.artifact_store.append(
@@ -1176,12 +1185,7 @@ class WorkspaceGtkGui:
             self.artifact_view.expand_all()
         self._restore_artifact_tree_position(focus_identity, scroll_value)
 
-    def _filtered_artifact_entries(self, task: TaskSummary) -> list[ArtifactEntry]:
-        entries = _task_artifact_entries(
-            task,
-            sort_column=self.artifact_sort_column,
-            descending=self.artifact_sort_descending,
-        )
+    def _filtered_artifact_entries(self, task: TaskSummary, entries: list[ArtifactEntry]) -> list[ArtifactEntry]:
         extension = self._artifact_extension_filter_value()
         if extension is not None:
             entries = [entry for entry in entries if entry.path.suffix.casefold() == extension]
@@ -1210,7 +1214,7 @@ class WorkspaceGtkGui:
     def _artifact_filter_active(self) -> bool:
         return bool(self._artifact_text_filter_query()) or self._artifact_extension_filter_value() is not None
 
-    def _refresh_artifact_extension_filter(self, task: TaskSummary) -> None:
+    def _refresh_artifact_extension_filter(self, task: TaskSummary, entries: list[ArtifactEntry]) -> None:
         extension_filter = getattr(self, "artifact_extension_filter", None)
         if extension_filter is None:
             return
@@ -1218,7 +1222,7 @@ class WorkspaceGtkGui:
         extensions = sorted(
             {
                 entry.path.suffix.casefold()
-                for entry in _task_artifact_entries(task)
+                for entry in entries
                 if entry.path.suffix
             }
         )
@@ -1245,7 +1249,12 @@ class WorkspaceGtkGui:
     def _on_artifact_extension_filter_clicked(self, button: Gtk.Button) -> None:
         menu = getattr(self, "artifact_extension_filter_menu", None)
         if menu is None and self.selected_task is not None:
-            self._refresh_artifact_extension_filter(self.selected_task)
+            entries = _task_artifact_entries(
+                self.selected_task,
+                sort_column=self.artifact_sort_column,
+                descending=self.artifact_sort_descending,
+            )
+            self._refresh_artifact_extension_filter(self.selected_task, entries)
             menu = getattr(self, "artifact_extension_filter_menu", None)
         if menu is not None:
             menu.popup_at_widget(button, Gdk.Gravity.SOUTH_WEST, Gdk.Gravity.NORTH_WEST, None)
@@ -3828,7 +3837,7 @@ class WorkspaceGtkGui:
         reset_task_agent_session(task, agent)
         self._invalidate_task_session_marker_cache(task)
         self._update_codex_button_state()
-        self._refresh_task_row_styles()
+        self._refresh_task_row_style_for_task(task.path)
 
     def _agent_model(self, agent: str) -> str:
         return self._agent_model_settings(agent).model
@@ -4168,17 +4177,22 @@ class WorkspaceGtkGui:
                 agent=session.kind,
             )
         self._update_codex_button_state()
-        self._refresh_task_row_styles()
+        self._refresh_task_row_style_for_task(session.task_path)
 
     def _refresh_console_tabs_for_task(self, task: TaskSummary) -> None:
         self._refreshing_console_tabs = True
         try:
-            while self.console_notebook.get_n_pages() > 0:
-                self.console_notebook.remove_page(0)
             self._ensure_ai_agent_console_page()
             if getattr(self, "ai_debug_page", None) is not None:
                 self._ensure_ai_debug_page()
             self._clear_ai_agent_terminal_page()
+            page_num = self.console_notebook.get_n_pages() - 1
+            while page_num >= 0:
+                page = self.console_notebook.get_nth_page(page_num)
+                session = self._session_for_page(page)
+                if session is not None and session.task_path != task.path:
+                    self.console_notebook.remove_page(page_num)
+                page_num -= 1
             self._renumber_terminal_tabs(task)
             for session in self._current_task_terminal_sessions(task):
                 self._show_terminal_tab(session, renumber=False)
@@ -4191,6 +4205,10 @@ class WorkspaceGtkGui:
                 session = self._session_for_page(self.console_notebook.get_nth_page(page_num))
                 if session is not None:
                     self._activate_visible_terminal(session.session_id, remember=False)
+                    return
+            session = self._first_terminal_for_task(task)
+            if session is not None:
+                self._activate_visible_terminal(session.session_id, remember=False)
         self._update_codex_button_state()
 
     def _current_task_terminal_sessions(self, task: TaskSummary) -> list[TerminalSession]:
@@ -4336,7 +4354,7 @@ class WorkspaceGtkGui:
         if self._closing:
             self.ai_debug_refresh_source_id = None
             return False
-        if self.selected_task is not None:
+        if self.selected_task is not None and self._ai_debug_tab_active():
             self._refresh_ai_debug()
         return True
 
@@ -4576,7 +4594,8 @@ class WorkspaceGtkGui:
         else:
             context.remove_class("codex-running")
         self._update_ai_agent_button_label()
-        self._refresh_task_row_styles()
+        if task is not None:
+            self._refresh_task_row_style_for_task(task.path)
 
     def _update_ai_agent_button_label(self) -> None:
         task = self.selected_task
@@ -4639,7 +4658,7 @@ class WorkspaceGtkGui:
         self.task_session_discovery.finish(task_path)
         task = self._task_for_path(task_path)
         self._invalidate_task_session_marker_cache(task)
-        self._refresh_task_row_styles()
+        self._refresh_task_row_style_for_task(task_path)
         if self.selected_task is not None and self.selected_task.path == task_path:
             self._set_selected_agent(
                 task_agent_selection_with_resumable_fallback(
@@ -4677,18 +4696,34 @@ class WorkspaceGtkGui:
         )
 
     def _task_harness_status_icon(self, task: TaskSummary) -> str:
-        now = time.monotonic()
-        cache = getattr(self, "harness_status_icon_cache", None)
-        if cache is None:
-            cache = {}
-            self.harness_status_icon_cache = cache
-        cached = cache.get(task.path)
-        if cached is not None and now - cached[0] < 0.2:
-            return cached[1]
-        events = load_harness_debug_events(task.path, limit=1)
-        icon = events[-1].icon if events else ""
-        cache[task.path] = (now, icon)
-        return icon
+        event = self._latest_harness_debug_event_by_task().get(task.path)
+        return event.icon if event is not None else ""
+
+    def _latest_harness_debug_event_by_task(self) -> dict[Path, HarnessDebugEvent]:
+        path = self.workspace / ".agent-workspace-harness-debug.jsonl"
+        try:
+            stat = path.stat()
+            signature = (stat.st_size, stat.st_mtime_ns)
+        except OSError:
+            signature = None
+        if not hasattr(self, "harness_debug_snapshot_signature"):
+            self.harness_debug_snapshot_signature = None
+        if not hasattr(self, "harness_debug_latest_by_task"):
+            self.harness_debug_latest_by_task = {}
+        if signature == self.harness_debug_snapshot_signature:
+            return self.harness_debug_latest_by_task
+        if signature is None:
+            self.harness_debug_latest_by_task = {}
+        else:
+            self.harness_debug_latest_by_task = load_latest_harness_debug_events_by_task(self.workspace)
+        self.harness_debug_snapshot_signature = signature
+        return self.harness_debug_latest_by_task
+
+    def _invalidate_harness_debug_snapshot(self) -> None:
+        self.harness_debug_snapshot_signature = None
+        old_cache = getattr(self, "harness_status_icon_cache", None)
+        if old_cache is not None:
+            old_cache.clear()
 
     def _record_agent_interrupt(self, session: TerminalSession) -> None:
         if not session_is_agent(session_kind=session.kind):
@@ -4708,8 +4743,8 @@ class WorkspaceGtkGui:
             tool_name="terminal",
             outcome="interrupted",
         )
-        self.harness_status_icon_cache.pop(session.task_path, None)
-        self._refresh_task_row_styles()
+        self._invalidate_harness_debug_snapshot()
+        self._refresh_task_row_style_for_task(session.task_path)
 
     def _handle_agent_restore_failed(self, session: TerminalSession) -> None:
         task = self._task_for_path(session.task_path)
@@ -4723,52 +4758,67 @@ class WorkspaceGtkGui:
         )
         self._close_console_session(session, confirm=False, ensure_default=False)
         self._update_codex_button_state()
-        self._refresh_task_row_styles()
+        self._refresh_task_row_style_for_task(task.path)
 
     def _refresh_task_row_styles(self) -> None:
         row_iter = self.task_store.get_iter_first()
         while row_iter is not None:
-            task = self.task_store[row_iter][2]
-            has_agent = any(
-                session_marks_task_running_agent(
-                    session_kind=session.kind,
-                    session_task_path=session.task_path,
-                    exited=session.exited,
-                    task_path=task.path,
-                )
-                for session in self.terminal_sessions.values()
-            )
-            has_session = self._task_has_resumable_agent_session(task)
-            has_external_agent = self._task_is_external_active(task)
-            background, background_set, foreground, foreground_set, weight, weight_set = _task_row_style(
-                has_agent,
-                has_session,
-                has_external_agent,
-                self.theme,
-            )
-            updates = [
-                (0, str(self._task_agent_status(task))),
-                (1, str(self._task_label(task))),
-                (3, str(background)),
-                (4, bool(background_set)),
-                (5, str(foreground)),
-                (6, bool(foreground_set)),
-                (7, int(weight)),
-                (8, bool(weight_set)),
-            ]
-            changed = [
-                (column, value)
-                for column, value in updates
-                if self.task_store[row_iter][column] != value
-            ]
-            if changed:
-                self.task_store.set(
-                    row_iter,
-                    [column for column, _value in changed],
-                    [value for _column, value in changed],
-                )
+            self._refresh_task_row_style_for_iter(row_iter)
             row_iter = self.task_store.iter_next(row_iter)
         self._ensure_selected_task_is_selectable()
+
+    def _refresh_task_row_style_for_task(self, task_path: Path) -> None:
+        if not hasattr(self, "task_store"):
+            return
+        row_iter = self.task_store.get_iter_first()
+        while row_iter is not None:
+            task = self.task_store[row_iter][2]
+            if task.path == task_path:
+                self._refresh_task_row_style_for_iter(row_iter)
+                self._ensure_selected_task_is_selectable()
+                return
+            row_iter = self.task_store.iter_next(row_iter)
+
+    def _refresh_task_row_style_for_iter(self, row_iter: Gtk.TreeIter) -> None:
+        task = self.task_store[row_iter][2]
+        has_agent = any(
+            session_marks_task_running_agent(
+                session_kind=session.kind,
+                session_task_path=session.task_path,
+                exited=session.exited,
+                task_path=task.path,
+            )
+            for session in self.terminal_sessions.values()
+        )
+        has_session = self._task_has_resumable_agent_session(task)
+        has_external_agent = self._task_is_external_active(task)
+        background, background_set, foreground, foreground_set, weight, weight_set = _task_row_style(
+            has_agent,
+            has_session,
+            has_external_agent,
+            self.theme,
+        )
+        updates = [
+            (0, str(self._task_agent_status(task))),
+            (1, str(self._task_label(task))),
+            (3, str(background)),
+            (4, bool(background_set)),
+            (5, str(foreground)),
+            (6, bool(foreground_set)),
+            (7, int(weight)),
+            (8, bool(weight_set)),
+        ]
+        changed = [
+            (column, value)
+            for column, value in updates
+            if self.task_store[row_iter][column] != value
+        ]
+        if changed:
+            self.task_store.set(
+                row_iter,
+                [column for column, _value in changed],
+                [value for _column, value in changed],
+            )
 
     def _refresh_task_agent_status_cells(self) -> None:
         row_iter = self.task_store.get_iter_first()
@@ -4801,10 +4851,24 @@ class WorkspaceGtkGui:
         return True
 
     def _actions_tab_active(self) -> bool:
+        notebook = getattr(self, "notebook", None)
+        if notebook is None:
+            return False
         page_num = self.notebook.get_current_page()
         if page_num < 0:
             return False
         return self.notebook.get_nth_page(page_num) is self.actions_page
+
+    def _ai_debug_tab_active(self) -> bool:
+        if not self._actions_tab_active():
+            return False
+        console_notebook = getattr(self, "console_notebook", None)
+        if console_notebook is None:
+            return False
+        page_num = self.console_notebook.get_current_page()
+        if page_num < 0:
+            return False
+        return self.console_notebook.get_nth_page(page_num) is getattr(self, "ai_debug_page", None)
 
     def _details_tab_active(self) -> bool:
         page_num = self.notebook.get_current_page()
@@ -4884,7 +4948,7 @@ class WorkspaceGtkGui:
             terminal.paste_clipboard()
             return True
         if session is not None and session_is_agent(session_kind=session.kind) and submitted_input:
-            self.harness_status_icon_cache.pop(session.task_path, None)
+            self._invalidate_harness_debug_snapshot()
             self._refresh_task_agent_status_cells()
         return False
 

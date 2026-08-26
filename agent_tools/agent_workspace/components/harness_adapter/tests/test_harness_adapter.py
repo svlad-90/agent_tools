@@ -16,6 +16,7 @@ from agent_tools.agent_workspace.components.harness_adapter.api import HarnessSt
 from agent_tools.agent_workspace.components.harness_adapter.api import clear_harness_debug_events
 from agent_tools.agent_workspace.components.harness_adapter.api import clear_harness_status_subscriptions
 from agent_tools.agent_workspace.components.harness_adapter.api import load_harness_debug_events
+from agent_tools.agent_workspace.components.harness_adapter.api import load_latest_harness_debug_events_by_task
 from agent_tools.agent_workspace.components.harness_adapter.api import notify_workspace_ipc
 from agent_tools.agent_workspace.components.harness_adapter.api import record_harness_status
 from agent_tools.agent_workspace.components.harness_adapter.api import start_workspace_ipc_server
@@ -161,6 +162,89 @@ def test_harness_adapter_precompact_logs_pending_codex_checkpoint_when_journal_i
     assert events[-1].hook_event == "pre_compact"
     assert events[-1].status_event is HarnessStatusEvent.JOURNAL_REQUIRED
     assert events[-1].outcome == "pending"
+
+
+def test_harness_adapter_loads_latest_matching_event_from_debug_tail(tmp_path: Path) -> None:
+    task_dir = _task(tmp_path)
+    other_task = tmp_path / "tasks" / "other"
+    other_task.mkdir(parents=True)
+    clear_harness_debug_events(tmp_path)
+
+    record_harness_status(
+        task_dir,
+        agent_type=AgentType.CODEX,
+        session_id="s1",
+        event=HarnessStatusEvent.HOOK_OBSERVED,
+        icon="first",
+        message="first event",
+        outcome="observed",
+    )
+    record_harness_status(
+        task_dir,
+        agent_type=AgentType.CODEX,
+        session_id="s1",
+        event=HarnessStatusEvent.TOOL_FINISHED,
+        icon="latest",
+        message="latest matching event",
+        outcome="finished",
+    )
+    for index in range(20):
+        record_harness_status(
+            other_task,
+            agent_type=AgentType.CODEX,
+            session_id="s1",
+            event=HarnessStatusEvent.HOOK_OBSERVED,
+            icon=str(index),
+            message="other task event",
+            outcome="observed",
+        )
+
+    events = load_harness_debug_events(task_dir, session_id="s1", limit=1)
+
+    assert len(events) == 1
+    assert events[0].icon == "latest"
+    assert events[0].status_event is HarnessStatusEvent.TOOL_FINISHED
+
+
+def test_harness_adapter_loads_latest_debug_event_snapshot_by_task(tmp_path: Path) -> None:
+    task_dir = _task(tmp_path)
+    other_task = tmp_path / "tasks" / "other"
+    other_task.mkdir(parents=True)
+    clear_harness_debug_events(tmp_path)
+
+    record_harness_status(
+        task_dir,
+        agent_type=AgentType.CODEX,
+        session_id="s1",
+        event=HarnessStatusEvent.HOOK_OBSERVED,
+        icon="old",
+        message="old event",
+        outcome="observed",
+    )
+    record_harness_status(
+        other_task,
+        agent_type=AgentType.CLAUDE,
+        session_id="s2",
+        event=HarnessStatusEvent.USER_PROMPT_RECEIVED,
+        icon="other",
+        message="other event",
+        outcome="handled",
+    )
+    record_harness_status(
+        task_dir,
+        agent_type=AgentType.CODEX,
+        session_id="s1",
+        event=HarnessStatusEvent.TOOL_FINISHED,
+        icon="new",
+        message="new event",
+        outcome="finished",
+    )
+
+    events = load_latest_harness_debug_events_by_task(tmp_path)
+
+    assert events[task_dir].icon == "new"
+    assert events[task_dir].status_event is HarnessStatusEvent.TOOL_FINISHED
+    assert events[other_task].icon == "other"
 
 
 def test_harness_adapter_precompact_logs_pending_claude_checkpoint_when_journal_is_stale(tmp_path: Path) -> None:

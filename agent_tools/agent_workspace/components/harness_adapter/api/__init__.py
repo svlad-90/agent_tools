@@ -18,6 +18,7 @@ from ..src.policy import StatusCallback
 from ..src.policy import clear_harness_debug_events
 from ..src.policy import clear_harness_status_subscriptions
 from ..src.policy import load_harness_debug_events
+from ..src.policy import load_latest_harness_debug_events_by_task
 from ..src.policy import record_harness_status
 from ..src.policy import subscribe_harness_status
 from ..src.ipc import WorkspaceIpcEvent
@@ -51,6 +52,7 @@ __all__ = [
     "clear_harness_status_subscriptions",
     "codex_harness_config",
     "load_harness_debug_events",
+    "load_latest_harness_debug_events_by_task",
     "notify_workspace_ipc",
     "record_harness_status",
     "subscribe_harness_status",
