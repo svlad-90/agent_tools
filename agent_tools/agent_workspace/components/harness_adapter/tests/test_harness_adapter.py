@@ -4,6 +4,9 @@ import json
 from pathlib import Path
 import sqlite3
 import threading
+import time
+
+from pytest import MonkeyPatch
 
 from agent_tools.agent_workspace.components.harness_adapter.src.claude_adapter import ClaudeHookEvent
 from agent_tools.agent_workspace.components.harness_adapter.src.claude_adapter import ClaudeHookRegistry
@@ -21,12 +24,13 @@ from agent_tools.agent_workspace.components.harness_adapter.api import notify_wo
 from agent_tools.agent_workspace.components.harness_adapter.api import record_harness_status
 from agent_tools.agent_workspace.components.harness_adapter.api import start_workspace_ipc_server
 from agent_tools.agent_workspace.components.harness_adapter.api import subscribe_harness_status
-from agent_tools.agent_workspace.components.harness_adapter.src.limited_bash import OutputPreview
+from agent_tools.agent_workspace.components.harness_adapter.src.limited_bash import LimitedBashResult
 from agent_tools.agent_workspace.components.harness_adapter.src.limited_bash import run_limited_bash
 from agent_tools.agent_workspace.components.harness_adapter.src.claude_policy import register_claude_adapter
 from agent_tools.agent_workspace.components.harness_adapter.src.commands import handle_claude_adapter_hook
 from agent_tools.agent_workspace.components.harness_adapter.src.commands import handle_codex_adapter_hook
 from agent_tools.agent_workspace.components.harness_adapter.src.codex_policy import register_codex_adapter
+from agent_tools.agent_workspace.components.settings.api import save_agent_workspace_settings
 from agent_tools.tools.task_context import database_path
 from agent_tools.tools.task_context import ensure_database
 from agent_tools.tools.task_context import set_slot
@@ -113,6 +117,49 @@ def test_harness_adapter_session_start_clear_injects_context_after_manual_clear(
     assert result.exit_code == 0
     output = json.loads(result.stdout)
     assert "Current task state from TASK_CONTEXT.sqlite3 is injected below" in output["systemMessage"]
+
+
+def test_harness_adapter_session_start_injects_workspace_system_prompt(tmp_path: Path, monkeypatch: MonkeyPatch) -> None:
+    task_dir = _task(tmp_path)
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
+    save_agent_workspace_settings({"system_prompt": "Prefer short, concrete answers."})
+    registry = CodexHookRegistry()
+    register_codex_adapter(registry)
+
+    result = _codex(registry, task_dir, CodexHookEvent.SESSION_START)
+
+    assert result.exit_code == 0
+    output = json.loads(result.stdout)
+    assert "Workspace system prompt:" in output["systemMessage"]
+    assert "Prefer short, concrete answers." in output["systemMessage"]
+
+
+def test_harness_adapter_compacted_session_start_injects_workspace_system_prompt(
+    tmp_path: Path,
+    monkeypatch: MonkeyPatch,
+) -> None:
+    task_dir = _task(tmp_path)
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
+    save_agent_workspace_settings({"system_prompt": "Preserve important state with low noise."})
+    registry = ClaudeHookRegistry()
+    register_claude_adapter(registry)
+
+    result = handle_claude_hook(
+        json.dumps(
+            {
+                "hook_event_name": ClaudeHookEvent.SESSION_START.value,
+                "task_dir": str(task_dir),
+                "session_id": "s1",
+                "source": "compact",
+            }
+        ),
+        registry=registry,
+    )
+
+    assert result.exit_code == 0
+    additional_context = json.loads(result.stdout)["hookSpecificOutput"]["additionalContext"]
+    assert "Preserve important state with low noise." in additional_context
+    assert additional_context.index("Workspace system prompt:") < additional_context.index("Test goal.")
 
 
 def test_harness_adapter_workspace_ipc_delivers_event(tmp_path: Path) -> None:
@@ -456,11 +503,11 @@ def test_limited_bash_blocks_large_output_and_keeps_log(
     assert result.log_base.with_suffix(".stderr.log").exists()
     captured = capsys.readouterr()
     assert "Configured Bash output limit: 5 estimated tokens." in captured.out
-    assert "stdout preview:" in captured.out
-    assert "one two three four five six" in captured.out
+    assert "Live stdout log:" in captured.out
+    assert "further command output is being written to files" in captured.out
 
 
-def test_limited_bash_overflow_preview_keeps_head_and_tail(
+def test_limited_bash_overflow_streams_until_limit_and_keeps_full_log(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
@@ -471,22 +518,12 @@ def test_limited_bash_overflow_preview_keeps_head_and_tail(
     result = run_limited_bash("seq 1 30", limit=5, cwd=tmp_path)
 
     assert result.exceeded is True
+    assert result.log_base is not None
+    assert result.log_base.with_suffix(".stdout.log").read_text(encoding="utf-8") == "\n".join(str(i) for i in range(1, 31)) + "\n"
     captured = capsys.readouterr()
-    assert "stdout preview:\n1\n2\n3\n4\n5\n6\n7\n8\n9\n10\n....\n21\n22\n23\n24\n25\n26\n27\n28\n29\n30" in captured.out
-
-
-def test_limited_bash_preview_does_not_duplicate_short_output() -> None:
-    preview = OutputPreview()
-    preview.feed("1\n2\n3\n")
-
-    assert preview.lines() == ["1", "2", "3"]
-
-
-def test_limited_bash_preview_truncates_single_long_line() -> None:
-    preview = OutputPreview(line_count=10, line_chars=5)
-    preview.feed("abcdefghijklmnopqrstuvwxyz")
-
-    assert preview.lines() == ["abcde... [truncated 21 chars]"]
+    assert "1\n2\n3\n4\n5" in captured.out
+    assert "Live stdout log:" in captured.out
+    assert "30\n" not in captured.out
 
 
 def test_limited_bash_does_not_keep_logs_for_output_under_limit(
@@ -504,6 +541,32 @@ def test_limited_bash_does_not_keep_logs_for_output_under_limit(
     assert result.log_base is None
     assert capsys.readouterr().out == "ok"
     log_dir = task_dir / "report" / "logs" / "limited-bash"
+    assert not log_dir.exists() or list(log_dir.iterdir()) == []
+
+
+def test_limited_bash_streams_live_logs_before_command_finishes(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    task_dir = _task(tmp_path)
+    monkeypatch.setenv("AGENT_TOOLS_TASK_DIR", str(task_dir))
+    result_holder: list[LimitedBashResult] = []
+
+    def run_command() -> None:
+        result_holder.append(run_limited_bash("printf started; sleep 1", limit=100, cwd=tmp_path))
+
+    thread = threading.Thread(target=run_command)
+    thread.start()
+    log_dir = task_dir / "report" / "logs" / "limited-bash"
+    try:
+        stdout_log = _wait_for_limited_bash_stdout_log(log_dir)
+        assert stdout_log.read_text(encoding="utf-8") == "started"
+    finally:
+        thread.join(timeout=3)
+
+    assert not thread.is_alive()
+    assert result_holder[0].exit_code == 0
+    assert result_holder[0].log_base is None
     assert not log_dir.exists() or list(log_dir.iterdir()) == []
 
 
@@ -607,3 +670,14 @@ def _claude(registry: ClaudeHookRegistry, task_dir: Path, event: ClaudeHookEvent
         json.dumps({"hook_event_name": event.value, "task_dir": str(task_dir), "session_id": "s1"}),
         registry=registry,
     )
+
+
+def _wait_for_limited_bash_stdout_log(log_dir: Path) -> Path:
+    deadline = time.monotonic() + 2
+    while time.monotonic() < deadline:
+        logs = list(log_dir.glob("*.stdout.log")) if log_dir.exists() else []
+        for log in logs:
+            if log.read_text(encoding="utf-8") == "started":
+                return log
+        time.sleep(0.05)
+    raise AssertionError("limited_bash stdout log was not streamed before command finished")
