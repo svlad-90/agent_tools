@@ -13,6 +13,7 @@ from uuid import uuid4
 from agent_tools.agent_workspace.components.agent_status.api import AGENT_PROMPT_MARKER
 from agent_tools.agent_workspace.components.agent_status.api import AGENT_RUNNING_READY_MARKER
 from agent_tools.agent_workspace.components.agent_status.api import AGENT_TOOL_MARKER
+from agent_tools.agent_workspace.components.settings.api import load_agent_workspace_settings
 from agent_tools.paf_workspace.task_check import check_task
 from agent_tools.paf_workspace.task_check import render_text
 from agent_tools.tools.task_context import agent_visible_slots
@@ -391,11 +392,15 @@ def _handle_pre_compact(
 
 
 def _session_start_message(task_dir: Path) -> str:
-    return (
+    header = (
         "Agent Workspace session started. Task state source is TASK_CONTEXT.sqlite3 slots. "
         "Use task_context query when task context is needed; hook adapter gates Stop and records PreCompact checkpoints. "
         f"Task directory: {task_dir}"
     )
+    system_prompt = _workspace_system_prompt_message()
+    if not system_prompt:
+        return header
+    return f"{header}\n\n{system_prompt}"
 
 
 def _post_compact_message(task_dir: Path) -> str:
@@ -410,9 +415,23 @@ def _post_compact_message(task_dir: Path) -> str:
         f"Task directory: {task_dir}"
     )
     if not rendered:
-        return f"{header}\n\nNo task context slots are present."
-    body = _truncate_post_compact_context(rendered)
-    return f"{header}\n\n{body}"
+        body = "No task context slots are present."
+    else:
+        body = _truncate_post_compact_context(rendered)
+    system_prompt = _workspace_system_prompt_message()
+    if not system_prompt:
+        return f"{header}\n\n{body}"
+    return f"{header}\n\n{system_prompt}\n\n{body}"
+
+
+def _workspace_system_prompt_message() -> str:
+    value = load_agent_workspace_settings().get("system_prompt", "")
+    if not isinstance(value, str):
+        return ""
+    prompt = value.strip()
+    if not prompt:
+        return ""
+    return f"Workspace system prompt:\n\n{prompt}"
 
 
 def _truncate_post_compact_context(text: str) -> str:

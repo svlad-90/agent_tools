@@ -84,6 +84,22 @@ def test_core_ai_agent_task_context_prompt_supports_optional_suffix(tmp_path: Pa
     assert "Current task context slots preloaded" not in plain
 
 
+def test_ai_agent_task_context_prompt_includes_non_empty_system_prompt(tmp_path: Path) -> None:
+    task = tmp_path / "tasks" / "sample-task"
+    task.mkdir(parents=True)
+    summary = discover_tasks_with_context(task, tmp_path)
+
+    prompt = ai_agent_task_context_prompt(
+        summary,
+        tmp_path,
+        system_prompt="  Prefer concise status updates.\nKeep durable notes current.  ",
+    )
+
+    assert "Workspace system prompt:" in prompt
+    assert "Prefer concise status updates." in prompt
+    assert prompt.endswith("Keep durable notes current.")
+
+
 def test_ai_agent_task_context_prompt_does_not_inject_active_context(tmp_path: Path) -> None:
     task = tmp_path / "tasks" / "sample-task"
     task.mkdir(parents=True)
@@ -187,6 +203,28 @@ def test_new_ai_launch_uses_harness_adapter_prompt_instead_of_task_check_dump(tm
     assert "front_door_bell.py" not in launch.command[-1]
     assert "Task check reported errors" not in launch.command[-1]
     assert "task-context-slot-required" not in launch.command[-1]
+
+
+def test_new_ai_launch_includes_system_prompt(tmp_path: Path) -> None:
+    task = tmp_path / "tasks" / "sample-task"
+    task.mkdir(parents=True)
+    summary = discover_tasks_with_context(task, tmp_path)
+
+    launch = prepare_ai_agent_launch_command(
+        summary,
+        tmp_path,
+        "codex",
+        codex_model="gpt-5.5",
+        codex_reasoning="medium",
+        claude_model="sonnet",
+        claude_effort="low",
+        codex_executable="codex-bin",
+        claude_executable="claude-bin",
+        system_prompt="Use the workspace-specific system prompt.",
+    )
+
+    assert "Workspace system prompt:" in launch.command[-1]
+    assert "Use the workspace-specific system prompt." in launch.command[-1]
 
 
 def test_resumed_ai_launch_uses_harness_adapter_prompt_instead_of_task_check_dump(

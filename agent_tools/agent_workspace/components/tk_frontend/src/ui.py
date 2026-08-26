@@ -196,6 +196,7 @@ class AgentWorkspace:
         self.codex_animations_enabled = settings.codex_animations_enabled
         self.claude_animations_enabled = settings.claude_animations_enabled
         self.limited_bash_output_tokens = settings.limited_bash_output_tokens
+        self.system_prompt = settings.system_prompt
         self.inject_task_context_prompt = settings.inject_task_context_prompt
         self.task_dictionary_auto_discovery = settings.task_dictionary_auto_discovery
         self.task_dictionary_min_occurrences = settings.task_dictionary_min_occurrences
@@ -837,6 +838,12 @@ class AgentWorkspace:
         )
         agent_combo.grid(row=3, column=1, sticky=tk.W, pady=4)
         row = 4
+        ttk.Label(frame, text="System prompt").grid(row=row, column=0, sticky=tk.NW, pady=4)
+        system_prompt_text = tk.Text(frame, height=5, width=52, font=self.text_font, wrap=tk.WORD)
+        system_prompt_text.insert("1.0", self.system_prompt)
+        self._apply_text_theme(system_prompt_text, _theme_colors(self.theme))
+        system_prompt_text.grid(row=row, column=1, sticky=tk.EW, pady=4)
+        row += 1
         ttk.Label(frame, text="Bash output limit, tokens").grid(row=row, column=0, sticky=tk.W, pady=4)
         tk.Spinbox(
             frame,
@@ -907,6 +914,7 @@ class AgentWorkspace:
                 claude_model_var,
                 claude_effort_var,
                 limited_bash_output_tokens_var,
+                system_prompt_text,
             ),
         ).pack(side=tk.LEFT, padx=2)
         ttk.Button(
@@ -923,6 +931,7 @@ class AgentWorkspace:
                 claude_model_var,
                 claude_effort_var,
                 limited_bash_output_tokens_var,
+                system_prompt_text,
             ),
         ).pack(side=tk.LEFT, padx=2)
         ttk.Button(buttons, text=tk_string("cancel"), command=window.destroy).pack(side=tk.LEFT, padx=2)
@@ -952,6 +961,7 @@ class AgentWorkspace:
         claude_model_var: tk.StringVar,
         claude_effort_var: tk.StringVar,
         limited_bash_output_tokens_var: tk.IntVar,
+        system_prompt_text: tk.Text,
     ) -> None:
         self._apply_settings_values(
             text_size_var,
@@ -963,6 +973,7 @@ class AgentWorkspace:
             claude_model_var,
             claude_effort_var,
             limited_bash_output_tokens_var,
+            system_prompt_text,
         )
         window.destroy()
 
@@ -977,11 +988,13 @@ class AgentWorkspace:
         claude_model_var: tk.StringVar,
         claude_effort_var: tk.StringVar,
         limited_bash_output_tokens_var: tk.IntVar,
+        system_prompt_text: tk.Text,
     ) -> None:
         try:
             text_font_size = text_size_var.get()
             button_font_size = button_size_var.get()
             limited_bash_output_tokens = limited_bash_output_tokens_var.get()
+            system_prompt = system_prompt_text.get("1.0", "end-1c")
         except tk.TclError:
             return
         theme = theme_var.get()
@@ -998,6 +1011,7 @@ class AgentWorkspace:
             claude_effort_var.get() if claude_effort_var.get() in AGENT_WORKSPACE_REASONING_EFFORTS else ""
         )
         self.limited_bash_output_tokens = max(100, min(200_000, limited_bash_output_tokens))
+        self.system_prompt = system_prompt
         if self.selected_task is None:
             self._set_agent_selection(self.default_agent)
         self._apply_font_size()
@@ -1221,6 +1235,7 @@ class AgentWorkspace:
             codex_executable=_codex_executable(),
             claude_executable=_claude_executable(),
             inject_task_context=self.inject_task_context_prompt,
+            system_prompt=self.system_prompt,
             codex_animations_enabled=self.codex_animations_enabled,
             claude_animations_enabled=self.claude_animations_enabled,
             include_task_check=True,
@@ -2369,6 +2384,7 @@ class AgentWorkspace:
                 "codex_animations_enabled": self.codex_animations_enabled,
                 "claude_animations_enabled": self.claude_animations_enabled,
                 "limited_bash_output_tokens": self.limited_bash_output_tokens,
+                "system_prompt": self.system_prompt,
                 "inject_task_context_prompt": self.inject_task_context_prompt,
                 "task_dictionary_auto_discovery": self.task_dictionary_auto_discovery,
                 "task_dictionary_min_occurrences": self.task_dictionary_min_occurrences,
@@ -2397,6 +2413,7 @@ def ai_agent_task_context_message(task: TaskSummary, workspace: Path) -> str:
         task,
         workspace,
         inject_task_context=settings.inject_task_context_prompt,
+        system_prompt=settings.system_prompt,
     )
 
 

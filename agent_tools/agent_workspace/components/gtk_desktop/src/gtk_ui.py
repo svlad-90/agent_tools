@@ -329,6 +329,7 @@ class WorkspaceGtkGui:
         self.codex_animations_enabled = settings.codex_animations_enabled
         self.claude_animations_enabled = settings.claude_animations_enabled
         self.limited_bash_output_tokens = settings.limited_bash_output_tokens
+        self.system_prompt = settings.system_prompt
         self.inject_task_context_prompt = settings.inject_task_context_prompt
         self.task_dictionary_auto_discovery = settings.task_dictionary_auto_discovery
         self.task_dictionary_min_occurrences = settings.task_dictionary_min_occurrences
@@ -2266,14 +2267,20 @@ class WorkspaceGtkGui:
             transient_for=self.window,
             flags=Gtk.DialogFlags.MODAL,
         )
-        dialog.set_default_size(920, 760)
+        dialog.set_resizable(True)
+        dialog.set_default_size(820, 560)
         dialog.add_button(self._tr("cancel"), Gtk.ResponseType.CANCEL)
         dialog.add_button(self._tr("ok"), Gtk.ResponseType.OK)
         content = dialog.get_content_area()
         notebook = Gtk.Notebook()
+        notebook.set_hexpand(True)
+        notebook.set_vexpand(True)
         content.add(notebook)
         general_grid = Gtk.Grid(column_spacing=10, row_spacing=10)
         general_grid.set_border_width(12)
+        general_scrolled = _scrolled(general_grid)
+        general_scrolled.set_hexpand(True)
+        general_scrolled.set_vexpand(True)
         dictionary_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
         dictionary_box.set_border_width(12)
         dictionary_scrolled = _scrolled(dictionary_box)
@@ -2301,7 +2308,7 @@ class WorkspaceGtkGui:
         profiling_box.pack_start(profiling_controls, False, False, 0)
         profiling_box.pack_start(profiling_note, False, False, 0)
         profiling_box.pack_start(profiling_output_scrolled, True, True, 0)
-        notebook.append_page(general_grid, Gtk.Label(label=self._tr("settings_dictionary_general")))
+        notebook.append_page(general_scrolled, Gtk.Label(label=self._tr("settings_dictionary_general")))
         notebook.append_page(dictionary_scrolled, Gtk.Label(label=self._tr("settings_dictionary_dictionary")))
         notebook.append_page(profiling_box, Gtk.Label(label=self._tr("settings_profiling")))
 
@@ -2318,6 +2325,12 @@ class WorkspaceGtkGui:
         codex_animations_check.set_active(self.codex_animations_enabled)
         limited_bash_output_tokens = Gtk.SpinButton.new_with_range(100, 200_000, 100)
         limited_bash_output_tokens.set_value(self.limited_bash_output_tokens)
+        system_prompt_view = _text_view(self.text_font_size, editable=True)
+        system_prompt_view.get_buffer().set_text(self.system_prompt)
+        system_prompt_scrolled = _scrolled(system_prompt_view)
+        system_prompt_scrolled.set_hexpand(True)
+        system_prompt_scrolled.set_vexpand(False)
+        system_prompt_scrolled.set_min_content_height(96)
         claude_model_combo = Gtk.ComboBoxText()
         claude_effort_combo = Gtk.ComboBoxText()
         claude_animations_check = Gtk.CheckButton()
@@ -2440,6 +2453,7 @@ class WorkspaceGtkGui:
             (self._tr("theme"), theme_combo),
             (self._tr("language"), language_combo),
             (self._tr("default_agent"), default_agent_combo),
+            (self._tr("system_prompt"), system_prompt_scrolled),
             (agent_label("codex"), None),
         ]
         if codex_models is not None:
@@ -2553,6 +2567,7 @@ class WorkspaceGtkGui:
             self.codex_animations_enabled = codex_animations_check.get_active()
             self.claude_animations_enabled = claude_animations_check.get_active()
             self.limited_bash_output_tokens = int(limited_bash_output_tokens.get_value())
+            self.system_prompt = _text_buffer_text(system_prompt_view.get_buffer())
             self.task_dictionary_auto_discovery = dictionary_auto.get_active()
             self.task_dictionary_min_occurrences = int(dictionary_min_occurrences.get_value())
             self.task_dictionary_min_saving = int(dictionary_min_saving.get_value())
@@ -3901,6 +3916,7 @@ class WorkspaceGtkGui:
             claude_executable=_claude_executable(),
             prompt_suffix=CODEX_LANGUAGE_INSTRUCTIONS.get(self.language, CODEX_LANGUAGE_INSTRUCTIONS["en"]),
             inject_task_context=self.inject_task_context_prompt,
+            system_prompt=self.system_prompt,
             codex_animations_enabled=self.codex_animations_enabled,
             claude_animations_enabled=self.claude_animations_enabled,
             include_task_check=True,
@@ -5732,6 +5748,7 @@ class WorkspaceGtkGui:
                 "codex_animations_enabled": self.codex_animations_enabled,
                 "claude_animations_enabled": self.claude_animations_enabled,
                 "limited_bash_output_tokens": self.limited_bash_output_tokens,
+                "system_prompt": self.system_prompt,
                 "inject_task_context_prompt": self.inject_task_context_prompt,
                 "task_dictionary_auto_discovery": self.task_dictionary_auto_discovery,
                 "task_dictionary_min_occurrences": self.task_dictionary_min_occurrences,
@@ -6039,6 +6056,7 @@ def ai_agent_task_context_message(task: TaskSummary, workspace: Path, language: 
         workspace,
         language_instruction,
         inject_task_context=settings.inject_task_context_prompt,
+        system_prompt=settings.system_prompt,
     )
 
 
