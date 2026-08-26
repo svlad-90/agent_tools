@@ -136,7 +136,8 @@ def main(argv: list[str] | None = None) -> int:
     else:
         print(render_text(task_dir, checks, errors_only=args.errors_only))
 
-    has_failures = any(check.status == "FAIL" for check in checks)
+    failure_checks = init_checks if args.init_layout and not args.init_runtime_product else checks
+    has_failures = any(check.status == "FAIL" for check in failure_checks)
     strict_warning_checks = []
     if args.strict_warnings:
         strict_warning_checks = _strict_warning_checks(

@@ -20,6 +20,7 @@ def test_agent_workspace_settings_persist_font_size(tmp_path: Path) -> None:
             "codex_animations_enabled": True,
             "claude_animations_enabled": True,
             "limited_bash_output_tokens": 12_000,
+            "system_prompt": "Prefer short, concrete answers.\nKeep task state durable.",
             "inject_task_context_prompt": False,
             "task_dictionary_auto_discovery": False,
             "task_dictionary_min_occurrences": 3,
@@ -49,6 +50,7 @@ def test_agent_workspace_settings_persist_font_size(tmp_path: Path) -> None:
         "codex_animations_enabled": True,
         "claude_animations_enabled": True,
         "limited_bash_output_tokens": 12_000,
+        "system_prompt": "Prefer short, concrete answers.\nKeep task state durable.",
         "inject_task_context_prompt": False,
         "task_dictionary_auto_discovery": False,
         "task_dictionary_min_occurrences": 3,
@@ -107,6 +109,7 @@ def test_agent_workspace_runtime_settings_normalizes_ui_defaults() -> None:
             "codex_animations_enabled": True,
             "claude_animations_enabled": True,
             "limited_bash_output_tokens": 4_000,
+            "system_prompt": "Use the project-specific policy.",
             "inject_task_context_prompt": False,
             "task_dictionary_auto_discovery": False,
             "task_dictionary_min_occurrences": 4,
@@ -135,6 +138,7 @@ def test_agent_workspace_runtime_settings_normalizes_ui_defaults() -> None:
     assert settings.codex_animations_enabled is True
     assert settings.claude_animations_enabled is True
     assert settings.limited_bash_output_tokens == 4_000
+    assert settings.system_prompt == "Use the project-specific policy."
     assert settings.inject_task_context_prompt is False
     assert settings.task_dictionary_auto_discovery is False
     assert settings.task_dictionary_min_occurrences == 4
@@ -185,6 +189,7 @@ def test_agent_workspace_runtime_settings_falls_back_for_invalid_values() -> Non
     assert settings.theme == "light"
     assert settings.language == "uk"
     assert settings.default_agent == "codex"
+    assert settings.system_prompt == ""
     assert settings.inject_task_context_prompt is True
     assert settings.task_dictionary_auto_discovery is True
     assert settings.task_dictionary_min_occurrences == 1

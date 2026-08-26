@@ -31,6 +31,16 @@ def test_initialize_task_layout_creates_context_database_without_description_fil
     assert _has_check(checks, "FAIL", "task-context-slot-required")
 
 
+def test_init_layout_command_succeeds_before_context_is_filled(tmp_path: Path) -> None:
+    task_dir = tmp_path / "tasks" / "sample-task"
+
+    result = main([str(task_dir), "--workspace", str(tmp_path), "--init-layout"])
+
+    assert result == 0
+    assert (task_dir / DATABASE_FILENAME).is_file()
+    assert _has_check(check_task(task_dir, workspace=tmp_path), "FAIL", "task-context-slot-required")
+
+
 def test_initialize_task_layout_records_task_privacy(tmp_path: Path) -> None:
     task_dir = tmp_path / "tasks" / "sample-task"
 

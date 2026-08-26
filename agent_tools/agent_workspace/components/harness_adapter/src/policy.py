@@ -13,6 +13,7 @@ from uuid import uuid4
 from agent_tools.agent_workspace.components.agent_status.api import AGENT_PROMPT_MARKER
 from agent_tools.agent_workspace.components.agent_status.api import AGENT_RUNNING_READY_MARKER
 from agent_tools.agent_workspace.components.agent_status.api import AGENT_TOOL_MARKER
+from agent_tools.agent_workspace.components.settings.api import load_agent_workspace_settings
 from agent_tools.paf_workspace.task_check import check_task
 from agent_tools.paf_workspace.task_check import render_text
 from agent_tools.tools.task_context import agent_visible_slots
@@ -136,6 +137,7 @@ _STATUS_CALLBACKS: dict[str, StatusCallback] = {}
 _JOURNAL_SLOT_CATEGORIES = ("operational-memory", "findings", "validation", "decisions", "blocker-risk")
 _DEBUG_EVENT_FILE = ".agent-workspace-harness-debug.jsonl"
 _DEBUG_EVENT_LIMIT = 1000
+_DEBUG_EVENT_TAIL_BLOCK_SIZE = 64 * 1024
 _POST_COMPACT_CONTEXT_LIMIT = 12000
 
 
@@ -198,11 +200,7 @@ def load_harness_debug_events(
     min_event_id = max(0, after_event_id or 0)
     events: list[HarnessDebugEvent] = []
     path = _harness_debug_path(_workspace_for_task(task_dir))
-    try:
-        lines = path.read_text(encoding="utf-8").splitlines()
-    except OSError:
-        return []
-    for line in lines[-_DEBUG_EVENT_LIMIT:]:
+    for line in _reversed_harness_debug_lines(path):
         try:
             data = json.loads(line)
             event = _debug_event_from_json(data)
@@ -215,7 +213,24 @@ def load_harness_debug_events(
         if event.event_id <= min_event_id:
             continue
         events.append(event)
-    return events[-limit:]
+        if len(events) >= limit:
+            break
+    events.reverse()
+    return events
+
+
+def load_latest_harness_debug_events_by_task(workspace: Path) -> dict[Path, HarnessDebugEvent]:
+    latest: dict[Path, HarnessDebugEvent] = {}
+    path = _harness_debug_path(workspace)
+    for line in _reversed_harness_debug_lines(path):
+        try:
+            data = json.loads(line)
+            event = _debug_event_from_json(data)
+        except (TypeError, ValueError, KeyError):
+            continue
+        if event.task_dir not in latest:
+            latest[event.task_dir] = event
+    return latest
 
 
 def handle_adapter_event(
@@ -377,11 +392,15 @@ def _handle_pre_compact(
 
 
 def _session_start_message(task_dir: Path) -> str:
-    return (
+    header = (
         "Agent Workspace session started. Task state source is TASK_CONTEXT.sqlite3 slots. "
         "Use task_context query when task context is needed; hook adapter gates Stop and records PreCompact checkpoints. "
         f"Task directory: {task_dir}"
     )
+    system_prompt = _workspace_system_prompt_message()
+    if not system_prompt:
+        return header
+    return f"{header}\n\n{system_prompt}"
 
 
 def _post_compact_message(task_dir: Path) -> str:
@@ -396,9 +415,23 @@ def _post_compact_message(task_dir: Path) -> str:
         f"Task directory: {task_dir}"
     )
     if not rendered:
-        return f"{header}\n\nNo task context slots are present."
-    body = _truncate_post_compact_context(rendered)
-    return f"{header}\n\n{body}"
+        body = "No task context slots are present."
+    else:
+        body = _truncate_post_compact_context(rendered)
+    system_prompt = _workspace_system_prompt_message()
+    if not system_prompt:
+        return f"{header}\n\n{body}"
+    return f"{header}\n\n{system_prompt}\n\n{body}"
+
+
+def _workspace_system_prompt_message() -> str:
+    value = load_agent_workspace_settings().get("system_prompt", "")
+    if not isinstance(value, str):
+        return ""
+    prompt = value.strip()
+    if not prompt:
+        return ""
+    return f"Workspace system prompt:\n\n{prompt}"
 
 
 def _truncate_post_compact_context(text: str) -> str:
@@ -645,6 +678,31 @@ def _record_harness_debug_event(update: HarnessStatusUpdate) -> None:
 
 def _harness_debug_path(workspace: Path) -> Path:
     return workspace.resolve() / _DEBUG_EVENT_FILE
+
+
+def _reversed_harness_debug_lines(path: Path) -> list[str]:
+    try:
+        with path.open("rb") as stream:
+            stream.seek(0, 2)
+            end = stream.tell()
+            if end <= 0:
+                return []
+            buffer = b""
+            position = end
+            while position > 0:
+                read_size = min(_DEBUG_EVENT_TAIL_BLOCK_SIZE, position)
+                position -= read_size
+                stream.seek(position)
+                buffer = stream.read(read_size) + buffer
+                lines = buffer.splitlines()
+                if len(lines) > _DEBUG_EVENT_LIMIT or position == 0:
+                    return [
+                        line.decode("utf-8", errors="replace")
+                        for line in reversed(lines[-_DEBUG_EVENT_LIMIT:])
+                    ]
+    except OSError:
+        return []
+    return []
 
 
 def _debug_event_from_json(data: dict[str, Any]) -> HarnessDebugEvent:

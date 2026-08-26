@@ -583,7 +583,19 @@ def test_gtk_ai_debug_event_row_keeps_large_event_id_as_string() -> None:
     assert row[0] == "1787503705134248638"
 
 
-def test_gtk_ai_debug_refresh_tick_runs_even_when_ai_debug_tab_is_hidden() -> None:
+class FakeNotebook:
+    def __init__(self, pages: list[object], current_page: int) -> None:
+        self.pages = pages
+        self.current_page = current_page
+
+    def get_current_page(self) -> int:
+        return self.current_page
+
+    def get_nth_page(self, page_num: int) -> object:
+        return self.pages[page_num]
+
+
+def test_gtk_ai_debug_refresh_tick_skips_hidden_ai_debug_tab() -> None:
     gui = WorkspaceGtkGui.__new__(WorkspaceGtkGui)
     gui._closing = False
     gui.selected_task = object()
@@ -591,10 +603,25 @@ def test_gtk_ai_debug_refresh_tick_runs_even_when_ai_debug_tab_is_hidden() -> No
     gui._refresh_ai_debug = lambda: refreshes.append("refresh")  # type: ignore[method-assign]
 
     assert gui._refresh_ai_debug_if_visible() is True
-    assert refreshes == ["refresh"]
+    assert refreshes == []
 
     assert gui._refresh_ai_debug_if_visible() is True
-    assert refreshes == ["refresh", "refresh"]
+    assert refreshes == []
+
+
+def test_gtk_ai_debug_refresh_tick_runs_for_visible_ai_debug_tab() -> None:
+    gui = WorkspaceGtkGui.__new__(WorkspaceGtkGui)
+    gui._closing = False
+    gui.selected_task = object()
+    gui.actions_page = object()
+    gui.ai_debug_page = object()
+    gui.notebook = FakeNotebook([gui.actions_page], 0)
+    gui.console_notebook = FakeNotebook([object(), gui.ai_debug_page], 1)
+    refreshes: list[str] = []
+    gui._refresh_ai_debug = lambda: refreshes.append("refresh")  # type: ignore[method-assign]
+
+    assert gui._refresh_ai_debug_if_visible() is True
+    assert refreshes == ["refresh"]
 
 
 def test_gtk_ai_debug_refresh_tick_stops_on_close() -> None:
@@ -1288,7 +1315,7 @@ def test_gtk_record_agent_interrupt_sets_circle_icon(tmp_path: Path, monkeypatch
     recorded: list[dict[str, object]] = []
     gui = WorkspaceGtkGui.__new__(WorkspaceGtkGui)
     gui.harness_status_icon_cache = {task_dir: (1.0, "◆")}
-    gui._refresh_task_row_styles = lambda: recorded.append({"refresh": True})  # type: ignore[method-assign]
+    gui._refresh_task_row_style_for_task = lambda task_path: recorded.append({"refresh": task_path})  # type: ignore[method-assign]
     monkeypatch.setattr(gtk_ui_module, "record_harness_status", lambda *args, **kwargs: recorded.append(kwargs))
     session = TerminalSession(
         session_id=1,
@@ -1306,7 +1333,7 @@ def test_gtk_record_agent_interrupt_sets_circle_icon(tmp_path: Path, monkeypatch
     assert gui.harness_status_icon_cache == {}
     assert recorded[0]["icon"] == "○"
     assert recorded[0]["outcome"] == "interrupted"
-    assert recorded[-1] == {"refresh": True}
+    assert recorded[-1] == {"refresh": task_dir}
 
 
 def test_gtk_task_agent_status_prefers_latest_harness_session_start_icon(
@@ -2231,8 +2258,8 @@ def test_gtk_task_selection_remembers_current_tab_before_switching(tmp_path: Pat
     gui._on_task_selected(selection)  # type: ignore[arg-type]
 
     assert gui.selected_task == summary_two
-    assert gui.console_notebook.pages == [task_two_shell_page]
-    assert gui.console_notebook.get_current_page() == 0
+    assert gui.console_notebook.pages == [task_one_agent_page, task_two_shell_page]
+    assert gui.console_notebook.get_current_page() == 1
     assert task_two_shell.terminal.focused
     assert gui.last_active_terminal_by_task == {summary_one.path: task_one_shell.session_id}
     assert artifact_events == ["store"]
@@ -2655,6 +2682,7 @@ def test_gtk_translates_agent_and_manual_labels() -> None:
     assert GTK_TRANSLATIONS["ru"]["default_agent"] == "ИИ агент по умолчанию"
     assert GTK_TRANSLATIONS["ru"]["default_claude_model"] == "Модель Claude"
     assert GTK_TRANSLATIONS["ru"]["default_codex_model"] == "Модель Codex"
+    assert GTK_TRANSLATIONS["ru"]["system_prompt"] == "Системный промпт"
     assert GTK_TRANSLATIONS["ru"]["codex_animations_enabled"] == "Анимации Codex"
     assert GTK_TRANSLATIONS["ru"]["claude_animations_enabled"] == "Анимации Claude"
     assert GTK_TRANSLATIONS["ru"]["limited_bash_output_tokens"] == "Лимит вывода Bash, токены"

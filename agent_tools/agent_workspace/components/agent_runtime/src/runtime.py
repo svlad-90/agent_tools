@@ -141,6 +141,7 @@ def ai_agent_task_context_prompt(
     suffix: str = "",
     *,
     inject_task_context: bool = TASK_CONTEXT_PROMPT_INJECTION_DEFAULT,
+    system_prompt: str = "",
 ) -> str:
     _ = inject_task_context
     message = (
@@ -152,8 +153,11 @@ def ai_agent_task_context_prompt(
         "Use workspace rules for the rest of the workflow."
     )
     if suffix:
-        return f"{message} {suffix}"
-    return message
+        message = f"{message} {suffix}"
+    system_prompt = system_prompt.strip()
+    if not system_prompt:
+        return message
+    return f"{message}\n\nWorkspace system prompt:\n\n{system_prompt}"
 
 
 def active_task_context_prompt(task: Any) -> str:
@@ -202,6 +206,7 @@ def prepare_ai_agent_launch_command(
     prompt_suffix: str = "",
     include_task_check: bool = False,
     inject_task_context: bool = TASK_CONTEXT_PROMPT_INJECTION_DEFAULT,
+    system_prompt: str = "",
     codex_animations_enabled: bool = False,
     claude_animations_enabled: bool = False,
 ) -> AgentLaunchCommand:
@@ -220,6 +225,7 @@ def prepare_ai_agent_launch_command(
         workspace,
         prompt_suffix,
         inject_task_context=inject_task_context,
+        system_prompt=system_prompt,
     )
     return AgentLaunchCommand(
         command=build_ai_agent_console_command(

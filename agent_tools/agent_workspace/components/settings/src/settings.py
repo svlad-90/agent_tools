@@ -74,6 +74,7 @@ class AgentWorkspaceRuntimeSettings:
     codex_animations_enabled: bool
     claude_animations_enabled: bool
     limited_bash_output_tokens: int
+    system_prompt: str
     inject_task_context_prompt: bool
     task_dictionary_auto_discovery: bool
     task_dictionary_min_occurrences: int
@@ -236,6 +237,7 @@ def agent_workspace_runtime_settings(
             100,
             200_000,
         ),
+        system_prompt=_str_setting(settings, "system_prompt", ""),
         inject_task_context_prompt=_bool_setting(
             settings,
             "inject_task_context_prompt",
@@ -344,6 +346,7 @@ def load_agent_workspace_settings(path: Path | None = None) -> dict[str, int | f
     codex_animations_enabled = data.get("codex_animations_enabled")
     claude_animations_enabled = data.get("claude_animations_enabled")
     limited_bash_output_tokens = data.get("limited_bash_output_tokens")
+    system_prompt = data.get("system_prompt")
     if not isinstance(limited_bash_output_tokens, int) or isinstance(limited_bash_output_tokens, bool):
         legacy_chars = data.get("limited_bash_output_chars")
         if isinstance(legacy_chars, int) and not isinstance(legacy_chars, bool):
@@ -383,6 +386,8 @@ def load_agent_workspace_settings(path: Path | None = None) -> dict[str, int | f
         settings["codex_animations_enabled"] = codex_animations_enabled
     if isinstance(claude_animations_enabled, bool):
         settings["claude_animations_enabled"] = claude_animations_enabled
+    if isinstance(system_prompt, str):
+        settings["system_prompt"] = system_prompt
     if isinstance(inject_task_context_prompt, bool):
         settings["inject_task_context_prompt"] = inject_task_context_prompt
     if isinstance(task_dictionary_auto_discovery, bool):
