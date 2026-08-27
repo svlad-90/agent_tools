@@ -584,10 +584,12 @@ class ReportJsonTests(unittest.TestCase):
         self.assertIn(">graphics<", html)
         self.assertIn(">4<", html)
         graph_index = html.index('<section class="report-relationship-section" id="report-relationship-graph"')
-        custom_scopes_index = html.index('<section class="report-metric-table-section" id="report-metric-table-3"')
         metrics_index = html.index('<section class="report-metric-table-section" id="report-metric-tables"')
-        self.assertLess(graph_index, custom_scopes_index)
-        self.assertLess(custom_scopes_index, metrics_index)
+        per_domain_index = html.index('<section class="report-metric-table-section" id="report-metric-table-2"')
+        custom_scopes_index = html.index('<section class="report-metric-table-section" id="report-metric-table-3"')
+        self.assertLess(graph_index, metrics_index)
+        self.assertLess(metrics_index, per_domain_index)
+        self.assertLess(per_domain_index, custom_scopes_index)
 
     def test_validates_metric_table_shapes(self) -> None:
         invalid_payloads = [
