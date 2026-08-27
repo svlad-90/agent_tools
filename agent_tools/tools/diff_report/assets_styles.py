@@ -436,8 +436,10 @@ def stylesheet() -> str:
     .relationship-projection-menu { position: absolute; z-index: 60; top: calc(100% + 4px); left: 42px; display: flex; flex-direction: column; gap: 4px; min-width: 190px; max-width: min(320px, calc(100vw - 48px)); max-height: 320px; padding: 8px; overflow: auto; border: 1px solid var(--border); border-radius: 10px; background: var(--card-bg); box-shadow: var(--shadow); text-transform: none; letter-spacing: 0; }
     .relationship-projection-menu label { display: inline-flex; align-items: center; gap: 6px; min-height: 24px; padding: 2px 8px; border: 1px solid var(--border); border-radius: 999px; background: var(--button-bg); color: var(--text); font: 750 12px/1.1 var(--font-stack); white-space: nowrap; cursor: pointer; }
     .relationship-projection-menu input { width: 14px; height: 14px; min-height: 0; margin: 0; padding: 0; accent-color: var(--link); }
-    .relationship-projection-menu label:has(input:disabled) { opacity: .55; cursor: default; }
-    .relationship-projection-menu input:disabled + span { color: var(--meta-text); }
+    .relationship-projection-menu label.is-disabled { border-color: color-mix(in srgb, var(--border) 64%, transparent); background: color-mix(in srgb, var(--button-bg) 58%, var(--panel)); color: var(--muted); cursor: not-allowed; opacity: .62; }
+    .relationship-projection-menu label.is-disabled input { filter: grayscale(1); opacity: .5; }
+    .relationship-projection-menu label.is-disabled span { color: var(--muted); }
+    .relationship-projection-menu input:disabled + span { color: var(--muted); }
     .relationship-toolbar label.relationship-secondary-toggle { display: inline-flex; align-items: center; justify-content: center; gap: 5px; width: auto; min-width: 0; min-height: 26px; padding: 0 8px; border: 1px solid var(--border); border-radius: 999px; background: var(--button-bg); color: var(--meta-text); font: 750 12px/1.1 var(--font-stack); white-space: nowrap; }
     .relationship-toolbar label.relationship-secondary-toggle input { width: 14px; height: 14px; min-height: 0; margin: 0; padding: 0; accent-color: var(--link); }
     .relationship-toolbar label.relationship-secondary-toggle[hidden] { display: none; }

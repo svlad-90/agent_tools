@@ -406,7 +406,7 @@ def _graph_view_from_payload(raw_view: Any, field: str) -> dict[str, Any] | None
     if not isinstance(raw_view, dict):
         raise DiffReportError(f"{field} must be an object")
     view: dict[str, Any] = {}
-    for key in ("focus", "target_type", "label"):
+    for key in ("focus", "target_type", "label", "isolate_root"):
         if key in raw_view and raw_view[key] is not None:
             if not isinstance(raw_view[key], str):
                 raise DiffReportError(f"{field}.{key} must be a string")
@@ -1255,9 +1255,10 @@ def _relationship_graph_script() -> str:
     return r"""
 <script>
 (() => {
-  const TYPE_ORDER = ["product", "domain", "vsr", "cdd", "hal", "feature", "property", "cts_module", "vts_module", "gap", "decision"];
+  const TYPE_ORDER = ["product", "analysis_entity", "domain", "vsr", "cdd", "hal", "feature", "property", "cts_module", "vts_module", "artifact", "gap", "decision"];
   const TYPE_LABELS = {
     product: "Product",
+    analysis_entity: "Analysis entity",
     vsr: "VSR",
     cdd: "CDD",
     hal: "HAL",
@@ -1268,9 +1269,10 @@ def _relationship_graph_script() -> str:
     decision: "Decision",
     domain: "Domain",
     feature: "Feature",
-    property: "Property"
+    property: "Property",
+    artifact: "Artifact"
   };
-  const DEFAULT_TYPE_RANKS = {product: 0, domain: 1, vsr: 2, cdd: 2, hal: 3, feature: 3, property: 3, cts_module: 3, vts_module: 3, gap: 4, decision: 4};
+  const DEFAULT_TYPE_RANKS = {product: 0, analysis_entity: 1, domain: 1, vsr: 2, cdd: 2, hal: 3, feature: 3, property: 3, cts_module: 3, vts_module: 3, artifact: 4, gap: 4, decision: 4};
   const DEFAULT_TERMINAL_TYPES = ["cts_module", "vts_module", "cdd", "property", "feature", "gap", "decision"];
   const MAX_FOCUS_OPTIONS = 400;
 
@@ -1356,6 +1358,70 @@ def _relationship_graph_script() -> str:
     return enabledTypes.has(node.type || "entity");
   }
 
+  function directedReachableIds(rootId, state) {
+    const root = String(rootId || "");
+    if (!root || !state.nodesById.has(root)) return null;
+    const outgoing = state.outgoingAdjacency || new Map();
+    const ids = new Set([root]);
+    const queue = [root];
+    let cursor = 0;
+    while (cursor < queue.length) {
+      const fromId = queue[cursor];
+      cursor += 1;
+      for (const edge of outgoing.get(fromId) || []) {
+        if (ids.has(edge.target)) continue;
+        ids.add(edge.target);
+        queue.push(edge.target);
+      }
+    }
+    return ids;
+  }
+
+  function setIsolatedRoot(state, rootId) {
+    state.isolatedRootId = String(rootId || "");
+    state.isolatedNodeIds = state.isolatedRootId ? directedReachableIds(state.isolatedRootId, state) : null;
+    state.scopedEdgesCache = null;
+    state.scopedAdjacencyCache = null;
+  }
+
+  function nodeInScope(state, node) {
+    if (!node) return false;
+    return !state.isolatedNodeIds || state.isolatedNodeIds.has(node.id);
+  }
+
+  function isStandaloneScopeNode(node) {
+    if (!node) return false;
+    if ((node.type || "entity") === "analysis_entity") return true;
+    const details = node.details && typeof node.details === "object" ? node.details : {};
+    return Boolean(details.analysis_scope);
+  }
+
+  function stateGraphNodes(state) {
+    if (!state) return [];
+    if (state.isolatedNodeIds) return state.nodes.filter((node) => nodeInScope(state, node));
+    return state.nodes.filter((node) => !isStandaloneScopeNode(node));
+  }
+
+  function stateGraphEdges(state) {
+    if (!state) return [];
+    if (state.scopedEdgesCache) return state.scopedEdgesCache;
+    const visibleIds = new Set(stateGraphNodes(state).map((node) => node.id));
+    state.scopedEdgesCache = state.edges.filter((edge) => visibleIds.has(edge.source) && visibleIds.has(edge.target));
+    return state.scopedEdgesCache;
+  }
+
+  function stateGraphAdjacency(state) {
+    if (!state) return new Map();
+    if (!state.scopedAdjacencyCache) {
+      state.scopedAdjacencyCache = buildAdjacency(stateGraphEdges(state));
+    }
+    return state.scopedAdjacencyCache;
+  }
+
+  function stateGraphTypes(state) {
+    return graphTypes(stateGraphNodes(state));
+  }
+
   function fieldValue(node, field) {
     if (!node) return "";
     if (field === "status") return String(node.status || "unknown");
@@ -1416,8 +1482,9 @@ def _relationship_graph_script() -> str:
   }
 
   function resetSubfilters(state) {
-    state.subfilters = createSubfilters(state.nodes, state.filterDefaults);
-    state.statusFilter = createStatusFilter(state.nodes, state.filterDefaults);
+    const nodes = stateGraphNodes(state);
+    state.subfilters = createSubfilters(nodes, state.filterDefaults);
+    state.statusFilter = createStatusFilter(nodes, state.filterDefaults);
   }
 
   function isSubfilterEnabled(node, state) {
@@ -1444,7 +1511,7 @@ def _relationship_graph_script() -> str:
 
   function isNodeVisible(node, state) {
     if (!node) return false;
-    if (state && state.selectedId && node.id === state.selectedId) return true;
+    if (!nodeInScope(state, node)) return false;
     return isTypeEnabled(node, state && state.selectedId, state.enabledTypes) && isSubfilterEnabled(node, state);
   }
 
@@ -1523,6 +1590,15 @@ def _relationship_graph_script() -> str:
       if (!adjacency.has(edge.target)) adjacency.set(edge.target, []);
       adjacency.get(edge.source).push({id: edge.target, edge});
       adjacency.get(edge.target).push({id: edge.source, edge});
+    }
+    return adjacency;
+  }
+
+  function buildOutgoingAdjacency(edges) {
+    const adjacency = new Map();
+    for (const edge of edges) {
+      if (!adjacency.has(edge.source)) adjacency.set(edge.source, []);
+      adjacency.get(edge.source).push(edge);
     }
     return adjacency;
   }
@@ -1663,7 +1739,14 @@ def _relationship_graph_script() -> str:
         distances.set(targetId, Math.min(distances.get(targetId) ?? 1, 1));
       }
     }
+    const selectedVisible = nodeVisible(selected);
+    const hasVisibleNonFocusNode = Array.from(distances.keys()).some((id) => {
+      if (id === selectedId) return false;
+      return nodeVisible(nodesById.get(id));
+    });
+    const hasVisibleGraphContent = selectedVisible || hasVisibleNonFocusNode;
     const visibleIds = new Set(Array.from(distances.keys()).filter((id) => {
+      if (!hasVisibleGraphContent) return false;
       const node = nodesById.get(id);
       return nodeVisible(node) || (ancestry.has(id) && contextNodeVisible(node));
     }));
@@ -1732,7 +1815,9 @@ def _relationship_graph_script() -> str:
   function buildTypeListGraph(state) {
     const selectedType = singleEnabledType(state);
     if (!selectedType) return null;
-    const nodes = state.nodes.filter((node) => node.type === selectedType && isSubfilterEnabled(node, state));
+    const selected = state.nodesById.get(state.selectedId || "");
+    if (selected && (selected.type || "entity") !== selectedType) return null;
+    const nodes = stateGraphNodes(state).filter((node) => node.type === selectedType && isSubfilterEnabled(node, state));
     return {
       nodes,
       edges: [],
@@ -2262,7 +2347,7 @@ def _relationship_graph_script() -> str:
 
   function focusHasSecondaryLinks(state) {
     if (!state.selectedId) return false;
-    return state.edges.some((edge) =>
+    return stateGraphEdges(state).some((edge) =>
       isSecondaryEdge(edge) && (edge.source === state.selectedId || edge.target === state.selectedId)
     );
   }
@@ -2305,12 +2390,14 @@ def _relationship_graph_script() -> str:
     const hasSearch = String(state.searchQuery || "").trim();
     updateSecondaryLinkControl(browser, state);
     const nodeVisible = (node) => isNodeVisible(node, state);
-    const contextNodeVisible = (node) => isTypeEnabled(node, state.selectedId, state.enabledTypes);
+    const contextNodeVisible = (node) => nodeInScope(state, node);
+    const graphEdges = stateGraphEdges(state);
+    const graphAdjacency = stateGraphAdjacency(state);
     const baseGraph = buildTypeListGraph(state) || buildNeighborhood(
       state.selectedId,
       state.nodesById,
-      state.edges,
-      state.adjacency,
+      graphEdges,
+      graphAdjacency,
       nodeVisible,
       contextNodeVisible,
       activeTraversal(state),
@@ -2332,7 +2419,7 @@ def _relationship_graph_script() -> str:
     state.visibleNodeIds = new Set(graph.nodes.map((node) => node.id));
     syncActiveSubfilterType(state);
     const typeContainer = browser.querySelector("[data-relationship-projection-controls]");
-    if (typeContainer) refreshTypeFilterState(typeContainer, state, graphTypes(state.nodes));
+    if (typeContainer) refreshTypeFilterState(typeContainer, state, stateGraphTypes(state));
     const listColumnWidth = 220;
     const listRowHeight = 150;
     canvas.style.height = "";
@@ -2532,7 +2619,7 @@ def _relationship_graph_script() -> str:
     for (const edge of visibleGraph.edges || []) {
       addEdge(edge);
     }
-    for (const edge of state.edges) {
+    for (const edge of stateGraphEdges(state)) {
       addEdge(edge);
     }
     return groups;
@@ -2550,7 +2637,7 @@ def _relationship_graph_script() -> str:
     };
     const neighbors = (id) => {
       const result = [];
-      for (const edge of state.edges) {
+      for (const edge of stateGraphEdges(state)) {
         if (isSecondaryEdge(edge) && !state.showSecondaryLinks) continue;
         if (edge.source === id) {
           result.push({id: edge.target, edge});
@@ -2601,7 +2688,7 @@ def _relationship_graph_script() -> str:
 
   function projectionRankGroups(state) {
     const byRank = new Map();
-    for (const type of graphTypes(state.nodes)) {
+    for (const type of stateGraphTypes(state)) {
       const rank = typeRankValue(state, type);
       if (!byRank.has(rank)) byRank.set(rank, []);
       byRank.get(rank).push(type);
@@ -2701,7 +2788,7 @@ def _relationship_graph_script() -> str:
 
   function applyProjectionSelections(browser, state) {
     state.enabledTypes = projectionTypesFromSelections(state);
-    refreshTypeFilterState(browser.querySelector("[data-relationship-projection-controls]") || browser, state, graphTypes(state.nodes));
+    refreshTypeFilterState(browser.querySelector("[data-relationship-projection-controls]") || browser, state, stateGraphTypes(state));
   }
 
   function ensureFocusFilters(browser, state, nodeId) {
@@ -2721,14 +2808,15 @@ def _relationship_graph_script() -> str:
           : encodeProjectionChoice(group.types.filter((candidate) => selected.has(candidate)));
       }
     }
-    refreshTypeFilterState(browser.querySelector("[data-relationship-projection-controls]") || browser, state, graphTypes(state.nodes));
+    refreshTypeFilterState(browser.querySelector("[data-relationship-projection-controls]") || browser, state, stateGraphTypes(state));
     return true;
   }
 
   function focusViewTypes(state, nodeId) {
     const fallback = focusRequiredTypes(state, nodeId);
     if (!state.nodesById.has(nodeId)) return fallback;
-    const allTypes = new Set(graphTypes(state.nodes));
+    const allTypes = new Set(stateGraphTypes(state));
+    const graphEdges = stateGraphEdges(state);
     const focusState = Object.assign({}, state, {
       selectedId: nodeId,
       enabledTypes: allTypes
@@ -2736,8 +2824,8 @@ def _relationship_graph_script() -> str:
     const graph = buildNeighborhood(
       nodeId,
       state.nodesById,
-      state.edges,
-      state.adjacency,
+      graphEdges,
+      stateGraphAdjacency(state),
       (node) => node && (node.id === nodeId || isSubfilterEnabled(node, state)),
       (node) => Boolean(node),
       activeTraversal(focusState),
@@ -2751,11 +2839,11 @@ def _relationship_graph_script() -> str:
     state.enabledTypes = focusViewTypes(state, nodeId);
     state.projectionMode = "auto";
     state.projectionSelections = defaultProjectionSelections(state);
-    refreshTypeFilterState(browser.querySelector("[data-relationship-projection-controls]") || browser, state, graphTypes(state.nodes));
+    refreshTypeFilterState(browser.querySelector("[data-relationship-projection-controls]") || browser, state, stateGraphTypes(state));
   }
 
   function enableAllEntityTypes(browser, state) {
-    const types = graphTypes(state.nodes);
+    const types = stateGraphTypes(state);
     state.enabledTypes = new Set(types);
     state.projectionMode = "custom";
     state.projectionSelections = defaultProjectionSelections(state);
@@ -2763,14 +2851,14 @@ def _relationship_graph_script() -> str:
   }
 
   function resetGraphFilters(browser, state) {
-    state.enabledTypes = new Set(graphTypes(state.nodes));
+    state.enabledTypes = new Set(stateGraphTypes(state));
     state.projectionMode = "auto";
     state.projectionSelections = defaultProjectionSelections(state);
     resetSubfilters(state);
     state.activeSubfilterType = "";
     state.activeSubfilterTypes = [];
     state.typeSearchType = "";
-    refreshTypeFilterState(browser.querySelector("[data-relationship-projection-controls]") || browser, state, graphTypes(state.nodes));
+    refreshTypeFilterState(browser.querySelector("[data-relationship-projection-controls]") || browser, state, stateGraphTypes(state));
   }
 
   function childLayerSubfilterTypes(state) {
@@ -2788,7 +2876,7 @@ def _relationship_graph_script() -> str:
     const seen = new Set(candidates
       .filter((node) => typeRank(node) === nearestRank)
       .map((node) => node.type || "entity"));
-    return graphTypes(state.nodes).filter((type) => seen.has(type));
+    return stateGraphTypes(state).filter((type) => seen.has(type));
   }
 
   function syncActiveSubfilterType(state) {
@@ -2805,7 +2893,7 @@ def _relationship_graph_script() -> str:
   }
 
   function allEntityTypesEnabled(state) {
-    const types = graphTypes(state.nodes);
+    const types = stateGraphTypes(state);
     return types.length > 0 && types.every((type) => state.enabledTypes.has(type));
   }
 
@@ -2825,7 +2913,8 @@ def _relationship_graph_script() -> str:
       graphPage: state.graphPage,
       showSecondaryLinks: state.showSecondaryLinks,
       searchQuery: state.searchQuery,
-      typeSearchType: state.typeSearchType
+      typeSearchType: state.typeSearchType,
+      isolatedRootId: state.isolatedRootId || ""
     };
   }
 
@@ -2839,11 +2928,13 @@ def _relationship_graph_script() -> str:
     if (typeof snapshot === "string") {
       snapshot = {selectedId: snapshot, activeId: snapshot};
     }
+    setIsolatedRoot(state, snapshot.isolatedRootId || "");
     if (!state.nodesById.has(snapshot.selectedId)) return;
+    if (state.isolatedNodeIds && !state.isolatedNodeIds.has(snapshot.selectedId)) return;
     state.selectedId = snapshot.selectedId;
     state.activeId = state.nodesById.has(snapshot.activeId) ? snapshot.activeId : snapshot.selectedId;
     syncActiveSubfilterType(state);
-    state.enabledTypes = new Set(Array.isArray(snapshot.enabledTypes) ? snapshot.enabledTypes : graphTypes(state.nodes));
+    state.enabledTypes = new Set(Array.isArray(snapshot.enabledTypes) ? snapshot.enabledTypes : stateGraphTypes(state));
     state.projectionMode = snapshot.projectionMode === "custom" ? "custom" : "auto";
     state.projectionSelections = snapshot.projectionSelections && typeof snapshot.projectionSelections === "object"
       ? Object.assign({}, snapshot.projectionSelections)
@@ -2855,7 +2946,7 @@ def _relationship_graph_script() -> str:
     state.showSecondaryLinks = Boolean(snapshot.showSecondaryLinks);
     state.searchQuery = snapshot.searchQuery || "";
     state.typeSearchType = snapshot.typeSearchType || "";
-    refreshTypeFilterState(browser.querySelector("[data-relationship-projection-controls]") || browser, state, graphTypes(state.nodes));
+    refreshTypeFilterState(browser.querySelector("[data-relationship-projection-controls]") || browser, state, stateGraphTypes(state));
     renderGraph(browser, state);
     renderNodeSelect(browser, state);
     renderDetail(browser, state);
@@ -2988,6 +3079,7 @@ def _relationship_graph_script() -> str:
 
   function selectNode(browser, state, nodeId, recordHistory, options) {
     if (!state.nodesById.has(nodeId)) return;
+    if (state.isolatedNodeIds && !state.isolatedNodeIds.has(nodeId)) return;
     const resetTypes = Boolean(options && options.resetTypes);
     const preserveTypes = options && Object.prototype.hasOwnProperty.call(options, "preserveTypes")
       ? Boolean(options.preserveTypes)
@@ -3049,7 +3141,7 @@ def _relationship_graph_script() -> str:
     syncActiveSubfilterType(state);
     updateActiveGraphNode(state);
     updateActiveTableRow(browser, state);
-    refreshTypeFilterState(browser.querySelector("[data-relationship-projection-controls]") || browser, state, graphTypes(state.nodes));
+    refreshTypeFilterState(browser.querySelector("[data-relationship-projection-controls]") || browser, state, stateGraphTypes(state));
     renderNodeSelect(browser, state);
     renderDetail(browser, state);
   }
@@ -3131,11 +3223,11 @@ def _relationship_graph_script() -> str:
 
   function visibleNodeDegreeMap(state) {
     const visibleIds = new Set();
-    for (const node of state.nodes) {
+    for (const node of stateGraphNodes(state)) {
       if (isNodeVisible(node, state)) visibleIds.add(node.id);
     }
     const degrees = new Map();
-    for (const edge of state.edges) {
+    for (const edge of stateGraphEdges(state)) {
       if (isSecondaryEdge(edge) && !state.showSecondaryLinks) continue;
       if (visibleIds.has(edge.source) && visibleIds.has(edge.target)) {
         degrees.set(edge.source, (degrees.get(edge.source) || 0) + 1);
@@ -3166,7 +3258,7 @@ def _relationship_graph_script() -> str:
   function graphRootId(state) {
     let rootId = "";
     let rootRank = Infinity;
-    for (const node of state.nodes) {
+    for (const node of stateGraphNodes(state)) {
       const rank = traversalRank(state, node);
       if (rank >= rootRank) continue;
       rootRank = rank;
@@ -3186,7 +3278,7 @@ def _relationship_graph_script() -> str:
       const currentRank = traversalRank(state, current);
       let parentId = "";
       let parentRank = 99;
-      for (const item of state.adjacency.get(currentId) || []) {
+      for (const item of stateGraphAdjacency(state).get(currentId) || []) {
         if (item.edge.target !== currentId || item.edge.source !== item.id) continue;
         if (isSecondaryEdge(item.edge) && !state.showSecondaryLinks) continue;
         const node = state.nodesById.get(item.id);
@@ -3219,7 +3311,7 @@ def _relationship_graph_script() -> str:
     const query = String(state.searchQuery || "").trim().toLowerCase();
     const scopeIds = focusScopeIds(state);
     const degreeMap = degrees || visibleNodeDegreeMap(state);
-    return state.nodes
+    return stateGraphNodes(state)
       .filter((node) => !scopeIds || node.id === state.selectedId || scopeIds.has(node.id))
       .filter((node) => {
         if (includeSelected && node.id === state.selectedId) return isNodeVisible(node, state);
@@ -3363,11 +3455,13 @@ def _relationship_graph_script() -> str:
         all.checked = selected.size === group.types.length;
         all.indeterminate = selected.size > 0 && selected.size < group.types.length;
         all.disabled = group.types.every((type) => requiredType && type === requiredType);
+        if (all.parentElement) all.parentElement.classList.toggle("is-disabled", all.disabled);
       }
       control.querySelectorAll("[data-relationship-projection-type]").forEach((checkbox) => {
         const type = checkbox.getAttribute("data-relationship-projection-type") || "";
         checkbox.checked = selected.has(type);
         checkbox.disabled = Boolean(requiredType && type === requiredType);
+        if (checkbox.parentElement) checkbox.parentElement.classList.toggle("is-disabled", checkbox.disabled);
       });
     });
     const browser = container.closest && container.closest("[data-relationship-browser]") || container;
@@ -3381,7 +3475,7 @@ def _relationship_graph_script() -> str:
   }
 
   function resetTypeSubfilters(state, type) {
-    const fresh = createSubfilters(state.nodes, state.filterDefaults);
+    const fresh = createSubfilters(stateGraphNodes(state), state.filterDefaults);
     state.subfilters[type] = fresh[type] || {};
   }
 
@@ -3409,7 +3503,7 @@ def _relationship_graph_script() -> str:
     while (queue.length) {
       const fromId = queue.shift();
       const fromRank = traversalRank(state, state.nodesById.get(fromId));
-      for (const item of state.adjacency.get(fromId) || []) {
+      for (const item of stateGraphAdjacency(state).get(fromId) || []) {
         if (item.edge.source !== fromId || item.edge.target !== item.id) continue;
         if (isSecondaryEdge(item.edge) && !state.showSecondaryLinks) continue;
         if (seen.has(item.id)) continue;
@@ -3448,7 +3542,7 @@ def _relationship_graph_script() -> str:
     const rerender = () => {
       state.graphPage = 0;
       ensureSelectableFocus(state);
-    refreshTypeFilterState(browser.querySelector("[data-relationship-projection-controls]") || browser, state, graphTypes(state.nodes));
+    refreshTypeFilterState(browser.querySelector("[data-relationship-projection-controls]") || browser, state, stateGraphTypes(state));
       renderGraph(browser, state);
       renderNodeSelect(browser, state);
       renderDetail(browser, state);
@@ -3496,7 +3590,7 @@ def _relationship_graph_script() -> str:
   function renderFocusTypeSelect(browser, state) {
     const select = browser.querySelector("[data-relationship-focus-type]");
     if (!select) return;
-    const types = graphTypes(state.nodes);
+    const types = stateGraphTypes(state);
     select.replaceChildren();
     const any = document.createElement("option");
     any.value = "";
@@ -3540,7 +3634,7 @@ def _relationship_graph_script() -> str:
     while (queue.length) {
       const fromId = queue.shift();
       const fromRank = traversalRank(state, state.nodesById.get(fromId));
-      for (const item of state.adjacency.get(fromId) || []) {
+      for (const item of stateGraphAdjacency(state).get(fromId) || []) {
         if (item.edge.source !== fromId || item.edge.target !== item.id) continue;
         if (isSecondaryEdge(item.edge) && !state.showSecondaryLinks) continue;
         if (seen.has(item.id)) continue;
@@ -3636,7 +3730,7 @@ def _relationship_graph_script() -> str:
         resetTypeSubfilters(state, type);
         state.graphPage = 0;
         ensureSelectableFocus(state);
-        refreshTypeFilterState(container, state, graphTypes(state.nodes));
+        refreshTypeFilterState(container, state, stateGraphTypes(state));
         rerender();
       });
       const allValues = document.createElement("button");
@@ -3647,7 +3741,7 @@ def _relationship_graph_script() -> str:
         enableAllTypeSubfilters(state, type);
         state.graphPage = 0;
         ensureSelectableFocus(state);
-        refreshTypeFilterState(container, state, graphTypes(state.nodes));
+        refreshTypeFilterState(container, state, stateGraphTypes(state));
         rerender();
       });
       actions.append(defaults, allValues);
@@ -3672,7 +3766,7 @@ def _relationship_graph_script() -> str:
             config.enabled = allCheckbox.checked ? new Set(values) : new Set();
             state.graphPage = 0;
             ensureSelectableFocus(state);
-            refreshTypeFilterState(container, state, graphTypes(state.nodes));
+            refreshTypeFilterState(container, state, stateGraphTypes(state));
             rerender();
           });
           allLabel.appendChild(allCheckbox);
@@ -3695,7 +3789,7 @@ def _relationship_graph_script() -> str:
             }
             state.graphPage = 0;
             ensureSelectableFocus(state);
-            refreshTypeFilterState(container, state, graphTypes(state.nodes));
+            refreshTypeFilterState(container, state, stateGraphTypes(state));
             rerender();
           });
           label.appendChild(checkbox);
@@ -3831,7 +3925,7 @@ def _relationship_graph_script() -> str:
       levels.dataset.relationshipProjectionOutsideClick = "true";
       document.addEventListener("click", () => closeProjectionMenus(null));
     }
-    refreshTypeFilterState(container, state, graphTypes(state.nodes));
+    refreshTypeFilterState(container, state, stateGraphTypes(state));
   }
 
   function initBrowser(browser) {
@@ -3852,6 +3946,7 @@ def _relationship_graph_script() -> str:
       edges: graph.edges,
       nodesById,
       adjacency: buildAdjacency(graph.edges),
+      outgoingAdjacency: buildOutgoingAdjacency(graph.edges),
       filterDefaults: graph.filterDefaults || {},
       subfilters: {},
       statusFilter: {values: [], enabled: new Set()},
@@ -3870,14 +3965,19 @@ def _relationship_graph_script() -> str:
       focusGraph: null,
       focusContent: null,
       focusInGraphOnly: false,
+      isolatedRootId: "",
+      isolatedNodeIds: null,
+      scopedEdgesCache: null,
+      scopedAdjacencyCache: null,
       canvasViewportListenersAttached: false,
       showSecondaryLinks: false,
       graphPage: 0,
       traversal: traversalConfig(graph.traversal),
       projectionMode: "auto",
       projectionSelections: {},
-      enabledTypes: new Set(graphTypes(graph.nodes))
+      enabledTypes: new Set()
     };
+    state.enabledTypes = new Set(stateGraphTypes(state));
     state.projectionSelections = defaultProjectionSelections(state);
     resetSubfilters(state);
     syncActiveSubfilterType(state);
@@ -3916,7 +4016,7 @@ def _relationship_graph_script() -> str:
         state.typeSearchType = focusType.value || "";
         state.graphPage = 0;
         renderNodeSelect(browser, state);
-        refreshTypeFilterState(browser.querySelector("[data-relationship-projection-controls]") || browser, state, graphTypes(state.nodes));
+        refreshTypeFilterState(browser.querySelector("[data-relationship-projection-controls]") || browser, state, stateGraphTypes(state));
       });
     }
     const focusScope = browser.querySelector("[data-relationship-focus-scope]");
@@ -4036,17 +4136,13 @@ def _relationship_graph_script() -> str:
       }
       const nodeElement = event.target.closest && event.target.closest("[data-node-id]");
       if (nodeElement) {
-        activateNode(browser, state, nodeElement.getAttribute("data-node-id"));
+        selectNode(browser, state, nodeElement.getAttribute("data-node-id"), true);
         return;
       }
       const jump = event.target.closest && event.target.closest("[data-relationship-jump]");
       if (jump) {
         const nodeId = jump.getAttribute("data-relationship-jump");
-        if (jump.getAttribute("data-relationship-jump-visible") === "true") {
-          activateNode(browser, state, nodeId);
-        } else {
-          selectNode(browser, state, nodeId, true);
-        }
+        selectNode(browser, state, nodeId, true);
       }
     });
     browser.addEventListener("dblclick", (event) => {
@@ -4059,7 +4155,7 @@ def _relationship_graph_script() -> str:
       const nodeElement = event.target.closest && event.target.closest("[data-node-id]");
       if (!nodeElement || (event.key !== "Enter" && event.key !== " ")) return;
       event.preventDefault();
-      activateNode(browser, state, nodeElement.getAttribute("data-node-id"));
+      selectNode(browser, state, nodeElement.getAttribute("data-node-id"), true);
     });
     window.addEventListener("resize", () => fitGraph(state, 40), {passive: true});
     selectNode(browser, state, state.selectedId, false);
@@ -4121,8 +4217,10 @@ def _relationship_graph_script() -> str:
     const focusId = view && view.focus;
     if (!focusId || !state.nodesById.has(focusId)) return;
     pushNavigationSnapshot(state);
+    setIsolatedRoot(state, view.isolate_root || "");
+    if (state.isolatedNodeIds && !state.isolatedNodeIds.has(focusId)) return;
     resetGraphFilters(browser, state);
-    const types = graphTypes(state.nodes);
+    const types = stateGraphTypes(state);
     const requested = Array.isArray(view.types) ? view.types.filter((type) => types.includes(type)) : [];
     if (requested.length) {
       state.enabledTypes = new Set(requested);
@@ -4167,7 +4265,19 @@ def _relationship_graph_script() -> str:
 
   document.querySelectorAll("[data-relationship-open]").forEach((button) => {
     button.addEventListener("click", () => {
-      openRelationshipModal(button.closest(".report-relationship-section").querySelector("[data-relationship-modal]"));
+      const modal = button.closest(".report-relationship-section").querySelector("[data-relationship-modal]");
+      openRelationshipModal(modal);
+      const browser = modal && modal.querySelector("[data-relationship-browser]");
+      const state = browser && browser.__relationshipState;
+      if (state && state.isolatedRootId) {
+        pushNavigationSnapshot(state);
+        setIsolatedRoot(state, "");
+        resetGraphFilters(browser, state);
+        ensureSelectableFocus(state);
+        renderGraph(browser, state);
+        renderNodeSelect(browser, state);
+        renderDetail(browser, state);
+      }
     });
   });
   document.querySelectorAll("[data-relationship-open-focus]").forEach((item) => {
