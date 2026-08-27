@@ -1048,6 +1048,10 @@ def _looks_like_status(value: str) -> bool:
         "skip",
         "skipped",
         "assumption_failure",
+        "auto_fail_candidate",
+        "auto_pass_candidate",
+        "auto_no_result_candidate",
+        "auto_warning_candidate",
         "not_run",
         "not_done",
         "blocked",
@@ -1538,27 +1542,37 @@ def _relationship_graph_script() -> str:
       return String(leftNode && (leftNode.label || leftNode.id) || left.id).localeCompare(String(rightNode && (rightNode.label || rightNode.id) || right.id));
     };
     const ancestry = new Set([selectedId]);
-    let currentId = selectedId;
-    let step = 1;
-    while (true) {
-      const currentRank = rankOf(nodesById.get(currentId));
-      const candidates = neighbors(currentId).filter((item) => {
-        const node = nodesById.get(item.id);
-        return node && !ancestry.has(item.id) && rankOf(node) < currentRank;
-      }).map((item) => ({
-        id: item.id,
-        edge: item.edge,
-        directed: item.edge.source === item.id && item.edge.target === currentId,
-        primary: !isSecondaryEdge(item.edge)
-      })).sort(sortCandidate);
-      const parent = candidates[0];
-      if (!parent) break;
-      ancestry.add(parent.id);
-      traversedEdgeKeys.add(edgeKey(parent.edge));
-      distances.set(parent.id, step);
-      currentId = parent.id;
-      step += 1;
-    }
+    const collectVisibleParents = (seedIds) => {
+      const queue = Array.from(seedIds || []).filter((id) => nodesById.has(id));
+      const seen = new Set(queue);
+      while (queue.length) {
+        const currentId = queue.shift();
+        const currentNode = nodesById.get(currentId);
+        const currentRank = rankOf(currentNode);
+        const currentDistance = distances.get(currentId) ?? 0;
+        const candidates = neighbors(currentId).filter((item) => {
+          const node = nodesById.get(item.id);
+          if (!node) return false;
+          if (isSecondaryEdge(item.edge) && !includeSecondaryLinks) return false;
+          if (!contextNodeVisible(node)) return false;
+          return rankOf(node) < currentRank;
+        }).map((item) => ({
+          id: item.id,
+          edge: item.edge,
+          directed: item.edge.source === item.id && item.edge.target === currentId,
+          primary: !isSecondaryEdge(item.edge)
+        })).sort(sortCandidate);
+        for (const parent of candidates) {
+          traversedEdgeKeys.add(edgeKey(parent.edge));
+          if (seen.has(parent.id)) continue;
+          seen.add(parent.id);
+          ancestry.add(parent.id);
+          distances.set(parent.id, Math.min(distances.get(parent.id) ?? currentDistance + 1, currentDistance + 1));
+          queue.push(parent.id);
+        }
+      }
+    };
+    collectVisibleParents([selectedId]);
     const downQueue = [selectedId];
     const downSeen = new Set([selectedId]);
     const downParents = new Map();
@@ -1840,12 +1854,79 @@ def _relationship_graph_script() -> str:
   }
 
   function visibleEdgesForCanvas(selectedId, graph) {
-    return graph.edges || [];
+    const relationPriority = (edge) => {
+      const relation = String(edge && edge.relation || "");
+      if (relation === "through_filtered") return 3;
+      if (relation.includes("auto_candidate")) return 2;
+      if (relation.includes("annotation")) return 0;
+      return 1;
+    };
+    const byPair = new Map();
+    for (const edge of graph.edges || []) {
+      if (!edge || !edge.source || !edge.target) continue;
+      const key = `${edge.source}\u0000${edge.target}`;
+      const current = byPair.get(key);
+      if (!current || relationPriority(edge) < relationPriority(current)) {
+        byPair.set(key, edge);
+      }
+    }
+    return Array.from(byPair.values());
   }
 
-  function wrapLabel(value) {
+  function nodeDetailText(node, key) {
+    const details = node && node.details && typeof node.details === "object" ? node.details : {};
+    const value = details[key];
+    return value == null ? "" : String(value);
+  }
+
+  function stripLeadingRequirementId(text) {
+    return String(text || "")
+      .replace(/^\s*\[[^\]]+\]\s*/, "")
+      .replace(/^\s*(?:CDD|VSR|GAS-VSR)\s+[A-Z0-9./:-]+(?:\s*[·:-]\s*)?/i, "")
+      .trim();
+  }
+
+  function requirementPhrase(text, requireMarker) {
+    const clean = stripLeadingRequirementId(String(text || "").replace(/\s+/g, " "));
+    const ruleWords = [
+      "STRONGLY\\s+RECOMMENDED",
+      "MUST\\s+NOT",
+      "SHALL\\s+NOT",
+      "SHOULD\\s+NOT",
+      "MUST",
+      "SHALL",
+      "SHOULD",
+      "REQUIRED",
+      "REQUIRES",
+      "RECOMMENDED",
+      "PROHIBITED",
+      "FORBIDDEN",
+      "OPTIONAL",
+      "MAY"
+    ];
+    const match = clean.match(new RegExp(`\\b(${ruleWords.join("|")})\\b`, "i"));
+    if (requireMarker && !match) return "";
+    const phrase = match ? clean.slice(match.index).trim() : clean;
+    return phrase.replace(/\s+/g, " ").trim();
+  }
+
+  function nodeDisplayLabel(node) {
+    const base = node && (node.label || node.id) || "";
+    const type = node && (node.type || "entity") || "entity";
+    if (type !== "cdd" && type !== "vsr") return base;
+    const summary = nodeDetailText(node, "requirement_summary") || node.summary || "";
+    const text = nodeDetailText(node, "requirement_text") || summary;
+    const phrase = requirementPhrase(summary, true) || requirementPhrase(text, true) || requirementPhrase(summary, false) || requirementPhrase(text, false);
+    if (!phrase || String(base).includes(phrase)) return base;
+    const id = String(node.id || base).replace(/^[^:]+:/, "");
+    return `${id} · ${phrase}`;
+  }
+
+  function wrapLabel(value, options) {
     const text = String(value || "");
-    const limit = 22;
+    const config = options && typeof options === "object" ? options : {};
+    const limit = config.lineLength || 22;
+    const maxLines = config.maxLines || 4;
     const tokens = [];
     for (const token of text.split(/(\s+|[@./:_-])/).filter(Boolean)) {
       if (token.length <= limit) {
@@ -1862,7 +1943,7 @@ def _relationship_graph_script() -> str:
     for (const token of tokens) {
       const candidate = line + token;
       if (candidate.length > limit && line) {
-        if (lines.length >= 4) {
+        if (lines.length >= maxLines) {
           truncated = true;
           break;
         }
@@ -1872,13 +1953,19 @@ def _relationship_graph_script() -> str:
         line = candidate;
       }
     }
-    if (line && lines.length < 4) lines.push(line);
+    if (line && lines.length < maxLines) lines.push(line);
     else if (line) truncated = true;
-    const wrapped = lines.slice(0, 4);
+    const wrapped = lines.slice(0, maxLines);
     if (truncated && wrapped.length) {
       wrapped[wrapped.length - 1] = `${wrapped[wrapped.length - 1].slice(0, limit - 1)}\u2026`;
     }
     return wrapped.join("\n");
+  }
+
+  function wrapNodeDisplayLabel(node) {
+    const type = node && (node.type || "entity") || "entity";
+    if (type === "cdd") return wrapLabel(nodeDisplayLabel(node), {lineLength: 18, maxLines: 3});
+    return wrapLabel(nodeDisplayLabel(node), {lineLength: 22, maxLines: 4});
   }
 
   function cssValue(name, fallback) {
@@ -1903,6 +1990,8 @@ def _relationship_graph_script() -> str:
     const passBg = cssValue("--graph-status-pass-bg", "#f0fdf4");
     const info = cssValue("--graph-status-info-border", "#7c3aed");
     const infoBg = cssValue("--graph-status-info-bg", "#f5f3ff");
+    const autoPass = cssValue("--graph-status-auto-pass-border", "#2563eb");
+    const autoPassBg = cssValue("--graph-status-auto-pass-bg", "#eff6ff");
     const neutral = cssValue("--graph-status-neutral-border", "#64748b");
     const neutralBg = cssValue("--graph-status-neutral-bg", "#f8fafc");
     return [
@@ -1938,11 +2027,12 @@ def _relationship_graph_script() -> str:
       {selector: ".is-list-item", style: {"width": 190, "height": 58, "text-max-width": 162, "font-size": 9}},
       {selector: '.is-list-item[type = "cdd"]', style: {"width": 122, "height": 80, "text-max-width": 92}},
       {selector: "edge", style: {"width": 1.4, "line-color": muted, "target-arrow-color": muted, "target-arrow-shape": "triangle", "curve-style": "bezier", "opacity": .52}},
-      {selector: ".status-covered, .status-covered-candidate, .status-pass", style: {"border-color": pass, "background-color": passBg}},
+      {selector: ".status-covered, .status-covered-candidate, .status-pass, .status-not-failed", style: {"border-color": pass, "background-color": passBg}},
       {selector: ".status-risk, .status-needs-evidence, .status-not-applicable-candidate, .status-warning", style: {"border-color": risk, "background-color": riskBg}},
       {selector: ".status-gap, .status-fail, .status-blocked", style: {"border-color": fail, "background-color": failBg}},
-      {selector: ".status-assumption-failure, .status-skip, .status-skipped", style: {"border-color": info, "background-color": infoBg}},
-      {selector: ".status-not-run, .status-not-done, .status-unknown", style: {"border-color": neutral, "background-color": neutralBg}},
+      {selector: ".status-assumption-failure, .status-skip, .status-skipped, .status-auto-fail-candidate, .status-auto-warning-candidate", style: {"border-color": info, "background-color": infoBg}},
+      {selector: ".status-auto-pass-candidate", style: {"border-color": autoPass, "background-color": autoPassBg}},
+      {selector: ".status-not-run, .status-not-done, .status-unknown, .status-auto-no-result-candidate", style: {"border-color": neutral, "background-color": neutralBg}},
       {selector: ".is-selected", style: {"border-color": link, "border-width": 5, "outline-color": link, "outline-width": 3, "outline-opacity": .52}},
       {selector: ".is-active", style: {"border-color": active, "border-width": 4}},
       {selector: "node:selected", style: {"border-color": link, "border-width": 4}}
@@ -2041,7 +2131,7 @@ def _relationship_graph_script() -> str:
       data: {
         id: node.id,
         label: node.label || node.id,
-        displayLabel: `${nodeTypeLabel(node)}\n${wrapLabel(node.label || node.id)}`,
+        displayLabel: `${nodeTypeLabel(node)}\n${wrapNodeDisplayLabel(node)}`,
         type: node.type || "entity",
         status: node.status || "unknown"
       },

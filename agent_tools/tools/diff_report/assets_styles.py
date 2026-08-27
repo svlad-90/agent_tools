@@ -86,6 +86,8 @@ def stylesheet() -> str:
       --graph-status-fail-border: #dc2626;
       --graph-status-info-bg: #f5f3ff;
       --graph-status-info-border: #7c3aed;
+      --graph-status-auto-pass-bg: #eff6ff;
+      --graph-status-auto-pass-border: #2563eb;
       --graph-status-neutral-bg: #f8fafc;
       --graph-status-neutral-border: #64748b;
       --graph-isolated-option-text: #475569;
@@ -201,6 +203,8 @@ def stylesheet() -> str:
       --graph-status-fail-border: #ff7b72;
       --graph-status-info-bg: #281f45;
       --graph-status-info-border: #c4b5fd;
+      --graph-status-auto-pass-bg: #102a43;
+      --graph-status-auto-pass-border: #58a6ff;
       --graph-status-neutral-bg: #20242c;
       --graph-status-neutral-border: #a8b3c2;
       --graph-isolated-option-text: #a8b3c2;
@@ -301,16 +305,20 @@ def stylesheet() -> str:
     .report-card-links a { display: inline-flex; align-items: center; min-height: 30px; padding: 0 9px; border: 1px solid var(--border); border-radius: 6px; background: var(--button-bg); font-weight: 700; }
     .report-card-links a:hover, .report-artifact:hover { border-color: var(--link); background: var(--button-hover-bg); }
     .report-status-badge { display: inline-flex; align-items: center; justify-content: center; min-height: 26px; padding: 3px 9px; border: 1px solid var(--meta-border); border-radius: 999px; background: var(--button-bg); color: var(--meta-text); font: 800 13px/1.1 ui-monospace, SFMono-Regular, Consolas, monospace; white-space: nowrap; }
-    .status-covered, .status-covered-candidate, .status-pass { border-color: color-mix(in srgb, var(--stat-add) 70%, var(--meta-border)); }
-    .status-covered .report-status-badge, .status-covered-candidate .report-status-badge, .status-pass .report-status-badge, .report-status-badge.status-covered, .report-status-badge.status-covered-candidate, .report-status-badge.status-pass { color: var(--stat-add); border-color: color-mix(in srgb, var(--stat-add) 70%, var(--meta-border)); background: color-mix(in srgb, var(--add-bg) 72%, var(--panel)); }
+    .status-covered, .status-covered-candidate, .status-pass, .status-not-failed { border-color: color-mix(in srgb, var(--stat-add) 70%, var(--meta-border)); }
+    .status-covered .report-status-badge, .status-covered-candidate .report-status-badge, .status-pass .report-status-badge, .status-not-failed .report-status-badge, .report-status-badge.status-covered, .report-status-badge.status-covered-candidate, .report-status-badge.status-pass, .report-status-badge.status-not-failed { color: var(--stat-add); border-color: color-mix(in srgb, var(--stat-add) 70%, var(--meta-border)); background: color-mix(in srgb, var(--add-bg) 72%, var(--panel)); }
     .status-risk, .status-needs-evidence, .status-not-applicable-candidate, .status-warning { border-color: color-mix(in srgb, var(--comment-border) 70%, var(--meta-border)); }
     .status-risk .report-status-badge, .status-needs-evidence .report-status-badge, .status-not-applicable-candidate .report-status-badge, .status-warning .report-status-badge, .report-status-badge.status-risk, .report-status-badge.status-needs-evidence, .report-status-badge.status-not-applicable-candidate, .report-status-badge.status-warning { color: var(--comment-border); border-color: color-mix(in srgb, var(--comment-border) 70%, var(--meta-border)); background: color-mix(in srgb, var(--comment-bg) 70%, var(--panel)); }
     .status-gap, .status-fail, .status-blocked { border-color: color-mix(in srgb, var(--stat-del) 72%, var(--meta-border)); }
     .status-gap .report-status-badge, .status-fail .report-status-badge, .status-blocked .report-status-badge, .report-status-badge.status-gap, .report-status-badge.status-fail, .report-status-badge.status-blocked { color: var(--stat-del); border-color: color-mix(in srgb, var(--stat-del) 72%, var(--meta-border)); background: color-mix(in srgb, var(--del-bg) 70%, var(--panel)); }
     .status-assumption-failure, .status-skip, .status-skipped { border-color: color-mix(in srgb, var(--graph-status-info-border) 70%, var(--meta-border)); }
     .status-assumption-failure .report-status-badge, .status-skip .report-status-badge, .status-skipped .report-status-badge, .report-status-badge.status-assumption-failure, .report-status-badge.status-skip, .report-status-badge.status-skipped { color: var(--graph-status-info-border); border-color: color-mix(in srgb, var(--graph-status-info-border) 70%, var(--meta-border)); background: color-mix(in srgb, var(--graph-status-info-bg) 70%, var(--panel)); }
+    .status-auto-fail-candidate, .status-auto-warning-candidate { border-color: color-mix(in srgb, var(--graph-status-info-border) 70%, var(--meta-border)); }
+    .status-auto-fail-candidate .report-status-badge, .status-auto-warning-candidate .report-status-badge, .report-status-badge.status-auto-fail-candidate, .report-status-badge.status-auto-warning-candidate { color: var(--graph-status-info-border); border-color: color-mix(in srgb, var(--graph-status-info-border) 70%, var(--meta-border)); background: color-mix(in srgb, var(--graph-status-info-bg) 70%, var(--panel)); }
+    .status-auto-pass-candidate { border-color: color-mix(in srgb, var(--graph-status-auto-pass-border) 70%, var(--meta-border)); }
+    .status-auto-pass-candidate .report-status-badge, .report-status-badge.status-auto-pass-candidate { color: var(--graph-status-auto-pass-border); border-color: color-mix(in srgb, var(--graph-status-auto-pass-border) 70%, var(--meta-border)); background: color-mix(in srgb, var(--graph-status-auto-pass-bg) 70%, var(--panel)); }
     .status-not-started, .status-not-run, .status-not-done, .status-unknown { border-color: color-mix(in srgb, var(--graph-status-neutral-border) 70%, var(--meta-border)); }
-    .status-not-started .report-status-badge, .status-not-run .report-status-badge, .status-not-done .report-status-badge, .status-unknown .report-status-badge, .report-status-badge.status-not-started, .report-status-badge.status-not-run, .report-status-badge.status-not-done, .report-status-badge.status-unknown { color: var(--graph-status-neutral-border); border-color: color-mix(in srgb, var(--graph-status-neutral-border) 70%, var(--meta-border)); background: color-mix(in srgb, var(--graph-status-neutral-bg) 70%, var(--panel)); }
+    .status-not-started .report-status-badge, .status-not-run .report-status-badge, .status-not-done .report-status-badge, .status-unknown .report-status-badge, .status-auto-no-result-candidate .report-status-badge, .report-status-badge.status-not-started, .report-status-badge.status-not-run, .report-status-badge.status-not-done, .report-status-badge.status-unknown, .report-status-badge.status-auto-no-result-candidate { color: var(--graph-status-neutral-border); border-color: color-mix(in srgb, var(--graph-status-neutral-border) 70%, var(--meta-border)); background: color-mix(in srgb, var(--graph-status-neutral-bg) 70%, var(--panel)); }
     .report-heatmap-grid { display: grid; gap: 6px; overflow-x: auto; padding-bottom: 2px; }
     .report-heatmap-row { display: grid; grid-template-columns: repeat(var(--report-heatmap-columns, 7), minmax(120px, 1fr)); gap: 6px; min-width: max-content; }
     .report-heatmap-row[data-relationship-open-focus] { cursor: pointer; }
@@ -321,7 +329,9 @@ def stylesheet() -> str:
     .report-heatmap-cell.status-risk, .report-heatmap-cell.status-needs-evidence, .report-heatmap-cell.status-not-applicable-candidate, .report-heatmap-cell.status-warning { background: color-mix(in srgb, var(--comment-bg) 76%, var(--panel)); color: var(--comment-border); font-weight: 800; }
     .report-heatmap-cell.status-gap, .report-heatmap-cell.status-fail, .report-heatmap-cell.status-blocked { background: color-mix(in srgb, var(--del-bg) 76%, var(--panel)); color: var(--stat-del); font-weight: 800; }
     .report-heatmap-cell.status-assumption-failure, .report-heatmap-cell.status-skip, .report-heatmap-cell.status-skipped { background: color-mix(in srgb, var(--graph-status-info-bg) 76%, var(--panel)); color: var(--graph-status-info-border); font-weight: 800; }
-    .report-heatmap-cell.status-not-run, .report-heatmap-cell.status-not-done, .report-heatmap-cell.status-not-started, .report-heatmap-cell.status-unknown { background: color-mix(in srgb, var(--graph-status-neutral-bg) 76%, var(--panel)); color: var(--graph-status-neutral-border); font-weight: 800; }
+    .report-heatmap-cell.status-auto-fail-candidate, .report-heatmap-cell.status-auto-warning-candidate { background: color-mix(in srgb, var(--graph-status-info-bg) 76%, var(--panel)); color: var(--graph-status-info-border); font-weight: 800; }
+    .report-heatmap-cell.status-auto-pass-candidate { background: color-mix(in srgb, var(--graph-status-auto-pass-bg) 76%, var(--panel)); color: var(--graph-status-auto-pass-border); font-weight: 800; }
+    .report-heatmap-cell.status-not-run, .report-heatmap-cell.status-not-done, .report-heatmap-cell.status-not-started, .report-heatmap-cell.status-unknown, .report-heatmap-cell.status-auto-no-result-candidate { background: color-mix(in srgb, var(--graph-status-neutral-bg) 76%, var(--panel)); color: var(--graph-status-neutral-border); font-weight: 800; }
     .report-metric-table-note { margin: 0 0 10px; color: var(--muted); }
     .report-status-cards-note { margin: 0 0 10px; color: var(--muted); }
     .report-metric-table { width: 100%; min-width: 640px; border-collapse: separate; border-spacing: 0; table-layout: auto; }
@@ -332,17 +342,19 @@ def stylesheet() -> str:
     .report-metric-table-sublabel { display: block; margin-top: 3px; color: var(--muted); font-size: .92em; font-weight: 700; letter-spacing: .02em; text-transform: none; }
     .report-metric-table tbody th { font-weight: 800; white-space: nowrap; }
     .report-metric-table tbody td { font: 700 13px/1.2 ui-monospace, SFMono-Regular, Consolas, monospace; white-space: nowrap; }
-    .report-metric-table tbody th.status-covered, .report-metric-table tbody th.status-covered-candidate, .report-metric-table tbody td.status-covered, .report-metric-table tbody td.status-covered-candidate, .report-metric-table tbody td.status-pass { background: color-mix(in srgb, var(--add-bg) 70%, var(--panel)); color: var(--stat-add); }
+    .report-metric-table tbody th.status-covered, .report-metric-table tbody th.status-covered-candidate, .report-metric-table tbody td.status-covered, .report-metric-table tbody td.status-covered-candidate, .report-metric-table tbody td.status-pass, .report-metric-table tbody td.status-not-failed { background: color-mix(in srgb, var(--add-bg) 70%, var(--panel)); color: var(--stat-add); }
     .report-metric-table tbody td.status-risk, .report-metric-table tbody td.status-needs-evidence, .report-metric-table tbody td.status-warning { background: color-mix(in srgb, var(--comment-bg) 70%, var(--panel)); color: var(--comment-border); }
     .report-metric-table tbody td.status-gap, .report-metric-table tbody td.status-fail, .report-metric-table tbody td.status-blocked { background: color-mix(in srgb, var(--del-bg) 70%, var(--panel)); color: var(--stat-del); }
-    .report-metric-table tbody td.status-not-run, .report-metric-table tbody td.status-not-done, .report-metric-table tbody td.status-not-started, .report-metric-table tbody td.status-unknown { background: color-mix(in srgb, var(--graph-status-neutral-bg) 70%, var(--panel)); color: var(--graph-status-neutral-border); }
+    .report-metric-table tbody td.status-auto-fail-candidate, .report-metric-table tbody td.status-auto-warning-candidate { background: color-mix(in srgb, var(--graph-status-info-bg) 70%, var(--panel)); color: var(--graph-status-info-border); }
+    .report-metric-table tbody td.status-auto-pass-candidate { background: color-mix(in srgb, var(--graph-status-auto-pass-bg) 70%, var(--panel)); color: var(--graph-status-auto-pass-border); }
+    .report-metric-table tbody td.status-not-run, .report-metric-table tbody td.status-not-done, .report-metric-table tbody td.status-not-started, .report-metric-table tbody td.status-unknown, .report-metric-table tbody td.status-auto-no-result-candidate { background: color-mix(in srgb, var(--graph-status-neutral-bg) 70%, var(--panel)); color: var(--graph-status-neutral-border); }
     .report-metric-cell-link { padding: 0; border: 0; background: none; color: inherit; font: inherit; text-align: left; text-decoration: underline dotted; text-underline-offset: 3px; cursor: pointer; }
     .report-metric-cell-link:hover, .report-metric-cell-link:focus-visible { color: var(--link); text-decoration-style: solid; }
     .report-metric-cell-note { display: block; color: var(--muted); font: 400 12px/1.3 inherit; }
     .report-metric-table-wrap { max-width: 100%; overflow-x: auto; border: 1px solid var(--border); border-radius: 8px; }
     .report-metric-cell-parts { display: inline-flex; flex-wrap: nowrap; gap: 5px; align-items: baseline; }
     .report-metric-cell-part-sep { color: var(--muted); font-weight: 600; }
-    .report-metric-cell-part.status-pass, .report-metric-cell-part.status-covered, .report-metric-cell-part.status-covered-candidate { color: var(--stat-add); }
+    .report-metric-cell-part.status-pass, .report-metric-cell-part.status-covered, .report-metric-cell-part.status-covered-candidate, .report-metric-cell-part.status-not-failed { color: var(--stat-add); }
     .report-metric-cell-part.status-fail, .report-metric-cell-part.status-gap, .report-metric-cell-part.status-risk { color: var(--stat-del); }
     .report-metric-cell-part.status-not-run, .report-metric-cell-part.status-not-done, .report-metric-cell-part.status-unknown, .report-metric-cell-part.status-needs-evidence { color: var(--muted); }
     .report-table-filter { display: grid; gap: 5px; max-width: 460px; margin-bottom: 10px; }
@@ -376,9 +388,10 @@ def stylesheet() -> str:
     .relationship-preview-row strong { display: inline; margin: 0; font-size: inherit; color: var(--text); }
     .relationship-preview-row span.status-risk, .relationship-preview-row span.status-needs-evidence, .relationship-preview-row span.status-warning { border-color: color-mix(in srgb, var(--comment-border) 72%, var(--border)); }
     .relationship-preview-row span.status-gap, .relationship-preview-row span.status-fail { border-color: color-mix(in srgb, var(--stat-del) 72%, var(--border)); }
-    .relationship-preview-row span.status-covered, .relationship-preview-row span.status-covered-candidate, .relationship-preview-row span.status-pass { border-color: color-mix(in srgb, var(--stat-add) 72%, var(--border)); }
-    .relationship-preview-row span.status-assumption-failure, .relationship-preview-row span.status-skip, .relationship-preview-row span.status-skipped { border-color: color-mix(in srgb, var(--graph-status-info-border) 72%, var(--border)); }
-    .relationship-preview-row span.status-not-run, .relationship-preview-row span.status-not-done, .relationship-preview-row span.status-unknown { border-color: color-mix(in srgb, var(--graph-status-neutral-border) 72%, var(--border)); }
+    .relationship-preview-row span.status-covered, .relationship-preview-row span.status-covered-candidate, .relationship-preview-row span.status-pass, .relationship-preview-row span.status-not-failed { border-color: color-mix(in srgb, var(--stat-add) 72%, var(--border)); }
+    .relationship-preview-row span.status-assumption-failure, .relationship-preview-row span.status-skip, .relationship-preview-row span.status-skipped, .relationship-preview-row span.status-auto-fail-candidate, .relationship-preview-row span.status-auto-warning-candidate { border-color: color-mix(in srgb, var(--graph-status-info-border) 72%, var(--border)); }
+    .relationship-preview-row span.status-auto-pass-candidate { border-color: color-mix(in srgb, var(--graph-status-auto-pass-border) 72%, var(--border)); }
+    .relationship-preview-row span.status-not-run, .relationship-preview-row span.status-not-done, .relationship-preview-row span.status-unknown, .relationship-preview-row span.status-auto-no-result-candidate { border-color: color-mix(in srgb, var(--graph-status-neutral-border) 72%, var(--border)); }
     .relationship-launcher button, .relationship-modal-head button { min-height: 36px; padding: 0 12px; border: 1px solid var(--border); border-radius: 6px; background: var(--button-bg); color: var(--text); font: 800 .92em/1 var(--font-stack); cursor: pointer; white-space: nowrap; }
     .relationship-launcher button { min-height: 44px; padding: 0 18px; border-color: color-mix(in srgb, var(--link) 72%, var(--border)); background: var(--link); color: #fff; box-shadow: 0 0 0 1px color-mix(in srgb, var(--link) 28%, transparent), 0 10px 28px color-mix(in srgb, var(--link) 26%, transparent); }
     .relationship-launcher button:hover { border-color: color-mix(in srgb, var(--link) 82%, #fff); background: color-mix(in srgb, var(--link) 84%, #fff); color: #fff; }
