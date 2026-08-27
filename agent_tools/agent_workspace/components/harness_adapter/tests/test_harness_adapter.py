@@ -20,6 +20,8 @@ from agent_tools.agent_workspace.components.harness_adapter.api import AgentType
 from agent_tools.agent_workspace.components.harness_adapter.api import HarnessStatusEvent
 from agent_tools.agent_workspace.components.harness_adapter.api import clear_harness_debug_events
 from agent_tools.agent_workspace.components.harness_adapter.api import clear_harness_status_subscriptions
+from agent_tools.agent_workspace.components.harness_adapter.api import claude_workspace_mcp_settings
+from agent_tools.agent_workspace.components.harness_adapter.api import codex_workspace_mcp_config_options
 from agent_tools.agent_workspace.components.harness_adapter.api import load_harness_debug_events
 from agent_tools.agent_workspace.components.harness_adapter.api import load_latest_harness_debug_events_by_task
 from agent_tools.agent_workspace.components.harness_adapter.api import notify_workspace_ipc
@@ -37,6 +39,44 @@ from agent_tools.agent_workspace.components.settings.api import save_agent_works
 from agent_tools.tools.task_context import database_path
 from agent_tools.tools.task_context import ensure_database
 from agent_tools.tools.task_context import set_slot
+
+
+def test_harness_adapter_builds_codex_workspace_mcp_config_options(tmp_path: Path) -> None:
+    options = codex_workspace_mcp_config_options(tmp_path, python_executable="python")
+
+    assert options == [
+        'mcp_servers.agent_tools_workspace.command="python"',
+        (
+            'mcp_servers.agent_tools_workspace.args=["-m", '
+            '"agent_tools.agent_workspace.components.workspace_mcp", '
+            '"--workspace", '
+            f'"{tmp_path.resolve()}"]'
+        ),
+        "mcp_servers.agent_tools_workspace.enabled=true",
+        "mcp_servers.agent_tools_workspace.startup_timeout_sec=10",
+        "mcp_servers.agent_tools_workspace.tool_timeout_sec=60",
+        f'mcp_servers.agent_tools_workspace.env.PYTHONPATH="{tmp_path.resolve()}"',
+    ]
+
+
+def test_harness_adapter_builds_claude_workspace_mcp_settings(tmp_path: Path) -> None:
+    settings = claude_workspace_mcp_settings(tmp_path, python_executable="python")
+
+    assert settings == {
+        "mcpServers": {
+            "agent-tools": {
+                "type": "stdio",
+                "command": "python",
+                "args": [
+                    "-m",
+                    "agent_tools.agent_workspace.components.workspace_mcp",
+                    "--workspace",
+                    str(tmp_path.resolve()),
+                ],
+                "env": {"PYTHONPATH": str(tmp_path.resolve())},
+            }
+        }
+    }
 
 
 def test_harness_adapter_emits_status_updates_for_codex_prompt(tmp_path: Path) -> None:

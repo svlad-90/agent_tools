@@ -20,6 +20,48 @@ def _assert_codex_low_redraw_tui_options(command: list[str]) -> None:
     assert "-c tui.disable_mouse_capture=true" in joined_pairs
 
 
+def test_codex_command_registers_workspace_mcp_server(tmp_path: Path) -> None:
+    command = build_ai_agent_console_command(
+        tmp_path,
+        "task prompt",
+        "codex",
+        codex_executable="codex-bin",
+        claude_executable="claude-bin",
+    )
+
+    joined_pairs = _joined_pairs(command)
+    assert '-c mcp_servers.agent_tools_workspace.command="python3"' in joined_pairs
+    assert '-c mcp_servers.agent_tools_workspace.enabled=true' in joined_pairs
+    assert "-c mcp_servers.agent_tools_workspace.startup_timeout_sec=10" in joined_pairs
+    assert "-c mcp_servers.agent_tools_workspace.tool_timeout_sec=60" in joined_pairs
+    assert "agent_tools.agent_workspace.components.workspace_mcp" in " ".join(command)
+    assert str(tmp_path.resolve()) in " ".join(command)
+
+
+def test_claude_command_registers_workspace_mcp_server(tmp_path: Path) -> None:
+    command = build_ai_agent_console_command(
+        tmp_path,
+        "task prompt",
+        "claude",
+        codex_executable="codex-bin",
+        claude_executable="claude-bin",
+    )
+
+    settings = _claude_settings(command)
+    servers = settings["mcpServers"]
+    assert isinstance(servers, dict)
+    server = servers["agent-tools"]
+    assert server["type"] == "stdio"
+    assert server["command"] == "python3"
+    assert server["args"] == [
+        "-m",
+        "agent_tools.agent_workspace.components.workspace_mcp",
+        "--workspace",
+        str(tmp_path.resolve()),
+    ]
+    assert server["env"] == {"PYTHONPATH": str(tmp_path.resolve())}
+
+
 def test_codex_tui_animations_can_be_enabled(tmp_path: Path) -> None:
     command = build_ai_agent_console_command(
         tmp_path,

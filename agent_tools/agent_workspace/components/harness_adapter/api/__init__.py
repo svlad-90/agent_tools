@@ -8,6 +8,11 @@ from ..src.claude_adapter import ClaudeHookEvent as ClaudeHarnessEvent
 from ..src.claude_adapter import claude_harness_settings as _claude_harness_settings
 from ..src.codex_adapter import CodexHookEvent as CodexHarnessEvent
 from ..src.codex_adapter import codex_harness_config as _codex_harness_config
+from ..src.mcp_config import CLAUDE_WORKSPACE_MCP_SERVER_ID
+from ..src.mcp_config import CODEX_WORKSPACE_MCP_SERVER_ID
+from ..src.mcp_config import claude_workspace_mcp_settings
+from ..src.mcp_config import codex_workspace_mcp_config_options
+from ..src.mcp_config import merge_claude_workspace_mcp_settings
 from ..src.policy import AgentHookEvent
 from ..src.policy import AgentType
 from ..src.policy import HarnessDebugEvent
@@ -38,7 +43,9 @@ def codex_harness_config(command: str) -> dict[str, list[dict[str, Any]]]:
 __all__ = [
     "AgentHookEvent",
     "AgentType",
+    "CLAUDE_WORKSPACE_MCP_SERVER_ID",
     "ClaudeHarnessEvent",
+    "CODEX_WORKSPACE_MCP_SERVER_ID",
     "CodexHarnessEvent",
     "HarnessDebugEvent",
     "HarnessStatusEvent",
@@ -48,11 +55,14 @@ __all__ = [
     "WorkspaceIpcEvent",
     "WorkspaceIpcServer",
     "claude_harness_settings",
+    "claude_workspace_mcp_settings",
     "clear_harness_debug_events",
     "clear_harness_status_subscriptions",
     "codex_harness_config",
+    "codex_workspace_mcp_config_options",
     "load_harness_debug_events",
     "load_latest_harness_debug_events_by_task",
+    "merge_claude_workspace_mcp_settings",
     "notify_workspace_ipc",
     "record_harness_status",
     "subscribe_harness_status",
