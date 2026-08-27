@@ -40,6 +40,8 @@ def test_workspace_mcp_lists_agent_search_tools(tmp_path: Path) -> None:
         "task_context_migrate_legacy",
         "task_context_query",
         "task_context_set_slot",
+        "validate_changed",
+        "validate_task",
     ]
     assert tools[0]["inputSchema"]["type"] == "object"
 
@@ -351,6 +353,8 @@ with tempfile.TemporaryDirectory() as workspace_text:
         "task_context_migrate_legacy",
         "task_context_query",
         "task_context_set_slot",
+        "validate_changed",
+        "validate_task",
     ]
     assert payload["query"]["result"]["isError"] is False
     assert "Read context without search deps." in payload["query"]["result"]["content"][0]["text"]
@@ -612,6 +616,90 @@ def test_workspace_mcp_push_guard_installs_hooks(tmp_path: Path) -> None:
         hook_path = Path(hook)
         assert hook_path.is_file()
         assert hook_path.stat().st_mode & 0o111
+
+
+def test_workspace_mcp_validate_changed_writes_receipt_and_marks_push_guard(
+    tmp_path: Path, monkeypatch: Any
+) -> None:
+    monkeypatch.delenv("AGENT_TOOLS_WORKSPACE_ROOT", raising=False)
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _git(repo, "init")
+    _git(repo, "config", "user.name", "Example Author")
+    _git(repo, "config", "user.email", "author@example.com")
+    (repo / "README.md").write_text("base\n", encoding="utf-8")
+    _git(repo, "add", "README.md")
+    _git(repo, "commit", "-m", "Initial")
+    (repo / "README.md").write_text("base\nchanged\n", encoding="utf-8")
+    server = build_workspace_mcp_server(tmp_path)
+
+    response = _mcp_call(
+        server,
+        "validate_changed",
+        {
+            "repo": "repo",
+            "receipt": "report/validation/latest.json",
+            "mark_push_guard": True,
+        },
+    )
+
+    result = response["result"]
+    payload = result["structuredContent"]
+    assert result["isError"] is False
+    assert payload["status"] == "pass"
+    assert payload["changed_files"] == ["README.md"]
+    assert payload["push_guard_marked"] is True
+    assert (repo / "report" / "validation" / "latest.json").is_file()
+
+
+def test_workspace_mcp_validate_changed_reports_guard_failures(tmp_path: Path) -> None:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _git(repo, "init")
+    _git(repo, "config", "user.name", "Example Author")
+    _git(repo, "config", "user.email", "author@example.com")
+    (repo / "README.md").write_text("base\n", encoding="utf-8")
+    _git(repo, "add", "README.md")
+    _git(repo, "commit", "-m", "Initial")
+    (repo / "debug.zip").write_text("artifact\n", encoding="utf-8")
+    server = build_workspace_mcp_server(tmp_path)
+
+    response = _mcp_call(server, "validate_changed", {"repo": "repo"})
+
+    result = response["result"]
+    assert result["isError"] is True
+    assert result["structuredContent"]["status"] == "fail"
+    assert "artifact-like file suffix '.zip' is blocked" in result["content"][0]["text"]
+
+
+def test_workspace_mcp_validate_task_writes_task_receipt(
+    tmp_path: Path, monkeypatch: Any
+) -> None:
+    from agent_tools.tools import validate as validate_tool
+
+    repo = tmp_path / "repo"
+    task_dir = repo / "tasks" / "sample"
+    task_dir.mkdir(parents=True)
+    _git(repo, "init")
+    _git(repo, "config", "user.name", "Example Author")
+    _git(repo, "config", "user.email", "author@example.com")
+    (repo / "README.md").write_text("base\n", encoding="utf-8")
+    _git(repo, "add", "README.md")
+    _git(repo, "commit", "-m", "Initial")
+    monkeypatch.setattr(validate_tool, "_changed_files", lambda _repo: [])
+    monkeypatch.setattr(validate_tool, "_validation_commands", lambda _repo, _changed, _task: [])
+    server = build_workspace_mcp_server(tmp_path)
+
+    response = _mcp_call(
+        server,
+        "validate_task",
+        {"repo": "repo", "task_dir": "tasks/sample"},
+    )
+
+    result = response["result"]
+    assert result["isError"] is False
+    assert result["structuredContent"]["task_dir"] == str(task_dir.resolve())
+    assert (task_dir / "report" / "validation" / "latest.json").is_file()
 
 
 def test_workspace_mcp_calls_task_context_query(tmp_path: Path) -> None:
