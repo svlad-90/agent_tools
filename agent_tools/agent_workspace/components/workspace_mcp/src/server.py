@@ -132,9 +132,12 @@ class WorkspaceMcpServer:
     def _ensure_tools_loaded(self) -> None:
         if self._tools_loaded:
             return
+        from .commit_msg_tools import commit_msg_tools
         from .knowledge_tools import knowledge_tools
         from .task_context_tools import task_context_tools
 
+        for tool in commit_msg_tools():
+            self.registry.register(tool)
         for tool in knowledge_tools():
             self.registry.register(tool)
         for tool in task_context_tools():

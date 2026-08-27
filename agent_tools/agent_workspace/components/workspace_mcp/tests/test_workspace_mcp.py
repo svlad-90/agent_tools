@@ -22,6 +22,7 @@ def test_workspace_mcp_lists_agent_search_tools(tmp_path: Path) -> None:
         "agent_search_files",
         "agent_search_show",
         "agent_search_text",
+        "commit_msg_format",
         "knowledge_get_topic",
         "knowledge_list_topics",
         "knowledge_search_topics",
@@ -327,6 +328,7 @@ with tempfile.TemporaryDirectory() as workspace_text:
     payload = json.loads(completed.stdout)
     tool_names = [tool["name"] for tool in payload["tools"]["result"]["tools"]]
     assert tool_names == [
+        "commit_msg_format",
         "knowledge_get_topic",
         "knowledge_list_topics",
         "knowledge_search_topics",
@@ -427,6 +429,97 @@ def test_workspace_mcp_knowledge_search_reports_no_matches(
 
     assert response["result"]["isError"] is True
     assert response["result"]["structuredContent"]["matches"] == []
+
+
+def test_workspace_mcp_commit_msg_formats_title_body_and_trailers(tmp_path: Path) -> None:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _git(repo, "init")
+    _git(repo, "config", "user.name", "Example Author")
+    _git(repo, "config", "user.email", "author@example.com")
+    server = build_workspace_mcp_server(tmp_path)
+
+    response = _mcp_call(
+        server,
+        "commit_msg_format",
+        {
+            "repo": "repo",
+            "title": "agent_workspace: expose commit messages over MCP",
+            "message": (
+                "Format commit messages from a separate title and a longer "
+                "body text so agents can pass paragraphs without manually "
+                "wrapping them.\n\n"
+                "Assisted-by: Codex:gpt-5 code-map\n"
+                "Reviewed-by: Example Reviewer <reviewer@example.com>"
+            ),
+        },
+    )
+
+    result = response["result"]
+    message = result["structuredContent"]["message"]
+    command_args = result["structuredContent"]["command_args"]
+    assert result["isError"] is False
+    assert message.startswith("agent_workspace: expose commit messages over MCP\n\n")
+    assert "Signed-off-by: Example Author <author@example.com>" in message
+    assert message.rstrip().endswith("Assisted-by: Codex:gpt-5 code-map")
+    assert max(len(line) for line in message.splitlines()) <= 72
+    assert command_args[:4] == ["git", "-C", str(repo), "commit"]
+    assert command_args[4:] == [
+        "-m",
+        "agent_workspace: expose commit messages over MCP",
+        "-m",
+        (
+            "Format commit messages from a separate title and a longer body text so\n"
+            "agents can pass paragraphs without manually wrapping them."
+        ),
+        "-m",
+        (
+            "Reviewed-by: Example Reviewer <reviewer@example.com>\n"
+            "Signed-off-by: Example Author <author@example.com>\n"
+            "Assisted-by: Codex:gpt-5 code-map"
+        ),
+    ]
+    assert "git -C" in result["structuredContent"]["shell_command"]
+
+
+def test_workspace_mcp_commit_msg_reports_check_failures(tmp_path: Path) -> None:
+    server = build_workspace_mcp_server(tmp_path)
+
+    response = _mcp_call(
+        server,
+        "commit_msg_format",
+        {
+            "title": "x" * 73,
+            "message": "Body.",
+            "add_signoff": False,
+        },
+    )
+
+    result = response["result"]
+    assert result["isError"] is True
+    assert result["structuredContent"]["long_lines"][0]["line"] == 1
+    assert result["structuredContent"]["has_signed_off_by"] is False
+    assert "commit message check failed" in result["content"][0]["text"]
+    assert "missing Signed-off-by trailer" in result["content"][0]["text"]
+
+
+def test_workspace_mcp_commit_msg_requires_signoff_trailer(tmp_path: Path) -> None:
+    server = build_workspace_mcp_server(tmp_path)
+
+    response = _mcp_call(
+        server,
+        "commit_msg_format",
+        {
+            "title": "tools: require signoff",
+            "message": "This mentions Signed-off-by: in prose only.",
+            "add_signoff": False,
+        },
+    )
+
+    result = response["result"]
+    assert result["isError"] is True
+    assert result["structuredContent"]["long_lines"] == []
+    assert result["structuredContent"]["has_signed_off_by"] is False
 
 
 def test_workspace_mcp_calls_task_context_query(tmp_path: Path) -> None:
@@ -589,3 +682,13 @@ def _mcp_call(server: Any, name: str, arguments: dict[str, object]) -> dict[str,
     )
     assert response is not None
     return response
+
+
+def _git(repo: Path, *args: str) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        ["git", "-C", str(repo), *args],
+        check=True,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
