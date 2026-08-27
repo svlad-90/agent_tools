@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import sys
 
 from agent_tools.agent_workspace.components.test_support.src.helpers import *
 
@@ -30,7 +31,7 @@ def test_codex_command_registers_workspace_mcp_server(tmp_path: Path) -> None:
     )
 
     joined_pairs = _joined_pairs(command)
-    assert '-c mcp_servers.agent_tools_workspace.command="python3"' in joined_pairs
+    assert f'-c mcp_servers.agent_tools_workspace.command="{sys.executable}"' in joined_pairs
     assert '-c mcp_servers.agent_tools_workspace.enabled=true' in joined_pairs
     assert "-c mcp_servers.agent_tools_workspace.startup_timeout_sec=10" in joined_pairs
     assert "-c mcp_servers.agent_tools_workspace.tool_timeout_sec=60" in joined_pairs
@@ -52,7 +53,7 @@ def test_claude_command_registers_workspace_mcp_server(tmp_path: Path) -> None:
     assert isinstance(servers, dict)
     server = servers["agent-tools"]
     assert server["type"] == "stdio"
-    assert server["command"] == "python3"
+    assert server["command"] == sys.executable
     assert server["args"] == [
         "-m",
         "agent_tools.agent_workspace.components.workspace_mcp",

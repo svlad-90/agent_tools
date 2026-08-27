@@ -4,7 +4,6 @@ import json
 from pathlib import Path
 from typing import Any, TextIO
 
-from .agent_search_tools import agent_search_tools
 from .registry import JsonObject, ToolContext, ToolResult, WorkspaceMcpRegistry
 
 
@@ -16,6 +15,7 @@ class WorkspaceMcpServer:
     def __init__(self, workspace: Path, registry: WorkspaceMcpRegistry) -> None:
         self.workspace = workspace.resolve()
         self.registry = registry
+        self._tools_load_error = ""
 
     def handle_message(self, message: JsonObject) -> JsonObject | None:
         message_id = message.get("id")
@@ -30,8 +30,12 @@ class WorkspaceMcpServer:
             if method == "ping":
                 return self._response(message_id, {})
             if method == "tools/list":
+                self._ensure_tools_loaded()
                 return self._response(message_id, {"resultType": "complete", "tools": self.registry.tool_descriptors()})
             if method == "tools/call":
+                self._ensure_tools_loaded()
+                if self._tools_load_error:
+                    raise ValueError(self._tools_load_error)
                 return self._response(message_id, self._call_tool(message))
             return self._error(message_id, -32601, f"method not found: {method}")
         except KeyError as error:
@@ -124,9 +128,23 @@ class WorkspaceMcpServer:
             self._tool_result_payload(ToolResult(text=message + "\n", is_error=True)),
         )
 
+    def _ensure_tools_loaded(self) -> None:
+        if self.registry.tool_descriptors() or self._tools_load_error:
+            return
+        try:
+            from .agent_search_tools import agent_search_tools
+
+            for tool in agent_search_tools():
+                self.registry.register(tool)
+        except ModuleNotFoundError as error:
+            dependency = error.name or str(error)
+            self._tools_load_error = (
+                "workspace MCP search tools are unavailable because a Python "
+                f"dependency is missing: {dependency}. Run "
+                "`python3 install-agent-tools.py` from the workspace root."
+            )
+
 
 def build_workspace_mcp_server(workspace: Path) -> WorkspaceMcpServer:
     registry = WorkspaceMcpRegistry()
-    for tool in agent_search_tools():
-        registry.register(tool)
     return WorkspaceMcpServer(workspace, registry)

@@ -14,7 +14,7 @@ CLAUDE_WORKSPACE_MCP_SERVER_ID = "agent-tools"
 def codex_workspace_mcp_config_options(
     workspace: Path,
     *,
-    python_executable: str = "python3",
+    python_executable: str | None = None,
 ) -> list[str]:
     config = workspace_mcp_stdio_config(workspace, python_executable=python_executable)
     prefix = f"mcp_servers.{CODEX_WORKSPACE_MCP_SERVER_ID}"
@@ -35,7 +35,7 @@ def codex_workspace_mcp_config_options(
 def claude_workspace_mcp_settings(
     workspace: Path,
     *,
-    python_executable: str = "python3",
+    python_executable: str | None = None,
 ) -> dict[str, Any]:
     config = workspace_mcp_stdio_config(workspace, python_executable=python_executable)
     return {
@@ -54,7 +54,7 @@ def merge_claude_workspace_mcp_settings(
     settings: dict[str, Any],
     workspace: Path,
     *,
-    python_executable: str = "python3",
+    python_executable: str | None = None,
 ) -> dict[str, Any]:
     merged = dict(settings)
     existing_servers = merged.get("mcpServers", {})

@@ -3,6 +3,8 @@ from __future__ import annotations
 import io
 import json
 from pathlib import Path
+import subprocess
+import sys
 
 from agent_tools.agent_workspace.components.workspace_mcp.api import build_workspace_mcp_server
 from agent_tools.agent_workspace.components.workspace_mcp.api import workspace_mcp_stdio_config
@@ -150,3 +152,106 @@ def test_workspace_mcp_stdio_config_points_at_component_module(tmp_path: Path) -
         str(tmp_path.resolve()),
     ]
     assert config["env"]["PYTHONPATH"] == str(tmp_path.resolve())
+
+
+def test_workspace_mcp_config_import_does_not_load_search_runtime() -> None:
+    script = """
+import importlib.abc
+import sys
+
+class BlockRegex(importlib.abc.MetaPathFinder):
+    def find_spec(self, fullname, path, target=None):
+        if fullname == "regex":
+            raise ModuleNotFoundError("blocked regex import")
+        return None
+
+sys.meta_path.insert(0, BlockRegex())
+from agent_tools.agent_workspace.components.workspace_mcp.api import workspace_mcp_stdio_config
+workspace_mcp_stdio_config(__import__("pathlib").Path.cwd())
+"""
+
+    completed = subprocess.run(
+        [sys.executable, "-c", script],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert completed.returncode == 0, completed.stderr
+
+
+def test_workspace_mcp_initialize_does_not_load_search_runtime() -> None:
+    script = """
+import importlib.abc
+import io
+import json
+import sys
+from pathlib import Path
+
+class BlockRegex(importlib.abc.MetaPathFinder):
+    def find_spec(self, fullname, path, target=None):
+        if fullname == "regex":
+            raise ModuleNotFoundError("blocked regex import")
+        return None
+
+sys.meta_path.insert(0, BlockRegex())
+from agent_tools.agent_workspace.components.workspace_mcp.api import build_workspace_mcp_server
+
+server = build_workspace_mcp_server(Path.cwd())
+stdin = io.StringIO(json.dumps({"jsonrpc": "2.0", "id": 1, "method": "initialize"}) + "\\n")
+stdout = io.StringIO()
+server.serve_stdio(stdin, stdout)
+print(stdout.getvalue(), end="")
+"""
+
+    completed = subprocess.run(
+        [sys.executable, "-c", script],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert completed.returncode == 0, completed.stderr
+    payload = json.loads(completed.stdout)
+    assert payload["result"]["serverInfo"]["name"] == "agent_tools_workspace"
+
+
+def test_workspace_mcp_reports_missing_search_dependency_on_tool_call() -> None:
+    script = """
+import importlib.abc
+import json
+import sys
+from pathlib import Path
+
+class BlockRegex(importlib.abc.MetaPathFinder):
+    def find_spec(self, fullname, path, target=None):
+        if fullname == "regex":
+            raise ModuleNotFoundError("blocked regex import")
+        return None
+
+sys.meta_path.insert(0, BlockRegex())
+from agent_tools.agent_workspace.components.workspace_mcp.api import build_workspace_mcp_server
+
+server = build_workspace_mcp_server(Path.cwd())
+response = server.handle_message({
+    "jsonrpc": "2.0",
+    "id": 2,
+    "method": "tools/call",
+    "params": {"name": "agent_search_files", "arguments": {"query": "runtime.py"}},
+})
+print(json.dumps(response))
+"""
+
+    completed = subprocess.run(
+        [sys.executable, "-c", script],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert completed.returncode == 0, completed.stderr
+    payload = json.loads(completed.stdout)
+    result = payload["result"]
+    assert result["isError"] is True
+    assert "dependency is missing" in result["content"][0]["text"]
+    assert "install-agent-tools.py" in result["content"][0]["text"]
