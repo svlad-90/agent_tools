@@ -52,7 +52,8 @@ python3 install-agent-tools.py --venv /path/to/venv --dev
 
 Dependency files live under `agent_tools/tools/requirements/`:
 
-- `runtime.txt`: CLI runtime dependencies, including `PyYAML` and `tiktoken`.
+- `runtime.txt`: CLI runtime dependencies, including `PyYAML`, `regex`, and
+  `tiktoken`.
 - `dev.txt`: runtime plus test dependencies.
 - `gui.txt`: runtime plus notes for the optional system GTK/VTE profile.
 
