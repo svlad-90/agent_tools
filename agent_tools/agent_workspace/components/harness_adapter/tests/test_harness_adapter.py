@@ -2,10 +2,12 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+import shlex
 import sqlite3
 import threading
 import time
 
+import pytest
 from pytest import MonkeyPatch
 
 from agent_tools.agent_workspace.components.harness_adapter.src.claude_adapter import ClaudeHookEvent
@@ -18,6 +20,8 @@ from agent_tools.agent_workspace.components.harness_adapter.api import AgentType
 from agent_tools.agent_workspace.components.harness_adapter.api import HarnessStatusEvent
 from agent_tools.agent_workspace.components.harness_adapter.api import clear_harness_debug_events
 from agent_tools.agent_workspace.components.harness_adapter.api import clear_harness_status_subscriptions
+from agent_tools.agent_workspace.components.harness_adapter.api import claude_workspace_mcp_settings
+from agent_tools.agent_workspace.components.harness_adapter.api import codex_workspace_mcp_config_options
 from agent_tools.agent_workspace.components.harness_adapter.api import load_harness_debug_events
 from agent_tools.agent_workspace.components.harness_adapter.api import load_latest_harness_debug_events_by_task
 from agent_tools.agent_workspace.components.harness_adapter.api import notify_workspace_ipc
@@ -25,6 +29,7 @@ from agent_tools.agent_workspace.components.harness_adapter.api import record_ha
 from agent_tools.agent_workspace.components.harness_adapter.api import start_workspace_ipc_server
 from agent_tools.agent_workspace.components.harness_adapter.api import subscribe_harness_status
 from agent_tools.agent_workspace.components.harness_adapter.src.limited_bash import LimitedBashResult
+from agent_tools.agent_workspace.components.harness_adapter.src.limited_bash import limited_bash_shell_command
 from agent_tools.agent_workspace.components.harness_adapter.src.limited_bash import run_limited_bash
 from agent_tools.agent_workspace.components.harness_adapter.src.claude_policy import register_claude_adapter
 from agent_tools.agent_workspace.components.harness_adapter.src.commands import handle_claude_adapter_hook
@@ -34,6 +39,44 @@ from agent_tools.agent_workspace.components.settings.api import save_agent_works
 from agent_tools.tools.task_context import database_path
 from agent_tools.tools.task_context import ensure_database
 from agent_tools.tools.task_context import set_slot
+
+
+def test_harness_adapter_builds_codex_workspace_mcp_config_options(tmp_path: Path) -> None:
+    options = codex_workspace_mcp_config_options(tmp_path, python_executable="python")
+
+    assert options == [
+        'mcp_servers.agent_tools_workspace.command="python"',
+        (
+            'mcp_servers.agent_tools_workspace.args=["-m", '
+            '"agent_tools.agent_workspace.components.workspace_mcp", '
+            '"--workspace", '
+            f'"{tmp_path.resolve()}"]'
+        ),
+        "mcp_servers.agent_tools_workspace.enabled=true",
+        "mcp_servers.agent_tools_workspace.startup_timeout_sec=10",
+        "mcp_servers.agent_tools_workspace.tool_timeout_sec=60",
+        f'mcp_servers.agent_tools_workspace.env.PYTHONPATH="{tmp_path.resolve()}"',
+    ]
+
+
+def test_harness_adapter_builds_claude_workspace_mcp_settings(tmp_path: Path) -> None:
+    settings = claude_workspace_mcp_settings(tmp_path, python_executable="python")
+
+    assert settings == {
+        "mcpServers": {
+            "agent-tools": {
+                "type": "stdio",
+                "command": "python",
+                "args": [
+                    "-m",
+                    "agent_tools.agent_workspace.components.workspace_mcp",
+                    "--workspace",
+                    str(tmp_path.resolve()),
+                ],
+                "env": {"PYTHONPATH": str(tmp_path.resolve())},
+            }
+        }
+    }
 
 
 def test_harness_adapter_emits_status_updates_for_codex_prompt(tmp_path: Path) -> None:
@@ -435,6 +478,7 @@ def test_harness_adapter_records_debug_events_with_tool_name(tmp_path: Path) -> 
 
 def test_harness_adapter_codex_rewrites_bash_to_limited_bash(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     task_dir = _task(tmp_path)
+    workdir = task_dir / "dev"
     registry = CodexHookRegistry()
     register_codex_adapter(registry)
     monkeypatch.setenv("AGENT_TOOLS_LIMITED_BASH_OUTPUT_TOKENS", "700")
@@ -446,7 +490,7 @@ def test_harness_adapter_codex_rewrites_bash_to_limited_bash(tmp_path: Path, mon
                 "task_dir": str(task_dir),
                 "session_id": "s1",
                 "tool_name": "Bash",
-                "tool_input": {"command": "printf hello", "description": "small"},
+                "tool_input": {"command": "printf hello", "description": "small", "workdir": str(workdir)},
             }
         ),
         registry=registry,
@@ -459,10 +503,165 @@ def test_harness_adapter_codex_rewrites_bash_to_limited_bash(tmp_path: Path, mon
     assert "limited_bash" in hook_output["updatedInput"]["command"]
     assert "printf hello" not in hook_output["updatedInput"]["command"]
     assert "--limit 700" in hook_output["updatedInput"]["command"]
+    assert hook_output["updatedInput"]["cwd"] == str(workdir)
+    assert hook_output["updatedInput"]["workdir"] == str(workdir)
+
+
+def test_harness_adapter_codex_preserves_bash_workdir(tmp_path: Path) -> None:
+    task_dir = _task(tmp_path)
+    workdir = task_dir / "dev"
+    registry = CodexHookRegistry()
+    register_codex_adapter(registry)
+
+    result = handle_codex_hook(
+        json.dumps(
+            {
+                "hook_event_name": CodexHookEvent.PRE_TOOL_USE.value,
+                "task_dir": str(task_dir),
+                "session_id": "s1",
+                "tool_name": "Bash",
+                "tool_input": {"command": "pwd", "workdir": str(workdir)},
+            }
+        ),
+        registry=registry,
+    )
+
+    hook_output = json.loads(result.stdout)["hookSpecificOutput"]
+    assert f"--cwd {workdir}" in hook_output["updatedInput"]["command"]
+    assert hook_output["updatedInput"]["cwd"] == str(workdir)
+    assert hook_output["updatedInput"]["workdir"] == str(workdir)
+
+
+@pytest.mark.parametrize(
+    "cwd_key",
+    (
+        "cwd",
+        "workdir",
+        "working_dir",
+        "workingDirectory",
+        "working_directory",
+        "currentWorkingDirectory",
+        "current_working_directory",
+        "directory",
+    ),
+)
+def test_harness_adapter_codex_accepts_tool_workdir_aliases(tmp_path: Path, cwd_key: str) -> None:
+    task_dir = _task(tmp_path)
+    workdir = task_dir / "dev" / "repo with spaces"
+    workdir.mkdir(parents=True)
+    registry = CodexHookRegistry()
+    register_codex_adapter(registry)
+
+    result = handle_codex_hook(
+        json.dumps(
+            {
+                "hook_event_name": CodexHookEvent.PRE_TOOL_USE.value,
+                "task_dir": str(task_dir),
+                "cwd": str(tmp_path / "workspace-root"),
+                "session_id": "s1",
+                "tool_name": "Bash",
+                "tool_input": {"command": "pwd", cwd_key: str(workdir)},
+            }
+        ),
+        registry=registry,
+    )
+
+    hook_output = json.loads(result.stdout)["hookSpecificOutput"]
+    command = hook_output["updatedInput"]["command"]
+    assert f"cd {shlex.quote(str(workdir))}" in command
+    assert f"--cwd {shlex.quote(str(workdir))}" in command
+    assert hook_output["updatedInput"]["cwd"] == str(workdir)
+    assert hook_output["updatedInput"]["workdir"] == str(workdir)
+
+
+@pytest.mark.parametrize("container_key", ("input", "arguments", "parameters"))
+def test_harness_adapter_codex_accepts_nested_tool_workdir(tmp_path: Path, container_key: str) -> None:
+    task_dir = _task(tmp_path)
+    workdir = task_dir / "dev" / "repo with spaces"
+    workdir.mkdir(parents=True)
+    registry = CodexHookRegistry()
+    register_codex_adapter(registry)
+
+    result = handle_codex_hook(
+        json.dumps(
+            {
+                "hook_event_name": CodexHookEvent.PRE_TOOL_USE.value,
+                "task_dir": str(task_dir),
+                "cwd": str(tmp_path / "workspace-root"),
+                "session_id": "s1",
+                "tool_name": "Bash",
+                "tool_input": {"command": "pwd"},
+                "tool": {container_key: {"working_dir": str(workdir)}},
+            }
+        ),
+        registry=registry,
+    )
+
+    hook_output = json.loads(result.stdout)["hookSpecificOutput"]
+    command = hook_output["updatedInput"]["command"]
+    assert f"cd {shlex.quote(str(workdir))}" in command
+    assert f"--cwd {shlex.quote(str(workdir))}" in command
+    assert hook_output["updatedInput"]["cwd"] == str(workdir)
+    assert hook_output["updatedInput"]["workdir"] == str(workdir)
+
+
+def test_harness_adapter_codex_reads_nested_tool_working_directory(tmp_path: Path) -> None:
+    task_dir = _task(tmp_path)
+    workdir = task_dir / "dev"
+    registry = CodexHookRegistry()
+    register_codex_adapter(registry)
+
+    result = handle_codex_hook(
+        json.dumps(
+            {
+                "hook_event_name": CodexHookEvent.PRE_TOOL_USE.value,
+                "task_dir": str(task_dir),
+                "session_id": "s1",
+                "tool_name": "Bash",
+                "tool_input": {"command": "pwd"},
+                "tool": {"input": {"working_dir": str(workdir)}},
+            }
+        ),
+        registry=registry,
+    )
+
+    hook_output = json.loads(result.stdout)["hookSpecificOutput"]
+    assert f"--cwd {workdir}" in hook_output["updatedInput"]["command"]
+    assert hook_output["updatedInput"]["cwd"] == str(workdir)
+    assert hook_output["updatedInput"]["workdir"] == str(workdir)
+
+
+def test_harness_adapter_codex_keeps_bash_runner_workdir_without_tool_workdir(tmp_path: Path) -> None:
+    task_dir = _task(tmp_path)
+    workspace = tmp_path / "workspace"
+    registry = CodexHookRegistry()
+    register_codex_adapter(registry)
+
+    result = handle_codex_hook(
+        json.dumps(
+            {
+                "hook_event_name": CodexHookEvent.PRE_TOOL_USE.value,
+                "task_dir": str(task_dir),
+                "cwd": str(workspace),
+                "session_id": "s1",
+                "tool_name": "Bash",
+                "tool_input": {"command": "pwd"},
+            }
+        ),
+        registry=registry,
+    )
+
+    hook_output = json.loads(result.stdout)["hookSpecificOutput"]
+    assert "cd " not in hook_output["updatedInput"]["command"]
+    assert "--cwd" not in hook_output["updatedInput"]["command"]
+    assert str(workspace) not in hook_output["updatedInput"]["command"]
+    assert "cwd" not in hook_output["updatedInput"]
+    assert "workdir" not in hook_output["updatedInput"]
 
 
 def test_harness_adapter_claude_rewrites_bash_to_limited_bash(tmp_path: Path) -> None:
     task_dir = _task(tmp_path)
+    workdir = task_dir / "dev"
     registry = ClaudeHookRegistry()
     register_claude_adapter(registry)
 
@@ -473,7 +672,7 @@ def test_harness_adapter_claude_rewrites_bash_to_limited_bash(tmp_path: Path) ->
                 "task_dir": str(task_dir),
                 "session_id": "s1",
                 "tool_name": "Bash",
-                "tool_input": {"command": "printf hello"},
+                "tool_input": {"command": "printf hello", "workdir": str(workdir)},
             }
         ),
         registry=registry,
@@ -483,6 +682,8 @@ def test_harness_adapter_claude_rewrites_bash_to_limited_bash(tmp_path: Path) ->
     assert hook_output["hookEventName"] == "PreToolUse"
     assert hook_output["permissionDecision"] == "allow"
     assert "limited_bash" in hook_output["updatedInput"]["command"]
+    assert hook_output["updatedInput"]["cwd"] == str(workdir)
+    assert hook_output["updatedInput"]["workdir"] == str(workdir)
 
 
 def test_limited_bash_blocks_large_output_and_keeps_log(
@@ -542,6 +743,37 @@ def test_limited_bash_does_not_keep_logs_for_output_under_limit(
     assert capsys.readouterr().out == "ok"
     log_dir = task_dir / "report" / "logs" / "limited-bash"
     assert not log_dir.exists() or list(log_dir.iterdir()) == []
+
+
+def test_limited_bash_runs_command_in_requested_cwd(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    task_dir = _task(tmp_path)
+    workdir = task_dir / "dev"
+    monkeypatch.setenv("AGENT_TOOLS_TASK_DIR", str(task_dir))
+
+    result = run_limited_bash("pwd", limit=100, cwd=workdir)
+
+    assert result.exit_code == 0
+    assert capsys.readouterr().out == f"{workdir}\n"
+
+
+def test_limited_bash_shell_command_leaves_cwd_unset_without_policy_cwd() -> None:
+    command = limited_bash_shell_command("pwd", limit=100)
+
+    assert "--cwd" not in command
+
+
+def test_limited_bash_shell_command_embeds_shell_cd_for_policy_cwd(tmp_path: Path) -> None:
+    workdir = tmp_path / "repo with spaces"
+
+    command = limited_bash_shell_command("pwd", limit=100, cwd=workdir)
+
+    quoted_workdir = shlex.quote(str(workdir))
+    assert f"cd {quoted_workdir} && " in command
+    assert f"--cwd {quoted_workdir}" in command
 
 
 def test_limited_bash_streams_live_logs_before_command_finishes(

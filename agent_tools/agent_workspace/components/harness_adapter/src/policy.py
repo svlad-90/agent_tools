@@ -785,11 +785,15 @@ def _limited_bash_pre_tool_output(
         return None
     if "agent_tools.agent_workspace.components.harness_adapter.limited_bash" in command:
         return None
+    cwd = _request_cwd(request)
     updated_input = dict(tool_input)
+    if cwd is not None:
+        updated_input["cwd"] = str(cwd)
+        updated_input["workdir"] = str(cwd)
     updated_input["command"] = limited_bash_shell_command(
         command,
         limit=limit_from_env(),
-        cwd=_request_cwd(request) or _workspace_for_task(task_dir),
+        cwd=cwd,
     )
     return {
         "hookSpecificOutput": {
@@ -815,11 +819,44 @@ def _request_tool_input(request: _HookRequest) -> dict[str, Any] | None:
 
 
 def _request_cwd(request: _HookRequest) -> Path | None:
-    for key in ("cwd", "currentWorkingDirectory", "working_directory", "workingDirectory"):
+    for mapping in _request_cwd_mappings(request):
+        cwd = _cwd_from_mapping(mapping)
+        if cwd is not None:
+            return cwd
+    return None
+
+
+def _request_cwd_mappings(request: _HookRequest) -> tuple[dict[str, Any], ...]:
+    mappings: list[dict[str, Any]] = []
+    for key in ("tool_input", "toolInput", "input", "arguments", "parameters"):
         value = request.payload.get(key)
+        if isinstance(value, dict):
+            mappings.append(value)
+    tool = request.payload.get("tool")
+    if isinstance(tool, dict):
+        mappings.append(tool)
+        for key in ("input", "arguments", "parameters"):
+            value = tool.get(key)
+            if isinstance(value, dict):
+                mappings.append(value)
+    return tuple(mappings)
+
+
+def _cwd_from_mapping(mapping: dict[str, Any]) -> Path | None:
+    for key in (
+        "cwd",
+        "workdir",
+        "working_dir",
+        "workingDirectory",
+        "working_directory",
+        "currentWorkingDirectory",
+        "current_working_directory",
+        "directory",
+    ):
+        value = mapping.get(key)
         if isinstance(value, str) and value:
             return Path(value)
-    return request.workspace
+    return None
 
 
 def _request_source(request: _HookRequest) -> str:

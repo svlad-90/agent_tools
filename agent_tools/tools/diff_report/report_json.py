@@ -37,6 +37,7 @@ class ReportStatusCard:
     title: str
     status: str
     body: str
+    group: str | None = None
     metrics: tuple[ReportMetric, ...] = ()
     links: tuple[dict[str, str], ...] = ()
 
@@ -182,6 +183,8 @@ def render_report_json_html(report: GenericReport) -> str:
     )
     if comments.summary or comments.summary_blocks:
         parts.append(_render_summary_section(comments))
+    if report.relationship_graph:
+        parts.append(_render_relationship_graph_section(report.relationship_graph))
     if report.metrics:
         parts.append(_render_metrics_section(report.metrics))
     if report.metric_tables:
@@ -196,8 +199,6 @@ def render_report_json_html(report: GenericReport) -> str:
         )
     if report.heatmaps:
         parts.append(_render_heatmaps_section(report.heatmaps))
-    if report.relationship_graph:
-        parts.append(_render_relationship_graph_section(report.relationship_graph))
     if report.tables:
         parts.append(_render_tables_section(report.tables, comments))
     if report.timeline:
@@ -271,6 +272,7 @@ def status_cards_from_payload(raw_cards: Any) -> tuple[ReportStatusCard, ...]:
                 title=_required_text(item, "title", f"report.status_cards[{index}]"),
                 status=str(item.get("status", "unknown")),
                 body=str(item.get("body", "")),
+                group=str(item.get("group", "")).strip() or None,
                 metrics=metrics_from_payload(item.get("metrics", [])),
                 links=links_from_payload(item.get("links", []), f"report.status_cards[{index}].links"),
             )
@@ -404,7 +406,7 @@ def _graph_view_from_payload(raw_view: Any, field: str) -> dict[str, Any] | None
     if not isinstance(raw_view, dict):
         raise DiffReportError(f"{field} must be an object")
     view: dict[str, Any] = {}
-    for key in ("focus", "target_type", "label"):
+    for key in ("focus", "target_type", "label", "isolate_root"):
         if key in raw_view and raw_view[key] is not None:
             if not isinstance(raw_view[key], str):
                 raise DiffReportError(f"{field}.{key} must be a string")
@@ -653,7 +655,12 @@ def _render_status_cards_section(
     if note:
         parts.append(f'    <p class="report-status-cards-note">{_format_text(note)}</p>\n')
     parts.append('    <div class="report-card-grid">\n')
+    current_group: str | None = None
     for card in cards:
+        if card.group != current_group:
+            current_group = card.group
+            if current_group:
+                parts.append(f'    <h3 class="report-card-group-title">{_esc(current_group)}</h3>\n')
         parts.append(
             f'    <article class="report-card {_status_class(card.status)}" id="{_anchor(card.title)}">'
             f'<div class="report-card-head"><h3>{_esc(card.title)}</h3>{_render_status_badge(card.status)}</div>'
@@ -1048,6 +1055,10 @@ def _looks_like_status(value: str) -> bool:
         "skip",
         "skipped",
         "assumption_failure",
+        "auto_fail_candidate",
+        "auto_pass_candidate",
+        "auto_no_result_candidate",
+        "auto_warning_candidate",
         "not_run",
         "not_done",
         "blocked",
@@ -1244,9 +1255,10 @@ def _relationship_graph_script() -> str:
     return r"""
 <script>
 (() => {
-  const TYPE_ORDER = ["product", "domain", "vsr", "cdd", "hal", "feature", "property", "cts_module", "vts_module", "gap", "decision"];
+  const TYPE_ORDER = ["product", "analysis_entity", "domain", "vsr", "cdd", "hal", "feature", "property", "cts_module", "vts_module", "artifact", "gap", "decision"];
   const TYPE_LABELS = {
     product: "Product",
+    analysis_entity: "Analysis entity",
     vsr: "VSR",
     cdd: "CDD",
     hal: "HAL",
@@ -1257,9 +1269,10 @@ def _relationship_graph_script() -> str:
     decision: "Decision",
     domain: "Domain",
     feature: "Feature",
-    property: "Property"
+    property: "Property",
+    artifact: "Artifact"
   };
-  const DEFAULT_TYPE_RANKS = {product: 0, domain: 1, vsr: 2, cdd: 2, hal: 3, feature: 3, property: 3, cts_module: 3, vts_module: 3, gap: 4, decision: 4};
+  const DEFAULT_TYPE_RANKS = {product: 0, analysis_entity: 1, domain: 1, vsr: 2, cdd: 2, hal: 3, feature: 3, property: 3, cts_module: 3, vts_module: 3, artifact: 4, gap: 4, decision: 4};
   const DEFAULT_TERMINAL_TYPES = ["cts_module", "vts_module", "cdd", "property", "feature", "gap", "decision"];
   const MAX_FOCUS_OPTIONS = 400;
 
@@ -1345,6 +1358,70 @@ def _relationship_graph_script() -> str:
     return enabledTypes.has(node.type || "entity");
   }
 
+  function directedReachableIds(rootId, state) {
+    const root = String(rootId || "");
+    if (!root || !state.nodesById.has(root)) return null;
+    const outgoing = state.outgoingAdjacency || new Map();
+    const ids = new Set([root]);
+    const queue = [root];
+    let cursor = 0;
+    while (cursor < queue.length) {
+      const fromId = queue[cursor];
+      cursor += 1;
+      for (const edge of outgoing.get(fromId) || []) {
+        if (ids.has(edge.target)) continue;
+        ids.add(edge.target);
+        queue.push(edge.target);
+      }
+    }
+    return ids;
+  }
+
+  function setIsolatedRoot(state, rootId) {
+    state.isolatedRootId = String(rootId || "");
+    state.isolatedNodeIds = state.isolatedRootId ? directedReachableIds(state.isolatedRootId, state) : null;
+    state.scopedEdgesCache = null;
+    state.scopedAdjacencyCache = null;
+  }
+
+  function nodeInScope(state, node) {
+    if (!node) return false;
+    return !state.isolatedNodeIds || state.isolatedNodeIds.has(node.id);
+  }
+
+  function isStandaloneScopeNode(node) {
+    if (!node) return false;
+    if ((node.type || "entity") === "analysis_entity") return true;
+    const details = node.details && typeof node.details === "object" ? node.details : {};
+    return Boolean(details.analysis_scope);
+  }
+
+  function stateGraphNodes(state) {
+    if (!state) return [];
+    if (state.isolatedNodeIds) return state.nodes.filter((node) => nodeInScope(state, node));
+    return state.nodes.filter((node) => !isStandaloneScopeNode(node));
+  }
+
+  function stateGraphEdges(state) {
+    if (!state) return [];
+    if (state.scopedEdgesCache) return state.scopedEdgesCache;
+    const visibleIds = new Set(stateGraphNodes(state).map((node) => node.id));
+    state.scopedEdgesCache = state.edges.filter((edge) => visibleIds.has(edge.source) && visibleIds.has(edge.target));
+    return state.scopedEdgesCache;
+  }
+
+  function stateGraphAdjacency(state) {
+    if (!state) return new Map();
+    if (!state.scopedAdjacencyCache) {
+      state.scopedAdjacencyCache = buildAdjacency(stateGraphEdges(state));
+    }
+    return state.scopedAdjacencyCache;
+  }
+
+  function stateGraphTypes(state) {
+    return graphTypes(stateGraphNodes(state));
+  }
+
   function fieldValue(node, field) {
     if (!node) return "";
     if (field === "status") return String(node.status || "unknown");
@@ -1405,8 +1482,9 @@ def _relationship_graph_script() -> str:
   }
 
   function resetSubfilters(state) {
-    state.subfilters = createSubfilters(state.nodes, state.filterDefaults);
-    state.statusFilter = createStatusFilter(state.nodes, state.filterDefaults);
+    const nodes = stateGraphNodes(state);
+    state.subfilters = createSubfilters(nodes, state.filterDefaults);
+    state.statusFilter = createStatusFilter(nodes, state.filterDefaults);
   }
 
   function isSubfilterEnabled(node, state) {
@@ -1433,7 +1511,7 @@ def _relationship_graph_script() -> str:
 
   function isNodeVisible(node, state) {
     if (!node) return false;
-    if (state && state.selectedId && node.id === state.selectedId) return true;
+    if (!nodeInScope(state, node)) return false;
     return isTypeEnabled(node, state && state.selectedId, state.enabledTypes) && isSubfilterEnabled(node, state);
   }
 
@@ -1477,6 +1555,10 @@ def _relationship_graph_script() -> str:
     return (edge.traverse || relationMode || "") === "fallback";
   }
 
+  function isFallbackTraversalEdge(edge, traversal) {
+    return edgeTraversalMode(edge, traversal) === "fallback";
+  }
+
   function edgeAllowsTraversal(edge, fromId, toId, traversal) {
     const mode = edgeTraversalMode(edge, traversal);
     if (mode === "none") return false;
@@ -1512,6 +1594,15 @@ def _relationship_graph_script() -> str:
     return adjacency;
   }
 
+  function buildOutgoingAdjacency(edges) {
+    const adjacency = new Map();
+    for (const edge of edges) {
+      if (!adjacency.has(edge.source)) adjacency.set(edge.source, []);
+      adjacency.get(edge.source).push(edge);
+    }
+    return adjacency;
+  }
+
   function buildNeighborhood(selectedId, nodesById, edges, adjacency, nodeVisible, contextNodeVisible, traversal, includeSecondaryLinks) {
     const selected = nodesById.get(selectedId);
     if (!selected) {
@@ -1538,40 +1629,58 @@ def _relationship_graph_script() -> str:
       return String(leftNode && (leftNode.label || leftNode.id) || left.id).localeCompare(String(rightNode && (rightNode.label || rightNode.id) || right.id));
     };
     const ancestry = new Set([selectedId]);
-    let currentId = selectedId;
-    let step = 1;
-    while (true) {
-      const currentRank = rankOf(nodesById.get(currentId));
-      const candidates = neighbors(currentId).filter((item) => {
-        const node = nodesById.get(item.id);
-        return node && !ancestry.has(item.id) && rankOf(node) < currentRank;
-      }).map((item) => ({
-        id: item.id,
-        edge: item.edge,
-        directed: item.edge.source === item.id && item.edge.target === currentId,
-        primary: !isSecondaryEdge(item.edge)
-      })).sort(sortCandidate);
-      const parent = candidates[0];
-      if (!parent) break;
-      ancestry.add(parent.id);
-      traversedEdgeKeys.add(edgeKey(parent.edge));
-      distances.set(parent.id, step);
-      currentId = parent.id;
-      step += 1;
-    }
+    const collectVisibleParents = (seedIds) => {
+      const queue = Array.from(seedIds || []).filter((id) => nodesById.has(id));
+      const seen = new Set(queue);
+      while (queue.length) {
+        const currentId = queue.shift();
+        const currentNode = nodesById.get(currentId);
+        const currentRank = rankOf(currentNode);
+        const currentDistance = distances.get(currentId) ?? 0;
+        const rawCandidates = neighbors(currentId).filter((item) => {
+          const node = nodesById.get(item.id);
+          if (!node) return false;
+          if (isSecondaryEdge(item.edge) && !includeSecondaryLinks) return false;
+          if (!contextNodeVisible(node)) return false;
+          return rankOf(node) < currentRank;
+        }).map((item) => ({
+          id: item.id,
+          edge: item.edge,
+          directed: item.edge.source === item.id && item.edge.target === currentId,
+          primary: !isSecondaryEdge(item.edge)
+        })).sort(sortCandidate);
+        const regularCandidates = rawCandidates.filter((item) => !isFallbackTraversalEdge(item.edge, traversal));
+        const candidates = regularCandidates.length
+          ? regularCandidates
+          : rawCandidates.filter((item) => isFallbackTraversalEdge(item.edge, traversal));
+        for (const parent of candidates) {
+          traversedEdgeKeys.add(edgeKey(parent.edge));
+          if (seen.has(parent.id)) continue;
+          seen.add(parent.id);
+          ancestry.add(parent.id);
+          distances.set(parent.id, Math.min(distances.get(parent.id) ?? currentDistance + 1, currentDistance + 1));
+          queue.push(parent.id);
+        }
+      }
+    };
+    collectVisibleParents([selectedId]);
     const downQueue = [selectedId];
     const downSeen = new Set([selectedId]);
     const downParents = new Map();
     const visibleDescendants = [];
+    const fallbackDescendants = [];
     const secondaryDescendants = [];
     while (downQueue.length) {
       const fromId = downQueue.shift();
       const fromRank = rankOf(nodesById.get(fromId));
+      const regularItems = [];
+      const fallbackItems = [];
       for (const item of neighbors(fromId)) {
         const toId = item.id;
         const toNode = nodesById.get(toId);
         if (!toNode || downSeen.has(toId)) continue;
         const edgeSecondary = isSecondaryEdge(item.edge);
+        const edgeFallback = isFallbackTraversalEdge(item.edge, traversal);
         const directedChild = item.edge.source === fromId && item.edge.target === toId;
         if (!directedChild) continue;
         if (edgeSecondary && !(includeSecondaryLinks && fromId === selectedId)) continue;
@@ -1579,9 +1688,16 @@ def _relationship_graph_script() -> str:
         const rankedChild = toRank > fromRank;
         const fallbackChild = fromRank === 99 && toRank === fromRank;
         if (!rankedChild && !fallbackChild) continue;
+        (edgeFallback ? fallbackItems : regularItems).push({item, toId, toNode, edgeSecondary});
+      }
+      const items = regularItems.length ? regularItems : fallbackItems;
+      for (const candidate of items) {
+        const {item, toId, toNode, edgeSecondary} = candidate;
         downSeen.add(toId);
         downParents.set(toId, {parentId: fromId, edge: item.edge});
-        if (edgeSecondary && includeSecondaryLinks && fromId === selectedId && nodeVisible(toNode)) {
+        if (isFallbackTraversalEdge(item.edge, traversal) && nodeVisible(toNode)) {
+          fallbackDescendants.push(toId);
+        } else if (edgeSecondary && includeSecondaryLinks && fromId === selectedId && nodeVisible(toNode)) {
           secondaryDescendants.push(toId);
         } else if (edgeSecondary) {
           downQueue.push(toId);
@@ -1615,8 +1731,22 @@ def _relationship_graph_script() -> str:
           distances.set(item.id, Math.min(distances.get(item.id) ?? index + 1, index + 1));
         }
       }
+    } else if (fallbackDescendants.length) {
+      for (const targetId of fallbackDescendants) {
+        const parent = downParents.get(targetId);
+        if (!parent) continue;
+        traversedEdgeKeys.add(edgeKey(parent.edge));
+        distances.set(targetId, Math.min(distances.get(targetId) ?? 1, 1));
+      }
     }
+    const selectedVisible = nodeVisible(selected);
+    const hasVisibleNonFocusNode = Array.from(distances.keys()).some((id) => {
+      if (id === selectedId) return false;
+      return nodeVisible(nodesById.get(id));
+    });
+    const hasVisibleGraphContent = selectedVisible || hasVisibleNonFocusNode;
     const visibleIds = new Set(Array.from(distances.keys()).filter((id) => {
+      if (!hasVisibleGraphContent) return false;
       const node = nodesById.get(id);
       return nodeVisible(node) || (ancestry.has(id) && contextNodeVisible(node));
     }));
@@ -1685,7 +1815,9 @@ def _relationship_graph_script() -> str:
   function buildTypeListGraph(state) {
     const selectedType = singleEnabledType(state);
     if (!selectedType) return null;
-    const nodes = state.nodes.filter((node) => node.type === selectedType && isSubfilterEnabled(node, state));
+    const selected = state.nodesById.get(state.selectedId || "");
+    if (selected && (selected.type || "entity") !== selectedType) return null;
+    const nodes = stateGraphNodes(state).filter((node) => node.type === selectedType && isSubfilterEnabled(node, state));
     return {
       nodes,
       edges: [],
@@ -1840,12 +1972,79 @@ def _relationship_graph_script() -> str:
   }
 
   function visibleEdgesForCanvas(selectedId, graph) {
-    return graph.edges || [];
+    const relationPriority = (edge) => {
+      const relation = String(edge && edge.relation || "");
+      if (relation === "through_filtered") return 3;
+      if (relation.includes("auto_candidate")) return 2;
+      if (relation.includes("annotation")) return 0;
+      return 1;
+    };
+    const byPair = new Map();
+    for (const edge of graph.edges || []) {
+      if (!edge || !edge.source || !edge.target) continue;
+      const key = `${edge.source}\u0000${edge.target}`;
+      const current = byPair.get(key);
+      if (!current || relationPriority(edge) < relationPriority(current)) {
+        byPair.set(key, edge);
+      }
+    }
+    return Array.from(byPair.values());
   }
 
-  function wrapLabel(value) {
+  function nodeDetailText(node, key) {
+    const details = node && node.details && typeof node.details === "object" ? node.details : {};
+    const value = details[key];
+    return value == null ? "" : String(value);
+  }
+
+  function stripLeadingRequirementId(text) {
+    return String(text || "")
+      .replace(/^\s*\[[^\]]+\]\s*/, "")
+      .replace(/^\s*(?:CDD|VSR|GAS-VSR)\s+[A-Z0-9./:-]+(?:\s*[·:-]\s*)?/i, "")
+      .trim();
+  }
+
+  function requirementPhrase(text, requireMarker) {
+    const clean = stripLeadingRequirementId(String(text || "").replace(/\s+/g, " "));
+    const ruleWords = [
+      "STRONGLY\\s+RECOMMENDED",
+      "MUST\\s+NOT",
+      "SHALL\\s+NOT",
+      "SHOULD\\s+NOT",
+      "MUST",
+      "SHALL",
+      "SHOULD",
+      "REQUIRED",
+      "REQUIRES",
+      "RECOMMENDED",
+      "PROHIBITED",
+      "FORBIDDEN",
+      "OPTIONAL",
+      "MAY"
+    ];
+    const match = clean.match(new RegExp(`\\b(${ruleWords.join("|")})\\b`, "i"));
+    if (requireMarker && !match) return "";
+    const phrase = match ? clean.slice(match.index).trim() : clean;
+    return phrase.replace(/\s+/g, " ").trim();
+  }
+
+  function nodeDisplayLabel(node) {
+    const base = node && (node.label || node.id) || "";
+    const type = node && (node.type || "entity") || "entity";
+    if (type !== "cdd" && type !== "vsr") return base;
+    const summary = nodeDetailText(node, "requirement_summary") || node.summary || "";
+    const text = nodeDetailText(node, "requirement_text") || summary;
+    const phrase = requirementPhrase(summary, true) || requirementPhrase(text, true) || requirementPhrase(summary, false) || requirementPhrase(text, false);
+    if (!phrase || String(base).includes(phrase)) return base;
+    const id = String(node.id || base).replace(/^[^:]+:/, "");
+    return `${id} · ${phrase}`;
+  }
+
+  function wrapLabel(value, options) {
     const text = String(value || "");
-    const limit = 22;
+    const config = options && typeof options === "object" ? options : {};
+    const limit = config.lineLength || 22;
+    const maxLines = config.maxLines || 4;
     const tokens = [];
     for (const token of text.split(/(\s+|[@./:_-])/).filter(Boolean)) {
       if (token.length <= limit) {
@@ -1862,7 +2061,7 @@ def _relationship_graph_script() -> str:
     for (const token of tokens) {
       const candidate = line + token;
       if (candidate.length > limit && line) {
-        if (lines.length >= 4) {
+        if (lines.length >= maxLines) {
           truncated = true;
           break;
         }
@@ -1872,13 +2071,19 @@ def _relationship_graph_script() -> str:
         line = candidate;
       }
     }
-    if (line && lines.length < 4) lines.push(line);
+    if (line && lines.length < maxLines) lines.push(line);
     else if (line) truncated = true;
-    const wrapped = lines.slice(0, 4);
+    const wrapped = lines.slice(0, maxLines);
     if (truncated && wrapped.length) {
       wrapped[wrapped.length - 1] = `${wrapped[wrapped.length - 1].slice(0, limit - 1)}\u2026`;
     }
     return wrapped.join("\n");
+  }
+
+  function wrapNodeDisplayLabel(node) {
+    const type = node && (node.type || "entity") || "entity";
+    if (type === "cdd") return wrapLabel(nodeDisplayLabel(node), {lineLength: 18, maxLines: 3});
+    return wrapLabel(nodeDisplayLabel(node), {lineLength: 22, maxLines: 4});
   }
 
   function cssValue(name, fallback) {
@@ -1903,6 +2108,8 @@ def _relationship_graph_script() -> str:
     const passBg = cssValue("--graph-status-pass-bg", "#f0fdf4");
     const info = cssValue("--graph-status-info-border", "#7c3aed");
     const infoBg = cssValue("--graph-status-info-bg", "#f5f3ff");
+    const autoPass = cssValue("--graph-status-auto-pass-border", "#2563eb");
+    const autoPassBg = cssValue("--graph-status-auto-pass-bg", "#eff6ff");
     const neutral = cssValue("--graph-status-neutral-border", "#64748b");
     const neutralBg = cssValue("--graph-status-neutral-bg", "#f8fafc");
     return [
@@ -1938,11 +2145,12 @@ def _relationship_graph_script() -> str:
       {selector: ".is-list-item", style: {"width": 190, "height": 58, "text-max-width": 162, "font-size": 9}},
       {selector: '.is-list-item[type = "cdd"]', style: {"width": 122, "height": 80, "text-max-width": 92}},
       {selector: "edge", style: {"width": 1.4, "line-color": muted, "target-arrow-color": muted, "target-arrow-shape": "triangle", "curve-style": "bezier", "opacity": .52}},
-      {selector: ".status-covered, .status-covered-candidate, .status-pass", style: {"border-color": pass, "background-color": passBg}},
+      {selector: ".status-covered, .status-covered-candidate, .status-pass, .status-not-failed", style: {"border-color": pass, "background-color": passBg}},
       {selector: ".status-risk, .status-needs-evidence, .status-not-applicable-candidate, .status-warning", style: {"border-color": risk, "background-color": riskBg}},
       {selector: ".status-gap, .status-fail, .status-blocked", style: {"border-color": fail, "background-color": failBg}},
-      {selector: ".status-assumption-failure, .status-skip, .status-skipped", style: {"border-color": info, "background-color": infoBg}},
-      {selector: ".status-not-run, .status-not-done, .status-unknown", style: {"border-color": neutral, "background-color": neutralBg}},
+      {selector: ".status-assumption-failure, .status-skip, .status-skipped, .status-auto-fail-candidate, .status-auto-warning-candidate", style: {"border-color": info, "background-color": infoBg}},
+      {selector: ".status-auto-pass-candidate", style: {"border-color": autoPass, "background-color": autoPassBg}},
+      {selector: ".status-not-run, .status-not-done, .status-unknown, .status-auto-no-result-candidate", style: {"border-color": neutral, "background-color": neutralBg}},
       {selector: ".is-selected", style: {"border-color": link, "border-width": 5, "outline-color": link, "outline-width": 3, "outline-opacity": .52}},
       {selector: ".is-active", style: {"border-color": active, "border-width": 4}},
       {selector: "node:selected", style: {"border-color": link, "border-width": 4}}
@@ -2041,7 +2249,7 @@ def _relationship_graph_script() -> str:
       data: {
         id: node.id,
         label: node.label || node.id,
-        displayLabel: `${nodeTypeLabel(node)}\n${wrapLabel(node.label || node.id)}`,
+        displayLabel: `${nodeTypeLabel(node)}\n${wrapNodeDisplayLabel(node)}`,
         type: node.type || "entity",
         status: node.status || "unknown"
       },
@@ -2139,7 +2347,7 @@ def _relationship_graph_script() -> str:
 
   function focusHasSecondaryLinks(state) {
     if (!state.selectedId) return false;
-    return state.edges.some((edge) =>
+    return stateGraphEdges(state).some((edge) =>
       isSecondaryEdge(edge) && (edge.source === state.selectedId || edge.target === state.selectedId)
     );
   }
@@ -2182,12 +2390,14 @@ def _relationship_graph_script() -> str:
     const hasSearch = String(state.searchQuery || "").trim();
     updateSecondaryLinkControl(browser, state);
     const nodeVisible = (node) => isNodeVisible(node, state);
-    const contextNodeVisible = (node) => isTypeEnabled(node, state.selectedId, state.enabledTypes);
+    const contextNodeVisible = (node) => nodeInScope(state, node);
+    const graphEdges = stateGraphEdges(state);
+    const graphAdjacency = stateGraphAdjacency(state);
     const baseGraph = buildTypeListGraph(state) || buildNeighborhood(
       state.selectedId,
       state.nodesById,
-      state.edges,
-      state.adjacency,
+      graphEdges,
+      graphAdjacency,
       nodeVisible,
       contextNodeVisible,
       activeTraversal(state),
@@ -2209,7 +2419,7 @@ def _relationship_graph_script() -> str:
     state.visibleNodeIds = new Set(graph.nodes.map((node) => node.id));
     syncActiveSubfilterType(state);
     const typeContainer = browser.querySelector("[data-relationship-projection-controls]");
-    if (typeContainer) refreshTypeFilterState(typeContainer, state, graphTypes(state.nodes));
+    if (typeContainer) refreshTypeFilterState(typeContainer, state, stateGraphTypes(state));
     const listColumnWidth = 220;
     const listRowHeight = 150;
     canvas.style.height = "";
@@ -2409,7 +2619,7 @@ def _relationship_graph_script() -> str:
     for (const edge of visibleGraph.edges || []) {
       addEdge(edge);
     }
-    for (const edge of state.edges) {
+    for (const edge of stateGraphEdges(state)) {
       addEdge(edge);
     }
     return groups;
@@ -2427,7 +2637,7 @@ def _relationship_graph_script() -> str:
     };
     const neighbors = (id) => {
       const result = [];
-      for (const edge of state.edges) {
+      for (const edge of stateGraphEdges(state)) {
         if (isSecondaryEdge(edge) && !state.showSecondaryLinks) continue;
         if (edge.source === id) {
           result.push({id: edge.target, edge});
@@ -2478,7 +2688,7 @@ def _relationship_graph_script() -> str:
 
   function projectionRankGroups(state) {
     const byRank = new Map();
-    for (const type of graphTypes(state.nodes)) {
+    for (const type of stateGraphTypes(state)) {
       const rank = typeRankValue(state, type);
       if (!byRank.has(rank)) byRank.set(rank, []);
       byRank.get(rank).push(type);
@@ -2578,7 +2788,7 @@ def _relationship_graph_script() -> str:
 
   function applyProjectionSelections(browser, state) {
     state.enabledTypes = projectionTypesFromSelections(state);
-    refreshTypeFilterState(browser.querySelector("[data-relationship-projection-controls]") || browser, state, graphTypes(state.nodes));
+    refreshTypeFilterState(browser.querySelector("[data-relationship-projection-controls]") || browser, state, stateGraphTypes(state));
   }
 
   function ensureFocusFilters(browser, state, nodeId) {
@@ -2598,14 +2808,15 @@ def _relationship_graph_script() -> str:
           : encodeProjectionChoice(group.types.filter((candidate) => selected.has(candidate)));
       }
     }
-    refreshTypeFilterState(browser.querySelector("[data-relationship-projection-controls]") || browser, state, graphTypes(state.nodes));
+    refreshTypeFilterState(browser.querySelector("[data-relationship-projection-controls]") || browser, state, stateGraphTypes(state));
     return true;
   }
 
   function focusViewTypes(state, nodeId) {
     const fallback = focusRequiredTypes(state, nodeId);
     if (!state.nodesById.has(nodeId)) return fallback;
-    const allTypes = new Set(graphTypes(state.nodes));
+    const allTypes = new Set(stateGraphTypes(state));
+    const graphEdges = stateGraphEdges(state);
     const focusState = Object.assign({}, state, {
       selectedId: nodeId,
       enabledTypes: allTypes
@@ -2613,8 +2824,8 @@ def _relationship_graph_script() -> str:
     const graph = buildNeighborhood(
       nodeId,
       state.nodesById,
-      state.edges,
-      state.adjacency,
+      graphEdges,
+      stateGraphAdjacency(state),
       (node) => node && (node.id === nodeId || isSubfilterEnabled(node, state)),
       (node) => Boolean(node),
       activeTraversal(focusState),
@@ -2628,11 +2839,11 @@ def _relationship_graph_script() -> str:
     state.enabledTypes = focusViewTypes(state, nodeId);
     state.projectionMode = "auto";
     state.projectionSelections = defaultProjectionSelections(state);
-    refreshTypeFilterState(browser.querySelector("[data-relationship-projection-controls]") || browser, state, graphTypes(state.nodes));
+    refreshTypeFilterState(browser.querySelector("[data-relationship-projection-controls]") || browser, state, stateGraphTypes(state));
   }
 
   function enableAllEntityTypes(browser, state) {
-    const types = graphTypes(state.nodes);
+    const types = stateGraphTypes(state);
     state.enabledTypes = new Set(types);
     state.projectionMode = "custom";
     state.projectionSelections = defaultProjectionSelections(state);
@@ -2640,14 +2851,14 @@ def _relationship_graph_script() -> str:
   }
 
   function resetGraphFilters(browser, state) {
-    state.enabledTypes = new Set(graphTypes(state.nodes));
+    state.enabledTypes = new Set(stateGraphTypes(state));
     state.projectionMode = "auto";
     state.projectionSelections = defaultProjectionSelections(state);
     resetSubfilters(state);
     state.activeSubfilterType = "";
     state.activeSubfilterTypes = [];
     state.typeSearchType = "";
-    refreshTypeFilterState(browser.querySelector("[data-relationship-projection-controls]") || browser, state, graphTypes(state.nodes));
+    refreshTypeFilterState(browser.querySelector("[data-relationship-projection-controls]") || browser, state, stateGraphTypes(state));
   }
 
   function childLayerSubfilterTypes(state) {
@@ -2665,7 +2876,7 @@ def _relationship_graph_script() -> str:
     const seen = new Set(candidates
       .filter((node) => typeRank(node) === nearestRank)
       .map((node) => node.type || "entity"));
-    return graphTypes(state.nodes).filter((type) => seen.has(type));
+    return stateGraphTypes(state).filter((type) => seen.has(type));
   }
 
   function syncActiveSubfilterType(state) {
@@ -2682,7 +2893,7 @@ def _relationship_graph_script() -> str:
   }
 
   function allEntityTypesEnabled(state) {
-    const types = graphTypes(state.nodes);
+    const types = stateGraphTypes(state);
     return types.length > 0 && types.every((type) => state.enabledTypes.has(type));
   }
 
@@ -2702,7 +2913,8 @@ def _relationship_graph_script() -> str:
       graphPage: state.graphPage,
       showSecondaryLinks: state.showSecondaryLinks,
       searchQuery: state.searchQuery,
-      typeSearchType: state.typeSearchType
+      typeSearchType: state.typeSearchType,
+      isolatedRootId: state.isolatedRootId || ""
     };
   }
 
@@ -2716,11 +2928,13 @@ def _relationship_graph_script() -> str:
     if (typeof snapshot === "string") {
       snapshot = {selectedId: snapshot, activeId: snapshot};
     }
+    setIsolatedRoot(state, snapshot.isolatedRootId || "");
     if (!state.nodesById.has(snapshot.selectedId)) return;
+    if (state.isolatedNodeIds && !state.isolatedNodeIds.has(snapshot.selectedId)) return;
     state.selectedId = snapshot.selectedId;
     state.activeId = state.nodesById.has(snapshot.activeId) ? snapshot.activeId : snapshot.selectedId;
     syncActiveSubfilterType(state);
-    state.enabledTypes = new Set(Array.isArray(snapshot.enabledTypes) ? snapshot.enabledTypes : graphTypes(state.nodes));
+    state.enabledTypes = new Set(Array.isArray(snapshot.enabledTypes) ? snapshot.enabledTypes : stateGraphTypes(state));
     state.projectionMode = snapshot.projectionMode === "custom" ? "custom" : "auto";
     state.projectionSelections = snapshot.projectionSelections && typeof snapshot.projectionSelections === "object"
       ? Object.assign({}, snapshot.projectionSelections)
@@ -2732,7 +2946,7 @@ def _relationship_graph_script() -> str:
     state.showSecondaryLinks = Boolean(snapshot.showSecondaryLinks);
     state.searchQuery = snapshot.searchQuery || "";
     state.typeSearchType = snapshot.typeSearchType || "";
-    refreshTypeFilterState(browser.querySelector("[data-relationship-projection-controls]") || browser, state, graphTypes(state.nodes));
+    refreshTypeFilterState(browser.querySelector("[data-relationship-projection-controls]") || browser, state, stateGraphTypes(state));
     renderGraph(browser, state);
     renderNodeSelect(browser, state);
     renderDetail(browser, state);
@@ -2865,6 +3079,7 @@ def _relationship_graph_script() -> str:
 
   function selectNode(browser, state, nodeId, recordHistory, options) {
     if (!state.nodesById.has(nodeId)) return;
+    if (state.isolatedNodeIds && !state.isolatedNodeIds.has(nodeId)) return;
     const resetTypes = Boolean(options && options.resetTypes);
     const preserveTypes = options && Object.prototype.hasOwnProperty.call(options, "preserveTypes")
       ? Boolean(options.preserveTypes)
@@ -2926,7 +3141,7 @@ def _relationship_graph_script() -> str:
     syncActiveSubfilterType(state);
     updateActiveGraphNode(state);
     updateActiveTableRow(browser, state);
-    refreshTypeFilterState(browser.querySelector("[data-relationship-projection-controls]") || browser, state, graphTypes(state.nodes));
+    refreshTypeFilterState(browser.querySelector("[data-relationship-projection-controls]") || browser, state, stateGraphTypes(state));
     renderNodeSelect(browser, state);
     renderDetail(browser, state);
   }
@@ -3008,11 +3223,11 @@ def _relationship_graph_script() -> str:
 
   function visibleNodeDegreeMap(state) {
     const visibleIds = new Set();
-    for (const node of state.nodes) {
+    for (const node of stateGraphNodes(state)) {
       if (isNodeVisible(node, state)) visibleIds.add(node.id);
     }
     const degrees = new Map();
-    for (const edge of state.edges) {
+    for (const edge of stateGraphEdges(state)) {
       if (isSecondaryEdge(edge) && !state.showSecondaryLinks) continue;
       if (visibleIds.has(edge.source) && visibleIds.has(edge.target)) {
         degrees.set(edge.source, (degrees.get(edge.source) || 0) + 1);
@@ -3043,7 +3258,7 @@ def _relationship_graph_script() -> str:
   function graphRootId(state) {
     let rootId = "";
     let rootRank = Infinity;
-    for (const node of state.nodes) {
+    for (const node of stateGraphNodes(state)) {
       const rank = traversalRank(state, node);
       if (rank >= rootRank) continue;
       rootRank = rank;
@@ -3063,7 +3278,7 @@ def _relationship_graph_script() -> str:
       const currentRank = traversalRank(state, current);
       let parentId = "";
       let parentRank = 99;
-      for (const item of state.adjacency.get(currentId) || []) {
+      for (const item of stateGraphAdjacency(state).get(currentId) || []) {
         if (item.edge.target !== currentId || item.edge.source !== item.id) continue;
         if (isSecondaryEdge(item.edge) && !state.showSecondaryLinks) continue;
         const node = state.nodesById.get(item.id);
@@ -3096,7 +3311,7 @@ def _relationship_graph_script() -> str:
     const query = String(state.searchQuery || "").trim().toLowerCase();
     const scopeIds = focusScopeIds(state);
     const degreeMap = degrees || visibleNodeDegreeMap(state);
-    return state.nodes
+    return stateGraphNodes(state)
       .filter((node) => !scopeIds || node.id === state.selectedId || scopeIds.has(node.id))
       .filter((node) => {
         if (includeSelected && node.id === state.selectedId) return isNodeVisible(node, state);
@@ -3240,11 +3455,13 @@ def _relationship_graph_script() -> str:
         all.checked = selected.size === group.types.length;
         all.indeterminate = selected.size > 0 && selected.size < group.types.length;
         all.disabled = group.types.every((type) => requiredType && type === requiredType);
+        if (all.parentElement) all.parentElement.classList.toggle("is-disabled", all.disabled);
       }
       control.querySelectorAll("[data-relationship-projection-type]").forEach((checkbox) => {
         const type = checkbox.getAttribute("data-relationship-projection-type") || "";
         checkbox.checked = selected.has(type);
         checkbox.disabled = Boolean(requiredType && type === requiredType);
+        if (checkbox.parentElement) checkbox.parentElement.classList.toggle("is-disabled", checkbox.disabled);
       });
     });
     const browser = container.closest && container.closest("[data-relationship-browser]") || container;
@@ -3258,7 +3475,7 @@ def _relationship_graph_script() -> str:
   }
 
   function resetTypeSubfilters(state, type) {
-    const fresh = createSubfilters(state.nodes, state.filterDefaults);
+    const fresh = createSubfilters(stateGraphNodes(state), state.filterDefaults);
     state.subfilters[type] = fresh[type] || {};
   }
 
@@ -3286,7 +3503,7 @@ def _relationship_graph_script() -> str:
     while (queue.length) {
       const fromId = queue.shift();
       const fromRank = traversalRank(state, state.nodesById.get(fromId));
-      for (const item of state.adjacency.get(fromId) || []) {
+      for (const item of stateGraphAdjacency(state).get(fromId) || []) {
         if (item.edge.source !== fromId || item.edge.target !== item.id) continue;
         if (isSecondaryEdge(item.edge) && !state.showSecondaryLinks) continue;
         if (seen.has(item.id)) continue;
@@ -3325,7 +3542,7 @@ def _relationship_graph_script() -> str:
     const rerender = () => {
       state.graphPage = 0;
       ensureSelectableFocus(state);
-    refreshTypeFilterState(browser.querySelector("[data-relationship-projection-controls]") || browser, state, graphTypes(state.nodes));
+    refreshTypeFilterState(browser.querySelector("[data-relationship-projection-controls]") || browser, state, stateGraphTypes(state));
       renderGraph(browser, state);
       renderNodeSelect(browser, state);
       renderDetail(browser, state);
@@ -3373,7 +3590,7 @@ def _relationship_graph_script() -> str:
   function renderFocusTypeSelect(browser, state) {
     const select = browser.querySelector("[data-relationship-focus-type]");
     if (!select) return;
-    const types = graphTypes(state.nodes);
+    const types = stateGraphTypes(state);
     select.replaceChildren();
     const any = document.createElement("option");
     any.value = "";
@@ -3417,7 +3634,7 @@ def _relationship_graph_script() -> str:
     while (queue.length) {
       const fromId = queue.shift();
       const fromRank = traversalRank(state, state.nodesById.get(fromId));
-      for (const item of state.adjacency.get(fromId) || []) {
+      for (const item of stateGraphAdjacency(state).get(fromId) || []) {
         if (item.edge.source !== fromId || item.edge.target !== item.id) continue;
         if (isSecondaryEdge(item.edge) && !state.showSecondaryLinks) continue;
         if (seen.has(item.id)) continue;
@@ -3513,7 +3730,7 @@ def _relationship_graph_script() -> str:
         resetTypeSubfilters(state, type);
         state.graphPage = 0;
         ensureSelectableFocus(state);
-        refreshTypeFilterState(container, state, graphTypes(state.nodes));
+        refreshTypeFilterState(container, state, stateGraphTypes(state));
         rerender();
       });
       const allValues = document.createElement("button");
@@ -3524,7 +3741,7 @@ def _relationship_graph_script() -> str:
         enableAllTypeSubfilters(state, type);
         state.graphPage = 0;
         ensureSelectableFocus(state);
-        refreshTypeFilterState(container, state, graphTypes(state.nodes));
+        refreshTypeFilterState(container, state, stateGraphTypes(state));
         rerender();
       });
       actions.append(defaults, allValues);
@@ -3549,7 +3766,7 @@ def _relationship_graph_script() -> str:
             config.enabled = allCheckbox.checked ? new Set(values) : new Set();
             state.graphPage = 0;
             ensureSelectableFocus(state);
-            refreshTypeFilterState(container, state, graphTypes(state.nodes));
+            refreshTypeFilterState(container, state, stateGraphTypes(state));
             rerender();
           });
           allLabel.appendChild(allCheckbox);
@@ -3572,7 +3789,7 @@ def _relationship_graph_script() -> str:
             }
             state.graphPage = 0;
             ensureSelectableFocus(state);
-            refreshTypeFilterState(container, state, graphTypes(state.nodes));
+            refreshTypeFilterState(container, state, stateGraphTypes(state));
             rerender();
           });
           label.appendChild(checkbox);
@@ -3708,7 +3925,7 @@ def _relationship_graph_script() -> str:
       levels.dataset.relationshipProjectionOutsideClick = "true";
       document.addEventListener("click", () => closeProjectionMenus(null));
     }
-    refreshTypeFilterState(container, state, graphTypes(state.nodes));
+    refreshTypeFilterState(container, state, stateGraphTypes(state));
   }
 
   function initBrowser(browser) {
@@ -3729,6 +3946,7 @@ def _relationship_graph_script() -> str:
       edges: graph.edges,
       nodesById,
       adjacency: buildAdjacency(graph.edges),
+      outgoingAdjacency: buildOutgoingAdjacency(graph.edges),
       filterDefaults: graph.filterDefaults || {},
       subfilters: {},
       statusFilter: {values: [], enabled: new Set()},
@@ -3747,14 +3965,19 @@ def _relationship_graph_script() -> str:
       focusGraph: null,
       focusContent: null,
       focusInGraphOnly: false,
+      isolatedRootId: "",
+      isolatedNodeIds: null,
+      scopedEdgesCache: null,
+      scopedAdjacencyCache: null,
       canvasViewportListenersAttached: false,
       showSecondaryLinks: false,
       graphPage: 0,
       traversal: traversalConfig(graph.traversal),
       projectionMode: "auto",
       projectionSelections: {},
-      enabledTypes: new Set(graphTypes(graph.nodes))
+      enabledTypes: new Set()
     };
+    state.enabledTypes = new Set(stateGraphTypes(state));
     state.projectionSelections = defaultProjectionSelections(state);
     resetSubfilters(state);
     syncActiveSubfilterType(state);
@@ -3793,7 +4016,7 @@ def _relationship_graph_script() -> str:
         state.typeSearchType = focusType.value || "";
         state.graphPage = 0;
         renderNodeSelect(browser, state);
-        refreshTypeFilterState(browser.querySelector("[data-relationship-projection-controls]") || browser, state, graphTypes(state.nodes));
+        refreshTypeFilterState(browser.querySelector("[data-relationship-projection-controls]") || browser, state, stateGraphTypes(state));
       });
     }
     const focusScope = browser.querySelector("[data-relationship-focus-scope]");
@@ -3913,17 +4136,13 @@ def _relationship_graph_script() -> str:
       }
       const nodeElement = event.target.closest && event.target.closest("[data-node-id]");
       if (nodeElement) {
-        activateNode(browser, state, nodeElement.getAttribute("data-node-id"));
+        selectNode(browser, state, nodeElement.getAttribute("data-node-id"), true);
         return;
       }
       const jump = event.target.closest && event.target.closest("[data-relationship-jump]");
       if (jump) {
         const nodeId = jump.getAttribute("data-relationship-jump");
-        if (jump.getAttribute("data-relationship-jump-visible") === "true") {
-          activateNode(browser, state, nodeId);
-        } else {
-          selectNode(browser, state, nodeId, true);
-        }
+        selectNode(browser, state, nodeId, true);
       }
     });
     browser.addEventListener("dblclick", (event) => {
@@ -3936,7 +4155,7 @@ def _relationship_graph_script() -> str:
       const nodeElement = event.target.closest && event.target.closest("[data-node-id]");
       if (!nodeElement || (event.key !== "Enter" && event.key !== " ")) return;
       event.preventDefault();
-      activateNode(browser, state, nodeElement.getAttribute("data-node-id"));
+      selectNode(browser, state, nodeElement.getAttribute("data-node-id"), true);
     });
     window.addEventListener("resize", () => fitGraph(state, 40), {passive: true});
     selectNode(browser, state, state.selectedId, false);
@@ -3998,8 +4217,10 @@ def _relationship_graph_script() -> str:
     const focusId = view && view.focus;
     if (!focusId || !state.nodesById.has(focusId)) return;
     pushNavigationSnapshot(state);
+    setIsolatedRoot(state, view.isolate_root || "");
+    if (state.isolatedNodeIds && !state.isolatedNodeIds.has(focusId)) return;
     resetGraphFilters(browser, state);
-    const types = graphTypes(state.nodes);
+    const types = stateGraphTypes(state);
     const requested = Array.isArray(view.types) ? view.types.filter((type) => types.includes(type)) : [];
     if (requested.length) {
       state.enabledTypes = new Set(requested);
@@ -4044,7 +4265,19 @@ def _relationship_graph_script() -> str:
 
   document.querySelectorAll("[data-relationship-open]").forEach((button) => {
     button.addEventListener("click", () => {
-      openRelationshipModal(button.closest(".report-relationship-section").querySelector("[data-relationship-modal]"));
+      const modal = button.closest(".report-relationship-section").querySelector("[data-relationship-modal]");
+      openRelationshipModal(modal);
+      const browser = modal && modal.querySelector("[data-relationship-browser]");
+      const state = browser && browser.__relationshipState;
+      if (state && state.isolatedRootId) {
+        pushNavigationSnapshot(state);
+        setIsolatedRoot(state, "");
+        resetGraphFilters(browser, state);
+        ensureSelectableFocus(state);
+        renderGraph(browser, state);
+        renderNodeSelect(browser, state);
+        renderDetail(browser, state);
+      }
     });
   });
   document.querySelectorAll("[data-relationship-open-focus]").forEach((item) => {

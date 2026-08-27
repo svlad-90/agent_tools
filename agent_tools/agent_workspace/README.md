@@ -87,6 +87,16 @@ guarding for both agents. The default limit is 2000 estimated tokens. When a
 Bash command exceeds that limit, Agent Workspace returns a short first/last
 line preview and guidance to the agent while saving the complete stdout,
 stderr, and metadata under the task's `report/logs/limited-bash/` directory.
+Agent Workspace also provides a single workspace MCP server for agent-facing
+tools. It runs over newline-delimited stdio JSON-RPC and exports tools from a
+central registry instead of requiring one MCP server per CLI. The initial MCP
+tool set wraps `agent_search` as `agent_search_text`, `agent_search_files`,
+and `agent_search_show`:
+
+```sh
+python -m agent_tools.agent_workspace.components.workspace_mcp --workspace /path/to/workspace
+```
+
 The reset-session button forgets only the selected task's selected AI-agent
 session in `.agent-workspace-state.json`; it does not delete the underlying
 Codex or Claude Code conversation data, and it does not affect another agent

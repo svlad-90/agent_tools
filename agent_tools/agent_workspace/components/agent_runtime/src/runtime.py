@@ -22,7 +22,9 @@ from ...task_sessions.api import AgentSessionState
 from ...task_sessions.api import prepare_task_agent_session
 from ...task_sessions.api import task_agent_has_saved_resumable_state
 from ...harness_adapter.api import claude_harness_settings
+from ...harness_adapter.api import codex_workspace_mcp_config_options
 from ...harness_adapter.api import CodexHarnessEvent
+from ...harness_adapter.api import merge_claude_workspace_mcp_settings
 
 
 @dataclass(frozen=True)
@@ -69,10 +71,19 @@ def append_ai_agent_permission_options(command: list[str], agent: str) -> None:
         command.extend(["--permission-mode", AGENT_WORKSPACE_DEFAULT_CLAUDE_PERMISSION_MODE])
 
 
-def append_ai_agent_hook_options(command: list[str], agent: str, *, animations_enabled: bool = False) -> None:
+def append_ai_agent_hook_options(
+    command: list[str],
+    agent: str,
+    *,
+    animations_enabled: bool = False,
+    workspace: Path | None = None,
+    workspace_mcp_enabled: bool = True,
+) -> None:
     agent = normalize_agent(agent)
     if agent == "claude":
         settings = claude_harness_settings("python3 -m agent_tools.agent_workspace.components.harness_adapter.claude")
+        if workspace_mcp_enabled and workspace is not None:
+            settings = merge_claude_workspace_mcp_settings(settings, workspace)
         settings["prefersReducedMotion"] = not animations_enabled
         command.extend(["--settings", json.dumps(settings, ensure_ascii=False)])
         return
@@ -86,7 +97,10 @@ def append_ai_agent_hook_options(command: list[str], agent: str, *, animations_e
                 "-c",
                 f'hooks.{event.value}=[{{hooks=[{{type="command",command="{hook_command}"}}]}}]',
             ]
-            )
+        )
+    if workspace_mcp_enabled and workspace is not None:
+        for option in codex_workspace_mcp_config_options(workspace):
+            command.extend(["-c", option])
 
 
 def append_codex_low_redraw_tui_options(command: list[str], *, animations_enabled: bool = False) -> None:
@@ -108,13 +122,20 @@ def build_ai_agent_console_command(
     reasoning_effort: str = "",
     codex_animations_enabled: bool = False,
     claude_animations_enabled: bool = False,
+    workspace_mcp_enabled: bool = True,
 ) -> list[str]:
     agent = normalize_agent(agent)
     if agent == "claude":
         command = [claude_executable]
         append_ai_agent_permission_options(command, agent)
         append_ai_agent_model_options(command, agent, model=model, reasoning_effort=reasoning_effort)
-        append_ai_agent_hook_options(command, agent, animations_enabled=claude_animations_enabled)
+        append_ai_agent_hook_options(
+            command,
+            agent,
+            animations_enabled=claude_animations_enabled,
+            workspace=workspace,
+            workspace_mcp_enabled=workspace_mcp_enabled,
+        )
         if resume and resume_session_id:
             command.extend(["--resume", resume_session_id])
         else:
@@ -125,7 +146,7 @@ def build_ai_agent_console_command(
 
     command = [codex_executable]
     append_ai_agent_model_options(command, agent, model=model, reasoning_effort=reasoning_effort)
-    append_ai_agent_hook_options(command, agent)
+    append_ai_agent_hook_options(command, agent, workspace=workspace, workspace_mcp_enabled=workspace_mcp_enabled)
     append_codex_low_redraw_tui_options(command, animations_enabled=codex_animations_enabled)
     if resume and resume_session_id:
         command.extend(["resume", "--cd", str(workspace), "--no-alt-screen"])

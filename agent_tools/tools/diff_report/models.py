@@ -56,6 +56,7 @@ class StoryStep:
 class SummaryBlock:
     kind: str
     text: str | None = None
+    links: tuple[dict[str, str], ...] = ()
     diagram: str | None = None
     log: str | None = None
     diagram_focus: tuple[str, ...] = ()

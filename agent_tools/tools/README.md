@@ -5,6 +5,7 @@ root through their module entry points:
 
 ```sh
 python -m agent_tools.tools.code_map
+python -m agent_tools.tools.agent_search
 python -m agent_tools.tools.cpp_code_map
 python -m agent_tools.tools.yaml_map
 python -m agent_tools.tools.diff_report
@@ -52,7 +53,8 @@ python3 install-agent-tools.py --venv /path/to/venv --dev
 
 Dependency files live under `agent_tools/tools/requirements/`:
 
-- `runtime.txt`: CLI runtime dependencies, including `PyYAML` and `tiktoken`.
+- `runtime.txt`: CLI runtime dependencies, including `PyYAML`, `regex`, and
+  `tiktoken`.
 - `dev.txt`: runtime plus test dependencies.
 - `gui.txt`: runtime plus notes for the optional system GTK/VTE profile.
 
@@ -103,6 +105,34 @@ If `TASK_CONTEXT.sqlite3` is missing, `query` creates it and imports legacy
 
 `goal` and `operational-memory` are required. `env` and `validation` are
 recommended. Move useful legacy material into typed slots, then clear `legacy`.
+
+## Agent Search
+
+Use `agent_search` when raw grep output would be too large for agent context.
+It scans files with a worker thread pool, aggregates results in the main
+thread, defaults to half of the available CPU count, and uses `git ls-files`
+when possible so ignored files stay out of the search.
+
+```sh
+python -m agent_tools.tools.agent_search text "def .*target" agent_tools --mode summary
+python -m agent_tools.tools.agent_search text "needle" agent_tools --mode ranges --around 5
+python -m agent_tools.tools.agent_search text "(?P<GV>src|tests)/(?P<GV>[^/]+)" agent_tools --mode aggregate
+python -m agent_tools.tools.agent_search files gtk agent_tools --type py --scope name
+python -m agent_tools.tools.agent_search show agent_tools/tools/agent_search/core.py --line 10 --around 5
+python -m agent_tools.tools.agent_search examples
+```
+
+Text search modes:
+
+- `summary`: compact counts by directory/file plus ranked sample lines.
+- `aggregate`: a grouped tree from named regex captures. Duplicate `GV` groups
+  and ordered names like `as_10_component` are supported.
+- `ranges`: full matching line ranges with configurable surrounding context.
+
+Common controls include `--threads`, `--include`, `--exclude`, `--hidden`,
+`--no-gitignore`, `--max-tokens`, `--max-output-lines`, and
+`--max-file-bytes`. Use `--type py|md|yaml|json|c|cpp|sh|toml|text` as a
+shortcut for common file extensions.
 
 ## Harness Adapter
 

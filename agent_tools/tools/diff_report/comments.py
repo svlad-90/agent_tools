@@ -215,6 +215,21 @@ def summary_blocks_from_payload(
             text = item.get("body", item.get("text", ""))
             blocks.append(SummaryBlock(kind="text", text=str(text)))
             continue
+        if block_type == "links":
+            raw_links = item.get("links", [])
+            if not isinstance(raw_links, list):
+                raise DiffReportError(f"comments.summary_blocks[{index}].links must be a list")
+            links: list[dict[str, str]] = []
+            for link_index, raw_link in enumerate(raw_links):
+                if not isinstance(raw_link, dict):
+                    raise DiffReportError(
+                        f"comments.summary_blocks[{index}].links[{link_index}] must be an object"
+                    )
+                label = str(required(raw_link, "label"))
+                href = str(required(raw_link, "href"))
+                links.append({"label": label, "href": href})
+            blocks.append(SummaryBlock(kind="links", links=tuple(links)))
+            continue
         if block_type == "diagram":
             diagram = str(required(item, "diagram"))
             if diagram not in diagrams:
