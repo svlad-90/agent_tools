@@ -143,9 +143,6 @@ checkpoints through supported agent harness hooks. Legacy task-local
 `front_door_bell.py` scripts may remain in old tasks as manual fallback only;
 new task layouts do not require or create them.
 
-`python -m agent_tools.tools.front_desk_bell` is retained only for legacy
-manual fallback/debugging. Do not use it for normal Agent Workspace sessions.
-
 ## Commit Message
 
 Use `commit_msg` to compose and format commit messages from structured parts:
