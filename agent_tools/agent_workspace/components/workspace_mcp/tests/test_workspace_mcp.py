@@ -5,6 +5,7 @@ import json
 from pathlib import Path
 import subprocess
 import sys
+from typing import Any
 
 from agent_tools.agent_workspace.components.workspace_mcp.api import build_workspace_mcp_server
 from agent_tools.agent_workspace.components.workspace_mcp.api import workspace_mcp_stdio_config
@@ -21,7 +22,14 @@ def test_workspace_mcp_lists_agent_search_tools(tmp_path: Path) -> None:
         "agent_search_files",
         "agent_search_show",
         "agent_search_text",
+        "task_context_add_entry",
+        "task_context_compact",
+        "task_context_compile_dictionary",
+        "task_context_dictionary",
+        "task_context_edit_entries",
+        "task_context_migrate_legacy",
         "task_context_query",
+        "task_context_set_slot",
     ]
     assert tools[0]["inputSchema"]["type"] == "object"
 
@@ -314,7 +322,16 @@ with tempfile.TemporaryDirectory() as workspace_text:
     assert completed.returncode == 0, completed.stderr
     payload = json.loads(completed.stdout)
     tool_names = [tool["name"] for tool in payload["tools"]["result"]["tools"]]
-    assert tool_names == ["task_context_query"]
+    assert tool_names == [
+        "task_context_add_entry",
+        "task_context_compact",
+        "task_context_compile_dictionary",
+        "task_context_dictionary",
+        "task_context_edit_entries",
+        "task_context_migrate_legacy",
+        "task_context_query",
+        "task_context_set_slot",
+    ]
     assert payload["query"]["result"]["isError"] is False
     assert "Read context without search deps." in payload["query"]["result"]["content"][0]["text"]
     assert payload["search"]["result"]["isError"] is True
@@ -375,3 +392,109 @@ def test_workspace_mcp_task_context_query_blocks_non_task_paths(tmp_path: Path) 
     result = response["result"]
     assert result["isError"] is True
     assert "workspace tasks/" in result["content"][0]["text"]
+
+
+def test_workspace_mcp_task_context_slot_and_journal_flow(tmp_path: Path) -> None:
+    task_dir = tmp_path / "tasks" / "sample"
+    task_dir.mkdir(parents=True)
+    server = build_workspace_mcp_server(tmp_path)
+
+    slot_response = _mcp_call(
+        server,
+        "task_context_set_slot",
+        {
+            "task": "tasks/sample",
+            "category": "goal",
+            "content": "Exercise full task_context MCP.",
+            "format": "json",
+        },
+    )
+    assert slot_response["result"]["isError"] is False
+    assert slot_response["result"]["structuredContent"]["slots"][0]["category"] == "goal"
+
+    entry_response = _mcp_call(
+        server,
+        "task_context_add_entry",
+            {
+                "task": "tasks/sample",
+                "summary": "MCP entry",
+                "severity": "high",
+                "labels": ["tooling"],
+                "details": "Created through MCP.",
+            },
+        )
+    assert entry_response["result"]["isError"] is False
+    entry_id = entry_response["result"]["structuredContent"]["entry"]["id"]
+
+    edit_response = _mcp_call(
+        server,
+        "task_context_edit_entries",
+        {
+            "task": "tasks/sample",
+            "ids": [entry_id],
+            "set_status": "resolved",
+            "format": "json",
+        },
+    )
+    assert edit_response["result"]["structuredContent"]["count"] == 1
+    assert edit_response["result"]["structuredContent"]["entries"][0]["status"] == "resolved"
+
+    compact_response = _mcp_call(
+        server,
+        "task_context_compact",
+        {
+            "task": "tasks/sample",
+            "statuses": ["resolved"],
+            "limit": 5000,
+        },
+    )
+    assert "Exercise full task_context MCP." in compact_response["result"]["content"][0]["text"]
+
+
+def test_workspace_mcp_task_context_dictionary_and_migrate(tmp_path: Path) -> None:
+    task_dir = tmp_path / "tasks" / "sample"
+    task_dir.mkdir(parents=True)
+    server = build_workspace_mcp_server(tmp_path)
+    legacy_entry = {
+        "timestamp": "2026-01-02T03:04:05+00:00",
+        "severity": "mid",
+        "labels": ["legacy"],
+        "status": "active",
+        "summary": "Legacy entry",
+    }
+    (task_dir / "TASK_CONTEXT_LOG.jsonl").write_text(json.dumps(legacy_entry) + "\n", encoding="utf-8")
+
+    migrate_response = _mcp_call(server, "task_context_migrate_legacy", {"task": "tasks/sample"})
+    assert migrate_response["result"]["structuredContent"]["migrated"] == 1
+
+    add_response = _mcp_call(
+        server,
+        "task_context_dictionary",
+        {"task": "tasks/sample", "add": ["Agent Workspace"]},
+    )
+    assert add_response["result"]["structuredContent"]["added"] == 1
+
+    list_response = _mcp_call(
+        server,
+        "task_context_dictionary",
+        {"task": "tasks/sample", "format": "json"},
+    )
+    dictionary = list_response["result"]["structuredContent"]["dictionary"]
+    assert dictionary[0]["value"] == "Agent Workspace"
+
+    compile_response = _mcp_call(server, "task_context_compile_dictionary", {"task": "tasks/sample"})
+    assert compile_response["result"]["isError"] is False
+    assert "compiled dictionary" in compile_response["result"]["content"][0]["text"]
+
+
+def _mcp_call(server: Any, name: str, arguments: dict[str, object]) -> dict[str, Any]:
+    response = server.handle_message(
+        {
+            "jsonrpc": "2.0",
+            "id": 99,
+            "method": "tools/call",
+            "params": {"name": name, "arguments": arguments},
+        }
+    )
+    assert response is not None
+    return response
