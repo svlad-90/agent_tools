@@ -16,7 +16,10 @@ These rules apply to every task directory under the workspace root.
    task_check gates, durable slot freshness before Stop, and compact
    checkpoints. Legacy `front_door_bell.py` scripts may remain in old local
    tasks as manual fallback only; do not create or require them for new tasks.
-3. Before working inside an existing task directory, query current task context
+3. Use normal Bash commands in agent tool calls. Do not call the Agent
+   Workspace `limited_bash` wrapper directly; harness hooks apply that output
+   guard automatically when needed.
+4. Before working inside an existing task directory, query current task context
    slots from `TASK_CONTEXT.sqlite3` after the directory is selected when task
    state is needed. Use
    `python3 -m agent_tools.tools.task_context query --task <task-dir>
@@ -25,14 +28,14 @@ These rules apply to every task directory under the workspace root.
    specific slots are needed. If the database is missing, the tool creates it
    and imports legacy `TASK_DESCRIPTION.md`/`TASK_CONTEXT.md` content into the
    `legacy` slot.
-4. Do not scan neighboring task context databases during normal task discovery.
-5. Identify the task topics before deep work. Read
+5. Do not scan neighboring task context databases during normal task discovery.
+6. Identify the task topics before deep work. Read
    `agent_tools/knowledge/README.md` and every matching topic file under
    `agent_tools/knowledge/topics/`, for example Xen/QEMU work reads
   `topics/xen.md`, workspace tool work reads `topics/agent_tools.md`, and
   Moulin product work reads `topics/moulin.md`. Record the topic files read in
   the relevant task context slot when they affect current task state.
-6. Maintain task context through singleton SQLite slots:
+7. Maintain task context through singleton SQLite slots:
 
    - `TASK_CONTEXT.sqlite3` is the only task context source.
    - Slots are current state, not an append-only changelog. Update the relevant
@@ -53,7 +56,7 @@ These rules apply to every task directory under the workspace root.
      --add <term>`. Do not encode terms by hand in slot text; use dictionary
      aliases returned by `--format agent`.
 
-7. Record the task bootstrap through the task context slots before deep work:
+8. Record the task bootstrap through the task context slots before deep work:
 
    ```text
    goal, active repositories and branches, selected environment, build or
@@ -85,7 +88,7 @@ These rules apply to every task directory under the workspace root.
    Use `--run-env-check` only when the task should actually execute the
    environment domain's safe PAF check-only scenario.
 
-8. For tasks that need a reusable environment, choose the environment before
+9. For tasks that need a reusable environment, choose the environment before
    building or validating. Record the selected
    `agent_tools/paf_workspace/domains/environments/...` profile/scenario,
    reason for choosing it, PAF scenario/task entry point, and validation
@@ -97,7 +100,7 @@ These rules apply to every task directory under the workspace root.
    expand the task-local PAF scenario or reusable domain tasks so the build and
    validation remain reproducible; use direct helper scripts only as a focused
    diagnostic and record that exception in the relevant task context slot.
-9. Track validation by level instead of using one ambiguous "validated" note:
+10. Track validation by level instead of using one ambiguous "validated" note:
 
    ```text
    static: code maps, parse checks, linters, schema checks
@@ -108,21 +111,21 @@ These rules apply to every task directory under the workspace root.
 
    Mark each level as `not run`, `pass`, `fail`, or `blocked`, with the exact
    command or artifact path that supports the status.
-10. When a workspace tool or environment command fails, do not silently bypass
+11. When a workspace tool or environment command fails, do not silently bypass
    it. Record the command, short failure summary, whether it blocks exact
    source analysis or only fast feedback, and the next fix in the relevant task
    context slot.
-11. Keep source, generated build output, product output, runtime logs, and
+12. Keep source, generated build output, product output, runtime logs, and
    review/report artifacts separate. Fix the source, product definition, or
    reusable environment that reproduces generated output; do not hand-edit
    generated output unless the task explicitly asks for generated artifact
    patching.
-12. For runtime products that combine multiple target artifacts, maintain a
+13. For runtime products that combine multiple target artifacts, maintain a
     task-owned artifact manifest based on
     `agent_tools/paf_workspace/templates/product-artifacts.yaml`. Keep it under
     the task's `dev/` tree and update it when artifact paths, domain roles, or
     compile databases change.
-13. Task-local GUI actions are the normal way to expose repeated task commands
+14. Task-local GUI actions are the normal way to expose repeated task commands
     in `agent-workspace`. Declare them in `TASK_ACTIONS.json` at the task root
     only when the action is useful for a human user to run directly without an
     AI agent. Good candidates include long builds, component builds, hardware
@@ -151,11 +154,11 @@ These rules apply to every task directory under the workspace root.
     stay inside the task directory. `env` is optional and must be a string map.
     Prefer commands under `scripts/` for repeatable task routines; keep
     agent-only helpers and one-off experiments out of `TASK_ACTIONS.json`.
-14. Keep commit-ready source/tooling changes separate from review/report
+15. Keep commit-ready source/tooling changes separate from review/report
     artifacts unless the user asks to include both. Review tasks place reports
     under `report/`; source tasks should not accumulate report output as a side
     effect.
-15. Task directories are local workspace state, not part of the public
+16. Task directories are local workspace state, not part of the public
     `agent_tools` repository payload. Do not merge or push `tasks/<task-name>/`
     contents into `agent_tools`; keep only the `tasks/` placeholder files
     needed to preserve the local directory layout in a fresh checkout. If a

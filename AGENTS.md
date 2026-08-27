@@ -11,7 +11,16 @@ Rule routing: Python -> `python-code.md`; C/C++/assembly ->
 `cpp-code.md`; Docker/CI/PAF/SDK/emulator environments ->
 `reusable-environments.md`; commit/push -> `git-commits.md`; diff reports ->
 `diff-reports.md`; workspace skills -> `workspace-skills.md`; Xen/Zephyr/QEMU
-runtime -> `xen-zephyr-abi.md`.
+runtime -> `xen-zephyr-abi.md`; constructing, rewriting, validating, or
+reviewing a git patch series -> `patch-series.md`.
+
+Maintain technical compatibility with Python 3.10 unless a task explicitly
+raises the supported baseline. Avoid syntax, standard-library APIs, type-hint
+forms, and runtime decisions that require Python 3.11 or newer.
+
+Use normal Bash commands in agent tool calls. Do not call the Agent Workspace
+`limited_bash` wrapper directly; harness hooks apply that output guard
+automatically when needed.
 
 Workspace-local skills live under `agent_tools/skills/`. When a task matches a
 workspace-local skill, read that skill's `SKILL.md` before acting and follow it
