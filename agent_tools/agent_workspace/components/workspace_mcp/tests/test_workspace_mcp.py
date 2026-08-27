@@ -22,6 +22,10 @@ def test_workspace_mcp_lists_agent_search_tools(tmp_path: Path) -> None:
         "agent_search_files",
         "agent_search_show",
         "agent_search_text",
+        "knowledge_get_topic",
+        "knowledge_list_topics",
+        "knowledge_search_topics",
+        "knowledge_set_topic",
         "task_context_add_entry",
         "task_context_compact",
         "task_context_compile_dictionary",
@@ -323,6 +327,10 @@ with tempfile.TemporaryDirectory() as workspace_text:
     payload = json.loads(completed.stdout)
     tool_names = [tool["name"] for tool in payload["tools"]["result"]["tools"]]
     assert tool_names == [
+        "knowledge_get_topic",
+        "knowledge_list_topics",
+        "knowledge_search_topics",
+        "knowledge_set_topic",
         "task_context_add_entry",
         "task_context_compact",
         "task_context_compile_dictionary",
@@ -336,6 +344,89 @@ with tempfile.TemporaryDirectory() as workspace_text:
     assert "Read context without search deps." in payload["query"]["result"]["content"][0]["text"]
     assert payload["search"]["result"]["isError"] is True
     assert "dependency is missing" in payload["search"]["result"]["content"][0]["text"]
+
+
+def test_workspace_mcp_knowledge_set_get_list_and_search(
+    tmp_path: Path, monkeypatch: Any
+) -> None:
+    from agent_tools.tools import knowledge
+
+    public_dir = tmp_path / "knowledge" / "topics"
+    private_dir = tmp_path / "private" / "topics"
+    public_dir.mkdir(parents=True)
+    private_dir.mkdir(parents=True)
+    monkeypatch.setattr(knowledge, "PUBLIC_TOPICS_DIR", public_dir)
+    monkeypatch.setenv("AGENT_TOOLS_PRIVATE_KNOWLEDGE_DIR", str(private_dir))
+    server = build_workspace_mcp_server(tmp_path)
+
+    set_response = _mcp_call(
+        server,
+        "knowledge_set_topic",
+        {
+            "topic": "agent_tools",
+            "finding": "MCP knowledge finding",
+            "scope": "private",
+        },
+    )
+    assert set_response["result"]["isError"] is False
+    assert set_response["result"]["structuredContent"]["scope"] == "private"
+
+    list_response = _mcp_call(server, "knowledge_list_topics", {"scope": "all"})
+    assert list_response["result"]["structuredContent"]["topics"] == [
+        {
+            "scope": "private",
+            "topic": "agent_tools",
+            "path": str(private_dir / "agent_tools.md"),
+        }
+    ]
+
+    get_response = _mcp_call(
+        server,
+        "knowledge_get_topic",
+        {"topic": "agent_tools", "scope": "all", "with_header": True},
+    )
+    assert "# private:agent_tools" in get_response["result"]["content"][0]["text"]
+    assert "MCP knowledge finding" in get_response["result"]["content"][0]["text"]
+
+    search_response = _mcp_call(
+        server,
+        "knowledge_search_topics",
+        {"query": "knowledge", "scope": "private"},
+    )
+    assert search_response["result"]["isError"] is False
+    matches = search_response["result"]["structuredContent"]["matches"]
+    assert matches[0]["topic"] == "agent_tools"
+    assert matches[0]["line"] == 3
+
+
+def test_workspace_mcp_knowledge_rejects_invalid_topic(tmp_path: Path) -> None:
+    server = build_workspace_mcp_server(tmp_path)
+
+    response = _mcp_call(server, "knowledge_get_topic", {"topic": "../bad"})
+
+    assert response["result"]["isError"] is True
+    assert "topic must match" in response["result"]["content"][0]["text"]
+
+
+def test_workspace_mcp_knowledge_search_reports_no_matches(
+    tmp_path: Path, monkeypatch: Any
+) -> None:
+    from agent_tools.tools import knowledge
+
+    topics_dir = tmp_path / "knowledge" / "topics"
+    topics_dir.mkdir(parents=True)
+    (topics_dir / "agent_tools.md").write_text("# agent_tools\n\n- finding\n", encoding="utf-8")
+    monkeypatch.setattr(knowledge, "PUBLIC_TOPICS_DIR", topics_dir)
+    server = build_workspace_mcp_server(tmp_path)
+
+    response = _mcp_call(
+        server,
+        "knowledge_search_topics",
+        {"query": "missing", "scope": "public"},
+    )
+
+    assert response["result"]["isError"] is True
+    assert response["result"]["structuredContent"]["matches"] == []
 
 
 def test_workspace_mcp_calls_task_context_query(tmp_path: Path) -> None:
