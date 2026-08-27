@@ -205,15 +205,88 @@ def _ensure_venv(args: argparse.Namespace) -> Path:
     if args.dry_run:
         print(f"Would create/update venv: {args.venv}")
         return python
-    builder = venv.EnvBuilder(with_pip=True, system_site_packages=args.gui)
-    builder.create(args.venv)
+    _check_venv_is_writable(args.venv)
+    if _running_target_venv_python(python):
+        _check_venv_python_runs(python)
+        return python
+    system_site_packages = args.gui or _venv_has_system_site_packages(args.venv)
+    builder = venv.EnvBuilder(with_pip=True, system_site_packages=system_site_packages)
+    try:
+        builder.create(args.venv)
+    except PermissionError as error:
+        _fail_unwritable_venv(args.venv, error)
+    except OSError as error:
+        _fail_unusable_venv(args.venv, error)
+    _check_venv_python_runs(python)
     return python
+
+
+def _running_target_venv_python(python: Path) -> bool:
+    try:
+        return python.exists() and Path(sys.executable).resolve() == python.resolve()
+    except OSError:
+        return False
+
+
+def _venv_has_system_site_packages(venv_path: Path) -> bool:
+    config_path = venv_path / "pyvenv.cfg"
+    try:
+        config = config_path.read_text(encoding="utf-8")
+    except OSError:
+        return False
+    return any(
+        line.partition("=")[2].strip().lower() == "true"
+        for line in config.splitlines()
+        if line.partition("=")[0].strip().lower() == "include-system-site-packages"
+    )
+
+
+def _check_venv_is_writable(venv_path: Path) -> None:
+    if not venv_path.exists() or os.access(venv_path, os.W_OK):
+        return
+    _fail_unwritable_venv(venv_path)
+
+
+def _fail_unwritable_venv(venv_path: Path, error: PermissionError | None = None) -> None:
+    details = f": {error}" if error is not None else ""
+    print(
+        f"Cannot update Agent Workspace virtual environment{details}\n"
+        f"Path: {venv_path}\n"
+        "The directory exists but is not writable by the current user.\n"
+        "Fix ownership or choose another venv, for example:\n"
+        f"  sudo chown -R \"$(id -u):$(id -g)\" {venv_path}\n"
+        "  python3 install-agent-tools.py --venv ~/.local/share/agent-tools/venv",
+        file=sys.stderr,
+    )
+    raise SystemExit(1)
 
 
 def _venv_python(venv_path: Path) -> Path:
     if platform.system() == "Windows":
         return venv_path / "Scripts" / "python.exe"
-    return venv_path / "bin" / "python"
+    return venv_path / "bin" / "python3"
+
+
+def _check_venv_python_runs(python: Path) -> None:
+    try:
+        subprocess.run([str(python), "--version"], check=True, stdout=subprocess.DEVNULL)
+    except (OSError, subprocess.CalledProcessError) as error:
+        _fail_unusable_venv(python.parent.parent, error)
+
+
+def _fail_unusable_venv(venv_path: Path, error: OSError | subprocess.CalledProcessError) -> None:
+    reason = "The virtual environment may be stale or partially recreated."
+    if isinstance(error, OSError) and getattr(error, "errno", None) == 26:
+        reason = "A Python process may still be running from this virtual environment."
+    print(
+        "Cannot update Agent Workspace virtual environment\n"
+        f"Path: {venv_path}\n"
+        f"Error: {error}\n"
+        f"{reason} Stop Agent Workspace processes using this venv, or remove "
+        "the venv and run the installer again.",
+        file=sys.stderr,
+    )
+    raise SystemExit(1)
 
 
 def _install_python_dependencies(python: Path, args: argparse.Namespace) -> None:
@@ -322,7 +395,7 @@ def _validate_installation(python: Path, args: argparse.Namespace) -> None:
         [
             str(python),
             "-c",
-            "import yaml, tiktoken; import agent_tools.tools.task_context as tc; import agent_tools.agent_workspace.components.workspace_service.api; import agent_tools.agent_workspace.components.web_frontend.api; tc.token_count('Agent Workspace')",
+            "import regex, yaml, tiktoken; import agent_tools.tools.task_context as tc; import agent_tools.agent_workspace.components.workspace_service.api; import agent_tools.agent_workspace.components.web_frontend.api; tc.token_count('Agent Workspace')",
         ],
         args,
         env=_python_env(),

@@ -77,12 +77,12 @@ jobs:
               eval "$TARGET_BOOTSTRAP"
               ./install-agent-tools.py --dev --skip-system-deps --no-desktop
               test -x agent-workspace.sh
-              HOME=/tmp/agent-tools-desktop-smoke agent_tools/.venv/bin/python -m agent_tools.agent_workspace.components.desktop_integration.src.install_desktop
+              HOME=/tmp/agent-tools-desktop-smoke agent_tools/.venv/bin/python3 -m agent_tools.agent_workspace.components.desktop_integration.src.install_desktop
               test -f /tmp/agent-tools-desktop-smoke/.local/share/icons/hicolor/scalable/apps/agent-workspace.svg
               test -f /tmp/agent-tools-desktop-smoke/.local/share/applications/agent-workspace.desktop
-              agent_tools/.venv/bin/python -c "import yaml, tiktoken; import agent_tools.tools.task_context as tc; assert tc.token_count(\"Agent Workspace\") > 0"
-              agent_tools/.venv/bin/python -m agent_tools.tools.rules_sync sync --check
-              agent_tools/.venv/bin/python -m pytest -q agent_tools/tools/task_context/tests/test_task_context.py
+              agent_tools/.venv/bin/python3 -c "import yaml, tiktoken; import agent_tools.tools.task_context as tc; assert tc.token_count(\"Agent Workspace\") > 0"
+              agent_tools/.venv/bin/python3 -m agent_tools.tools.rules_sync sync --check
+              agent_tools/.venv/bin/python3 -m pytest -q agent_tools/tools/task_context/tests/test_task_context.py
             '
 
   portable-install:
@@ -102,14 +102,14 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: "3.12"
+          python-version: "3.10"
 
       - name: Install workspace without GTK system packages
         run: python install-agent-tools.py --dev --skip-system-deps --no-desktop
 
       - name: Smoke web/service imports on macOS
         if: runner.os == 'macOS'
-        run: agent_tools/.venv/bin/python -c "import agent_tools.agent_workspace.components.workspace_service.api; import agent_tools.agent_workspace.components.web_frontend.api"
+        run: agent_tools/.venv/bin/python3 -c "import agent_tools.agent_workspace.components.workspace_service.api; import agent_tools.agent_workspace.components.web_frontend.api"
 
       - name: Smoke web/service imports on Windows
         if: runner.os == 'Windows'
@@ -118,7 +118,7 @@ jobs:
 
       - name: Run portable headless tests on macOS
         if: runner.os == 'macOS'
-        run: agent_tools/.venv/bin/python -m pytest -q agent_tools/agent_workspace/components/web_frontend/tests/test_web_service_boundary.py agent_tools/tools/task_context/tests/test_task_context.py
+        run: agent_tools/.venv/bin/python3 -m pytest -q agent_tools/agent_workspace/components/web_frontend/tests/test_web_service_boundary.py agent_tools/tools/task_context/tests/test_task_context.py
 
       - name: Run portable headless tests on Windows
         if: runner.os == 'Windows'
@@ -183,5 +183,5 @@ jobs:
               set -eux
               eval "$TARGET_BOOTSTRAP"
               "$TARGET_PYTHON" install-agent-tools.py --gui --no-desktop --no-skills
-              agent_tools/.venv/bin/python -c "import gi; gi.require_version(\"Gtk\", \"3.0\"); gi.require_version(\"Vte\", \"2.91\")"
+              agent_tools/.venv/bin/python3 -c "import gi; gi.require_version(\"Gtk\", \"3.0\"); gi.require_version(\"Vte\", \"2.91\")"
             '
