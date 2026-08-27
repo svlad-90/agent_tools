@@ -21,6 +21,7 @@ def test_workspace_mcp_lists_agent_search_tools(tmp_path: Path) -> None:
         "agent_search_files",
         "agent_search_show",
         "agent_search_text",
+        "task_context_query",
     ]
     assert tools[0]["inputSchema"]["type"] == "object"
 
@@ -255,3 +256,122 @@ print(json.dumps(response))
     assert result["isError"] is True
     assert "dependency is missing" in result["content"][0]["text"]
     assert "install-agent-tools.py" in result["content"][0]["text"]
+
+
+def test_workspace_mcp_task_context_tool_survives_missing_search_dependency() -> None:
+    script = """
+import importlib.abc
+import json
+import sys
+import tempfile
+from pathlib import Path
+
+class BlockRegex(importlib.abc.MetaPathFinder):
+    def find_spec(self, fullname, path, target=None):
+        if fullname == "regex":
+            raise ModuleNotFoundError("blocked regex import")
+        return None
+
+sys.meta_path.insert(0, BlockRegex())
+from agent_tools.agent_workspace.components.workspace_mcp.api import build_workspace_mcp_server
+from agent_tools.tools.task_context import set_slot
+
+with tempfile.TemporaryDirectory() as workspace_text:
+    workspace = Path(workspace_text)
+    task_dir = workspace / "tasks" / "sample"
+    task_dir.mkdir(parents=True)
+    set_slot(task_dir, "goal", "Read context without search deps.")
+    server = build_workspace_mcp_server(workspace)
+    tools = server.handle_message({"jsonrpc": "2.0", "id": 1, "method": "tools/list"})
+    query = server.handle_message({
+        "jsonrpc": "2.0",
+        "id": 2,
+        "method": "tools/call",
+        "params": {
+            "name": "task_context_query",
+            "arguments": {
+                "task": "tasks/sample",
+                "categories": ["goal"],
+            },
+        },
+    })
+    search = server.handle_message({
+        "jsonrpc": "2.0",
+        "id": 3,
+        "method": "tools/call",
+        "params": {"name": "agent_search_files", "arguments": {"query": "sample"}},
+    })
+    print(json.dumps({"tools": tools, "query": query, "search": search}))
+"""
+
+    completed = subprocess.run(
+        [sys.executable, "-c", script],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert completed.returncode == 0, completed.stderr
+    payload = json.loads(completed.stdout)
+    tool_names = [tool["name"] for tool in payload["tools"]["result"]["tools"]]
+    assert tool_names == ["task_context_query"]
+    assert payload["query"]["result"]["isError"] is False
+    assert "Read context without search deps." in payload["query"]["result"]["content"][0]["text"]
+    assert payload["search"]["result"]["isError"] is True
+    assert "dependency is missing" in payload["search"]["result"]["content"][0]["text"]
+
+
+def test_workspace_mcp_calls_task_context_query(tmp_path: Path) -> None:
+    task_dir = tmp_path / "tasks" / "sample"
+    task_dir.mkdir(parents=True)
+    from agent_tools.tools.task_context import set_slot
+
+    set_slot(task_dir, "goal", "Read context through MCP.")
+    server = build_workspace_mcp_server(tmp_path)
+
+    response = server.handle_message(
+        {
+            "jsonrpc": "2.0",
+            "id": 7,
+            "method": "tools/call",
+            "params": {
+                "name": "task_context_query",
+                "arguments": {
+                    "task": "tasks/sample",
+                    "categories": ["goal"],
+                    "format": "json",
+                },
+            },
+        }
+    )
+
+    assert response is not None
+    result = response["result"]
+    assert result["isError"] is False
+    assert result["structuredContent"]["slots"][0]["category"] == "goal"
+    assert result["structuredContent"]["slots"][0]["content"] == "Read context through MCP."
+
+
+def test_workspace_mcp_task_context_query_blocks_non_task_paths(tmp_path: Path) -> None:
+    outside = tmp_path / "not-a-task"
+    outside.mkdir()
+    server = build_workspace_mcp_server(tmp_path)
+
+    response = server.handle_message(
+        {
+            "jsonrpc": "2.0",
+            "id": 8,
+            "method": "tools/call",
+            "params": {
+                "name": "task_context_query",
+                "arguments": {
+                    "task": "not-a-task",
+                },
+            },
+        }
+    )
+
+    assert response is not None
+    result = response["result"]
+    assert result["isError"] is True
+    assert "workspace tasks/" in result["content"][0]["text"]

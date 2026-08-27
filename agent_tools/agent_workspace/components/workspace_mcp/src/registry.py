@@ -54,6 +54,9 @@ class WorkspaceMcpRegistry:
     def tool_descriptors(self) -> list[JsonObject]:
         return [self._tools[name].descriptor() for name in sorted(self._tools)]
 
+    def has_tool(self, name: str) -> bool:
+        return name in self._tools
+
     def call(self, context: ToolContext, name: str, arguments: JsonObject) -> ToolResult:
         tool = self._tools.get(name)
         if tool is None:
