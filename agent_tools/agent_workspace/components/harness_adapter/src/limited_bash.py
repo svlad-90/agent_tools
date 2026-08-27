@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from datetime import datetime
 import os
 from pathlib import Path
+import shlex
 import subprocess
 import sys
 import threading
@@ -44,7 +45,10 @@ def limited_bash_command(command: str, *, limit: int, cwd: Path | None = None) -
 
 
 def limited_bash_shell_command(command: str, *, limit: int, cwd: Path | None = None) -> str:
-    return _shell_join(limited_bash_command(command, limit=limit, cwd=cwd))
+    if cwd is None:
+        return _shell_join(limited_bash_command(command, limit=limit))
+    cwd_text = str(cwd)
+    return f"cd {shlex.quote(cwd_text)} && {_shell_join(limited_bash_command(command, limit=limit, cwd=cwd))}"
 
 
 def run_limited_bash(command: str, *, limit: int, cwd: Path | None = None) -> LimitedBashResult:
@@ -241,6 +245,4 @@ def _new_log_base() -> Path:
 
 
 def _shell_join(args: list[str]) -> str:
-    import shlex
-
     return " ".join(shlex.quote(arg) for arg in args)
