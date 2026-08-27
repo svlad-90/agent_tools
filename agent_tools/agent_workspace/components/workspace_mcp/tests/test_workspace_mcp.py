@@ -32,6 +32,9 @@ def test_workspace_mcp_lists_agent_search_tools(tmp_path: Path) -> None:
         "push_guard_install_hook",
         "push_guard_mark_success",
         "push_guard_status",
+        "task_actions_list",
+        "task_actions_run",
+        "task_actions_show",
         "task_context_add_entry",
         "task_context_compact",
         "task_context_compile_dictionary",
@@ -345,6 +348,9 @@ with tempfile.TemporaryDirectory() as workspace_text:
         "push_guard_install_hook",
         "push_guard_mark_success",
         "push_guard_status",
+        "task_actions_list",
+        "task_actions_run",
+        "task_actions_show",
         "task_context_add_entry",
         "task_context_compact",
         "task_context_compile_dictionary",
@@ -616,6 +622,62 @@ def test_workspace_mcp_push_guard_installs_hooks(tmp_path: Path) -> None:
         hook_path = Path(hook)
         assert hook_path.is_file()
         assert hook_path.stat().st_mode & 0o111
+
+
+def test_workspace_mcp_task_actions_lists_shows_and_runs(tmp_path: Path) -> None:
+    task = tmp_path / "tasks" / "sample"
+    task.mkdir(parents=True)
+    (task / "TASK_ACTIONS.json").write_text(
+        json.dumps(
+            {
+                "parameter_types": {"profile": {"set": "profiles"}},
+                "parameter_sets": {"profiles": {"dev": {"name": "Dev"}}},
+                "actions": [
+                    {
+                        "id": "echo",
+                        "label": "Echo",
+                        "command": [sys.executable, "-c", "print('ok')"],
+                        "cwd": ".",
+                        "parameters": [
+                            {
+                                "name": "profile",
+                                "label": "Profile",
+                                "type": "profile",
+                                "default": "dev",
+                            }
+                        ],
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    server = build_workspace_mcp_server(tmp_path)
+
+    listed = _mcp_call(server, "task_actions_list", {"task": "tasks/sample"})
+    shown = _mcp_call(server, "task_actions_show", {"task": "tasks/sample", "action": "echo"})
+    run = _mcp_call(
+        server,
+        "task_actions_run",
+        {"task": "tasks/sample", "action": "echo", "bindings": {"profile": "dev"}},
+    )
+
+    assert listed["result"]["isError"] is False
+    assert listed["result"]["structuredContent"]["actions"][0]["id"] == "echo"
+    assert shown["result"]["structuredContent"]["action"]["parameters"][0]["name"] == "profile"
+    assert run["result"]["isError"] is False
+    assert run["result"]["structuredContent"]["stdout"] == "ok\n"
+
+
+def test_workspace_mcp_task_actions_rejects_non_task_path(tmp_path: Path) -> None:
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    server = build_workspace_mcp_server(tmp_path)
+
+    response = _mcp_call(server, "task_actions_list", {"task": "outside"})
+
+    assert response["result"]["isError"] is True
+    assert "workspace tasks/" in response["result"]["content"][0]["text"]
 
 
 def test_workspace_mcp_validate_changed_writes_receipt_and_marks_push_guard(

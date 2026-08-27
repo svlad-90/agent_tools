@@ -10,6 +10,7 @@ python -m agent_tools.tools.cpp_code_map
 python -m agent_tools.tools.yaml_map
 python -m agent_tools.tools.diff_report
 python -m agent_tools.tools.task_context
+python -m agent_tools.tools.task_actions
 python -m agent_tools.tools.commit_msg
 python -m agent_tools.tools.push_guard
 python -m agent_tools.agent_workspace
