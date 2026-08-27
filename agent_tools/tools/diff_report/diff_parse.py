@@ -22,12 +22,16 @@ def iter_diff_lines(diff_text: str) -> Iterator[DiffLine]:
     current_file: str | None = None
     old_no: int | None = None
     new_no: int | None = None
+    old_remaining = 0
+    new_remaining = 0
 
     for raw_line in diff_text.splitlines():
         if raw_line.startswith("diff --git "):
             current_file = file_from_diff_header(raw_line)
             old_no = None
             new_no = None
+            old_remaining = 0
+            new_remaining = 0
             yield DiffLine(kind="file", raw=raw_line, file_path=current_file)
             continue
 
@@ -38,6 +42,8 @@ def iter_diff_lines(diff_text: str) -> Iterator[DiffLine]:
         if hunk_match:
             old_no = int(hunk_match.group(1))
             new_no = int(hunk_match.group(3))
+            old_remaining = _hunk_count(hunk_match.group(2))
+            new_remaining = _hunk_count(hunk_match.group(4))
             yield DiffLine(
                 kind="hunk",
                 raw=raw_line,
@@ -56,6 +62,8 @@ def iter_diff_lines(diff_text: str) -> Iterator[DiffLine]:
             continue
 
         if raw_line.startswith("+") and not raw_line.startswith("+++"):
+            if new_remaining <= 0:
+                continue
             yield DiffLine(
                 kind="add",
                 raw=raw_line,
@@ -65,7 +73,10 @@ def iter_diff_lines(diff_text: str) -> Iterator[DiffLine]:
                 content=raw_line[1:],
             )
             new_no += 1
+            new_remaining -= 1
         elif raw_line.startswith("-") and not raw_line.startswith("---"):
+            if old_remaining <= 0:
+                continue
             yield DiffLine(
                 kind="delete",
                 raw=raw_line,
@@ -75,7 +86,10 @@ def iter_diff_lines(diff_text: str) -> Iterator[DiffLine]:
                 content=raw_line[1:],
             )
             old_no += 1
+            old_remaining -= 1
         else:
+            if old_remaining <= 0 and new_remaining <= 0:
+                continue
             yield DiffLine(
                 kind="context",
                 raw=raw_line,
@@ -86,6 +100,12 @@ def iter_diff_lines(diff_text: str) -> Iterator[DiffLine]:
             )
             old_no += 1
             new_no += 1
+            old_remaining -= 1
+            new_remaining -= 1
+
+
+def _hunk_count(raw_count: str | None) -> int:
+    return int(raw_count) if raw_count is not None else 1
 
 
 def file_from_diff_header(line: str) -> str:

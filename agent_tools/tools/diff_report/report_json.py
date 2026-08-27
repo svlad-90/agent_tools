@@ -1512,6 +1512,7 @@ def _relationship_graph_script() -> str:
   function isNodeVisible(node, state) {
     if (!node) return false;
     if (!nodeInScope(state, node)) return false;
+    if (state && node.id === state.selectedId) return true;
     return isTypeEnabled(node, state && state.selectedId, state.enabledTypes) && isSubfilterEnabled(node, state);
   }
 
@@ -2858,6 +2859,20 @@ def _relationship_graph_script() -> str:
     state.activeSubfilterType = "";
     state.activeSubfilterTypes = [];
     state.typeSearchType = "";
+    refreshTypeFilterState(browser.querySelector("[data-relationship-projection-controls]") || browser, state, stateGraphTypes(state));
+  }
+
+  function resetGraphFiltersToAll(browser, state) {
+    const nodes = stateGraphNodes(state);
+    state.enabledTypes = new Set(stateGraphTypes(state));
+    state.projectionMode = "auto";
+    state.projectionSelections = defaultProjectionSelections(state);
+    state.subfilters = createSubfilters(nodes, {});
+    state.statusFilter = createStatusFilter(nodes, {});
+    state.activeSubfilterType = "";
+    state.activeSubfilterTypes = [];
+    state.typeSearchType = "";
+    state.graphPage = 0;
     refreshTypeFilterState(browser.querySelector("[data-relationship-projection-controls]") || browser, state, stateGraphTypes(state));
   }
 
@@ -4269,10 +4284,10 @@ def _relationship_graph_script() -> str:
       openRelationshipModal(modal);
       const browser = modal && modal.querySelector("[data-relationship-browser]");
       const state = browser && browser.__relationshipState;
-      if (state && state.isolatedRootId) {
+      if (state) {
         pushNavigationSnapshot(state);
         setIsolatedRoot(state, "");
-        resetGraphFilters(browser, state);
+        resetGraphFiltersToAll(browser, state);
         ensureSelectableFocus(state);
         renderGraph(browser, state);
         renderNodeSelect(browser, state);

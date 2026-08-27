@@ -63,6 +63,48 @@ class DiffParseTests(unittest.TestCase):
         self.assertEqual("header", lines[1].kind)
         self.assertEqual("custom header", lines[1].raw)
 
+    def test_iter_diff_lines_ignores_format_patch_footer_after_hunk(self) -> None:
+        diff_text = (
+            textwrap.dedent(
+                """\
+                diff --git a/app.py b/app.py
+                index 1111111..2222222 100644
+                --- a/app.py
+                +++ b/app.py
+                @@ -1 +1 @@
+                -old
+                +new
+                """
+            )
+            + "-- \n"
+            + "2.53.0\n"
+        )
+
+        lines = list(iter_diff_lines(diff_text))
+
+        self.assertEqual(
+            ["file", "metadata", "metadata", "metadata", "hunk", "delete", "add"],
+            [line.kind for line in lines],
+        )
+
+    def test_iter_diff_lines_keeps_footer_like_deleted_line_inside_hunk(self) -> None:
+        diff_text = (
+            textwrap.dedent(
+                """\
+                diff --git a/app.py b/app.py
+                @@ -1,2 +1 @@
+                """
+            )
+            + "-- \n"
+            + " keep\n"
+        )
+
+        lines = list(iter_diff_lines(diff_text))
+
+        self.assertEqual("delete", lines[2].kind)
+        self.assertEqual("- ", lines[2].content)
+        self.assertEqual("context", lines[3].kind)
+
     def test_metadata_and_header_helpers_match_git_diff_headers(self) -> None:
         self.assertEqual("new/path.py", file_from_diff_header("diff --git a/old/path.py b/new/path.py"))
         self.assertEqual("not a git header", file_from_diff_header("not a git header"))
