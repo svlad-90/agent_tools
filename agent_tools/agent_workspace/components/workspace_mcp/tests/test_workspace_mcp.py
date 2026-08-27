@@ -27,6 +27,11 @@ def test_workspace_mcp_lists_agent_search_tools(tmp_path: Path) -> None:
         "knowledge_list_topics",
         "knowledge_search_topics",
         "knowledge_set_topic",
+        "push_guard_check",
+        "push_guard_check_staged",
+        "push_guard_install_hook",
+        "push_guard_mark_success",
+        "push_guard_status",
         "task_context_add_entry",
         "task_context_compact",
         "task_context_compile_dictionary",
@@ -333,6 +338,11 @@ with tempfile.TemporaryDirectory() as workspace_text:
         "knowledge_list_topics",
         "knowledge_search_topics",
         "knowledge_set_topic",
+        "push_guard_check",
+        "push_guard_check_staged",
+        "push_guard_install_hook",
+        "push_guard_mark_success",
+        "push_guard_status",
         "task_context_add_entry",
         "task_context_compact",
         "task_context_compile_dictionary",
@@ -520,6 +530,88 @@ def test_workspace_mcp_commit_msg_requires_signoff_trailer(tmp_path: Path) -> No
     assert result["isError"] is True
     assert result["structuredContent"]["long_lines"] == []
     assert result["structuredContent"]["has_signed_off_by"] is False
+
+
+def test_workspace_mcp_push_guard_marks_status_and_checks_push(
+    tmp_path: Path, monkeypatch: Any
+) -> None:
+    monkeypatch.delenv("AGENT_TOOLS_WORKSPACE_ROOT", raising=False)
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _git(repo, "init")
+    _git(repo, "config", "user.name", "Example Author")
+    _git(repo, "config", "user.email", "author@example.com")
+    (repo / "tracked.txt").write_text("ok\n", encoding="utf-8")
+    _git(repo, "add", "tracked.txt")
+    _git(repo, "commit", "-m", "Initial")
+    commit = _git(repo, "rev-parse", "HEAD").stdout.strip()
+    server = build_workspace_mcp_server(tmp_path)
+
+    missing = _mcp_call(server, "push_guard_status", {"repo": "repo"})
+    assert missing["result"]["isError"] is True
+    assert missing["result"]["structuredContent"]["recorded"] is False
+
+    blocked = _mcp_call(server, "push_guard_check", {"repo": "repo"})
+    assert blocked["result"]["isError"] is True
+    assert blocked["result"]["structuredContent"]["missing_validation"] == [commit]
+
+    marked = _mcp_call(
+        server,
+        "push_guard_mark_success",
+        {"repo": "repo", "source": "workspace_mcp test"},
+    )
+    assert marked["result"]["isError"] is False
+    assert marked["result"]["structuredContent"]["commit"] == commit
+
+    recorded = _mcp_call(server, "push_guard_status", {"repo": "repo"})
+    assert recorded["result"]["isError"] is False
+    assert recorded["result"]["structuredContent"]["recorded"] is True
+
+    allowed = _mcp_call(server, "push_guard_check", {"repo": "repo"})
+    assert allowed["result"]["isError"] is False
+    assert allowed["result"]["structuredContent"]["blocked"] is False
+
+
+def test_workspace_mcp_push_guard_checks_staged_files(
+    tmp_path: Path, monkeypatch: Any
+) -> None:
+    monkeypatch.delenv("AGENT_TOOLS_WORKSPACE_ROOT", raising=False)
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _git(repo, "init")
+    _git(repo, "config", "user.name", "Example Author")
+    _git(repo, "config", "user.email", "author@example.com")
+    artifact = repo / "download.zip"
+    artifact.write_text("artifact\n", encoding="utf-8")
+    _git(repo, "add", "download.zip")
+    server = build_workspace_mcp_server(tmp_path)
+
+    response = _mcp_call(server, "push_guard_check_staged", {"repo": "repo"})
+
+    result = response["result"]
+    assert result["isError"] is True
+    assert result["structuredContent"]["findings"] == [
+        {
+            "path": "download.zip",
+            "reason": "artifact-like file suffix '.zip' is blocked",
+        }
+    ]
+
+
+def test_workspace_mcp_push_guard_installs_hooks(tmp_path: Path) -> None:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _git(repo, "init")
+    server = build_workspace_mcp_server(tmp_path)
+
+    response = _mcp_call(server, "push_guard_install_hook", {"repo": "repo"})
+
+    result = response["result"]
+    assert result["isError"] is False
+    for hook in result["structuredContent"]["hooks"]:
+        hook_path = Path(hook)
+        assert hook_path.is_file()
+        assert hook_path.stat().st_mode & 0o111
 
 
 def test_workspace_mcp_calls_task_context_query(tmp_path: Path) -> None:

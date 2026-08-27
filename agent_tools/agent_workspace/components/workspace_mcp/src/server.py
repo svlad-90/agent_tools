@@ -134,11 +134,14 @@ class WorkspaceMcpServer:
             return
         from .commit_msg_tools import commit_msg_tools
         from .knowledge_tools import knowledge_tools
+        from .push_guard_tools import push_guard_tools
         from .task_context_tools import task_context_tools
 
         for tool in commit_msg_tools():
             self.registry.register(tool)
         for tool in knowledge_tools():
+            self.registry.register(tool)
+        for tool in push_guard_tools():
             self.registry.register(tool)
         for tool in task_context_tools():
             self.registry.register(tool)
