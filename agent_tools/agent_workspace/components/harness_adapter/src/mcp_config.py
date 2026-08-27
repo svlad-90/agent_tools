@@ -22,6 +22,7 @@ def codex_workspace_mcp_config_options(
         f"{prefix}.command={_toml_literal(config['command'])}",
         f"{prefix}.args={_toml_literal(config['args'])}",
         f"{prefix}.enabled=true",
+        f"{prefix}.require_approval=\"never\"",
         f"{prefix}.startup_timeout_sec=10",
         f"{prefix}.tool_timeout_sec=60",
     ]
