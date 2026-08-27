@@ -37,6 +37,7 @@ class ReportStatusCard:
     title: str
     status: str
     body: str
+    group: str | None = None
     metrics: tuple[ReportMetric, ...] = ()
     links: tuple[dict[str, str], ...] = ()
 
@@ -182,6 +183,8 @@ def render_report_json_html(report: GenericReport) -> str:
     )
     if comments.summary or comments.summary_blocks:
         parts.append(_render_summary_section(comments))
+    if report.relationship_graph:
+        parts.append(_render_relationship_graph_section(report.relationship_graph))
     if report.metrics:
         parts.append(_render_metrics_section(report.metrics))
     if report.metric_tables:
@@ -196,8 +199,6 @@ def render_report_json_html(report: GenericReport) -> str:
         )
     if report.heatmaps:
         parts.append(_render_heatmaps_section(report.heatmaps))
-    if report.relationship_graph:
-        parts.append(_render_relationship_graph_section(report.relationship_graph))
     if report.tables:
         parts.append(_render_tables_section(report.tables, comments))
     if report.timeline:
@@ -271,6 +272,7 @@ def status_cards_from_payload(raw_cards: Any) -> tuple[ReportStatusCard, ...]:
                 title=_required_text(item, "title", f"report.status_cards[{index}]"),
                 status=str(item.get("status", "unknown")),
                 body=str(item.get("body", "")),
+                group=str(item.get("group", "")).strip() or None,
                 metrics=metrics_from_payload(item.get("metrics", [])),
                 links=links_from_payload(item.get("links", []), f"report.status_cards[{index}].links"),
             )
@@ -653,7 +655,12 @@ def _render_status_cards_section(
     if note:
         parts.append(f'    <p class="report-status-cards-note">{_format_text(note)}</p>\n')
     parts.append('    <div class="report-card-grid">\n')
+    current_group: str | None = None
     for card in cards:
+        if card.group != current_group:
+            current_group = card.group
+            if current_group:
+                parts.append(f'    <h3 class="report-card-group-title">{_esc(current_group)}</h3>\n')
         parts.append(
             f'    <article class="report-card {_status_class(card.status)}" id="{_anchor(card.title)}">'
             f'<div class="report-card-head"><h3>{_esc(card.title)}</h3>{_render_status_badge(card.status)}</div>'
@@ -1481,6 +1488,10 @@ def _relationship_graph_script() -> str:
     return (edge.traverse || relationMode || "") === "fallback";
   }
 
+  function isFallbackTraversalEdge(edge, traversal) {
+    return edgeTraversalMode(edge, traversal) === "fallback";
+  }
+
   function edgeAllowsTraversal(edge, fromId, toId, traversal) {
     const mode = edgeTraversalMode(edge, traversal);
     if (mode === "none") return false;
@@ -1550,7 +1561,7 @@ def _relationship_graph_script() -> str:
         const currentNode = nodesById.get(currentId);
         const currentRank = rankOf(currentNode);
         const currentDistance = distances.get(currentId) ?? 0;
-        const candidates = neighbors(currentId).filter((item) => {
+        const rawCandidates = neighbors(currentId).filter((item) => {
           const node = nodesById.get(item.id);
           if (!node) return false;
           if (isSecondaryEdge(item.edge) && !includeSecondaryLinks) return false;
@@ -1562,6 +1573,10 @@ def _relationship_graph_script() -> str:
           directed: item.edge.source === item.id && item.edge.target === currentId,
           primary: !isSecondaryEdge(item.edge)
         })).sort(sortCandidate);
+        const regularCandidates = rawCandidates.filter((item) => !isFallbackTraversalEdge(item.edge, traversal));
+        const candidates = regularCandidates.length
+          ? regularCandidates
+          : rawCandidates.filter((item) => isFallbackTraversalEdge(item.edge, traversal));
         for (const parent of candidates) {
           traversedEdgeKeys.add(edgeKey(parent.edge));
           if (seen.has(parent.id)) continue;
@@ -1577,15 +1592,19 @@ def _relationship_graph_script() -> str:
     const downSeen = new Set([selectedId]);
     const downParents = new Map();
     const visibleDescendants = [];
+    const fallbackDescendants = [];
     const secondaryDescendants = [];
     while (downQueue.length) {
       const fromId = downQueue.shift();
       const fromRank = rankOf(nodesById.get(fromId));
+      const regularItems = [];
+      const fallbackItems = [];
       for (const item of neighbors(fromId)) {
         const toId = item.id;
         const toNode = nodesById.get(toId);
         if (!toNode || downSeen.has(toId)) continue;
         const edgeSecondary = isSecondaryEdge(item.edge);
+        const edgeFallback = isFallbackTraversalEdge(item.edge, traversal);
         const directedChild = item.edge.source === fromId && item.edge.target === toId;
         if (!directedChild) continue;
         if (edgeSecondary && !(includeSecondaryLinks && fromId === selectedId)) continue;
@@ -1593,9 +1612,16 @@ def _relationship_graph_script() -> str:
         const rankedChild = toRank > fromRank;
         const fallbackChild = fromRank === 99 && toRank === fromRank;
         if (!rankedChild && !fallbackChild) continue;
+        (edgeFallback ? fallbackItems : regularItems).push({item, toId, toNode, edgeSecondary});
+      }
+      const items = regularItems.length ? regularItems : fallbackItems;
+      for (const candidate of items) {
+        const {item, toId, toNode, edgeSecondary} = candidate;
         downSeen.add(toId);
         downParents.set(toId, {parentId: fromId, edge: item.edge});
-        if (edgeSecondary && includeSecondaryLinks && fromId === selectedId && nodeVisible(toNode)) {
+        if (isFallbackTraversalEdge(item.edge, traversal) && nodeVisible(toNode)) {
+          fallbackDescendants.push(toId);
+        } else if (edgeSecondary && includeSecondaryLinks && fromId === selectedId && nodeVisible(toNode)) {
           secondaryDescendants.push(toId);
         } else if (edgeSecondary) {
           downQueue.push(toId);
@@ -1628,6 +1654,13 @@ def _relationship_graph_script() -> str:
           traversedEdgeKeys.add(edgeKey(item.edge));
           distances.set(item.id, Math.min(distances.get(item.id) ?? index + 1, index + 1));
         }
+      }
+    } else if (fallbackDescendants.length) {
+      for (const targetId of fallbackDescendants) {
+        const parent = downParents.get(targetId);
+        if (!parent) continue;
+        traversedEdgeKeys.add(edgeKey(parent.edge));
+        distances.set(targetId, Math.min(distances.get(targetId) ?? 1, 1));
       }
     }
     const visibleIds = new Set(Array.from(distances.keys()).filter((id) => {

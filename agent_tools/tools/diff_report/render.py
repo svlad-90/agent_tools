@@ -138,6 +138,13 @@ def _render_summary_section(comments: ReviewComments) -> str:
                 parts.append(
                     f'    <p class="review-summary">{_format_text(block.text or "", comments.vocabulary)}</p>\n'
                 )
+            elif block.kind == "links":
+                parts.append('    <ul class="review-summary-links">\n')
+                for link in block.links:
+                    parts.append(
+                        f'      <li><a href="{_esc(link.get("href", ""))}">{_esc(link.get("label", ""))}</a></li>\n'
+                    )
+                parts.append("    </ul>\n")
             elif block.kind == "diagram":
                 parts.append(
                     '    <div class="summary-artifact-preview">'
