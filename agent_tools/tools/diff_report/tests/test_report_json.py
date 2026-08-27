@@ -534,6 +534,11 @@ class ReportJsonTests(unittest.TestCase):
                     "columns": ["name", {"key": "cdd_passed", "label": "CDD", "sublabel": "passed · failed"}],
                     "rows": [{"cells": {"name": "graphics", "cdd_passed": 4}}],
                 },
+                {
+                    "title": "Custom scopes",
+                    "columns": ["name", "status"],
+                    "rows": [{"cells": {"name": "Security review", "status": "open"}}],
+                },
             ],
             "relationship_graph": {
                 "title": "Traceability",
@@ -550,6 +555,7 @@ class ReportJsonTests(unittest.TestCase):
         expected = [
             'id="report-metric-tables"',
             'id="report-metric-table-2"',
+            'id="report-metric-table-3"',
             "report-metric-table-note",
             "Passed and failed items per entity type.",
             "<th>Passed items</th>",
@@ -564,6 +570,7 @@ class ReportJsonTests(unittest.TestCase):
             "report-metric-cell-note",
             "<a href=\"#report-metric-tables\">Metrics</a>",
             "<a href=\"#report-metric-table-2\">Per domain metrics</a>",
+            "<a href=\"#report-metric-table-3\">Custom scopes</a>",
             "function applyRelationshipViewFilters(state, filters)",
             "function applyRelationshipView(browser, state, view)",
             "selectNode(browser, state, focusId, false, {preserveTypes: true});",
@@ -576,6 +583,11 @@ class ReportJsonTests(unittest.TestCase):
                 self.assertIn(fragment, html)
         self.assertIn(">graphics<", html)
         self.assertIn(">4<", html)
+        graph_index = html.index('<section class="report-relationship-section" id="report-relationship-graph"')
+        custom_scopes_index = html.index('<section class="report-metric-table-section" id="report-metric-table-3"')
+        metrics_index = html.index('<section class="report-metric-table-section" id="report-metric-tables"')
+        self.assertLess(graph_index, custom_scopes_index)
+        self.assertLess(custom_scopes_index, metrics_index)
 
     def test_validates_metric_table_shapes(self) -> None:
         invalid_payloads = [

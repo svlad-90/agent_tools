@@ -170,6 +170,16 @@ def report_from_payload(
 
 def render_report_json_html(report: GenericReport) -> str:
     comments = report.comments
+    custom_scope_tables: tuple[tuple[int, ReportMetricTable], ...] = tuple(
+        (index, table)
+        for index, table in enumerate(report.metric_tables)
+        if table.title.strip().lower() == "custom scopes"
+    )
+    regular_metric_tables: tuple[tuple[int, ReportMetricTable], ...] = tuple(
+        (index, table)
+        for index, table in enumerate(report.metric_tables)
+        if table.title.strip().lower() != "custom scopes"
+    )
     parts: list[str] = []
     parts.append(html_header(report.title))
     parts.append(_render_report_toc(report))
@@ -185,10 +195,12 @@ def render_report_json_html(report: GenericReport) -> str:
         parts.append(_render_summary_section(comments))
     if report.relationship_graph:
         parts.append(_render_relationship_graph_section(report.relationship_graph))
+    if custom_scope_tables:
+        parts.append(_render_metric_tables_section(custom_scope_tables))
     if report.metrics:
         parts.append(_render_metrics_section(report.metrics))
-    if report.metric_tables:
-        parts.append(_render_metric_tables_section(report.metric_tables))
+    if regular_metric_tables:
+        parts.append(_render_metric_tables_section(regular_metric_tables))
     if report.status_cards:
         parts.append(
             _render_status_cards_section(
@@ -714,9 +726,9 @@ def _metric_table_section_id(index: int) -> str:
     return "report-metric-tables" if index == 0 else f"report-metric-table-{index + 1}"
 
 
-def _render_metric_tables_section(metric_tables: tuple[ReportMetricTable, ...]) -> str:
+def _render_metric_tables_section(metric_tables: tuple[tuple[int, ReportMetricTable], ...]) -> str:
     parts: list[str] = []
-    for index, metric_table in enumerate(metric_tables):
+    for index, metric_table in metric_tables:
         section_id = _metric_table_section_id(index)
         parts.append(
             f'  <section class="report-metric-table-section" id="{section_id}">'
