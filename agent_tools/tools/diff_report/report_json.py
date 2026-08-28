@@ -4129,6 +4129,7 @@ def _relationship_graph_script() -> str:
     }
     browser.querySelectorAll("[data-relationship-page-prev]").forEach((pagePrev) => {
       pagePrev.addEventListener("click", () => {
+        activateGraphFocus(browser, state);
         state.graphPage = Math.max(0, state.graphPage - 1);
         renderGraph(browser, state);
         renderNodeSelect(browser, state);
@@ -4137,6 +4138,7 @@ def _relationship_graph_script() -> str:
     });
     browser.querySelectorAll("[data-relationship-page-next]").forEach((pageNext) => {
       pageNext.addEventListener("click", () => {
+        activateGraphFocus(browser, state);
         state.graphPage += 1;
         renderGraph(browser, state);
         renderNodeSelect(browser, state);
@@ -4206,6 +4208,10 @@ def _relationship_graph_script() -> str:
       const target = event.target;
       if (!(target instanceof Element)) return;
       if (target.closest("[data-relationship-focus-badge]")) {
+        return;
+      }
+      if (target.closest(".relationship-graph-toolbar")) {
+        activateGraphFocus(browser, state);
         return;
       }
       if (target.closest(".relationship-canvas-wrap")) {
@@ -4880,6 +4886,24 @@ def _report_self_test_script() -> str:
       const afterX = Math.round(badgeCenterAfter.left + badgeCenterAfter.width / 2);
       if (Math.abs(beforeX - afterX) > 1) {
         errors.push(`graph focus badge moved horizontally: ${beforeX} -> ${afterX}`);
+      }
+    }
+    const pageNext = browser.querySelector("[data-relationship-page-next]");
+    if (pageNext && !pageNext.disabled && !pageNext.hidden) {
+      click(pageNext);
+      await delay(SELF_TEST_SETTLE_MS);
+      const focusedAfterPageNext = dumpState();
+      if (!focusedAfterPageNext.graphFocused) {
+        errors.push("graph focus flag is not enabled after page next click");
+      }
+    }
+    const pagePrev = browser.querySelector("[data-relationship-page-prev]");
+    if (pagePrev && !pagePrev.disabled && !pagePrev.hidden) {
+      click(pagePrev);
+      await delay(SELF_TEST_SETTLE_MS);
+      const focusedAfterPagePrev = dumpState();
+      if (!focusedAfterPagePrev.graphFocused) {
+        errors.push("graph focus flag is not enabled after page prev click");
       }
     }
     pointerDown(statusFilter);
