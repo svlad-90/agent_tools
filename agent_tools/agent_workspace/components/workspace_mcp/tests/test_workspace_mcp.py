@@ -48,6 +48,13 @@ def test_workspace_mcp_lists_agent_search_tools(tmp_path: Path) -> None:
         "task_context_set_slot",
         "validate_changed",
         "validate_task",
+        "yaml_map_file",
+        "yaml_map_item_insert",
+        "yaml_map_parse_check",
+        "yaml_map_path_delete",
+        "yaml_map_path_get",
+        "yaml_map_path_set",
+        "yaml_map_project",
     ]
     assert tools[0]["inputSchema"]["type"] == "object"
 
@@ -367,6 +374,13 @@ with tempfile.TemporaryDirectory() as workspace_text:
         "task_context_set_slot",
         "validate_changed",
         "validate_task",
+        "yaml_map_file",
+        "yaml_map_item_insert",
+        "yaml_map_parse_check",
+        "yaml_map_path_delete",
+        "yaml_map_path_get",
+        "yaml_map_path_set",
+        "yaml_map_project",
     ]
     assert payload["query"]["result"]["isError"] is False
     assert "Read context without search deps." in payload["query"]["result"]["content"][0]["text"]
@@ -726,6 +740,77 @@ def test_workspace_mcp_task_actions_rejects_non_task_path(tmp_path: Path) -> Non
 
     assert response["result"]["isError"] is True
     assert "workspace tasks/" in response["result"]["content"][0]["text"]
+
+
+def test_workspace_mcp_yaml_map_inspects_and_edits_with_hash_guard(tmp_path: Path) -> None:
+    source = tmp_path / "config.yaml"
+    source.write_text(
+        "root:\n"
+        "  enabled: true\n"
+        "  items:\n"
+        "    - one\n",
+        encoding="utf-8",
+    )
+    server = build_workspace_mcp_server(tmp_path)
+
+    mapped = _mcp_call(server, "yaml_map_file", {"path": "config.yaml"})
+    project = _mcp_call(server, "yaml_map_project", {"path": ".", "output_format": "json"})
+    parsed = _mcp_call(server, "yaml_map_parse_check", {"path": "config.yaml"})
+    snapshot = _mcp_call(
+        server,
+        "yaml_map_path_get",
+        {"path": "config.yaml", "yaml_path": "root.items", "output_format": "json"},
+    )
+    items_hash = snapshot["result"]["structuredContent"]["value_hash"]
+    inserted = _mcp_call(
+        server,
+        "yaml_map_item_insert",
+        {
+            "path": "config.yaml",
+            "yaml_path": "root.items",
+            "expect_hash": items_hash,
+            "value": "two",
+            "output_format": "json",
+        },
+    )
+    enabled = _mcp_call(
+        server,
+        "yaml_map_path_get",
+        {"path": "config.yaml", "yaml_path": "root.enabled", "output_format": "json"},
+    )
+    enabled_hash = enabled["result"]["structuredContent"]["value_hash"]
+    changed = _mcp_call(
+        server,
+        "yaml_map_path_set",
+        {
+            "path": "config.yaml",
+            "yaml_path": "root.enabled",
+            "expect_hash": enabled_hash,
+            "value": False,
+            "output_format": "json",
+        },
+    )
+    deleted = _mcp_call(
+        server,
+        "yaml_map_path_delete",
+        {
+            "path": "config.yaml",
+            "yaml_path": "root.items[0]",
+            "expect_hash": "stale",
+            "output_format": "json",
+        },
+    )
+
+    assert mapped["result"]["isError"] is False
+    assert "config.yaml" in mapped["result"]["content"][0]["text"]
+    assert project["result"]["structuredContent"]["entries"][0]["file_path"] == "config.yaml"
+    assert parsed["result"]["isError"] is False
+    assert inserted["result"]["structuredContent"]["changed"] is True
+    assert changed["result"]["structuredContent"]["changed"] is True
+    assert deleted["result"]["isError"] is True
+    assert deleted["result"]["structuredContent"]["code"] == "hash-mismatch"
+    assert "enabled: false" in source.read_text(encoding="utf-8")
+    assert "- two" in source.read_text(encoding="utf-8")
 
 
 def test_workspace_mcp_validate_changed_writes_receipt_and_marks_push_guard(

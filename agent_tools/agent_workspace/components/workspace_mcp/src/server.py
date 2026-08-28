@@ -138,6 +138,7 @@ class WorkspaceMcpServer:
         from .task_actions_tools import task_actions_tools
         from .task_context_tools import task_context_tools
         from .validate_tools import validate_tools
+        from .yaml_map_tools import yaml_map_tools
 
         for tool in commit_msg_tools():
             self.registry.register(tool)
@@ -150,6 +151,8 @@ class WorkspaceMcpServer:
         for tool in task_context_tools():
             self.registry.register(tool)
         for tool in validate_tools():
+            self.registry.register(tool)
+        for tool in yaml_map_tools():
             self.registry.register(tool)
         try:
             from .agent_search_tools import agent_search_tools
