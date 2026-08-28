@@ -30,27 +30,25 @@ cd /path/to/workspace
 python3 install-agent-tools.py
 ```
 
-Install developer/test dependencies too:
+When run from an interactive terminal without flags, the installer asks which
+UI profile to prepare (`web`, `tk`, or `gtk`), whether to install common system
+tools such as PlantUML/Graphviz, whether Docker support is needed, and whether
+developer/test Python dependencies should be installed. System package
+installation uses the detected package manager and may ask for `sudo`.
+
+For CI and scripted installs, keep using explicit flags:
 
 ```sh
-python3 install-agent-tools.py --dev
+python3 install-agent-tools.py --non-interactive --skip-system-deps --dev
+python3 install-agent-tools.py --non-interactive --ui gtk --system-tools
+python3 install-agent-tools.py --non-interactive --venv /path/to/venv --dev
 ```
 
-Install the legacy GTK/VTE UI dependencies only when that UI is needed:
-
-```sh
-python3 install-agent-tools.py --gui
-```
-
-The default installation does not install GTK/VTE. On Linux, Agent Workspace
-tries UI backends in order: GTK, web, then Tk. On macOS and Windows, the
-portable default is the browser UI. Use `agent-workspace-web.sh`,
-`agent-workspace-web.command`, or `agent-workspace-web.cmd` to start the browser
-UI explicitly without desktop backend probing.
-
-```sh
-python3 install-agent-tools.py --venv /path/to/venv --dev
-```
+On Linux, Agent Workspace tries UI backends in order: GTK, web, then Tk. On
+macOS and Windows, the portable default is the browser UI. Use
+`agent-workspace-web.sh`, `agent-workspace-web.command`, or
+`agent-workspace-web.cmd` to start the browser UI explicitly without desktop
+backend probing.
 
 Dependency files live under `agent_tools/tools/requirements/`:
 

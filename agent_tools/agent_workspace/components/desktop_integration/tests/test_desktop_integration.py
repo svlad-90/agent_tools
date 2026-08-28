@@ -90,3 +90,21 @@ def test_install_agent_tools_writes_auto_and_web_launchers(tmp_path: Path) -> No
     assert '"$@"' in web
     assert "agent_tools.agent_workspace --ui web" in windows_web
     assert "%*" in windows_web
+
+
+def test_install_agent_tools_default_launchers_use_workspace_relative_venv() -> None:
+    installer_path = _workspace_root() / "install-agent-tools.py"
+    spec = importlib.util.spec_from_file_location("install_agent_tools_test", installer_path)
+    assert spec is not None
+    assert spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+
+    python = module.DEFAULT_VENV / "bin" / "python3"
+    unix = module._launcher_content(python, ())
+    windows = module._windows_launcher_content(python, ("--ui", "web"))
+
+    assert str(_workspace_root()) not in unix
+    assert '"$WORKSPACE_ROOT/agent_tools/.venv/bin/python3"' in unix
+    assert str(_workspace_root()) not in windows
+    assert '"%WORKSPACE_ROOT%agent_tools\\.venv\\Scripts\\python.exe"' in windows

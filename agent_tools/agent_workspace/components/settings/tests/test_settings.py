@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import subprocess
+
 from agent_tools.agent_workspace.components.test_support.src.helpers import *
 
 
@@ -401,3 +403,50 @@ def test_claude_model_choices_info_falls_back_when_cli_is_missing(monkeypatch: p
 
     assert info.choices == ("sonnet", "opus")
     assert info.source == "fallback"
+
+
+def test_agent_workspace_root_resolves_from_workspace(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    (workspace / "agent_tools").mkdir(parents=True)
+    (workspace / "install-agent-tools.py").write_text("#!/usr/bin/env python3\n", encoding="utf-8")
+
+    assert agent_workspace_root(workspace / "agent_tools") == workspace
+
+
+def test_agent_workspace_update_commands_pull_then_install(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    (workspace / "agent_tools").mkdir(parents=True)
+    (workspace / "install-agent-tools.py").write_text("#!/usr/bin/env python3\n", encoding="utf-8")
+
+    commands = agent_workspace_update_commands(workspace, python_executable="/python")
+
+    assert commands[0][-3:] == ("pull", "--ff-only")
+    assert commands[0][-4] == str(workspace)
+    assert commands[1] == (
+        "/python",
+        str(workspace / "install-agent-tools.py"),
+        "--non-interactive",
+        "--skip-system-deps",
+        "--recreate-venv-if-broken",
+    )
+
+
+def test_run_agent_workspace_update_returns_failed_command_output(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    (workspace / "agent_tools").mkdir(parents=True)
+    (workspace / "install-agent-tools.py").write_text("#!/usr/bin/env python3\n", encoding="utf-8")
+
+    def fake_run(
+        command: tuple[str, ...],
+        **_kwargs: object,
+    ) -> subprocess.CompletedProcess[str]:
+        return subprocess.CompletedProcess(command, 7, stdout="stdout text\n", stderr="stderr text\n")
+
+    monkeypatch.setattr("agent_tools.agent_workspace.components.settings.src.settings.subprocess.run", fake_run)
+
+    result = run_agent_workspace_update(workspace, python_executable="/missing-python")
+
+    assert result.ok is False
+    assert "pull --ff-only" in result.output
+    assert "stdout text" in result.output
+    assert "stderr text" in result.output

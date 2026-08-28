@@ -28,11 +28,16 @@ workspace-local agent skill mirrors with:
 python3 install-agent-tools.py
 ```
 
-The installer does not pull GTK/VTE by default. Use
-`python3 install-agent-tools.py --gui` only when the legacy GTK UI is needed.
+When launched from an interactive terminal without flags, the installer opens a
+console wizard for UI selection, common system tools, Docker support, and
+developer/test dependencies. GTK selection installs GTK/VTE packages through
+the host package manager and may ask for `sudo`.
+
+For automation, keep using explicit flags such as
+`python3 install-agent-tools.py --non-interactive --skip-system-deps --dev`.
 On Linux, the `agent-workspace` default entry point tries GTK, then web, then
-Tk. On macOS and Windows, it uses web directly. The `agent-workspace-web`
-entry points always skip desktop backend probing and start the browser UI.
+Tk. On macOS and Windows, it uses web directly. The `agent-workspace-web` entry
+points always skip desktop backend probing and start the browser UI.
 
 Main capabilities:
 

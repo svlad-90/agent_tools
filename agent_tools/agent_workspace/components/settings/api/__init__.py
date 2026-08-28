@@ -23,14 +23,17 @@ from ..src.settings import AGENT_WORKSPACE_THEMES
 from ..src.settings import TASK_CONTEXT_PROMPT_INJECTION_DEFAULT
 from ..src.settings import AgentModelChoices
 from ..src.settings import AgentModelSettings
+from ..src.settings import AgentWorkspaceUpdateResult
 from ..src.settings import AgentWorkspaceRuntimeSettings
 from ..src.settings import agent_command_name
 from ..src.settings import agent_executable
 from ..src.settings import agent_install_command
 from ..src.settings import agent_label
+from ..src.settings import agent_workspace_root
 from ..src.settings import agent_workspace_runtime_settings
 from ..src.settings import agent_workspace_setting_or_default
 from ..src.settings import agent_workspace_settings_path
+from ..src.settings import agent_workspace_update_commands
 from ..src.settings import ai_agent_model_settings
 from ..src.settings import claude_model_choices
 from ..src.settings import claude_model_choices_info
@@ -39,6 +42,7 @@ from ..src.settings import codex_model_choices_info
 from ..src.settings import load_agent_workspace_settings
 from ..src.settings import model_choices_with_current
 from ..src.settings import normalize_agent
+from ..src.settings import run_agent_workspace_update
 from ..src.settings import save_agent_workspace_settings
 from ..src.settings import task_dictionary_policy_from_runtime_settings
 
@@ -67,13 +71,16 @@ __all__ = [
     "AgentModelChoices",
     "AgentModelSettings",
     "AgentWorkspaceRuntimeSettings",
+    "AgentWorkspaceUpdateResult",
     "agent_command_name",
     "agent_executable",
     "agent_install_command",
     "agent_label",
+    "agent_workspace_root",
     "agent_workspace_runtime_settings",
     "agent_workspace_setting_or_default",
     "agent_workspace_settings_path",
+    "agent_workspace_update_commands",
     "ai_agent_model_settings",
     "claude_model_choices",
     "claude_model_choices_info",
@@ -82,6 +89,7 @@ __all__ = [
     "load_agent_workspace_settings",
     "model_choices_with_current",
     "normalize_agent",
+    "run_agent_workspace_update",
     "save_agent_workspace_settings",
     "task_dictionary_policy_from_runtime_settings",
 ]
