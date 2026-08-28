@@ -1075,6 +1075,10 @@ def test_workspace_mcp_cpp_code_map_inspects_edits_indexes_and_batches(tmp_path:
         "cpp_code_map_symbol_get",
         {"path": "sample.cpp", "symbol": "add", "compile_db": ".", "output_format": "json"},
     )
+    if symbol["result"]["isError"]:
+        assert symbol["result"]["structuredContent"]["details"]["missing"] == "clang.cindex"
+        assert "clang Python bindings are not installed" in symbol["result"]["content"][0]["text"]
+        return
     body_hash = symbol["result"]["structuredContent"]["body_hash"]
     include = _mcp_call(
         server,
