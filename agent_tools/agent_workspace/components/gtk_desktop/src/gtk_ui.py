@@ -151,6 +151,7 @@ from ...task_catalog.api import read_task_file
 from ...task_sessions.api import reconcile_task_agent_run_session
 from ...task_sessions.api import resolve_task_agent_sessions
 from ...task_sessions.api import reset_task_agent_session
+from ...settings.api import run_agent_workspace_update
 from ...settings.api import save_agent_workspace_settings
 from ...task_sessions.api import save_task_active_agent_run
 from ...task_sessions.api import save_task_agent
@@ -311,6 +312,7 @@ class WorkspaceGtkGui:
         self.profiling_output_view: Gtk.TextView | None = None
         self.profiling_refresh_source_id: int | None = None
         self.profiling_paused_for_settings = False
+        self.settings_update_running = False
         self.harness_debug_snapshot_signature: tuple[int, int] | None = None
         self.harness_debug_latest_by_task: dict[Path, HarnessDebugEvent] = {}
         self.workspace_ipc_server: WorkspaceIpcServer | None = None
@@ -2331,6 +2333,69 @@ class WorkspaceGtkGui:
         system_prompt_scrolled.set_hexpand(True)
         system_prompt_scrolled.set_vexpand(False)
         system_prompt_scrolled.set_min_content_height(96)
+        settings_update_button = Gtk.Button(label=self._tr("settings_check_updates"))
+        settings_update_status = Gtk.Label(label=self._tr("settings_update_idle"))
+        settings_update_status.set_xalign(0)
+        settings_update_status.set_line_wrap(True)
+        settings_update_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        settings_update_box.set_hexpand(True)
+        settings_update_box.pack_start(settings_update_button, False, False, 0)
+        settings_update_box.pack_start(settings_update_status, False, False, 0)
+        settings_open = {"value": True}
+
+        def run_settings_update(*_ignored: object) -> None:
+            if self.settings_update_running:
+                return
+            confirm = Gtk.MessageDialog(
+                transient_for=dialog,
+                flags=Gtk.DialogFlags.MODAL,
+                message_type=Gtk.MessageType.WARNING,
+                buttons=Gtk.ButtonsType.NONE,
+                text=self._tr("settings_update_confirm_title"),
+            )
+            confirm.format_secondary_text(self._tr("settings_update_confirm_body"))
+            confirm.add_button(self._tr("cancel"), Gtk.ResponseType.CANCEL)
+            confirm.add_button(self._tr("settings_check_updates"), Gtk.ResponseType.OK)
+            response = confirm.run()
+            confirm.destroy()
+            if response != Gtk.ResponseType.OK:
+                return
+            self.settings_update_running = True
+            settings_update_button.set_sensitive(False)
+            settings_update_status.set_text(self._tr("settings_update_running"))
+
+            def worker() -> None:
+                update_ok = False
+                try:
+                    result = run_agent_workspace_update(self.workspace)
+                    update_ok = result.ok
+                    status_text = (
+                        self._tr("settings_update_done")
+                        if result.ok
+                        else self._tr("settings_update_failed").format(code=result.returncode)
+                        + "\n"
+                        + _tail_text(result.output, 2_000)
+                    )
+                except Exception as error:
+                    status_text = self._tr("settings_update_failed").format(code=1) + f"\n{type(error).__name__}: {error}"
+
+                def apply_result() -> bool:
+                    self.settings_update_running = False
+                    if not settings_open["value"]:
+                        return False
+                    settings_update_button.set_sensitive(True)
+                    settings_update_status.set_text(status_text)
+                    if update_ok:
+                        settings_open["value"] = False
+                        dialog.response(Gtk.ResponseType.CANCEL)
+                        self.window.destroy()
+                    return False
+
+                GLib.idle_add(apply_result)
+
+            threading.Thread(target=worker, daemon=True).start()
+
+        settings_update_button.connect("clicked", run_settings_update)
         claude_model_combo = Gtk.ComboBoxText()
         claude_effort_combo = Gtk.ComboBoxText()
         claude_animations_check = Gtk.CheckButton()
@@ -2454,6 +2519,7 @@ class WorkspaceGtkGui:
             (self._tr("language"), language_combo),
             (self._tr("default_agent"), default_agent_combo),
             (self._tr("system_prompt"), system_prompt_scrolled),
+            (self._tr("settings_updates"), settings_update_box),
             (agent_label("codex"), None),
         ]
         if codex_models is not None:
@@ -2527,7 +2593,6 @@ class WorkspaceGtkGui:
         self._disable_button_hover_tracking_recursive(dialog)
 
         dialog.show_all()
-        settings_open = {"value": True}
         if codex_available:
             def refresh_codex_models() -> None:
                 info = codex_model_choices_info(use_cli=True)
@@ -4697,10 +4762,10 @@ class WorkspaceGtkGui:
         return ()
 
     def _task_agent_status(self, task: TaskSummary) -> str:
-        harness_icon = self._task_harness_status_icon(task)
-        if harness_icon:
-            return harness_icon
         running_agents = self._task_running_agent_kinds(task)
+        harness_icon = self._task_harness_status_icon(task)
+        if running_agents and harness_icon:
+            return harness_icon
         return task_agent_status_text(
             task,
             self.workspace,
@@ -5283,7 +5348,6 @@ class WorkspaceGtkGui:
     def _apply_saved_split_ratios(self) -> bool:
         self._initial_pane_layout_source_id = None
         self._set_pane_position_ratio(self.main_pane, self.main_split_ratio, minimum=360)
-        self._set_pane_position_ratio(self.details_pane, self.details_split_ratio)
         self._set_pane_position_ratio(self.actions_pane, self.actions_split_ratio)
         self._pane_layout_ready = True
         self._on_actions_pane_position_changed(self.actions_pane, None)
@@ -6143,6 +6207,12 @@ def _agent_workspace_runtime_icon_path() -> Path:
     if installed.is_file():
         return installed
     return _agent_workspace_icon_path()
+
+
+def _tail_text(text: str, limit: int) -> str:
+    if len(text) <= limit:
+        return text
+    return "...\n" + text[-limit:]
 
 
 def main(argv: list[str] | None = None) -> int:

@@ -39,6 +39,11 @@ python3 install-agent-tools.py
 ./agent-workspace.sh
 ```
 
+When run from a terminal without flags, the installer opens a small console
+wizard. Choose the UI profile (`web`, `tk`, or `gtk`) and whether to install
+common system tools such as PlantUML/Graphviz or Docker support. System package
+installation may ask for `sudo` on Linux.
+
 On macOS, open `agent-workspace.command`. On Windows, run
 `agent-workspace.cmd`. Those portable launchers start the browser UI.
 

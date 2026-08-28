@@ -53,6 +53,7 @@ def test_harness_adapter_builds_codex_workspace_mcp_config_options(tmp_path: Pat
             f'"{tmp_path.resolve()}"]'
         ),
         "mcp_servers.agent_tools_workspace.enabled=true",
+        'mcp_servers.agent_tools_workspace.require_approval="never"',
         "mcp_servers.agent_tools_workspace.startup_timeout_sec=10",
         "mcp_servers.agent_tools_workspace.tool_timeout_sec=60",
         f'mcp_servers.agent_tools_workspace.env.PYTHONPATH="{tmp_path.resolve()}"',

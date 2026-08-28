@@ -16,6 +16,7 @@ class WorkspaceMcpServer:
         self.workspace = workspace.resolve()
         self.registry = registry
         self._tools_load_error = ""
+        self._tools_loaded = False
 
     def handle_message(self, message: JsonObject) -> JsonObject | None:
         message_id = message.get("id")
@@ -34,8 +35,6 @@ class WorkspaceMcpServer:
                 return self._response(message_id, {"resultType": "complete", "tools": self.registry.tool_descriptors()})
             if method == "tools/call":
                 self._ensure_tools_loaded()
-                if self._tools_load_error:
-                    raise ValueError(self._tools_load_error)
                 return self._response(message_id, self._call_tool(message))
             return self._error(message_id, -32601, f"method not found: {method}")
         except KeyError as error:
@@ -87,6 +86,8 @@ class WorkspaceMcpServer:
         arguments = params.get("arguments", {})
         if not isinstance(arguments, dict):
             raise ValueError("tools/call params.arguments must be an object")
+        if not self.registry.has_tool(name) and self._tools_load_error:
+            raise ValueError(self._tools_load_error)
         result = self.registry.call(ToolContext(self.workspace), name, arguments)
         return self._tool_result_payload(result)
 
@@ -129,8 +130,51 @@ class WorkspaceMcpServer:
         )
 
     def _ensure_tools_loaded(self) -> None:
-        if self.registry.tool_descriptors() or self._tools_load_error:
+        if self._tools_loaded:
             return
+        from .code_map_tools import code_map_tools
+        from .commit_msg_tools import commit_msg_tools
+        from .cpp_code_map_tools import cpp_code_map_tools
+        from .cpp_light_code_map_tools import cpp_light_code_map_tools
+        from .diff_report_tools import diff_report_tools
+        from .knowledge_tools import knowledge_tools
+        from .push_guard_tools import push_guard_tools
+        from .rules_sync_tools import rules_sync_tools
+        from .task_actualize_tools import task_actualize_tools
+        from .task_actions_tools import task_actions_tools
+        from .task_context_tools import task_context_tools
+        from .validate_tools import validate_tools
+        from .yaml_map_tools import yaml_map_tools
+        from .yocto_diag_tools import yocto_diag_tools
+
+        for tool in code_map_tools():
+            self.registry.register(tool)
+        for tool in commit_msg_tools():
+            self.registry.register(tool)
+        for tool in cpp_code_map_tools():
+            self.registry.register(tool)
+        for tool in cpp_light_code_map_tools():
+            self.registry.register(tool)
+        for tool in diff_report_tools():
+            self.registry.register(tool)
+        for tool in knowledge_tools():
+            self.registry.register(tool)
+        for tool in push_guard_tools():
+            self.registry.register(tool)
+        for tool in rules_sync_tools():
+            self.registry.register(tool)
+        for tool in task_actualize_tools():
+            self.registry.register(tool)
+        for tool in task_actions_tools():
+            self.registry.register(tool)
+        for tool in task_context_tools():
+            self.registry.register(tool)
+        for tool in validate_tools():
+            self.registry.register(tool)
+        for tool in yaml_map_tools():
+            self.registry.register(tool)
+        for tool in yocto_diag_tools():
+            self.registry.register(tool)
         try:
             from .agent_search_tools import agent_search_tools
 
@@ -143,6 +187,7 @@ class WorkspaceMcpServer:
                 f"dependency is missing: {dependency}. Run "
                 "`python3 install-agent-tools.py` from the workspace root."
             )
+        self._tools_loaded = True
 
 
 def build_workspace_mcp_server(workspace: Path) -> WorkspaceMcpServer:

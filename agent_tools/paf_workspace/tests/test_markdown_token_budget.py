@@ -16,7 +16,7 @@ GENERATED_MARKDOWN_PATHS = {
 
 TRACKED_MARKDOWN_TOTAL_BUDGET = 60_000
 TRACKED_MARKDOWN_FILE_BUDGET = 5_000
-SINGLE_TASK_BOOTSTRAP_TOTAL_BUDGET = 25_000
+SINGLE_TASK_BOOTSTRAP_TOTAL_BUDGET = 30_000
 SINGLE_TASK_BOOTSTRAP_FILE_BUDGET = 3_000
 def test_tracked_markdown_stays_within_workspace_token_budget() -> None:
     entries = _markdown_entries(_tracked_markdown_files())

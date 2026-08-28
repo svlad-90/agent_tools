@@ -7,6 +7,7 @@ from pathlib import Path
 import re
 import shutil
 import subprocess
+import sys
 
 from agent_tools.tools.task_context import DICTIONARY_AUTO_DISCOVERY_DEFAULT
 from agent_tools.tools.task_context import DICTIONARY_MAX_TERM_WORDS
@@ -101,11 +102,88 @@ class AgentModelChoices:
     source: str
 
 
+@dataclass(frozen=True)
+class AgentWorkspaceUpdateResult:
+    commands: tuple[tuple[str, ...], ...]
+    returncode: int
+    output: str
+
+    @property
+    def ok(self) -> bool:
+        return self.returncode == 0
+
+
 def agent_workspace_settings_path() -> Path:
     config_root = os.environ.get("XDG_CONFIG_HOME")
     if config_root:
         return Path(config_root) / "agent_tools" / "agent_workspace" / AGENT_WORKSPACE_SETTINGS_FILE
     return Path.home() / ".config" / "agent_tools" / "agent_workspace" / AGENT_WORKSPACE_SETTINGS_FILE
+
+
+def agent_workspace_root(start: Path | None = None) -> Path:
+    path = (start or Path(__file__)).resolve()
+    for candidate in (path, *path.parents):
+        if (candidate / "install-agent-tools.py").is_file() and (candidate / "agent_tools").is_dir():
+            return candidate
+    raise RuntimeError(f"cannot resolve Agent Workspace root from {path}")
+
+
+def agent_workspace_update_commands(
+    workspace: Path | None = None,
+    *,
+    python_executable: str | None = None,
+) -> tuple[tuple[str, ...], ...]:
+    root = agent_workspace_root(workspace) if workspace is not None else agent_workspace_root()
+    python = python_executable or sys.executable
+    git = shutil.which("git") or "git"
+    return (
+        (git, "-C", str(root), "pull", "--ff-only"),
+        (
+            python,
+            str(root / "install-agent-tools.py"),
+            "--non-interactive",
+            "--skip-system-deps",
+            "--recreate-venv-if-broken",
+        ),
+    )
+
+
+def run_agent_workspace_update(
+    workspace: Path | None = None,
+    *,
+    python_executable: str | None = None,
+    timeout: float | None = None,
+) -> AgentWorkspaceUpdateResult:
+    root = agent_workspace_root(workspace) if workspace is not None else agent_workspace_root()
+    commands = agent_workspace_update_commands(root, python_executable=python_executable)
+    output_parts: list[str] = []
+    env = os.environ.copy()
+    current_pythonpath = env.get("PYTHONPATH")
+    env["PYTHONPATH"] = str(root) if not current_pythonpath else f"{root}{os.pathsep}{current_pythonpath}"
+    for command in commands:
+        output_parts.append("$ " + " ".join(command))
+        try:
+            completed = subprocess.run(
+                command,
+                cwd=root,
+                env=env,
+                text=True,
+                capture_output=True,
+                timeout=timeout,
+            )
+        except subprocess.TimeoutExpired as error:
+            partial = (error.stdout or "") + (error.stderr or "")
+            if partial:
+                output_parts.append(partial)
+            output_parts.append(f"Timed out after {timeout} seconds.")
+            return AgentWorkspaceUpdateResult(commands, 124, "\n".join(output_parts).rstrip() + "\n")
+        if completed.stdout:
+            output_parts.append(completed.stdout.rstrip())
+        if completed.stderr:
+            output_parts.append(completed.stderr.rstrip())
+        if completed.returncode != 0:
+            return AgentWorkspaceUpdateResult(commands, completed.returncode, "\n".join(output_parts).rstrip() + "\n")
+    return AgentWorkspaceUpdateResult(commands, 0, "\n".join(output_parts).rstrip() + "\n")
 
 
 def normalize_agent(agent: object) -> str:

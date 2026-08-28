@@ -75,7 +75,7 @@ jobs:
             sh -lc '
               set -eux
               eval "$TARGET_BOOTSTRAP"
-              ./install-agent-tools.py --dev --skip-system-deps --no-desktop
+              ./install-agent-tools.py --non-interactive --dev --skip-system-deps --no-desktop
               test -x agent-workspace.sh
               HOME=/tmp/agent-tools-desktop-smoke agent_tools/.venv/bin/python3 -m agent_tools.agent_workspace.components.desktop_integration.src.install_desktop
               test -f /tmp/agent-tools-desktop-smoke/.local/share/icons/hicolor/scalable/apps/agent-workspace.svg
@@ -105,7 +105,7 @@ jobs:
           python-version: "3.10"
 
       - name: Install workspace without GTK system packages
-        run: python install-agent-tools.py --dev --skip-system-deps --no-desktop
+        run: python install-agent-tools.py --non-interactive --dev --skip-system-deps --no-desktop
 
       - name: Smoke web/service imports on macOS
         if: runner.os == 'macOS'
@@ -182,6 +182,81 @@ jobs:
             sh -lc '
               set -eux
               eval "$TARGET_BOOTSTRAP"
-              "$TARGET_PYTHON" install-agent-tools.py --gui --no-desktop --no-skills
+              "$TARGET_PYTHON" install-agent-tools.py --non-interactive --gui --no-desktop --no-skills
               agent_tools/.venv/bin/python3 -c "import gi; gi.require_version(\"Gtk\", \"3.0\"); gi.require_version(\"Vte\", \"2.91\")"
             '
+
+  installer-dry-run:
+    name: installer dry-run (${{ matrix.target }})
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: ubuntu-apt
+            package_manager: apt-get
+            expected_prefix: "Would run: sudo apt-get install -y"
+            expected_tokens: "git graphviz plantuml python3 python3-pip python3-venv docker.io python3-gi gir1.2-gtk-3.0 gir1.2-vte-2.91 desktop-file-utils"
+          - target: fedora-dnf
+            package_manager: dnf
+            expected_prefix: "Would run: sudo dnf install -y"
+            expected_tokens: "git graphviz plantuml python3 python3-pip docker python3-gobject gtk3 vte291 desktop-file-utils"
+          - target: arch-pacman
+            package_manager: pacman
+            expected_prefix: "Would run: sudo pacman -Sy --noconfirm --needed"
+            expected_tokens: "git graphviz jdk-openjdk plantuml python python-pip docker python-gobject gtk3 vte3 desktop-file-utils"
+          - target: macos-brew
+            package_manager: brew
+            expected_prefix: "Would run: brew install"
+            expected_tokens: "git graphviz plantuml python docker pygobject3 gtk+3"
+          - target: opensuse-zypper
+            package_manager: zypper
+            expected_prefix: "Would run: sudo zypper --non-interactive install"
+            expected_tokens: "git graphviz plantuml python3 python3-pip python3-venv docker gtk3 typelib-1_0-Gtk-3_0 typelib-1_0-Vte-2_91 desktop-file-utils"
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Dry-run full installer profile
+        env:
+          PACKAGE_MANAGER: ${{ matrix.package_manager }}
+          EXPECTED_PREFIX: ${{ matrix.expected_prefix }}
+          EXPECTED_TOKENS: ${{ matrix.expected_tokens }}
+        run: |
+          set -euo pipefail
+          output="$(python3 install-agent-tools.py \
+            --non-interactive \
+            --dry-run \
+            --package-manager "$PACKAGE_MANAGER" \
+            --ui gtk \
+            --system-tools \
+            --docker \
+            --dev \
+            --no-desktop \
+            --no-skills \
+            --no-validate)"
+          printf '%s\n' "$output"
+          grep -Fq "$EXPECTED_PREFIX" <<<"$output"
+          for token in $EXPECTED_TOKENS; do
+            grep -Fq "$token" <<<"$output"
+          done
+          grep -Fq "Would run: /home/runner/work/" <<<"$output"
+          grep -Fq " -m pip install -r " <<<"$output"
+
+      - name: Dry-run portable profile without system dependencies
+        run: |
+          set -euo pipefail
+          output="$(python3 install-agent-tools.py \
+            --non-interactive \
+            --dry-run \
+            --skip-system-deps \
+            --ui web \
+            --no-desktop \
+            --no-skills \
+            --no-validate)"
+          printf '%s\n' "$output"
+          if grep -Fq "apt-get install" <<<"$output"; then
+            echo "portable dry-run unexpectedly attempted system package installation" >&2
+            exit 1
+          fi
