@@ -35,6 +35,27 @@ def test_workspace_mcp_lists_agent_search_tools(tmp_path: Path) -> None:
         "code_map_replace_symbol_body",
         "code_map_symbol_get",
         "commit_msg_format",
+        "cpp_light_call_graph",
+        "cpp_light_calls",
+        "cpp_light_complexity",
+        "cpp_light_diagnose",
+        "cpp_light_includes",
+        "cpp_light_index",
+        "cpp_light_index_dir",
+        "cpp_light_insert_after_symbol",
+        "cpp_light_insert_before_symbol",
+        "cpp_light_locals",
+        "cpp_light_macros",
+        "cpp_light_map",
+        "cpp_light_parse_check",
+        "cpp_light_query",
+        "cpp_light_refs",
+        "cpp_light_rename_symbol",
+        "cpp_light_replace_symbol",
+        "cpp_light_replace_symbol_body",
+        "cpp_light_symbol_get",
+        "cpp_light_symbols",
+        "cpp_light_unmapped",
         "knowledge_get_topic",
         "knowledge_list_topics",
         "knowledge_search_topics",
@@ -374,6 +395,27 @@ with tempfile.TemporaryDirectory() as workspace_text:
         "code_map_replace_symbol_body",
         "code_map_symbol_get",
         "commit_msg_format",
+        "cpp_light_call_graph",
+        "cpp_light_calls",
+        "cpp_light_complexity",
+        "cpp_light_diagnose",
+        "cpp_light_includes",
+        "cpp_light_index",
+        "cpp_light_index_dir",
+        "cpp_light_insert_after_symbol",
+        "cpp_light_insert_before_symbol",
+        "cpp_light_locals",
+        "cpp_light_macros",
+        "cpp_light_map",
+        "cpp_light_parse_check",
+        "cpp_light_query",
+        "cpp_light_refs",
+        "cpp_light_rename_symbol",
+        "cpp_light_replace_symbol",
+        "cpp_light_replace_symbol_body",
+        "cpp_light_symbol_get",
+        "cpp_light_symbols",
+        "cpp_light_unmapped",
         "knowledge_get_topic",
         "knowledge_list_topics",
         "knowledge_search_topics",
@@ -888,6 +930,86 @@ def test_workspace_mcp_code_map_blocks_batch_paths_outside_workspace(tmp_path: P
                 }
             ],
         },
+    )
+
+    assert response["result"]["isError"] is True
+    assert "outside workspace" in response["result"]["content"][0]["text"]
+
+
+def test_workspace_mcp_cpp_light_inspects_edits_indexes_and_queries(tmp_path: Path) -> None:
+    source = tmp_path / "sample.cpp"
+    source.write_text(
+        "#include <stdint.h>\n"
+        "#define LIMIT 4\n"
+        "int helper(int seed)\n"
+        "{\n"
+        "    return seed + LIMIT;\n"
+        "}\n",
+        encoding="utf-8",
+    )
+    server = build_workspace_mcp_server(tmp_path)
+
+    mapped = _mcp_call(server, "cpp_light_map", {"path": "sample.cpp", "output_format": "json"})
+    includes = _mcp_call(server, "cpp_light_includes", {"path": "sample.cpp", "output_format": "json"})
+    symbol = _mcp_call(
+        server,
+        "cpp_light_symbol_get",
+        {"path": "sample.cpp", "symbol": "helper", "output_format": "json"},
+    )
+    body_hash = symbol["result"]["structuredContent"]["body_hash"]
+    replaced = _mcp_call(
+        server,
+        "cpp_light_replace_symbol_body",
+        {
+            "path": "sample.cpp",
+            "symbol": "helper",
+            "expect_hash": body_hash,
+            "replacement": "    return 2;\n",
+            "output_format": "json",
+        },
+    )
+    parsed = _mcp_call(server, "cpp_light_parse_check", {"path": "sample.cpp", "output_format": "json"})
+    stale = _mcp_call(
+        server,
+        "cpp_light_replace_symbol_body",
+        {
+            "path": "sample.cpp",
+            "symbol": "helper",
+            "expect_hash": body_hash,
+            "replacement": "    return 3;\n",
+            "output_format": "json",
+        },
+    )
+    indexed = _mcp_call(
+        server,
+        "cpp_light_index",
+        {"paths": ["sample.cpp"], "cache_dir": "cache", "output_format": "json"},
+    )
+    queried = _mcp_call(
+        server,
+        "cpp_light_query",
+        {"name": "helper", "cache_dir": "cache", "output_format": "json"},
+    )
+
+    assert mapped["result"]["isError"] is False
+    assert mapped["result"]["structuredContent"]["symbols"][0]["qualified_name"] == "helper"
+    assert includes["result"]["structuredContent"]["includes"][0]["text"] == "#include <stdint.h>"
+    assert replaced["result"]["structuredContent"]["changed"] is True
+    assert parsed["result"]["isError"] is False
+    assert stale["result"]["isError"] is True
+    assert stale["result"]["structuredContent"]["error"] == "symbol body hash mismatch"
+    assert indexed["result"]["structuredContent"]["ok"] is True
+    assert queried["result"]["structuredContent"]["matches"][0]["symbol"]["qualified_name"] == "helper"
+    assert "return 2;" in source.read_text(encoding="utf-8")
+
+
+def test_workspace_mcp_cpp_light_blocks_paths_outside_workspace(tmp_path: Path) -> None:
+    server = build_workspace_mcp_server(tmp_path)
+
+    response = _mcp_call(
+        server,
+        "cpp_light_map",
+        {"path": str(tmp_path.parent / "outside.cpp")},
     )
 
     assert response["result"]["isError"] is True
