@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import io
 import subprocess
+import tarfile
 
 from agent_tools.agent_workspace.components.test_support.src.helpers import *
 
@@ -35,6 +37,8 @@ def test_agent_workspace_settings_persist_font_size(tmp_path: Path) -> None:
             "main_split_ratio": 0.3,
             "details_split_ratio": 0.7,
             "actions_split_ratio": 0.4,
+            "last_workspace": str(tmp_path / "workspace"),
+            "recent_workspaces": [str(tmp_path / "workspace"), str(tmp_path / "other")],
         },
         settings_path,
     )
@@ -65,7 +69,29 @@ def test_agent_workspace_settings_persist_font_size(tmp_path: Path) -> None:
         "main_split_ratio": 0.3,
         "details_split_ratio": 0.7,
         "actions_split_ratio": 0.4,
+        "last_workspace": str(tmp_path / "workspace"),
+        "recent_workspaces": [str(tmp_path / "workspace"), str(tmp_path / "other")],
     }
+
+
+def test_remember_agent_workspace_updates_last_and_recent(tmp_path: Path) -> None:
+    settings_path = tmp_path / "settings.json"
+    old_workspace = tmp_path / "old"
+    new_workspace = tmp_path / "new"
+    save_agent_workspace_settings(
+        {
+            "theme": "dark",
+            "last_workspace": str(old_workspace),
+            "recent_workspaces": [str(old_workspace)],
+        },
+        settings_path,
+    )
+
+    settings = remember_agent_workspace(new_workspace, settings_path)
+
+    assert settings["theme"] == "dark"
+    assert settings["last_workspace"] == str(new_workspace.resolve())
+    assert settings["recent_workspaces"] == [str(new_workspace.resolve()), str(old_workspace)]
 
 
 def test_agent_workspace_settings_migrate_old_font_size(tmp_path: Path) -> None:
@@ -413,27 +439,31 @@ def test_agent_workspace_root_resolves_from_workspace(tmp_path: Path) -> None:
     assert agent_workspace_root(workspace / "agent_tools") == workspace
 
 
-def test_agent_workspace_update_commands_pull_then_install(tmp_path: Path) -> None:
+def test_agent_workspace_update_commands_install_only(tmp_path: Path) -> None:
     workspace = tmp_path / "workspace"
     (workspace / "agent_tools").mkdir(parents=True)
     (workspace / "install-agent-tools.py").write_text("#!/usr/bin/env python3\n", encoding="utf-8")
 
     commands = agent_workspace_update_commands(workspace, python_executable="/python")
 
-    assert commands[0][1:] == ("-C", str(workspace), "pull", "--ff-only")
-    assert commands[1] == (
+    assert commands == ((
         "/python",
         str(workspace / "install-agent-tools.py"),
         "--non-interactive",
         "--skip-system-deps",
         "--recreate-venv-if-broken",
-    )
+    ),)
 
 
-def test_run_agent_workspace_update_returns_failed_command_output(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+def test_run_agent_workspace_update_returns_failed_installer_output(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
     workspace = tmp_path / "workspace"
     (workspace / "agent_tools").mkdir(parents=True)
+    (workspace / "agent_tools" / "VERSION").write_text("2.0.0\n", encoding="utf-8")
     (workspace / "install-agent-tools.py").write_text("#!/usr/bin/env python3\n", encoding="utf-8")
+    tarball = _agent_workspace_release_tarball()
 
     def fake_run(
         command: tuple[str, ...],
@@ -441,11 +471,107 @@ def test_run_agent_workspace_update_returns_failed_command_output(monkeypatch: p
     ) -> subprocess.CompletedProcess[str]:
         return subprocess.CompletedProcess(command, 7, stdout="stdout text\n", stderr="stderr text\n")
 
+    monkeypatch.setattr(
+        "agent_tools.agent_workspace.components.settings.src.settings.urllib.request.urlopen",
+        _fake_urlopen_factory(
+            {
+                AGENT_WORKSPACE_RELEASES_API: b'{"tag_name":"v2.1.0","html_url":"https://example/release","tarball_url":"https://example/tarball"}',
+                "https://example/tarball": tarball,
+            }
+        ),
+    )
     monkeypatch.setattr("agent_tools.agent_workspace.components.settings.src.settings.subprocess.run", fake_run)
 
     result = run_agent_workspace_update(workspace, python_executable="/missing-python")
 
     assert result.ok is False
-    assert "pull --ff-only" in result.output
+    assert "Latest release: 2.1.0" in result.output
     assert "stdout text" in result.output
     assert "stderr text" in result.output
+    assert (workspace / "agent_tools" / "VERSION").read_text(encoding="utf-8") == "2.1.0\n"
+
+
+def test_run_agent_workspace_update_check_reports_available_updates(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    workspace = tmp_path / "workspace"
+    (workspace / "agent_tools").mkdir(parents=True)
+    (workspace / "agent_tools" / "VERSION").write_text("2.0.0\n", encoding="utf-8")
+    (workspace / "install-agent-tools.py").write_text("#!/usr/bin/env python3\n", encoding="utf-8")
+
+    monkeypatch.setattr(
+        "agent_tools.agent_workspace.components.settings.src.settings.urllib.request.urlopen",
+        _fake_urlopen_factory(
+            {
+                AGENT_WORKSPACE_RELEASES_API: b'{"tag_name":"v2.1.0","html_url":"https://example/release","tarball_url":"https://example/tarball"}',
+            }
+        ),
+    )
+
+    result = run_agent_workspace_update_check(workspace)
+
+    assert result.ok is True
+    assert result.update_available is True
+    assert result.current_version == "2.0.0"
+    assert result.latest_version == "2.1.0"
+    assert result.release_url == "https://example/release"
+    assert result.tarball_url == "https://example/tarball"
+
+
+def test_run_agent_workspace_update_check_returns_failed_release_output(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    workspace = tmp_path / "workspace"
+    (workspace / "agent_tools").mkdir(parents=True)
+    (workspace / "install-agent-tools.py").write_text("#!/usr/bin/env python3\n", encoding="utf-8")
+
+    def fake_urlopen(_request: object, **_kwargs: object) -> object:
+        raise OSError("network down")
+
+    monkeypatch.setattr(
+        "agent_tools.agent_workspace.components.settings.src.settings.urllib.request.urlopen",
+        fake_urlopen,
+    )
+
+    result = run_agent_workspace_update_check(workspace)
+
+    assert result.ok is False
+    assert result.update_available is False
+    assert "network down" in result.output
+
+
+class _FakeResponse:
+    def __init__(self, payload: bytes) -> None:
+        self.payload = payload
+
+    def __enter__(self) -> "_FakeResponse":
+        return self
+
+    def __exit__(self, *_args: object) -> None:
+        return None
+
+    def read(self) -> bytes:
+        return self.payload
+
+
+def _fake_urlopen_factory(payloads: dict[str, bytes]) -> object:
+    def fake_urlopen(request: object, **_kwargs: object) -> _FakeResponse:
+        url = getattr(request, "full_url", request)
+        return _FakeResponse(payloads[str(url)])
+
+    return fake_urlopen
+
+
+def _agent_workspace_release_tarball() -> bytes:
+    output = io.BytesIO()
+    with tarfile.open(fileobj=output, mode="w:gz") as archive:
+        for name, payload in (
+            ("release/install-agent-tools.py", b"#!/usr/bin/env python3\n"),
+            ("release/agent_tools/VERSION", b"2.1.0\n"),
+        ):
+            info = tarfile.TarInfo(name)
+            info.size = len(payload)
+            archive.addfile(info, io.BytesIO(payload))
+    return output.getvalue()

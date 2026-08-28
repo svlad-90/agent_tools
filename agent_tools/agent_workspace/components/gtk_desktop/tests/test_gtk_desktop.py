@@ -2756,7 +2756,8 @@ def test_gtk_translates_agent_and_manual_labels() -> None:
     assert GTK_TRANSLATIONS["ru"]["default_codex_model"] == "Модель Codex"
     assert GTK_TRANSLATIONS["ru"]["system_prompt"] == "Системный промпт"
     assert GTK_TRANSLATIONS["ru"]["settings_updates"] == "Обновления"
-    assert GTK_TRANSLATIONS["ru"]["settings_check_updates"] == "Проверить обновления"
+    assert GTK_TRANSLATIONS["ru"]["settings_check_updates"] == "Проверить доступные обновления"
+    assert GTK_TRANSLATIONS["ru"]["settings_apply_update"] == "Обновить"
     assert GTK_TRANSLATIONS["ru"]["settings_update_running"] == "Обновление Agent Workspace..."
     assert GTK_TRANSLATIONS["ru"]["settings_update_confirm_title"] == "Обновить Agent Workspace?"
     assert "закроется" in GTK_TRANSLATIONS["ru"]["settings_update_confirm_body"]
@@ -2777,6 +2778,9 @@ def test_gtk_translates_agent_and_manual_labels() -> None:
     assert "Предлагаемая команда установки" in GTK_TRANSLATIONS["ru"]["install_agent_body"]
     assert GTK_TRANSLATIONS["ru"]["delete_artifacts"] == "Удалить артефакты"
     assert GTK_TRANSLATIONS["ru"]["open_containing_folder"] == "Открыть содержащую папку"
+    assert GTK_TRANSLATIONS["ru"]["open_workspace_dialog"] == "Открыть workspace"
+    assert GTK_TRANSLATIONS["ru"]["create_workspace_dialog"] == "Создать workspace"
+    assert GTK_TRANSLATIONS["ru"]["workspace_switch_failed"] == "Не удалось переключить workspace"
     assert GTK_TRANSLATIONS["ru"]["other_artifacts"] == "Другие артефакты"
     assert GTK_TRANSLATIONS["ru"]["updated"] == "Обновлено"
     assert GTK_TRANSLATIONS["uk"]["manual_usage_section"] == "Основи"

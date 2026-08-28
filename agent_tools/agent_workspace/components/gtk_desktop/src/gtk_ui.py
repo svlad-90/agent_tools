@@ -151,8 +151,12 @@ from ...task_catalog.api import read_task_file
 from ...task_sessions.api import reconcile_task_agent_run_session
 from ...task_sessions.api import resolve_task_agent_sessions
 from ...task_sessions.api import reset_task_agent_session
+from ...settings.api import run_agent_workspace_update_check
 from ...settings.api import run_agent_workspace_update
 from ...settings.api import save_agent_workspace_settings
+from ...settings.api import remember_agent_workspace
+from ...workspace_config.api import ensure_agent_workspace
+from ...workspace_config.api import resolve_agent_workspace_startup
 from ...task_sessions.api import save_task_active_agent_run
 from ...task_sessions.api import save_task_agent
 from ...task_sessions.api import save_task_agent_session
@@ -344,6 +348,11 @@ class WorkspaceGtkGui:
         self.main_split_ratio = settings.main_split_ratio
         self.details_split_ratio = settings.details_split_ratio
         self.actions_split_ratio = settings.actions_split_ratio
+        raw_settings = load_agent_workspace_settings()
+        recent_workspaces = raw_settings.get("recent_workspaces")
+        self.recent_workspaces = [
+            item for item in recent_workspaces if isinstance(item, str)
+        ] if isinstance(recent_workspaces, list) else [str(self.workspace)]
         self._updating_pane_positions = False
         self._pane_layout_ready = False
         self._initial_pane_layout_source_id: int | None = None
@@ -431,6 +440,8 @@ class WorkspaceGtkGui:
         root.pack_start(toolbar, False, False, 0)
         self._profile_widget("toolbar", toolbar)
         toolbar.pack_start(self._button("settings", self.open_settings), False, False, 0)
+        toolbar.pack_start(self._button("open_workspace_dialog", self.open_workspace_dialog), False, False, 0)
+        toolbar.pack_start(self._button("create_workspace_dialog", self.create_workspace_dialog), False, False, 0)
         self.summary_label = Gtk.Label(label="")
         self.summary_label.set_xalign(0)
         toolbar.pack_start(self.summary_label, False, False, 6)
@@ -1713,6 +1724,68 @@ class WorkspaceGtkGui:
         if self.selected_task is not None:
             open_path(self.selected_task.path / "dev")
 
+    def open_workspace_dialog(self, *_args: object) -> None:
+        workspace = self._choose_workspace_folder("open_workspace_dialog")
+        if workspace is not None:
+            self._switch_workspace(workspace)
+
+    def create_workspace_dialog(self, *_args: object) -> None:
+        workspace = self._choose_workspace_folder("create_workspace_dialog")
+        if workspace is not None:
+            self._switch_workspace(workspace)
+
+    def _choose_workspace_folder(self, title_key: str) -> Path | None:
+        dialog = Gtk.FileChooserDialog(
+            title=self._tr(title_key),
+            parent=self.window,
+            action=Gtk.FileChooserAction.SELECT_FOLDER,
+        )
+        dialog.add_button(self._tr("cancel"), Gtk.ResponseType.CANCEL)
+        dialog.add_button(self._tr("ok"), Gtk.ResponseType.OK)
+        dialog.set_current_folder(str(self.workspace))
+        response = dialog.run()
+        filename = dialog.get_filename() if response == Gtk.ResponseType.OK else None
+        dialog.destroy()
+        return Path(filename).resolve() if filename else None
+
+    def _switch_workspace(self, workspace: Path) -> bool:
+        new_workspace = workspace.resolve()
+        if new_workspace == self.workspace:
+            return True
+        if not self._confirm_close_with_running_agents():
+            return False
+        self._close_all_terminal_sessions()
+        if self.task_actions_monitor is not None:
+            self.task_actions_monitor.cancel()
+            self.task_actions_monitor = None
+            self.task_actions_monitor_path = None
+        workspace_ipc_server = getattr(self, "workspace_ipc_server", None)
+        if workspace_ipc_server is not None:
+            workspace_ipc_server.close()
+            self.workspace_ipc_server = None
+        try:
+            ensure_agent_workspace(new_workspace)
+        except (OSError, ValueError) as exc:
+            self._show_error(self._tr("workspace_switch_failed"), str(exc))
+            self.workspace_ipc_server = start_workspace_ipc_server(self.workspace, self._on_workspace_ipc_event)
+            return False
+        updated_settings = remember_agent_workspace(new_workspace)
+        recent_workspaces = updated_settings.get("recent_workspaces")
+        self.recent_workspaces = [
+            item for item in recent_workspaces if isinstance(item, str)
+        ] if isinstance(recent_workspaces, list) else [str(new_workspace)]
+        self.workspace = new_workspace
+        self.workspace_ipc_server = start_workspace_ipc_server(self.workspace, self._on_workspace_ipc_event)
+        self.task_agent_session_marker_cache.clear()
+        self.harness_debug_snapshot_signature = None
+        self.harness_debug_latest_by_task = {}
+        self.last_active_terminal_by_task.clear()
+        self.last_active_console_page_by_task.clear()
+        self._clear_selected_task_view()
+        self._apply_labels()
+        self.refresh_tasks()
+        return True
+
     def add_task(self, *_args: object) -> None:
         request = self._prompt_task_name()
         if request is None:
@@ -2310,10 +2383,6 @@ class WorkspaceGtkGui:
         profiling_box.pack_start(profiling_controls, False, False, 0)
         profiling_box.pack_start(profiling_note, False, False, 0)
         profiling_box.pack_start(profiling_output_scrolled, True, True, 0)
-        notebook.append_page(general_scrolled, Gtk.Label(label=self._tr("settings_dictionary_general")))
-        notebook.append_page(dictionary_scrolled, Gtk.Label(label=self._tr("settings_dictionary_dictionary")))
-        notebook.append_page(profiling_box, Gtk.Label(label=self._tr("settings_profiling")))
-
         text_size = Gtk.SpinButton.new_with_range(8, 28, 1)
         text_size.set_value(self.text_font_size)
         button_size = Gtk.SpinButton.new_with_range(8, 28, 1)
@@ -2333,15 +2402,74 @@ class WorkspaceGtkGui:
         system_prompt_scrolled.set_hexpand(True)
         system_prompt_scrolled.set_vexpand(False)
         system_prompt_scrolled.set_min_content_height(96)
-        settings_update_button = Gtk.Button(label=self._tr("settings_check_updates"))
+        settings_update_check_button = Gtk.Button(label=self._tr("settings_check_updates"))
+        settings_update_button = Gtk.Button(label=self._tr("settings_apply_update"))
+        settings_update_button.set_no_show_all(True)
+        settings_update_button.set_visible(False)
         settings_update_status = Gtk.Label(label=self._tr("settings_update_idle"))
         settings_update_status.set_xalign(0)
         settings_update_status.set_line_wrap(True)
+        settings_update_controls = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
         settings_update_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        settings_update_box.set_border_width(12)
         settings_update_box.set_hexpand(True)
-        settings_update_box.pack_start(settings_update_button, False, False, 0)
+        settings_update_box.set_vexpand(True)
+        settings_update_controls.pack_start(settings_update_check_button, False, False, 0)
+        settings_update_controls.pack_start(settings_update_button, False, False, 0)
+        settings_update_box.pack_start(settings_update_controls, False, False, 0)
         settings_update_box.pack_start(settings_update_status, False, False, 0)
         settings_open = {"value": True}
+        notebook.append_page(general_scrolled, Gtk.Label(label=self._tr("settings_dictionary_general")))
+        notebook.append_page(dictionary_scrolled, Gtk.Label(label=self._tr("settings_dictionary_dictionary")))
+        notebook.append_page(settings_update_box, Gtk.Label(label=self._tr("settings_updates")))
+        notebook.append_page(profiling_box, Gtk.Label(label=self._tr("settings_profiling")))
+
+        def run_settings_update_check(*_ignored: object) -> None:
+            if self.settings_update_running:
+                return
+            self.settings_update_running = True
+            settings_update_check_button.set_sensitive(False)
+            settings_update_button.set_sensitive(False)
+            settings_update_button.set_visible(False)
+            settings_update_status.set_text(self._tr("settings_update_check_running"))
+
+            def worker() -> None:
+                try:
+                    result = run_agent_workspace_update_check()
+                    if result.update_available:
+                        status_text = self._tr("settings_update_available").format(
+                            current=result.current_version,
+                            latest=result.latest_version,
+                        )
+                    elif result.ok:
+                        status_text = self._tr("settings_update_none")
+                    else:
+                        status_text = (
+                            self._tr("settings_update_check_failed").format(code=result.returncode)
+                            + "\n"
+                            + _tail_text(result.output, 2_000)
+                        )
+                    update_available = result.update_available
+                except Exception as error:
+                    status_text = (
+                        self._tr("settings_update_check_failed").format(code=1)
+                        + f"\n{type(error).__name__}: {error}"
+                    )
+                    update_available = False
+
+                def apply_result() -> bool:
+                    self.settings_update_running = False
+                    if not settings_open["value"]:
+                        return False
+                    settings_update_check_button.set_sensitive(True)
+                    settings_update_button.set_sensitive(update_available)
+                    settings_update_button.set_visible(update_available)
+                    settings_update_status.set_text(status_text)
+                    return False
+
+                GLib.idle_add(apply_result)
+
+            threading.Thread(target=worker, daemon=True).start()
 
         def run_settings_update(*_ignored: object) -> None:
             if self.settings_update_running:
@@ -2355,19 +2483,20 @@ class WorkspaceGtkGui:
             )
             confirm.format_secondary_text(self._tr("settings_update_confirm_body"))
             confirm.add_button(self._tr("cancel"), Gtk.ResponseType.CANCEL)
-            confirm.add_button(self._tr("settings_check_updates"), Gtk.ResponseType.OK)
+            confirm.add_button(self._tr("settings_apply_update"), Gtk.ResponseType.OK)
             response = confirm.run()
             confirm.destroy()
             if response != Gtk.ResponseType.OK:
                 return
             self.settings_update_running = True
+            settings_update_check_button.set_sensitive(False)
             settings_update_button.set_sensitive(False)
             settings_update_status.set_text(self._tr("settings_update_running"))
 
             def worker() -> None:
                 update_ok = False
                 try:
-                    result = run_agent_workspace_update(self.workspace)
+                    result = run_agent_workspace_update()
                     update_ok = result.ok
                     status_text = (
                         self._tr("settings_update_done")
@@ -2383,6 +2512,7 @@ class WorkspaceGtkGui:
                     self.settings_update_running = False
                     if not settings_open["value"]:
                         return False
+                    settings_update_check_button.set_sensitive(True)
                     settings_update_button.set_sensitive(True)
                     settings_update_status.set_text(status_text)
                     if update_ok:
@@ -2395,6 +2525,7 @@ class WorkspaceGtkGui:
 
             threading.Thread(target=worker, daemon=True).start()
 
+        settings_update_check_button.connect("clicked", run_settings_update_check)
         settings_update_button.connect("clicked", run_settings_update)
         claude_model_combo = Gtk.ComboBoxText()
         claude_effort_combo = Gtk.ComboBoxText()
@@ -2519,7 +2650,6 @@ class WorkspaceGtkGui:
             (self._tr("language"), language_combo),
             (self._tr("default_agent"), default_agent_combo),
             (self._tr("system_prompt"), system_prompt_scrolled),
-            (self._tr("settings_updates"), settings_update_box),
             (agent_label("codex"), None),
         ]
         if codex_models is not None:
@@ -5828,6 +5958,8 @@ class WorkspaceGtkGui:
                 "main_split_ratio": self.main_split_ratio,
                 "details_split_ratio": self.details_split_ratio,
                 "actions_split_ratio": self.actions_split_ratio,
+                "last_workspace": str(self.workspace),
+                "recent_workspaces": self.recent_workspaces,
             }
         )
 
@@ -6219,11 +6351,11 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Open the local workspace task dashboard.")
     parser.add_argument(
         "--workspace",
-        default=".",
-        help="Workspace root. Default: current directory.",
+        default=None,
+        help="Workspace root. Default: last opened workspace or current directory.",
     )
     args = parser.parse_args(argv)
-    workspace = Path(args.workspace)
+    workspace = resolve_agent_workspace_startup(Path(args.workspace) if args.workspace else None)
     install_agent_workspace_exception_logger(workspace, "gtk")
     workspace_lock = acquire_agent_workspace_lock(workspace)
     if workspace_lock is None:
