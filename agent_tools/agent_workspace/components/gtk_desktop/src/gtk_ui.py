@@ -4762,10 +4762,10 @@ class WorkspaceGtkGui:
         return ()
 
     def _task_agent_status(self, task: TaskSummary) -> str:
-        harness_icon = self._task_harness_status_icon(task)
-        if harness_icon:
-            return harness_icon
         running_agents = self._task_running_agent_kinds(task)
+        harness_icon = self._task_harness_status_icon(task)
+        if running_agents and harness_icon:
+            return harness_icon
         return task_agent_status_text(
             task,
             self.workspace,
@@ -5348,7 +5348,6 @@ class WorkspaceGtkGui:
     def _apply_saved_split_ratios(self) -> bool:
         self._initial_pane_layout_source_id = None
         self._set_pane_position_ratio(self.main_pane, self.main_split_ratio, minimum=360)
-        self._set_pane_position_ratio(self.details_pane, self.details_split_ratio)
         self._set_pane_position_ratio(self.actions_pane, self.actions_split_ratio)
         self._pane_layout_ready = True
         self._on_actions_pane_position_changed(self.actions_pane, None)

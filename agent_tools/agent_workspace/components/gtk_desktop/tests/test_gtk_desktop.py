@@ -1385,6 +1385,57 @@ def test_gtk_task_agent_status_prefers_latest_harness_session_start_icon(
     assert gui._task_agent_status(summary) == "●"
 
 
+def test_gtk_task_agent_status_ignores_harness_icon_after_agent_exits(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    task_dir = tmp_path / "tasks" / "sample"
+    task_dir.mkdir(parents=True)
+    summary = discover_tasks_with_context(task_dir, tmp_path)
+    save_task_agent_session(summary, "codex")
+    gui = WorkspaceGtkGui.__new__(WorkspaceGtkGui)
+    gui.workspace = tmp_path
+    gui.harness_status_icon_cache = {}
+    gui.terminal_sessions = {
+        1: TerminalSession(
+            session_id=1,
+            task_path=summary.path,
+            kind="codex",
+            terminal=None,  # type: ignore[arg-type]
+            page=None,  # type: ignore[arg-type]
+            exited=True,
+            busy=False,
+            run_id="run-1",
+        )
+    }
+    gui._current_task_terminal_sessions = lambda task: list(gui.terminal_sessions.values())  # type: ignore[method-assign]
+    gui._task_has_pending_agent_permission = lambda task: False  # type: ignore[method-assign]
+    gui._task_is_external_active = lambda task: False  # type: ignore[method-assign]
+    gui._task_agent_session_markers = lambda task: ("Ⅱ",)  # type: ignore[method-assign]
+    monkeypatch.setattr(
+        gtk_ui_module,
+        "load_harness_debug_events",
+        lambda task_path, limit=1: [
+            HarnessDebugEvent(
+                event_id=1,
+                task_dir=summary.path,
+                agent_type=AgentType.CODEX,
+                session_id="run-1",
+                hook_event="session_start",
+                status_event=HarnessStatusEvent.SESSION_STARTED,
+                icon="●",
+                message="Context injected at session start.",
+                tool_name="",
+                tool_detail="",
+                outcome="injected",
+                updated_at="2026-08-24T10:21:59+03:00",
+            )
+        ],
+    )
+
+    assert gui._task_agent_status(summary) == "Ⅱ"
+
+
 def test_gtk_ai_debug_store_accepts_large_event_id() -> None:
     gi = pytest.importorskip("gi")
     gi.require_version("Gtk", "3.0")
@@ -1539,6 +1590,27 @@ def test_gtk_pane_position_ratio_uses_orientation() -> None:
 
     assert gtk_pane_position_ratio(horizontal) == 0.25
     assert gtk_pane_position_ratio(vertical) == 0.75
+
+
+def test_gtk_saved_split_ratios_do_not_require_removed_details_pane() -> None:
+    gui = WorkspaceGtkGui.__new__(WorkspaceGtkGui)
+    gui._initial_pane_layout_source_id = 1
+    gui.main_pane = object()  # type: ignore[assignment]
+    gui.actions_pane = object()  # type: ignore[assignment]
+    gui.main_split_ratio = 0.25
+    gui.actions_split_ratio = 0.38
+    calls: list[tuple[object, float, int]] = []
+    gui._set_pane_position_ratio = (  # type: ignore[method-assign]
+        lambda pane, ratio, minimum=1: calls.append((pane, ratio, minimum))
+    )
+    gui._on_actions_pane_position_changed = lambda pane, param: None  # type: ignore[method-assign]
+
+    assert gui._apply_saved_split_ratios() is False
+    assert calls == [
+        (gui.main_pane, 0.25, 360),
+        (gui.actions_pane, 0.38, 1),
+    ]
+    assert gui._pane_layout_ready is True
 
 
 def test_gtk_task_path_for_name_stays_under_tasks(tmp_path: Path) -> None:
