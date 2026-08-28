@@ -141,6 +141,20 @@ def test_strict_warnings_ignores_auto_runtime_readiness_warnings(tmp_path: Path)
     assert result == 0
 
 
+def test_runtime_hints_do_not_require_product_artifact_manifest(tmp_path: Path) -> None:
+    task_dir = tmp_path / "tasks" / "sample-task"
+    initialize_task_layout(task_dir, workspace=tmp_path)
+    set_slot(task_dir, "goal", "Inspect QEMU runtime logs.")
+    set_slot(task_dir, "operational-memory", "Current: analysis-only task.")
+    set_slot(task_dir, "env", "Use local files.")
+    set_slot(task_dir, "validation", "Run smoke.")
+
+    checks = check_task(task_dir, workspace=tmp_path)
+
+    assert _has_check(checks, "PASS", "artifact-manifest-not-required")
+    assert not _has_check(checks, "WARN", "artifact-manifest-missing")
+
+
 def test_strict_warnings_fails_for_missing_required_slot(tmp_path: Path) -> None:
     task_dir = tmp_path / "tasks" / "sample-task"
     initialize_task_layout(task_dir, workspace=tmp_path)

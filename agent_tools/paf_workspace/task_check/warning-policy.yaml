@@ -6,10 +6,10 @@
 non_strict_warnings:
   artifact-manifest-missing:
     reason: >
-      Runtime/product artifact manifests are required for build/runtime product
-      validation. When this check is enabled only because task context mentions
-      Xen/QEMU/Moulin, the missing manifest is a readiness reminder rather than
-      a blocker for analysis-only work.
+      Runtime/product artifact manifests are required only for explicit
+      build/runtime product validation. Missing manifests are not inferred from
+      task context wording because analysis-only tasks can mention runtime
+      systems without owning deployable product artifacts.
     strict_when_flags:
       - runtime_product
       - init_runtime_product
