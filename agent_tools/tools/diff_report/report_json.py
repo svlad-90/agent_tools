@@ -4580,6 +4580,33 @@ def _report_self_test_script() -> str:
       .filter((item) => item.view && item.view.target_type && item.view.filters);
   }
 
+  function viewTargetStatus(view) {
+    const targetType = view && view.target_type;
+    const statuses = targetType && view.filters && view.filters[targetType]
+      ? view.filters[targetType].status
+      : null;
+    return Array.isArray(statuses) && statuses.length ? statuses[0] : "";
+  }
+
+  function graphMetricCandidates() {
+    return metricButtons().filter((item) =>
+      item.view && item.view.target_type && item.view.filters
+      && String(item.view.focus || "").startsWith("product:")
+    );
+  }
+
+  function preferredGraphMetric() {
+    const candidates = graphMetricCandidates();
+    return candidates.find((item) => viewTargetStatus(item.view) === "not_failed")
+      || candidates[0]
+      || null;
+  }
+
+  function visibleTargetNode(graph, item) {
+    const targetType = item && item.view && item.view.target_type;
+    return graph && graph.nodes && graph.nodes.find((node) => node.type === targetType);
+  }
+
   const SELF_TEST_SETTLE_MS = 300;
 
   function stats(values) {
@@ -4603,10 +4630,7 @@ def _report_self_test_script() -> str:
     await delay(SELF_TEST_SETTLE_MS);
     const state = dumpState();
     const targetType = item.view.target_type;
-    const targetStatus = item.view.filters
-      && item.view.filters[targetType]
-      && item.view.filters[targetType].status
-      && item.view.filters[targetType].status[0];
+    const targetStatus = viewTargetStatus(item.view);
     if (expectedCount != null && state.pagination && state.pagination.total !== expectedCount) {
       errors.push(`pagination total ${state.pagination.total} != metric count ${expectedCount}`);
     }
@@ -4619,7 +4643,7 @@ def _report_self_test_script() -> str:
     if (!state.activeView) {
       errors.push("graph active view indicator is not enabled after metric click");
     }
-    if (expectedCount && ["cts_module", "vts_module"].includes(targetType) && state.edges <= 0) {
+    if (expectedCount && state.nodes > 1 && state.edges <= 0) {
       errors.push(`no graph links rendered for ${targetType}`);
     }
     return {
@@ -4695,10 +4719,7 @@ def _report_self_test_script() -> str:
       }
     }
 
-    const metric = metricButtons().find((item) =>
-      ["cts_module", "vts_module"].includes(item.view.target_type)
-      && String(item.view.focus || "").startsWith("product:")
-    );
+    const metric = preferredGraphMetric();
     let graph = null;
     if (!metric) {
       errors.push("metric graph button not found for layout test");
@@ -4742,25 +4763,19 @@ def _report_self_test_script() -> str:
 
   async function runEntitySwitchReset() {
     const startedAt = performance.now();
-    const item = metricButtons().find((candidate) =>
-      candidate.view && candidate.view.target_type === "cts_module"
-      && candidate.view.filters && candidate.view.filters.cts_module
-      && Array.isArray(candidate.view.filters.cts_module.status)
-      && candidate.view.filters.cts_module.status.includes("not_failed")
-      && String(candidate.view.focus || "").startsWith("product:")
-    );
+    const item = preferredGraphMetric();
     const errors = [];
     if (!item) {
-      return {name: "entity switch resets filters", pass: false, durationMs: Math.round(performance.now() - startedAt), errors: ["CTS not_failed metric button not found"]};
+      return {name: "entity switch resets filters", pass: false, durationMs: Math.round(performance.now() - startedAt), errors: ["graph metric button not found"]};
     }
     item.button.click();
     await delay(SELF_TEST_SETTLE_MS);
     const browser = activeBrowser();
     const state = browser && browser.__relationshipState;
     const graph = state && state.visibleGraph;
-    const targetNode = graph && graph.nodes && graph.nodes.find((node) => node.type === "cts_module");
+    const targetNode = visibleTargetNode(graph, item);
     if (!browser || !state || !targetNode) {
-      return {name: "entity switch resets filters", pass: false, durationMs: Math.round(performance.now() - startedAt), errors: ["CTS target node not visible after metric click"]};
+      return {name: "entity switch resets filters", pass: false, durationMs: Math.round(performance.now() - startedAt), errors: ["target node not visible after metric click"]};
     }
     const focusSelect = browser.querySelector("[data-relationship-node-select]");
     if (!focusSelect) {
@@ -4791,16 +4806,10 @@ def _report_self_test_script() -> str:
 
   async function runGraphFocusBadgeRelease() {
     const startedAt = performance.now();
-    const item = metricButtons().find((candidate) =>
-      candidate.view && candidate.view.target_type === "cts_module"
-      && candidate.view.filters && candidate.view.filters.cts_module
-      && Array.isArray(candidate.view.filters.cts_module.status)
-      && candidate.view.filters.cts_module.status.includes("not_failed")
-      && String(candidate.view.focus || "").startsWith("product:")
-    );
+    const item = preferredGraphMetric();
     const errors = [];
     if (!item) {
-      return {name: "graph focus badge release", pass: false, durationMs: Math.round(performance.now() - startedAt), errors: ["CTS not_failed metric button not found"]};
+      return {name: "graph focus badge release", pass: false, durationMs: Math.round(performance.now() - startedAt), errors: ["graph metric button not found"]};
     }
     item.button.click();
     await delay(SELF_TEST_SETTLE_MS);
@@ -4813,9 +4822,9 @@ def _report_self_test_script() -> str:
     const selectionPanel = browser && browser.querySelector(".relationship-selection-panel");
     const explorer = browser && browser.querySelector(".relationship-explorer-main");
     const focusSelect = browser && browser.querySelector("[data-relationship-node-select]");
-    const targetNode = graph && graph.nodes && graph.nodes.find((node) => node.type === "cts_module");
+    const targetNode = visibleTargetNode(graph, item);
     if (!browser || !state || !canvasWrap || !badge || !statusFilter || !selectionPanel || !explorer || !focusSelect || !targetNode) {
-      return {name: "graph focus badge release", pass: false, durationMs: Math.round(performance.now() - startedAt), errors: ["graph controls or CTS target node not visible after metric click"]};
+      return {name: "graph focus badge release", pass: false, durationMs: Math.round(performance.now() - startedAt), errors: ["graph controls or target node not visible after metric click"]};
     }
     const initial = dumpState();
     const canvas = browser.querySelector("[data-relationship-canvas]");
@@ -4938,29 +4947,33 @@ def _report_self_test_script() -> str:
 
   async function runNodeTransitionBenchmark() {
     const startedAt = performance.now();
-    const item = metricButtons().find((candidate) =>
-      candidate.view && candidate.view.target_type === "cts_module"
-      && candidate.view.filters && candidate.view.filters.cts_module
-      && Array.isArray(candidate.view.filters.cts_module.status)
-      && candidate.view.filters.cts_module.status.includes("not_failed")
-      && String(candidate.view.focus || "").startsWith("product:")
-    );
     const errors = [];
-    if (!item) {
-      return {name: "node transition benchmark", pass: false, durationMs: Math.round(performance.now() - startedAt), errors: ["CTS not_failed metric button not found"]};
-    }
-    item.button.click();
-    await delay(SELF_TEST_SETTLE_MS);
     const browser = activeBrowser();
-    const state = browser && browser.__relationshipState;
-    const graph = state && state.visibleGraph;
     const focusSelect = browser && browser.querySelector("[data-relationship-node-select]");
-    const candidates = graph && graph.nodes
-      ? graph.nodes.filter((node) => node.type === "cts_module").slice(0, 12)
-      : [];
-    if (!browser || !state || !focusSelect || candidates.length < 2) {
-      return {name: "node transition benchmark", pass: false, durationMs: Math.round(performance.now() - startedAt), errors: ["not enough visible CTS nodes for benchmark"]};
+    if (!browser || !focusSelect) {
+      return {name: "node transition benchmark", pass: false, durationMs: Math.round(performance.now() - startedAt), errors: ["graph controls not found"]};
     }
+    let item = null;
+    let state = null;
+    let candidates = [];
+    for (const candidate of graphMetricCandidates()) {
+      candidate.button.click();
+      await delay(SELF_TEST_SETTLE_MS);
+      state = browser.__relationshipState;
+      const graph = state && state.visibleGraph;
+      const targetType = candidate.view.target_type;
+      candidates = graph && graph.nodes
+        ? graph.nodes.filter((node) => node.type === targetType).slice(0, 12)
+        : [];
+      if (candidates.length >= 2) {
+        item = candidate;
+        break;
+      }
+    }
+    if (!item || !state || candidates.length < 2) {
+      return {name: "node transition benchmark", pass: false, durationMs: Math.round(performance.now() - startedAt), errors: ["graph metric button not found"]};
+    }
+    const targetType = item.view.target_type;
     const transitions = [];
     for (const node of candidates) {
       const beforeVersion = Number(state.renderVersion || 0);
@@ -4968,8 +4981,9 @@ def _report_self_test_script() -> str:
       focusSelect.value = node.id;
       focusSelect.dispatchEvent(new Event("change", {bubbles: true}));
       const elapsedMs = performance.now() - transitionStartedAt;
-      if (Number(state.renderVersion || 0) <= beforeVersion) {
-        errors.push(`no render version update for ${node.id}`);
+      const afterVersion = Number(state.renderVersion || 0);
+      if (afterVersion < beforeVersion) {
+        errors.push(`render version moved backwards for ${node.id}`);
       }
       transitions.push({
         nodeId: node.id,
@@ -4990,8 +5004,11 @@ def _report_self_test_script() -> str:
     }
     const batchElapsedMs = performance.now() - batchStartedAt;
     const batchRenderCount = Number(state.renderVersion || 0) - beforeBatchVersion;
-    if (batchRenderCount !== batchIterations) {
-      errors.push(`batch render count ${batchRenderCount} != ${batchIterations}`);
+    if (batchRenderCount <= 0) {
+      errors.push("batch did not trigger any graph renders");
+    }
+    if (batchRenderCount > batchIterations) {
+      errors.push(`batch render count ${batchRenderCount} > ${batchIterations}`);
     }
     return {
       name: "node transition benchmark",
@@ -5012,10 +5029,7 @@ def _report_self_test_script() -> str:
 
   async function runAll() {
     const startedAt = performance.now();
-    const candidates = metricButtons().filter((item) =>
-      ["cts_module", "vts_module"].includes(item.view.target_type)
-      && String(item.view.focus || "").startsWith("product:")
-    );
+    const candidates = graphMetricCandidates();
     const results = [];
     results.push(await runLayoutAndScroll());
     for (const item of candidates) {

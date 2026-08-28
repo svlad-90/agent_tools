@@ -119,11 +119,11 @@ def _generic_report_payload() -> dict[str, object]:
                     {
                         "cells": {
                             "name": {
-                                "text": "CTS",
+                                "text": "Components",
                                 "graph_view": {
                                     "focus": "product:test",
-                                    "types": ["product", "cts_module"],
-                                    "target_type": "cts_module",
+                                    "types": ["product", "component"],
+                                    "target_type": "component",
                                 },
                             },
                             "passed": {
@@ -131,9 +131,9 @@ def _generic_report_payload() -> dict[str, object]:
                                 "status": "not_failed",
                                 "graph_view": {
                                     "focus": "product:test",
-                                    "types": ["product", "cts_module"],
-                                    "target_type": "cts_module",
-                                    "filters": {"cts_module": {"status": ["not_failed"]}},
+                                    "types": ["product", "component"],
+                                    "target_type": "component",
+                                    "filters": {"component": {"status": ["not_failed"]}},
                                 },
                             },
                         }
@@ -146,14 +146,14 @@ def _generic_report_payload() -> dict[str, object]:
             "title": "Synthetic graph",
             "nodes": [
                 {"id": "product:test", "type": "product", "label": "Test product", "status": "not_failed"},
-                {"id": "cts:1", "type": "cts_module", "label": "CTS 1", "status": "not_failed"},
-                {"id": "cts:2", "type": "cts_module", "label": "CTS 2", "status": "not_failed"},
-                {"id": "cts:3", "type": "cts_module", "label": "CTS 3", "status": "not_failed"},
+                {"id": "component:1", "type": "component", "label": "Component 1", "status": "not_failed"},
+                {"id": "component:2", "type": "component", "label": "Component 2", "status": "not_failed"},
+                {"id": "component:3", "type": "component", "label": "Component 3", "status": "not_failed"},
             ],
             "edges": [
-                {"source": "product:test", "target": "cts:1", "relation": "contains"},
-                {"source": "product:test", "target": "cts:2", "relation": "contains"},
-                {"source": "product:test", "target": "cts:3", "relation": "contains"},
+                {"source": "product:test", "target": "component:1", "relation": "contains"},
+                {"source": "product:test", "target": "component:2", "relation": "contains"},
+                {"source": "product:test", "target": "component:3", "relation": "contains"},
             ],
         },
     }
