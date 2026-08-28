@@ -135,6 +135,7 @@ class WorkspaceMcpServer:
         from .commit_msg_tools import commit_msg_tools
         from .knowledge_tools import knowledge_tools
         from .push_guard_tools import push_guard_tools
+        from .task_actualize_tools import task_actualize_tools
         from .task_actions_tools import task_actions_tools
         from .task_context_tools import task_context_tools
         from .validate_tools import validate_tools
@@ -145,6 +146,8 @@ class WorkspaceMcpServer:
         for tool in knowledge_tools():
             self.registry.register(tool)
         for tool in push_guard_tools():
+            self.registry.register(tool)
+        for tool in task_actualize_tools():
             self.registry.register(tool)
         for tool in task_actions_tools():
             self.registry.register(tool)

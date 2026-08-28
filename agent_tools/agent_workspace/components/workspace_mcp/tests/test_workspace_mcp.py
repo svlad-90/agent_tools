@@ -38,6 +38,7 @@ def test_workspace_mcp_lists_agent_search_tools(tmp_path: Path) -> None:
         "task_actions_run",
         "task_actions_show",
         "task_actions_update",
+        "task_actualize",
         "task_context_add_entry",
         "task_context_compact",
         "task_context_compile_dictionary",
@@ -364,6 +365,7 @@ with tempfile.TemporaryDirectory() as workspace_text:
         "task_actions_run",
         "task_actions_show",
         "task_actions_update",
+        "task_actualize",
         "task_context_add_entry",
         "task_context_compact",
         "task_context_compile_dictionary",
@@ -737,6 +739,36 @@ def test_workspace_mcp_task_actions_rejects_non_task_path(tmp_path: Path) -> Non
     server = build_workspace_mcp_server(tmp_path)
 
     response = _mcp_call(server, "task_actions_list", {"task": "outside"})
+
+    assert response["result"]["isError"] is True
+    assert "workspace tasks/" in response["result"]["content"][0]["text"]
+
+
+def test_workspace_mcp_task_actualize_reports_existing_task(tmp_path: Path) -> None:
+    task = tmp_path / "tasks" / "sample"
+    task.mkdir(parents=True)
+    server = build_workspace_mcp_server(tmp_path)
+
+    response = _mcp_call(server, "task_actualize", {"task": "tasks/sample"})
+
+    result = response["result"]
+    assert result["isError"] is False
+    assert result["structuredContent"]["results"] == [
+        {
+            "code": "actualize-harness-adapter-ready",
+            "message": "task uses hook-driven harness adapter; no task-local front door bell is required",
+            "path": str(task),
+            "status": "PASS",
+        }
+    ]
+
+
+def test_workspace_mcp_task_actualize_rejects_non_task_path(tmp_path: Path) -> None:
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    server = build_workspace_mcp_server(tmp_path)
+
+    response = _mcp_call(server, "task_actualize", {"task": "outside"})
 
     assert response["result"]["isError"] is True
     assert "workspace tasks/" in response["result"]["content"][0]["text"]
