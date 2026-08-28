@@ -4210,7 +4210,7 @@ def _relationship_graph_script() -> str:
       if (target.closest("[data-relationship-focus-badge]")) {
         return;
       }
-      if (target.closest(".relationship-graph-toolbar")) {
+      if (target.closest(".relationship-control-bar")) {
         activateGraphFocus(browser, state);
         return;
       }
@@ -4890,6 +4890,8 @@ def _report_self_test_script() -> str:
     }
     const pageNext = browser.querySelector("[data-relationship-page-next]");
     if (pageNext && !pageNext.disabled && !pageNext.hidden) {
+      pointerDown(pageNext);
+      mouseDown(pageNext);
       click(pageNext);
       await delay(SELF_TEST_SETTLE_MS);
       const focusedAfterPageNext = dumpState();
@@ -4899,6 +4901,8 @@ def _report_self_test_script() -> str:
     }
     const pagePrev = browser.querySelector("[data-relationship-page-prev]");
     if (pagePrev && !pagePrev.disabled && !pagePrev.hidden) {
+      pointerDown(pagePrev);
+      mouseDown(pagePrev);
       click(pagePrev);
       await delay(SELF_TEST_SETTLE_MS);
       const focusedAfterPagePrev = dumpState();
