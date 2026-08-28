@@ -78,6 +78,7 @@ from agent_tools.agent_workspace.components.markdown.api import render_markdown_
 from agent_tools.agent_workspace.components.markdown.api import rough_token_count
 from agent_tools.agent_workspace.components.settings.api import agent_executable
 from agent_tools.agent_workspace.components.settings.api import agent_install_command
+from agent_tools.agent_workspace.components.settings.api import agent_workspace_root
 from agent_tools.agent_workspace.components.settings.api import agent_workspace_runtime_settings
 from agent_tools.agent_workspace.components.settings.api import agent_workspace_setting_or_default
 from agent_tools.agent_workspace.components.settings.api import AGENT_WORKSPACE_DEFAULT_LIMITED_BASH_OUTPUT_TOKENS
