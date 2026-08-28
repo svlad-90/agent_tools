@@ -132,6 +132,7 @@ class WorkspaceMcpServer:
     def _ensure_tools_loaded(self) -> None:
         if self._tools_loaded:
             return
+        from .code_map_tools import code_map_tools
         from .commit_msg_tools import commit_msg_tools
         from .knowledge_tools import knowledge_tools
         from .push_guard_tools import push_guard_tools
@@ -141,6 +142,8 @@ class WorkspaceMcpServer:
         from .validate_tools import validate_tools
         from .yaml_map_tools import yaml_map_tools
 
+        for tool in code_map_tools():
+            self.registry.register(tool)
         for tool in commit_msg_tools():
             self.registry.register(tool)
         for tool in knowledge_tools():

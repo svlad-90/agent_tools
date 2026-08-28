@@ -22,6 +22,18 @@ def test_workspace_mcp_lists_agent_search_tools(tmp_path: Path) -> None:
         "agent_search_files",
         "agent_search_show",
         "agent_search_text",
+        "code_map_batch",
+        "code_map_class_diagram",
+        "code_map_facade_audit",
+        "code_map_imports_add",
+        "code_map_insert_after_symbol",
+        "code_map_insert_before_symbol",
+        "code_map_map",
+        "code_map_parse_check",
+        "code_map_protocol_audit",
+        "code_map_replace_symbol",
+        "code_map_replace_symbol_body",
+        "code_map_symbol_get",
         "commit_msg_format",
         "knowledge_get_topic",
         "knowledge_list_topics",
@@ -349,6 +361,18 @@ with tempfile.TemporaryDirectory() as workspace_text:
     payload = json.loads(completed.stdout)
     tool_names = [tool["name"] for tool in payload["tools"]["result"]["tools"]]
     assert tool_names == [
+        "code_map_batch",
+        "code_map_class_diagram",
+        "code_map_facade_audit",
+        "code_map_imports_add",
+        "code_map_insert_after_symbol",
+        "code_map_insert_before_symbol",
+        "code_map_map",
+        "code_map_parse_check",
+        "code_map_protocol_audit",
+        "code_map_replace_symbol",
+        "code_map_replace_symbol_body",
+        "code_map_symbol_get",
         "commit_msg_format",
         "knowledge_get_topic",
         "knowledge_list_topics",
@@ -772,6 +796,102 @@ def test_workspace_mcp_task_actualize_rejects_non_task_path(tmp_path: Path) -> N
 
     assert response["result"]["isError"] is True
     assert "workspace tasks/" in response["result"]["content"][0]["text"]
+
+
+def test_workspace_mcp_code_map_inspects_and_edits_python(tmp_path: Path) -> None:
+    source = tmp_path / "sample.py"
+    source.write_text(
+        "def target():\n"
+        "    return 1\n",
+        encoding="utf-8",
+    )
+    server = build_workspace_mcp_server(tmp_path)
+
+    mapped = _mcp_call(server, "code_map_map", {"paths": ["sample.py"]})
+    symbol = _mcp_call(
+        server,
+        "code_map_symbol_get",
+        {"paths": ["sample.py"], "symbol": "target", "output_format": "json"},
+    )
+    body_hash = symbol["result"]["structuredContent"]["body_hash"]
+    imported = _mcp_call(
+        server,
+        "code_map_imports_add",
+        {
+            "paths": ["sample.py"],
+            "statement": "import json",
+            "output_format": "json",
+        },
+    )
+    replaced = _mcp_call(
+        server,
+        "code_map_replace_symbol_body",
+        {
+            "path": "sample.py",
+            "symbol": "target",
+            "expect_hash": body_hash,
+            "replacement": "    return 2\n",
+            "output_format": "json",
+        },
+    )
+    parsed = _mcp_call(server, "code_map_parse_check", {"paths": ["sample.py"]})
+    stale = _mcp_call(
+        server,
+        "code_map_replace_symbol_body",
+        {
+            "path": "sample.py",
+            "symbol": "target",
+            "expect_hash": body_hash,
+            "replacement": "    return 3\n",
+            "output_format": "json",
+        },
+    )
+    batch = _mcp_call(
+        server,
+        "code_map_batch",
+        {
+            "plan": [
+                {
+                    "command": "imports-add",
+                    "file_path": "sample.py",
+                    "import_statement": "import pathlib",
+                }
+            ],
+            "check_only": True,
+            "output_format": "json",
+        },
+    )
+
+    assert mapped["result"]["isError"] is False
+    assert "function target" in mapped["result"]["content"][0]["text"]
+    assert imported["result"]["structuredContent"]["changed"] is True
+    assert replaced["result"]["structuredContent"]["changed"] is True
+    assert parsed["result"]["isError"] is False
+    assert stale["result"]["isError"] is True
+    assert stale["result"]["structuredContent"]["code"] == "hash-mismatch"
+    assert batch["result"]["structuredContent"]["check_only"] is True
+    assert source.read_text(encoding="utf-8") == "import json\ndef target():\n    return 2\n"
+
+
+def test_workspace_mcp_code_map_blocks_batch_paths_outside_workspace(tmp_path: Path) -> None:
+    server = build_workspace_mcp_server(tmp_path)
+
+    response = _mcp_call(
+        server,
+        "code_map_batch",
+        {
+            "plan": [
+                {
+                    "command": "imports-add",
+                    "file_path": str(tmp_path.parent / "outside.py"),
+                    "import_statement": "import json",
+                }
+            ],
+        },
+    )
+
+    assert response["result"]["isError"] is True
+    assert "outside workspace" in response["result"]["content"][0]["text"]
 
 
 def test_workspace_mcp_yaml_map_inspects_and_edits_with_hash_guard(tmp_path: Path) -> None:
