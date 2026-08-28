@@ -33,5 +33,17 @@ agent_tools/paf_workspace/run-paf.sh \
   agent_tools/paf_workspace/domains/environments/scenarios/agent-workspace-tests.xml \
   validate \
   --yaml-config agent_tools/paf_workspace/domains/environments/profiles/agent-workspace-tests.yaml \
-  --parameter AGENT_WORKSPACE_TEST_COMMAND='PYTHONPATH=.:agent_tools python3 -m pytest -q agent_tools/agent_workspace/components/workspace_service/tests'
+  --parameter AGENT_WORKSPACE_TEST_COMMAND='set -euo pipefail
+export PYTHONPATH=.:agent_tools
+export PYTHONUNBUFFERED=1
+echo "Agent Workspace component tests: start"
+timeout --foreground --signal=INT --kill-after=10s 300s \
+  xvfb-run -a python3 -X faulthandler -m pytest -vv --maxfail=1 -ra \
+  agent_tools/agent_workspace/components/workspace_service/tests
+echo "Agent Workspace component tests: passed"'
 ```
+
+Avoid `pytest -q` for Agent Workspace and GTK diagnostics. Quiet pytest output
+can make an Xvfb or GTK hang look like a silent PAF stall. If the output is too
+large, use the `limited_bash` live log paths from the truncation notice and
+inspect them with `tail`, `rg`, or `sed -n`.

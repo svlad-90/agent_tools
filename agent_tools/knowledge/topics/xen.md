@@ -175,6 +175,43 @@ Practical checklist:
   direct hypervisor-console calls to production Zephyr samples just to make a
   batch log easier to read.
 
+## Xen/QEMU console lines can be present but source-specific validation can miss them
+
+When the PAF Xen/Zephyr harness collects Xen, Linux Dom0, and Zephyr DomU
+console streams, do not assume that a line is absent just because it is not
+visible in the terminal view or did not match the expected source bucket.
+Console output can be split across reads, interleaved with another domain, or
+prefixed by an unrelated Dom0 prompt. A valid Zephyr marker can therefore be
+present in the raw runtime log while the source-specific `domu1` expectation
+misses it and the same text is only reliable through the `combined` stream.
+
+Known misleading shape:
+
+- Linux login prompts or systemd output can share a physical line with Zephyr
+  DomU text, for example a Dom0 prompt followed by `(d1) BLKFRONT_TEST_*`.
+- DomU lines may be classified as `combined` when the collector cannot assign
+  the whole physical line to one source with confidence.
+- Early `xenconsole dom1: Could not read tty from store` can appear before
+  XenStore or dom0less initialization has published the console path. That
+  message alone does not prove that the DomU console is dead.
+- Terminal-visible output is lower-quality evidence than the saved runtime
+  log. The terminal can omit or visually reorder lines that are still present
+  in the task log artifact.
+
+Practical checklist:
+
+- Inspect the saved runtime log first, normally
+  `tasks/<task>/report/runtime/<case>.log`, not only the terminal transcript.
+- Search semantic markers across all buckets. For blkfront-style tests this
+  means checking `BLKFRONT_TEST_*` in both the requested source and the
+  `combined` stream.
+- If a source-specific `expect` misses a marker but the raw log shows it on a
+  mixed line, prefer a `combined` validation rule for that marker rather than
+  changing target code just to satisfy the collector.
+- Treat source labels as navigation aids. Require stronger evidence, such as
+  explicit Xen `DOM<N>:` prefixes or stable in-guest test markers, before
+  concluding that Linux or Zephyr stopped printing.
+
 ## Zephyr XenStore server `XS_RM` missing-node errors
 
 When testing remove/delete behavior, verify the server commit being tested
