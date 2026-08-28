@@ -35,6 +35,18 @@ def test_workspace_mcp_lists_agent_search_tools(tmp_path: Path) -> None:
         "code_map_replace_symbol_body",
         "code_map_symbol_get",
         "commit_msg_format",
+        "cpp_code_map_batch",
+        "cpp_code_map_doctor",
+        "cpp_code_map_includes_add",
+        "cpp_code_map_index",
+        "cpp_code_map_insert_after_symbol",
+        "cpp_code_map_insert_before_symbol",
+        "cpp_code_map_map",
+        "cpp_code_map_parse_check",
+        "cpp_code_map_puml_audit",
+        "cpp_code_map_replace_symbol",
+        "cpp_code_map_replace_symbol_body",
+        "cpp_code_map_symbol_get",
         "cpp_light_call_graph",
         "cpp_light_calls",
         "cpp_light_complexity",
@@ -395,6 +407,18 @@ with tempfile.TemporaryDirectory() as workspace_text:
         "code_map_replace_symbol_body",
         "code_map_symbol_get",
         "commit_msg_format",
+        "cpp_code_map_batch",
+        "cpp_code_map_doctor",
+        "cpp_code_map_includes_add",
+        "cpp_code_map_index",
+        "cpp_code_map_insert_after_symbol",
+        "cpp_code_map_insert_before_symbol",
+        "cpp_code_map_map",
+        "cpp_code_map_parse_check",
+        "cpp_code_map_puml_audit",
+        "cpp_code_map_replace_symbol",
+        "cpp_code_map_replace_symbol_body",
+        "cpp_code_map_symbol_get",
         "cpp_light_call_graph",
         "cpp_light_calls",
         "cpp_light_complexity",
@@ -1016,6 +1040,114 @@ def test_workspace_mcp_cpp_light_blocks_paths_outside_workspace(tmp_path: Path) 
     assert "outside workspace" in response["result"]["content"][0]["text"]
 
 
+def test_workspace_mcp_cpp_code_map_inspects_edits_indexes_and_batches(tmp_path: Path) -> None:
+    source = _write_cpp_sample_project(tmp_path)
+    server = build_workspace_mcp_server(tmp_path)
+
+    mapped = _mcp_call(
+        server,
+        "cpp_code_map_map",
+        {"path": "sample.cpp", "compile_db": ".", "output_format": "json"},
+    )
+    doctor = _mcp_call(
+        server,
+        "cpp_code_map_doctor",
+        {"path": "sample.cpp", "compile_db": ".", "output_format": "json"},
+    )
+    symbol = _mcp_call(
+        server,
+        "cpp_code_map_symbol_get",
+        {"path": "sample.cpp", "symbol": "add", "compile_db": ".", "output_format": "json"},
+    )
+    body_hash = symbol["result"]["structuredContent"]["body_hash"]
+    include = _mcp_call(
+        server,
+        "cpp_code_map_includes_add",
+        {"path": "sample.cpp", "include": "#include <stdint.h>", "check_only": True, "output_format": "json"},
+    )
+    replaced = _mcp_call(
+        server,
+        "cpp_code_map_replace_symbol_body",
+        {
+            "path": "sample.cpp",
+            "symbol": "add",
+            "expect_hash": body_hash,
+            "replacement": "\n{\n    return left - right;\n}\n",
+            "compile_db": ".",
+            "output_format": "json",
+        },
+    )
+    parsed = _mcp_call(
+        server,
+        "cpp_code_map_parse_check",
+        {"path": "sample.cpp", "compile_db": ".", "output_format": "json"},
+    )
+    stale = _mcp_call(
+        server,
+        "cpp_code_map_replace_symbol_body",
+        {
+            "path": "sample.cpp",
+            "symbol": "add",
+            "expect_hash": body_hash,
+            "replacement": "\n{\n    return 0;\n}\n",
+            "compile_db": ".",
+            "output_format": "json",
+        },
+    )
+    indexed = _mcp_call(
+        server,
+        "cpp_code_map_index",
+        {"paths": ["sample.cpp"], "compile_db": ".", "cache_dir": "cache", "output_format": "json"},
+    )
+    batch = _mcp_call(
+        server,
+        "cpp_code_map_batch",
+        {
+            "plan": [
+                {
+                    "command": "includes-add",
+                    "file_path": "sample.cpp",
+                    "include_statement": "#include <stddef.h>",
+                }
+            ],
+            "check_only": True,
+            "output_format": "json",
+        },
+    )
+
+    assert mapped["result"]["structuredContent"]["symbols"][0]["qualified_name"] == "add"
+    assert doctor["result"]["structuredContent"]["ok"] is True
+    assert include["result"]["structuredContent"]["changed"] is True
+    assert replaced["result"]["structuredContent"]["changed"] is True
+    assert parsed["result"]["structuredContent"]["ok"] is True
+    assert stale["result"]["isError"] is True
+    assert stale["result"]["structuredContent"]["error"].startswith("symbol body hash mismatch")
+    assert indexed["result"]["structuredContent"]["ok"] is True
+    assert batch["result"]["structuredContent"]["operations"][0]["operation"] == "includes-add"
+    assert "return left - right;" in source.read_text(encoding="utf-8")
+
+
+def test_workspace_mcp_cpp_code_map_blocks_batch_paths_outside_workspace(tmp_path: Path) -> None:
+    server = build_workspace_mcp_server(tmp_path)
+
+    response = _mcp_call(
+        server,
+        "cpp_code_map_batch",
+        {
+            "plan": [
+                {
+                    "command": "includes-add",
+                    "file_path": str(tmp_path.parent / "outside.cpp"),
+                    "include_statement": "#include <stdint.h>",
+                }
+            ],
+        },
+    )
+
+    assert response["result"]["isError"] is True
+    assert "outside workspace" in response["result"]["content"][0]["text"]
+
+
 def test_workspace_mcp_yaml_map_inspects_and_edits_with_hash_guard(tmp_path: Path) -> None:
     source = tmp_path / "config.yaml"
     source.write_text(
@@ -1331,6 +1463,37 @@ def _mcp_call(server: Any, name: str, arguments: dict[str, object]) -> dict[str,
     )
     assert response is not None
     return response
+
+
+def _write_cpp_sample_project(root: Path) -> Path:
+    source = root / "sample.cpp"
+    source.write_text(
+        "int add(int left, int right)\n"
+        "{\n"
+        "    return left + right;\n"
+        "}\n",
+        encoding="utf-8",
+    )
+    (root / "compile_commands.json").write_text(
+        json.dumps(
+            [
+                {
+                    "directory": str(root),
+                    "arguments": [
+                        "/usr/bin/c++",
+                        "-std=c++17",
+                        "-c",
+                        str(source),
+                        "-o",
+                        "sample.o",
+                    ],
+                    "file": str(source),
+                }
+            ]
+        ),
+        encoding="utf-8",
+    )
+    return source
 
 
 def _git(repo: Path, *args: str) -> subprocess.CompletedProcess[str]:
