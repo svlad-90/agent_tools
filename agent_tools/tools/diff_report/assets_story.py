@@ -26,6 +26,7 @@ def story_script() -> str:
   let activeScrollEndTimer = 0;
   let activeFlashClearTimer = 0;
   let navigationToken = 0;
+  let userScrollIntent = false;
   let topStateRaf = 0;
   let storyOffsetRaf = 0;
   const storySentinel = story ? document.createElement("div") : null;
@@ -1235,6 +1236,9 @@ def story_script() -> str:
   }
 
   function resetPageScrollOnLoad() {
+    if (userScrollIntent || window.scrollY > 0) {
+      return;
+    }
     const nav = document.getElementById("review-comments");
     window.scrollTo(0, 0);
     if (nav) {
@@ -1243,6 +1247,22 @@ def story_script() -> str:
     }
     document.body.classList.remove("has-left-top");
     document.body.classList.remove("has-pinned-story");
+  }
+
+  function cancelProgrammaticScrollForUserIntent() {
+    userScrollIntent = true;
+    navigationToken += 1;
+    window.clearTimeout(activeScrollTimer);
+    window.clearTimeout(activeScrollEndTimer);
+  }
+
+  function handleScrollKeyIntent(event) {
+    if (event.altKey || event.ctrlKey || event.metaKey) {
+      return;
+    }
+    if (["ArrowDown", "ArrowUp", "PageDown", "PageUp", "Home", "End", " "].includes(event.key)) {
+      cancelProgrammaticScrollForUserIntent();
+    }
   }
 
   function animateWindowScrollToElement(element, durationMs) {
@@ -1743,6 +1763,9 @@ def story_script() -> str:
     updateTopButtonState();
     scheduleStoryOffsetUpdate();
   }, { passive: true });
+  window.addEventListener("wheel", cancelProgrammaticScrollForUserIntent, { passive: true });
+  window.addEventListener("touchmove", cancelProgrammaticScrollForUserIntent, { passive: true });
+  window.addEventListener("keydown", handleScrollKeyIntent, { capture: true });
   window.addEventListener("resize", function () {
     scheduleStoryOffsetUpdate();
     scheduleStoryPagerResize();

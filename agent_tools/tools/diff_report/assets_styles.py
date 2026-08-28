@@ -8,6 +8,7 @@ def stylesheet() -> str:
       color-scheme: light;
       --bg: #f3f3f3;
       --panel: #fbfbfc;
+      --card-bg: var(--panel);
       --panel-subtle: #f1f3f6;
       --meta-panel: #f7f8fa;
       --meta-border: #b8c0ca;
@@ -23,6 +24,7 @@ def stylesheet() -> str:
       --border: #b8c0ca;
       --text: #1f1f1f;
       --muted: #616161;
+      --font-stack: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
       --link: #007acc;
       --button-bg: #ffffff;
       --button-hover-bg: #e5f1fb;
@@ -125,6 +127,7 @@ def stylesheet() -> str:
       color-scheme: dark;
       --bg: #1e1e1e;
       --panel: #252526;
+      --card-bg: var(--panel);
       --panel-subtle: #2d2d30;
       --meta-panel: #1b1b1d;
       --meta-border: #52525a;
@@ -140,6 +143,7 @@ def stylesheet() -> str:
       --border: #3c3c3c;
       --text: #d4d4d4;
       --muted: #858585;
+      --font-stack: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
       --link: #3794ff;
       --button-bg: #2d2d30;
       --button-hover-bg: #094771;
@@ -364,7 +368,7 @@ def stylesheet() -> str:
     .report-metric-cell-part.status-not-run, .report-metric-cell-part.status-not-done, .report-metric-cell-part.status-unknown, .report-metric-cell-part.status-needs-evidence { color: var(--muted); }
     .report-table-filter { display: grid; gap: 5px; max-width: 460px; margin-bottom: 10px; }
     .report-table-filter input { min-height: 36px; padding: 0 10px; border: 1px solid var(--border); border-radius: 6px; background: var(--button-bg); color: var(--text); font: inherit; }
-    .report-table-wrap { max-width: 100%; overflow: visible; border: 1px solid var(--border); border-radius: 8px; }
+    .report-table-wrap { max-width: 100%; overflow-x: auto; overflow-y: visible; border: 1px solid var(--border); border-radius: 8px; }
     .report-table { width: 100%; min-width: 720px; border-collapse: separate; border-spacing: 0; table-layout: auto; }
     .report-table th, .report-table td { padding: 9px 10px; border-bottom: 1px solid var(--border); border-right: 1px solid var(--border); text-align: left; vertical-align: top; overflow-wrap: anywhere; }
     .report-table th:last-child, .report-table td:last-child { border-right: 0; }
@@ -458,7 +462,7 @@ def stylesheet() -> str:
     .relationship-page-controls button { min-width: 24px; min-height: 22px; padding: 0 6px; }
     .relationship-page-controls span { min-width: 86px; text-align: center; }
     .relationship-page-controls.is-single-page { color: var(--muted); }
-    .relationship-control-bar { position: sticky; top: 0; z-index: 4; display: flex; flex-wrap: wrap; gap: 8px; align-items: center; justify-content: space-between; min-width: 0; padding: 4px 6px; border: 1px solid var(--border); border-radius: 8px; background: var(--panel); box-shadow: 0 4px 10px color-mix(in srgb, var(--shadow) 26%, transparent); }
+    .relationship-control-bar { position: sticky; top: 0; z-index: 4; display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); gap: 8px; align-items: center; min-width: 0; padding: 4px 6px; border: 1px solid var(--border); border-radius: 8px; background: var(--panel); box-shadow: 0 4px 10px color-mix(in srgb, var(--shadow) 26%, transparent); }
     .relationship-filters { flex-basis: 100%; min-width: 0; }
     .relationship-filters > summary { display: inline-flex; align-items: center; gap: 6px; width: fit-content; min-height: 26px; padding: 0 10px; border: 1px solid var(--border); border-radius: 999px; background: var(--button-bg); color: var(--meta-text); font: 800 12px/1.1 var(--font-stack); cursor: pointer; list-style: none; }
     .relationship-filters > summary::-webkit-details-marker { display: none; }
@@ -485,11 +489,19 @@ def stylesheet() -> str:
     .relationship-subfilter-popover .status-not-run, .relationship-subfilter-popover .status-not-done, .relationship-subfilter-popover .status-unknown { color: var(--graph-status-neutral-border); font-weight: 800; }
     .relationship-subfilter-popover p { margin: 0; color: var(--meta-text); }
     .relationship-nav-controls { display: flex; flex-wrap: nowrap; gap: 6px; align-items: center; }
+    .relationship-page-controls { justify-self: end; }
     .relationship-toolbar button { min-height: 28px; padding: 0 9px; border: 1px solid var(--border); border-radius: 999px; background: var(--button-bg); color: var(--text); font: 750 .86em/1.1 var(--font-stack); cursor: pointer; }
     .relationship-toolbar button:hover, .relationship-toolbar button.is-active { border-color: var(--link); background: var(--button-hover-bg); color: var(--link); }
     .relationship-toolbar button:disabled { cursor: default; color: var(--muted); border-color: var(--border); background: var(--button-bg); }
     .relationship-layout { display: grid; grid-template-columns: minmax(0, 1.7fr) minmax(360px, .8fr); gap: 12px; align-items: start; min-width: 0; }
     .relationship-canvas-wrap, .relationship-detail { min-width: 0; height: min(760px, calc(100vh - 180px)); min-height: 560px; max-height: 760px; border: 1px solid var(--border); border-radius: 8px; background: var(--meta-panel); }
+    .relationship-browser.is-graph-ready .relationship-canvas-wrap { border-color: color-mix(in srgb, var(--meta-border) 72%, var(--border)); }
+    .relationship-browser.is-graph-active .relationship-toolbar, .relationship-browser.is-graph-active .relationship-control-bar, .relationship-browser.is-graph-active .relationship-selection-panel, .relationship-browser.is-graph-active .relationship-detail { border-color: color-mix(in srgb, var(--link) 36%, var(--border)); }
+    .relationship-browser.is-graph-active .relationship-canvas-wrap { border-color: color-mix(in srgb, var(--link) 50%, var(--border)); }
+    .relationship-browser.is-graph-focused .relationship-canvas-wrap { border-color: color-mix(in srgb, var(--link) 78%, var(--border)); outline: 2px solid color-mix(in srgb, var(--link) 78%, var(--border)); outline-offset: -2px; box-shadow: 0 0 0 3px color-mix(in srgb, var(--link) 18%, transparent); }
+    .relationship-focus-badge { display: inline-flex; align-items: center; min-height: 28px; padding: 0 10px; border: 1px solid color-mix(in srgb, var(--link) 62%, var(--border)); border-radius: 999px; background: color-mix(in srgb, var(--button-hover-bg) 72%, var(--panel)); color: var(--link); cursor: pointer; font: 850 12px/1 var(--font-stack); text-transform: uppercase; letter-spacing: .04em; }
+    .relationship-focus-badge:hover { border-color: var(--link); background: var(--button-hover-bg); }
+    .relationship-focus-badge[hidden] { display: none !important; }
     .relationship-modal .relationship-browser { min-height: 0; }
     .relationship-modal .relationship-layout { grid-template-columns: minmax(0, 2fr) minmax(380px, .72fr); align-items: stretch; min-height: 0; height: 100%; overflow: hidden; }
     .relationship-modal .relationship-canvas-wrap { height: clamp(520px, 58vh, 900px); min-height: 520px; max-height: none; }
@@ -503,7 +515,7 @@ def stylesheet() -> str:
     .relationship-control-bar button:hover { border-color: var(--link); background: var(--button-hover-bg); color: var(--link); }
     .relationship-control-bar button:disabled { cursor: default; color: var(--muted); border-color: var(--border); background: var(--button-bg); }
     .relationship-canvas { position: relative; display: block; width: 100%; height: 100%; cursor: grab; }
-    .relationship-canvas[data-graph-interactive="false"] { cursor: default; pointer-events: none; }
+    .relationship-canvas[data-graph-interactive="false"] { cursor: default; }
     .relationship-canvas[data-graph-message]::after { content: attr(data-graph-message); position: absolute; left: 16px; right: 16px; bottom: 14px; z-index: 2; padding: 8px 10px; border: 1px solid var(--border); border-radius: 6px; background: color-mix(in srgb, var(--panel) 88%, transparent); color: var(--meta-text); font-size: .9em; pointer-events: none; }
     .relationship-canvas[data-empty-graph="true"]::after { top: 50%; bottom: auto; transform: translateY(-50%); text-align: center; }
     .relationship-canvas[data-graph-hint="filtered"]::after { top: 14px; bottom: auto; border-color: color-mix(in srgb, var(--comment-border) 62%, var(--border)); color: var(--comment-border); text-align: center; }
@@ -853,7 +865,7 @@ def stylesheet() -> str:
       .relationship-selection-table { min-height: 0; }
       .relationship-nav-controls { flex-wrap: wrap; }
       .to-top-button { right: 14px; bottom: calc(var(--story-nav-height) + 24px + var(--floating-control-size) + 12px); }
-      .review-nav { position: static; width: calc(100% - 16px); max-height: 38vh; margin: 8px auto 16px; }
+      .report-toc, .review-nav { position: static; width: calc(100% - 16px); max-height: 38vh; margin: 8px auto 16px; }
       .review-nav-resizer { display: none; }
       .story { top: 0; }
       body.has-pinned-story .story, body.has-diagram-open .story { left: 8px; right: 8px; top: 0; max-height: 35vh; }

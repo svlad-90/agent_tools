@@ -31,6 +31,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--compose-report", help="Write findings compose diagnostics JSON.")
     parser.add_argument("--output", help="HTML report output path.")
     parser.add_argument("--report-json", help="Render a generic non-diff report from JSON.")
+    parser.add_argument(
+        "--report-test-mode",
+        action="store_true",
+        help="Inject report self-test automation hooks when rendering --report-json.",
+    )
     parser.add_argument("--title", default="PR Diff Review", help="Report title.")
     parser.add_argument("--context", type=int, default=80, help="Git diff context lines.")
     parser.add_argument(
@@ -79,6 +84,7 @@ def main(argv: list[str] | None = None) -> int:
                 report_file=report_json,
                 output_path=output,
                 title=args.title if args.title != "PR Diff Review" else None,
+                test_mode=args.report_test_mode,
             )
             print(str(output))
             return 0
