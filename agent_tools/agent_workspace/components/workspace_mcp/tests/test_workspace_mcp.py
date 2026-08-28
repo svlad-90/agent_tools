@@ -1236,7 +1236,9 @@ def test_workspace_mcp_diff_report_renders_and_composes_reports(tmp_path: Path) 
     assert rendered["result"]["structuredContent"]["output"] == str(tmp_path / "report.html")
     assert "MCP note" in (tmp_path / "report.html").read_text(encoding="utf-8")
     assert initialized["result"]["isError"] is False
-    assert json.loads((tmp_path / "template.json").read_text(encoding="utf-8"))["inline"][0]["line"] == 2
+    template = json.loads((tmp_path / "template.json").read_text(encoding="utf-8"))
+    assert template["inline"] == []
+    assert template["_template"]["added_lines"][0]["line"] == 2
     assert composed["result"]["isError"] is False
     assert composed["result"]["structuredContent"]["diagnostics"] == []
     assert "Generated from MCP findings" in (tmp_path / "composed.json").read_text(encoding="utf-8")
