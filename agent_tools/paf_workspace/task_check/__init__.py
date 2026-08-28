@@ -210,8 +210,7 @@ def check_task(
     manifests = _find_artifact_manifests(task_dir)
     harness_profiles = _find_xen_zephyr_harness_profiles(task_dir)
 
-    has_runtime_hints = _has_runtime_hints(context_text)
-    should_check_manifest = require_runtime_product or has_runtime_hints or bool(manifests) or bool(harness_profiles)
+    should_check_manifest = require_runtime_product or bool(manifests) or bool(harness_profiles)
     should_check_scenarios = require_xen_runtime or bool(harness_profiles) or _has_xen_hints(context_text)
 
     if should_check_manifest:

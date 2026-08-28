@@ -17,18 +17,22 @@ from ..src.settings import AGENT_WORKSPACE_DEFAULT_CODEX_REASONING
 from ..src.settings import AGENT_WORKSPACE_DEFAULT_LIMITED_BASH_OUTPUT_TOKENS
 from ..src.settings import AGENT_WORKSPACE_GEOMETRY_RE
 from ..src.settings import AGENT_WORKSPACE_LANGUAGES
+from ..src.settings import AGENT_WORKSPACE_RELEASES_API
 from ..src.settings import AGENT_WORKSPACE_REASONING_EFFORTS
 from ..src.settings import AGENT_WORKSPACE_SETTINGS_FILE
 from ..src.settings import AGENT_WORKSPACE_THEMES
 from ..src.settings import TASK_CONTEXT_PROMPT_INJECTION_DEFAULT
 from ..src.settings import AgentModelChoices
 from ..src.settings import AgentModelSettings
+from ..src.settings import AgentWorkspaceSettingValue
+from ..src.settings import AgentWorkspaceUpdateCheckResult
 from ..src.settings import AgentWorkspaceUpdateResult
 from ..src.settings import AgentWorkspaceRuntimeSettings
 from ..src.settings import agent_command_name
 from ..src.settings import agent_executable
 from ..src.settings import agent_install_command
 from ..src.settings import agent_label
+from ..src.settings import agent_workspace_install_root
 from ..src.settings import agent_workspace_root
 from ..src.settings import agent_workspace_runtime_settings
 from ..src.settings import agent_workspace_setting_or_default
@@ -42,8 +46,10 @@ from ..src.settings import codex_model_choices_info
 from ..src.settings import load_agent_workspace_settings
 from ..src.settings import model_choices_with_current
 from ..src.settings import normalize_agent
+from ..src.settings import run_agent_workspace_update_check
 from ..src.settings import run_agent_workspace_update
 from ..src.settings import save_agent_workspace_settings
+from ..src.settings import remember_agent_workspace
 from ..src.settings import task_dictionary_policy_from_runtime_settings
 
 __all__ = [
@@ -64,18 +70,22 @@ __all__ = [
     "AGENT_WORKSPACE_DEFAULT_LIMITED_BASH_OUTPUT_TOKENS",
     "AGENT_WORKSPACE_GEOMETRY_RE",
     "AGENT_WORKSPACE_LANGUAGES",
+    "AGENT_WORKSPACE_RELEASES_API",
     "AGENT_WORKSPACE_REASONING_EFFORTS",
     "AGENT_WORKSPACE_SETTINGS_FILE",
     "AGENT_WORKSPACE_THEMES",
     "TASK_CONTEXT_PROMPT_INJECTION_DEFAULT",
     "AgentModelChoices",
     "AgentModelSettings",
+    "AgentWorkspaceSettingValue",
+    "AgentWorkspaceUpdateCheckResult",
     "AgentWorkspaceRuntimeSettings",
     "AgentWorkspaceUpdateResult",
     "agent_command_name",
     "agent_executable",
     "agent_install_command",
     "agent_label",
+    "agent_workspace_install_root",
     "agent_workspace_root",
     "agent_workspace_runtime_settings",
     "agent_workspace_setting_or_default",
@@ -89,7 +99,9 @@ __all__ = [
     "load_agent_workspace_settings",
     "model_choices_with_current",
     "normalize_agent",
+    "run_agent_workspace_update_check",
     "run_agent_workspace_update",
     "save_agent_workspace_settings",
+    "remember_agent_workspace",
     "task_dictionary_policy_from_runtime_settings",
 ]

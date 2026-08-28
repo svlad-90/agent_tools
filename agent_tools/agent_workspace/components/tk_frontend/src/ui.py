@@ -94,6 +94,7 @@ from ...localization.api import tk_string
 from ...task_context.api import load_task_context_slots as _load_task_context_slots
 from ...task_context.api import render_task_context_slots as _render_task_context_slots
 from ...task_context.api import task_goal_slot_markdown as _task_goal_slot_markdown
+from ...workspace_config.api import resolve_agent_workspace_startup
 
 
 def _codex_executable() -> str:
@@ -2614,11 +2615,11 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Open the local workspace task dashboard.")
     parser.add_argument(
         "--workspace",
-        default=os.getcwd(),
-        help="Workspace root. Default: current directory.",
+        default=None,
+        help="Workspace root. Default: last opened workspace or current directory.",
     )
     args = parser.parse_args(argv)
-    workspace = Path(args.workspace)
+    workspace = resolve_agent_workspace_startup(Path(args.workspace) if args.workspace else None)
     install_agent_workspace_exception_logger(workspace, "tk")
     root = tk.Tk()
 

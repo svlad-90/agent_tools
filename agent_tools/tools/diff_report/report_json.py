@@ -168,7 +168,7 @@ def report_from_payload(
     )
 
 
-def render_report_json_html(report: GenericReport) -> str:
+def render_report_json_html(report: GenericReport, test_mode: bool = False) -> str:
     comments = report.comments
     parts: list[str] = []
     parts.append(html_header(report.title))
@@ -220,6 +220,8 @@ def render_report_json_html(report: GenericReport) -> str:
     if report.relationship_graph:
         parts.append(_cytoscape_vendor_script())
         parts.append(_relationship_graph_script())
+        if test_mode:
+            parts.append(_report_self_test_script())
     parts.append(story_script())
     parts.append(theme_script())
     parts.append("</main>\n</body>\n</html>\n")
@@ -901,6 +903,7 @@ def _render_relationship_graph_section(graph: RelationshipGraph) -> str:
                   <button type="button" data-relationship-back title="Back" aria-label="Back">←</button>
                   <button type="button" data-relationship-forward title="Forward" aria-label="Forward">→</button>
                 </div>
+                <button type="button" class="relationship-focus-badge" data-relationship-focus-badge hidden title="Deactivate graph">Deactivate graph</button>
                 <div class="relationship-page-controls" data-relationship-page-controls>
                   <button type="button" data-relationship-page-prev aria-label="Previous graph page">‹</button>
                   <span data-relationship-page-count>Page 1</span>
@@ -1384,6 +1387,11 @@ def _relationship_graph_script() -> str:
     state.scopedAdjacencyCache = null;
   }
 
+  function isolatedIdsForRoot(state, rootId) {
+    const id = String(rootId || "");
+    return id ? directedReachableIds(id, state) : null;
+  }
+
   function nodeInScope(state, node) {
     if (!node) return false;
     return !state.isolatedNodeIds || state.isolatedNodeIds.has(node.id);
@@ -1618,6 +1626,14 @@ def _relationship_graph_script() -> str:
     const neighbors = (nodeId) => adjacency.get(nodeId) || [];
     const distances = new Map([[selectedId, 0]]);
     const traversedEdgeKeys = new Set();
+    const traversedEdgesByKey = new Map();
+    const markTraversedEdge = (edge) => {
+      const key = edgeKey(edge);
+      traversedEdgeKeys.add(key);
+      if (!traversedEdgesByKey.has(key)) {
+        traversedEdgesByKey.set(key, edge);
+      }
+    };
     const selectedRank = rankOf(selected);
     const sortCandidate = (left, right) => {
       const leftNode = nodesById.get(left.id);
@@ -1655,7 +1671,7 @@ def _relationship_graph_script() -> str:
           ? regularCandidates
           : rawCandidates.filter((item) => isFallbackTraversalEdge(item.edge, traversal));
         for (const parent of candidates) {
-          traversedEdgeKeys.add(edgeKey(parent.edge));
+          markTraversedEdge(parent.edge);
           if (seen.has(parent.id)) continue;
           seen.add(parent.id);
           ancestry.add(parent.id);
@@ -1691,7 +1707,10 @@ def _relationship_graph_script() -> str:
         if (!rankedChild && !fallbackChild) continue;
         (edgeFallback ? fallbackItems : regularItems).push({item, toId, toNode, edgeSecondary});
       }
-      const items = regularItems.length ? regularItems : fallbackItems;
+      const visibleFallbackItems = fallbackItems.filter((candidate) => nodeVisible(candidate.toNode));
+      const items = regularItems.length
+        ? regularItems.concat(visibleFallbackItems)
+        : fallbackItems;
       for (const candidate of items) {
         const {item, toId, toNode, edgeSecondary} = candidate;
         downSeen.add(toId);
@@ -1709,10 +1728,10 @@ def _relationship_graph_script() -> str:
         }
       }
     }
-    if (visibleDescendants.length) {
+    if (visibleDescendants.length || secondaryDescendants.length || fallbackDescendants.length) {
       // Draw the first visible child rank only. Hidden intermediate nodes are still traversed,
       // and direct shortcut edges to deeper ranks do not mix tests with requirements.
-      const candidateDescendants = visibleDescendants.concat(secondaryDescendants);
+      const candidateDescendants = visibleDescendants.concat(secondaryDescendants, fallbackDescendants);
       const visibleChildRank = Math.min(...candidateDescendants.map((id) => rankOf(nodesById.get(id))));
       const shownDescendants = candidateDescendants.filter((id) => rankOf(nodesById.get(id)) === visibleChildRank);
       for (const targetId of shownDescendants) {
@@ -1728,16 +1747,9 @@ def _relationship_graph_script() -> str:
         path.reverse();
         for (let index = 0; index < path.length; index += 1) {
           const item = path[index];
-          traversedEdgeKeys.add(edgeKey(item.edge));
+          markTraversedEdge(item.edge);
           distances.set(item.id, Math.min(distances.get(item.id) ?? index + 1, index + 1));
         }
-      }
-    } else if (fallbackDescendants.length) {
-      for (const targetId of fallbackDescendants) {
-        const parent = downParents.get(targetId);
-        if (!parent) continue;
-        traversedEdgeKeys.add(edgeKey(parent.edge));
-        distances.set(targetId, Math.min(distances.get(targetId) ?? 1, 1));
       }
     }
     const selectedVisible = nodeVisible(selected);
@@ -1751,8 +1763,7 @@ def _relationship_graph_script() -> str:
       const node = nodesById.get(id);
       return nodeVisible(node) || (ancestry.has(id) && contextNodeVisible(node));
     }));
-    const visibleEdges = edges.filter((edge) => {
-      if (!traversedEdgeKeys.has(edgeKey(edge))) return false;
+    const visibleEdges = Array.from(traversedEdgesByKey.values()).filter((edge) => {
       const sourceDistance = visibleIds.has(edge.source) ? distances.get(edge.source) : null;
       const targetDistance = visibleIds.has(edge.target) ? distances.get(edge.target) : null;
       if (sourceDistance == null || targetDistance == null) return false;
@@ -2092,7 +2103,14 @@ def _relationship_graph_script() -> str:
     return value || fallback;
   }
 
+  let cachedCytoscapeStyleTheme = "";
+  let cachedCytoscapeStyle = null;
+
   function cytoscapeStyle() {
+    const theme = document.documentElement.dataset.theme || "";
+    if (cachedCytoscapeStyle && cachedCytoscapeStyleTheme === theme) {
+      return cachedCytoscapeStyle;
+    }
     const text = cssValue("--graph-node-text", "#111827");
     const panel = cssValue("--graph-node-bg", "#ffffff");
     const metaPanel = cssValue("--graph-artifact-bg", "#f1f5f9");
@@ -2113,7 +2131,8 @@ def _relationship_graph_script() -> str:
     const autoPassBg = cssValue("--graph-status-auto-pass-bg", "#eff6ff");
     const neutral = cssValue("--graph-status-neutral-border", "#64748b");
     const neutralBg = cssValue("--graph-status-neutral-bg", "#f8fafc");
-    return [
+    cachedCytoscapeStyleTheme = theme;
+    cachedCytoscapeStyle = [
       {
         selector: "node",
         style: {
@@ -2156,6 +2175,7 @@ def _relationship_graph_script() -> str:
       {selector: ".is-active", style: {"border-color": active, "border-width": 4}},
       {selector: "node:selected", style: {"border-color": link, "border-width": 4}}
     ];
+    return cachedCytoscapeStyle;
   }
 
   function listNodePosition(index, graph) {
@@ -2285,31 +2305,36 @@ def _relationship_graph_script() -> str:
 
   function setGraphInteractive(browser, state, interactive) {
     state.graphInteractive = Boolean(interactive);
+    state.graphFocusActive = state.graphInteractive;
     syncGraphViewport(state);
     const canvas = browser.querySelector("[data-relationship-canvas]");
     if (canvas) {
       canvas.setAttribute("data-graph-interactive", state.graphInteractive ? "true" : "false");
     }
+    refreshGraphFocusState(browser, state);
     if (!state.cy) return;
     state.cy.userZoomingEnabled(state.graphInteractive);
     state.cy.userPanningEnabled(state.graphInteractive);
     state.cy.autoungrabify(!state.graphInteractive);
   }
 
+  function activateGraphFocus(browser, state) {
+    syncGraphViewport(state);
+    if (!state.graphInteractive) {
+      setGraphInteractive(browser, state, true);
+    }
+    state.graphFocusActive = true;
+    refreshGraphFocusState(browser, state);
+  }
+
   function releaseGraphFocus(browser, state) {
-    const hasActiveGraphFocus = state.graphInteractive || Boolean(state.activeId);
+    const hasActiveGraphFocus = state.graphInteractive || state.graphFocusActive;
     if (!hasActiveGraphFocus) return;
     const active = document.activeElement;
     if (active && typeof active.blur === "function") {
       active.blur();
     }
     setGraphInteractive(browser, state, false);
-    state.activeId = "";
-    if (state.cy) {
-      state.cy.elements().unselect();
-      state.cy.nodes().removeClass("is-active");
-    }
-    updateActiveTableRow(browser, state);
   }
 
   function updateGraphPageControls(browser, state, pagination) {
@@ -2384,6 +2409,9 @@ def _relationship_graph_script() -> str:
   function renderGraph(browser, state) {
     const canvas = browser.querySelector("[data-relationship-canvas]");
     if (!canvas || !state.selectedId) return;
+    browser.classList.add("is-graph-ready");
+    browser.setAttribute("data-relationship-graph-ready", "true");
+    refreshGraphActivityState(browser, state);
     if (typeof cytoscape !== "function") {
       canvas.textContent = "Cytoscape.js is not available.";
       return;
@@ -2480,7 +2508,7 @@ def _relationship_graph_script() -> str:
       state.canvasViewportListenersAttached = true;
     }
     state.cy.on("tap", "node", (event) => {
-      syncGraphViewport(state);
+      activateGraphFocus(browser, state);
       const nodeId = event.target.id();
       selectNode(browser, state, nodeId, true);
     });
@@ -2789,7 +2817,7 @@ def _relationship_graph_script() -> str:
 
   function applyProjectionSelections(browser, state) {
     state.enabledTypes = projectionTypesFromSelections(state);
-    refreshTypeFilterState(browser.querySelector("[data-relationship-projection-controls]") || browser, state, stateGraphTypes(state));
+    refreshGraphControlState(browser, state);
   }
 
   function ensureFocusFilters(browser, state, nodeId) {
@@ -2809,7 +2837,7 @@ def _relationship_graph_script() -> str:
           : encodeProjectionChoice(group.types.filter((candidate) => selected.has(candidate)));
       }
     }
-    refreshTypeFilterState(browser.querySelector("[data-relationship-projection-controls]") || browser, state, stateGraphTypes(state));
+    refreshGraphControlState(browser, state);
     return true;
   }
 
@@ -2840,7 +2868,7 @@ def _relationship_graph_script() -> str:
     state.enabledTypes = focusViewTypes(state, nodeId);
     state.projectionMode = "auto";
     state.projectionSelections = defaultProjectionSelections(state);
-    refreshTypeFilterState(browser.querySelector("[data-relationship-projection-controls]") || browser, state, stateGraphTypes(state));
+    refreshGraphControlState(browser, state);
   }
 
   function enableAllEntityTypes(browser, state) {
@@ -2848,7 +2876,15 @@ def _relationship_graph_script() -> str:
     state.enabledTypes = new Set(types);
     state.projectionMode = "custom";
     state.projectionSelections = defaultProjectionSelections(state);
-    refreshTypeFilterState(browser.querySelector("[data-relationship-projection-controls]") || browser, state, types);
+    refreshGraphControlState(browser, state, types);
+  }
+
+  function relationshipControls(browser) {
+    return browser.querySelector("[data-relationship-projection-controls]") || browser;
+  }
+
+  function refreshGraphControlState(browser, state, types) {
+    refreshTypeFilterState(relationshipControls(browser), state, types || stateGraphTypes(state));
   }
 
   function resetGraphFilters(browser, state) {
@@ -2859,7 +2895,7 @@ def _relationship_graph_script() -> str:
     state.activeSubfilterType = "";
     state.activeSubfilterTypes = [];
     state.typeSearchType = "";
-    refreshTypeFilterState(browser.querySelector("[data-relationship-projection-controls]") || browser, state, stateGraphTypes(state));
+    refreshGraphControlState(browser, state);
   }
 
   function resetGraphFiltersToAll(browser, state) {
@@ -2873,7 +2909,7 @@ def _relationship_graph_script() -> str:
     state.activeSubfilterTypes = [];
     state.typeSearchType = "";
     state.graphPage = 0;
-    refreshTypeFilterState(browser.querySelector("[data-relationship-projection-controls]") || browser, state, stateGraphTypes(state));
+    refreshGraphControlState(browser, state);
   }
 
   function childLayerSubfilterTypes(state) {
@@ -2912,6 +2948,48 @@ def _relationship_graph_script() -> str:
     return types.length > 0 && types.every((type) => state.enabledTypes.has(type));
   }
 
+  function allStatusesEnabled(state) {
+    const filter = state.statusFilter;
+    return Boolean(filter && filter.values && filter.values.length)
+      && filter.values.every((value) => filter.enabled && filter.enabled.has(value));
+  }
+
+  function allProjectionLevelsSelected(state) {
+    const selections = Object.values(state.projectionSelections || {});
+    return selections.length > 0 && selections.every((value) => value === "__all__");
+  }
+
+  function graphViewIsActive(state) {
+    return Boolean(
+      state.activeViewPinned ||
+      state.selectedId !== state.rootId ||
+      state.activeId !== state.selectedId ||
+      state.isolatedRootId ||
+      state.searchQuery ||
+      state.typeSearchType ||
+      state.showSecondaryLinks ||
+      state.graphPage > 0 ||
+      !allEntityTypesEnabled(state) ||
+      !allStatusesEnabled(state) ||
+      !allProjectionLevelsSelected(state)
+    );
+  }
+
+  function refreshGraphActivityState(browser, state) {
+    const active = graphViewIsActive(state);
+    browser.classList.toggle("is-graph-active", active);
+    browser.setAttribute("data-relationship-active-view", active ? "true" : "false");
+  }
+
+  function refreshGraphFocusState(browser, state) {
+    const focused = Boolean(state.graphFocusActive);
+    browser.classList.toggle("is-graph-focused", focused);
+    browser.setAttribute("data-relationship-graph-focused", focused ? "true" : "false");
+    browser.querySelectorAll("[data-relationship-focus-badge]").forEach((badge) => {
+      badge.hidden = !focused;
+    });
+  }
+
   function projectionSelectionsSnapshot(state) {
     return Object.assign({}, state.projectionSelections || {});
   }
@@ -2929,7 +3007,8 @@ def _relationship_graph_script() -> str:
       showSecondaryLinks: state.showSecondaryLinks,
       searchQuery: state.searchQuery,
       typeSearchType: state.typeSearchType,
-      isolatedRootId: state.isolatedRootId || ""
+      isolatedRootId: state.isolatedRootId || "",
+      activeViewPinned: Boolean(state.activeViewPinned)
     };
   }
 
@@ -2961,10 +3040,9 @@ def _relationship_graph_script() -> str:
     state.showSecondaryLinks = Boolean(snapshot.showSecondaryLinks);
     state.searchQuery = snapshot.searchQuery || "";
     state.typeSearchType = snapshot.typeSearchType || "";
-    refreshTypeFilterState(browser.querySelector("[data-relationship-projection-controls]") || browser, state, stateGraphTypes(state));
-    renderGraph(browser, state);
-    renderNodeSelect(browser, state);
-    renderDetail(browser, state);
+    state.activeViewPinned = Boolean(snapshot.activeViewPinned);
+    refreshGraphControlState(browser, state);
+    renderRelationshipState(browser, state);
   }
 
   function serializeStatusFilter(state) {
@@ -3092,18 +3170,45 @@ def _relationship_graph_script() -> str:
     detail.innerHTML = html;
   }
 
-  function selectNode(browser, state, nodeId, recordHistory, options) {
+  function renderRelationshipState(browser, state) {
+    const startedAt = performance.now();
+    refreshGraphActivityState(browser, state);
+    renderGraph(browser, state);
+    renderNodeSelect(browser, state);
+    renderDetail(browser, state);
+    const durationMs = performance.now() - startedAt;
+    state.renderVersion = Number(state.renderVersion || 0) + 1;
+    state.lastRenderDurationMs = durationMs;
+    if (!Array.isArray(state.renderSamples)) state.renderSamples = [];
+    state.renderSamples.push({
+      version: state.renderVersion,
+      durationMs,
+      selectedId: state.selectedId,
+      nodes: state.visibleGraph && state.visibleGraph.nodes ? state.visibleGraph.nodes.length : 0,
+      edges: state.visibleGraph && state.visibleGraph.edges ? state.visibleGraph.edges.length : 0
+    });
+    if (state.renderSamples.length > 80) {
+      state.renderSamples.splice(0, state.renderSamples.length - 80);
+    }
+  }
+
+  function updateSelectedNodeState(browser, state, nodeId, recordHistory, options) {
     if (!state.nodesById.has(nodeId)) return;
     if (state.isolatedNodeIds && !state.isolatedNodeIds.has(nodeId)) return;
     const resetTypes = Boolean(options && options.resetTypes);
-    const preserveTypes = options && Object.prototype.hasOwnProperty.call(options, "preserveTypes")
+    const preserveFilters = Boolean(options && options.preserveFilters);
+    const entityChanged = Boolean(state.selectedId && state.selectedId !== nodeId);
+    const resetFiltersToAll = entityChanged && !preserveFilters;
+    let preserveTypes = options && Object.prototype.hasOwnProperty.call(options, "preserveTypes")
       ? Boolean(options.preserveTypes)
       : (state.projectionMode || "auto") === "custom";
     if (recordHistory && state.selectedId && state.selectedId !== nodeId) {
       state.backStack.push(navigationSnapshot(state));
       state.forwardStack.length = 0;
     }
-    if (resetTypes) {
+    if (resetFiltersToAll) {
+      preserveTypes = true;
+    } else if (resetTypes) {
       enableAllEntityTypes(browser, state);
     }
     state.selectedId = nodeId;
@@ -3116,9 +3221,16 @@ def _relationship_graph_script() -> str:
     } else {
       ensureFocusFilters(browser, state, nodeId);
     }
-    renderGraph(browser, state);
-    renderNodeSelect(browser, state);
-    renderDetail(browser, state);
+    if (resetFiltersToAll) {
+      resetGraphFiltersToAll(browser, state);
+      ensureFocusFilters(browser, state, nodeId);
+    }
+    return true;
+  }
+
+  function selectNode(browser, state, nodeId, recordHistory, options) {
+    if (!updateSelectedNodeState(browser, state, nodeId, recordHistory, options)) return;
+    renderRelationshipState(browser, state);
   }
 
   function selectTableNode(browser, state, nodeId) {
@@ -3126,8 +3238,8 @@ def _relationship_graph_script() -> str:
     if (state.selectedId !== nodeId || !allEntityTypesEnabled(state)) {
       pushNavigationSnapshot(state);
     }
-    resetGraphFilters(browser, state);
-    selectNode(browser, state, nodeId, false);
+    resetGraphFiltersToAll(browser, state);
+    selectNode(browser, state, nodeId, false, {preserveTypes: true, preserveFilters: true});
   }
 
   function updateActiveGraphNode(state) {
@@ -3139,6 +3251,8 @@ def _relationship_graph_script() -> str:
 
   function refreshGraphTheme(state) {
     if (!state.cy) return;
+    cachedCytoscapeStyle = null;
+    cachedCytoscapeStyleTheme = "";
     state.cy.style(cytoscapeStyle());
     state.cy.resize();
   }
@@ -3156,9 +3270,10 @@ def _relationship_graph_script() -> str:
     syncActiveSubfilterType(state);
     updateActiveGraphNode(state);
     updateActiveTableRow(browser, state);
-    refreshTypeFilterState(browser.querySelector("[data-relationship-projection-controls]") || browser, state, stateGraphTypes(state));
+    refreshGraphControlState(browser, state);
     renderNodeSelect(browser, state);
     renderDetail(browser, state);
+    refreshGraphActivityState(browser, state);
   }
 
   function graphTypes(nodes) {
@@ -3557,7 +3672,7 @@ def _relationship_graph_script() -> str:
     const rerender = () => {
       state.graphPage = 0;
       ensureSelectableFocus(state);
-    refreshTypeFilterState(browser.querySelector("[data-relationship-projection-controls]") || browser, state, stateGraphTypes(state));
+      refreshGraphControlState(browser, state);
       renderGraph(browser, state);
       renderNodeSelect(browser, state);
       renderDetail(browser, state);
@@ -3968,6 +4083,7 @@ def _relationship_graph_script() -> str:
       activeSubfilterType: "",
       selectedId: preferred.id,
       activeId: preferred.id,
+      rootId: preferred.id,
       cy: null,
       backStack: [],
       forwardStack: [],
@@ -3976,6 +4092,7 @@ def _relationship_graph_script() -> str:
       searchUpdateTimer: 0,
       typeSearchType: "",
       graphInteractive: false,
+      graphFocusActive: false,
       graphRenderSignature: "",
       focusGraph: null,
       focusContent: null,
@@ -3986,6 +4103,7 @@ def _relationship_graph_script() -> str:
       scopedAdjacencyCache: null,
       canvasViewportListenersAttached: false,
       showSecondaryLinks: false,
+      activeViewPinned: false,
       graphPage: 0,
       traversal: traversalConfig(graph.traversal),
       projectionMode: "auto",
@@ -4031,7 +4149,7 @@ def _relationship_graph_script() -> str:
         state.typeSearchType = focusType.value || "";
         state.graphPage = 0;
         renderNodeSelect(browser, state);
-        refreshTypeFilterState(browser.querySelector("[data-relationship-projection-controls]") || browser, state, stateGraphTypes(state));
+        refreshGraphControlState(browser, state);
       });
     }
     const focusScope = browser.querySelector("[data-relationship-focus-scope]");
@@ -4076,24 +4194,32 @@ def _relationship_graph_script() -> str:
     const fit = browser.querySelector("[data-relationship-fit]");
     if (fit) {
       fit.addEventListener("click", () => {
-        setGraphInteractive(browser, state, true);
+        activateGraphFocus(browser, state);
         fitGraph(state, 40);
       });
     }
     const canvas = browser.querySelector("[data-relationship-canvas]");
     if (canvas) {
-      const canvasWrap = canvas.closest(".relationship-canvas-wrap");
-      const activateFromCanvasWrap = (event) => {
-        syncGraphViewport(state);
-        if (!state.graphInteractive) {
-          setGraphInteractive(browser, state, true);
-        }
-      };
-      canvas.addEventListener("pointerdown", activateFromCanvasWrap, {capture: true});
-      if (canvasWrap) {
-        canvasWrap.addEventListener("pointerdown", activateFromCanvasWrap, {capture: true});
-      }
+      canvas.addEventListener("pointerenter", () => syncGraphViewport(state), {passive: true});
     }
+    const routeGraphFocusEvent = (event) => {
+      const target = event.target;
+      if (!(target instanceof Element)) return;
+      if (target.closest("[data-relationship-focus-badge]")) {
+        return;
+      }
+      if (target.closest(".relationship-canvas-wrap")) {
+        activateGraphFocus(browser, state);
+      } else {
+        releaseGraphFocus(browser, state);
+      }
+    };
+    ["pointerdown", "mousedown", "touchstart", "click"].forEach((eventName) => {
+      browser.addEventListener(eventName, routeGraphFocusEvent, {capture: true});
+    });
+    browser.querySelectorAll("[data-relationship-focus-badge]").forEach((badge) => {
+      badge.addEventListener("click", () => releaseGraphFocus(browser, state));
+    });
     const detail = browser.querySelector("[data-relationship-detail]");
     if (detail) {
       const releaseFromDetail = () => {
@@ -4118,7 +4244,6 @@ def _relationship_graph_script() -> str:
     if (explorer) {
       const handleExplorerScroll = () => {
         syncGraphViewport(state);
-        releaseGraphFocus(browser, state);
       };
       explorer.addEventListener("scroll", handleExplorerScroll, {passive: true});
       explorer.addEventListener("wheel", () => syncGraphViewport(state), {passive: true});
@@ -4231,10 +4356,13 @@ def _relationship_graph_script() -> str:
   function applyRelationshipView(browser, state, view) {
     const focusId = view && view.focus;
     if (!focusId || !state.nodesById.has(focusId)) return;
+    const isolateRoot = view.isolate_root || "";
+    const isolatedNodeIds = isolatedIdsForRoot(state, isolateRoot);
+    if (isolatedNodeIds && !isolatedNodeIds.has(focusId)) return;
     pushNavigationSnapshot(state);
-    setIsolatedRoot(state, view.isolate_root || "");
-    if (state.isolatedNodeIds && !state.isolatedNodeIds.has(focusId)) return;
+    setIsolatedRoot(state, isolateRoot);
     resetGraphFilters(browser, state);
+    state.activeViewPinned = true;
     const types = stateGraphTypes(state);
     const requested = Array.isArray(view.types) ? view.types.filter((type) => types.includes(type)) : [];
     if (requested.length) {
@@ -4249,17 +4377,15 @@ def _relationship_graph_script() -> str:
     cancelSearchUpdate(state);
     const search = browser.querySelector("[data-relationship-search]");
     if (search) search.value = "";
-    selectNode(browser, state, focusId, false, {preserveTypes: true});
+    updateSelectedNodeState(browser, state, focusId, false, {preserveTypes: true, preserveFilters: true});
     const targetType = view.target_type || "";
     if (targetType && state.enabledTypes.has(targetType)) {
       state.activeSubfilterType = targetType;
       state.activeSubfilterTypes = [targetType];
       state.typeSearchType = targetType;
     }
-    refreshTypeFilterState(browser.querySelector("[data-relationship-projection-controls]") || browser, state, types);
-    renderGraph(browser, state);
-    renderNodeSelect(browser, state);
-    renderDetail(browser, state);
+    refreshGraphControlState(browser, state, types);
+    renderRelationshipState(browser, state);
   }
 
   function openRelationshipView(trigger, view) {
@@ -4288,6 +4414,7 @@ def _relationship_graph_script() -> str:
         pushNavigationSnapshot(state);
         setIsolatedRoot(state, "");
         resetGraphFiltersToAll(browser, state);
+        state.activeViewPinned = false;
         ensureSelectableFocus(state);
         renderGraph(browser, state);
         renderNodeSelect(browser, state);
@@ -4324,6 +4451,631 @@ def _relationship_graph_script() -> str:
     document.querySelectorAll("[data-relationship-modal]:not([hidden])").forEach(closeRelationshipModal);
   });
   document.querySelectorAll("[data-relationship-browser]:not([data-relationship-defer])").forEach(initBrowser);
+})();
+</script>
+"""
+
+
+def _report_self_test_script() -> str:
+    return r"""
+<script>
+(() => {
+  const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+  function parseView(button) {
+    try {
+      return JSON.parse(button.getAttribute("data-relationship-open-view") || "null");
+    } catch (error) {
+      return null;
+    }
+  }
+
+  function metricCount(button) {
+    const match = String(button.textContent || "").match(/\d+/);
+    return match ? Number(match[0]) : null;
+  }
+
+  function activeBrowser() {
+    return document.querySelector("[data-relationship-browser]");
+  }
+
+  function dumpState() {
+    const browser = activeBrowser();
+    const state = browser && browser.__relationshipState;
+    const graph = state && state.visibleGraph;
+    const canvasWrap = browser && browser.querySelector(".relationship-canvas-wrap");
+    const canvasStyle = canvasWrap ? window.getComputedStyle(canvasWrap) : null;
+    const controlledTypes = browser
+      ? Array.from(browser.querySelectorAll("[data-relationship-projection-type]"))
+          .map((control) => control.getAttribute("data-relationship-projection-type") || "")
+          .filter(Boolean)
+      : [];
+    return {
+      selectedId: state && state.selectedId || "",
+      activeId: state && state.activeId || "",
+      allTypes: Array.from(new Set(controlledTypes)).sort(),
+      enabledTypes: state ? Array.from(state.enabledTypes || []).sort() : [],
+      projectionMode: state && state.projectionMode || "",
+      projectionSelections: state && state.projectionSelections ? Object.assign({}, state.projectionSelections) : {},
+      activeSubfilterType: state && state.activeSubfilterType || "",
+      graphReady: browser ? browser.getAttribute("data-relationship-graph-ready") === "true" : false,
+      activeView: browser ? browser.getAttribute("data-relationship-active-view") === "true" : false,
+      graphFocused: browser ? browser.getAttribute("data-relationship-graph-focused") === "true" : false,
+      focusBadgeVisible: Boolean(browser && Array.from(browser.querySelectorAll("[data-relationship-focus-badge]")).some((badge) => !badge.hidden && badge.getBoundingClientRect().width > 0)),
+      canvasBackground: canvasStyle ? canvasStyle.backgroundColor : "",
+      canvasBoxShadow: canvasStyle ? canvasStyle.boxShadow : "",
+      statusValues: state && state.statusFilter ? Array.from(state.statusFilter.values || []).sort() : [],
+      statusEnabled: state && state.statusFilter ? Array.from(state.statusFilter.enabled || []).sort() : [],
+      nodes: graph && graph.nodes ? graph.nodes.length : 0,
+      edges: graph && graph.edges ? graph.edges.length : 0,
+      pagination: graph && graph.pagination || null,
+      edgeSample: graph && graph.edges ? graph.edges.slice(0, 5) : [],
+      renderVersion: state ? Number(state.renderVersion || 0) : 0,
+      lastRenderDurationMs: state ? Math.round(Number(state.lastRenderDurationMs || 0)) : 0
+    };
+  }
+
+  function rectSummary(element) {
+    if (!element) return null;
+    const rect = element.getBoundingClientRect();
+    return {
+      left: Math.round(rect.left),
+      right: Math.round(rect.right),
+      top: Math.round(rect.top),
+      bottom: Math.round(rect.bottom),
+      width: Math.round(rect.width),
+      height: Math.round(rect.height),
+      scrollWidth: element.scrollWidth || 0,
+      scrollHeight: element.scrollHeight || 0,
+      clientWidth: element.clientWidth || 0,
+      clientHeight: element.clientHeight || 0
+    };
+  }
+
+  function layoutState() {
+    const scrolling = document.scrollingElement || document.documentElement;
+    const main = document.querySelector("main");
+    const toc = document.querySelector(".report-toc");
+    const metricTable = document.querySelector(".report-metric-table-wrap");
+    const reportTable = document.querySelector(".report-table-wrap");
+    const browser = activeBrowser();
+    const canvas = browser && browser.querySelector(".relationship-canvas-wrap");
+    const detail = browser && browser.querySelector(".relationship-detail");
+    return {
+      viewport: {
+        width: window.innerWidth || 0,
+        height: window.innerHeight || 0
+      },
+      document: {
+        scrollWidth: scrolling.scrollWidth || 0,
+        scrollHeight: scrolling.scrollHeight || 0,
+        clientWidth: scrolling.clientWidth || 0,
+        clientHeight: scrolling.clientHeight || 0,
+        scrollX: Math.round(window.scrollX || 0),
+        scrollY: Math.round(window.scrollY || 0)
+      },
+      main: rectSummary(main),
+      toc: rectSummary(toc),
+      metricTable: rectSummary(metricTable),
+      reportTable: rectSummary(reportTable),
+      graphCanvas: rectSummary(canvas),
+      graphDetail: rectSummary(detail)
+    };
+  }
+
+  function arraysEqual(left, right) {
+    const a = Array.from(left || []).sort();
+    const b = Array.from(right || []).sort();
+    return a.length === b.length && a.every((value, index) => value === b[index]);
+  }
+
+  function projectionIsAll(state) {
+    const values = Object.values(state.projectionSelections || {});
+    return values.length > 0 && values.every((value) => value === "__all__");
+  }
+
+  function metricButtons() {
+    return Array.from(document.querySelectorAll("[data-relationship-open-view]"))
+      .map((button) => ({button, view: parseView(button)}))
+      .filter((item) => item.view && item.view.target_type && item.view.filters);
+  }
+
+  function viewTargetStatus(view) {
+    const targetType = view && view.target_type;
+    const statuses = targetType && view.filters && view.filters[targetType]
+      ? view.filters[targetType].status
+      : null;
+    return Array.isArray(statuses) && statuses.length ? statuses[0] : "";
+  }
+
+  function graphMetricCandidates() {
+    return metricButtons().filter((item) =>
+      item.view && item.view.target_type && item.view.filters
+      && String(item.view.focus || "").startsWith("product:")
+    );
+  }
+
+  function preferredGraphMetric() {
+    const candidates = graphMetricCandidates();
+    return candidates.find((item) => viewTargetStatus(item.view) === "not_failed")
+      || candidates[0]
+      || null;
+  }
+
+  function visibleTargetNode(graph, item) {
+    const targetType = item && item.view && item.view.target_type;
+    return graph && graph.nodes && graph.nodes.find((node) => node.type === targetType);
+  }
+
+  const SELF_TEST_SETTLE_MS = 300;
+
+  function stats(values) {
+    const numbers = values.map(Number).filter((value) => Number.isFinite(value));
+    if (!numbers.length) return {count: 0, minMs: 0, avgMs: 0, maxMs: 0};
+    const total = numbers.reduce((sum, value) => sum + value, 0);
+    const rounded = (value) => Math.round(value * 100) / 100;
+    return {
+      count: numbers.length,
+      minMs: rounded(Math.min(...numbers)),
+      avgMs: rounded(total / numbers.length),
+      maxMs: rounded(Math.max(...numbers))
+    };
+  }
+
+  async function runMetricButton(item) {
+    const startedAt = performance.now();
+    const expectedCount = metricCount(item.button);
+    const errors = [];
+    item.button.click();
+    await delay(SELF_TEST_SETTLE_MS);
+    const state = dumpState();
+    const targetType = item.view.target_type;
+    const targetStatus = viewTargetStatus(item.view);
+    if (expectedCount != null && state.pagination && state.pagination.total !== expectedCount) {
+      errors.push(`pagination total ${state.pagination.total} != metric count ${expectedCount}`);
+    }
+    if (!state.enabledTypes.includes(targetType)) {
+      errors.push(`target type ${targetType} is not enabled`);
+    }
+    if (targetStatus && !state.statusEnabled.includes(targetStatus)) {
+      errors.push(`status ${targetStatus} is not enabled`);
+    }
+    if (!state.activeView) {
+      errors.push("graph active view indicator is not enabled after metric click");
+    }
+    if (expectedCount && state.nodes > 1 && state.edges <= 0) {
+      errors.push(`no graph links rendered for ${targetType}`);
+    }
+    return {
+      title: item.button.getAttribute("title") || String(item.button.textContent || "").trim(),
+      targetType,
+      targetStatus: targetStatus || "",
+      expectedCount,
+      state,
+      durationMs: Math.round(performance.now() - startedAt),
+      pass: errors.length === 0,
+      errors
+    };
+  }
+
+  async function runLayoutAndScroll() {
+    const startedAt = performance.now();
+    const errors = [];
+    const profile = new URLSearchParams(window.location.search || "").get("report-self-test-profile") || "unknown";
+    const initial = layoutState();
+    const initialGraphState = dumpState();
+    const overflowAllowance = 24;
+    if (initialGraphState.activeView) {
+      errors.push("graph active view indicator is enabled before a graph interaction");
+    }
+    if (initialGraphState.focusBadgeVisible) {
+      errors.push("graph focus badge is visible before a graph interaction");
+    }
+    if (!initial.main || initial.main.width <= 0) {
+      errors.push("main content is not visible");
+    }
+    if (!initial.toc || initial.toc.width <= 0) {
+      errors.push("table of contents is not visible");
+    }
+    if (initial.main && initial.main.right > initial.viewport.width + overflowAllowance) {
+      errors.push(`main content overflows viewport: ${initial.main.right} > ${initial.viewport.width}`);
+    }
+    if (profile === "mobile") {
+      const minimumPanelWidth = Math.min(320, initial.viewport.width - 32);
+      if (initial.toc && initial.toc.width < minimumPanelWidth) {
+        errors.push(`mobile table of contents is too narrow: ${initial.toc.width} < ${minimumPanelWidth}`);
+      }
+      if (initial.main && initial.main.width < minimumPanelWidth) {
+        errors.push(`mobile main content is too narrow: ${initial.main.width} < ${minimumPanelWidth}`);
+      }
+      const narrowTocLinks = Array.from(document.querySelectorAll(".report-toc a"))
+        .map((link) => rectSummary(link))
+        .filter((rect) => rect && rect.width < minimumPanelWidth - 24);
+      if (narrowTocLinks.length) {
+        errors.push(`${narrowTocLinks.length} mobile table-of-contents links are too narrow`);
+      }
+    }
+    if (initial.document.scrollWidth > initial.viewport.width + overflowAllowance) {
+      errors.push(`document horizontal overflow: ${initial.document.scrollWidth} > ${initial.viewport.width}`);
+    }
+    if (initial.document.scrollHeight <= initial.viewport.height) {
+      errors.push("document is not vertically scrollable");
+    }
+    window.scrollTo(0, Math.min(240, Math.max(0, initial.document.scrollHeight - initial.viewport.height)));
+    await delay(0);
+    const afterBodyScroll = layoutState();
+    if (initial.document.scrollHeight > initial.viewport.height && afterBodyScroll.document.scrollY <= 0) {
+      errors.push("document did not scroll vertically");
+    }
+
+    const wideTable = document.querySelector(".report-table-wrap, .report-metric-table-wrap");
+    let tableScrolled = null;
+    if (wideTable && wideTable.scrollWidth > wideTable.clientWidth + 1) {
+      wideTable.scrollLeft = 80;
+      await delay(0);
+      tableScrolled = wideTable.scrollLeft > 0;
+      if (!tableScrolled) {
+        errors.push("wide table wrapper did not scroll horizontally");
+      }
+    }
+
+    const metric = preferredGraphMetric();
+    let graph = null;
+    if (!metric) {
+      errors.push("metric graph button not found for layout test");
+    } else {
+      metric.button.click();
+      await delay(SELF_TEST_SETTLE_MS);
+      graph = layoutState();
+      const current = dumpState();
+      if (!current.graphReady) {
+        errors.push("graph ready indicator is not enabled after metric click");
+      }
+      if (!current.activeView) {
+        errors.push("graph active view indicator is not enabled after layout metric click");
+      }
+      if (!graph.graphCanvas || graph.graphCanvas.width < 280 || graph.graphCanvas.height < 280) {
+        errors.push("graph canvas is too small after metric click");
+      }
+      if (graph.graphCanvas && graph.graphCanvas.right > graph.viewport.width + overflowAllowance) {
+        errors.push(`graph canvas overflows viewport: ${graph.graphCanvas.right} > ${graph.viewport.width}`);
+      }
+      if (current.nodes <= 0) {
+        errors.push("graph has no visible nodes after metric click");
+      }
+      if (current.edges <= 0) {
+        errors.push("graph has no visible edges after metric click");
+      }
+    }
+
+    return {
+      name: "responsive layout and scroll",
+      profile,
+      pass: errors.length === 0,
+      durationMs: Math.round(performance.now() - startedAt),
+      tableScrolled,
+      initial,
+      afterBodyScroll,
+      graph,
+      errors
+    };
+  }
+
+  async function runEntitySwitchReset() {
+    const startedAt = performance.now();
+    const item = preferredGraphMetric();
+    const errors = [];
+    if (!item) {
+      return {name: "entity switch resets filters", pass: false, durationMs: Math.round(performance.now() - startedAt), errors: ["graph metric button not found"]};
+    }
+    item.button.click();
+    await delay(SELF_TEST_SETTLE_MS);
+    const browser = activeBrowser();
+    const state = browser && browser.__relationshipState;
+    const graph = state && state.visibleGraph;
+    const targetNode = visibleTargetNode(graph, item);
+    if (!browser || !state || !targetNode) {
+      return {name: "entity switch resets filters", pass: false, durationMs: Math.round(performance.now() - startedAt), errors: ["target node not visible after metric click"]};
+    }
+    const focusSelect = browser.querySelector("[data-relationship-node-select]");
+    if (!focusSelect) {
+      return {name: "entity switch resets filters", pass: false, durationMs: Math.round(performance.now() - startedAt), errors: ["focus select not found"]};
+    }
+    focusSelect.value = targetNode.id;
+    focusSelect.dispatchEvent(new Event("change", {bubbles: true}));
+    await delay(SELF_TEST_SETTLE_MS);
+    const next = dumpState();
+    if (!arraysEqual(next.enabledTypes, next.allTypes)) {
+      errors.push("enabled layers are not All after entity switch");
+    }
+    if (!arraysEqual(next.statusEnabled, next.statusValues)) {
+      errors.push("status filter is not All after entity switch");
+    }
+    if (!projectionIsAll(next)) {
+      errors.push("projection levels are not All after entity switch");
+    }
+    return {
+      name: "entity switch resets filters",
+      targetNode: targetNode.id,
+      state: next,
+      durationMs: Math.round(performance.now() - startedAt),
+      pass: errors.length === 0,
+      errors
+    };
+  }
+
+  async function runGraphFocusBadgeRelease() {
+    const startedAt = performance.now();
+    const item = preferredGraphMetric();
+    const errors = [];
+    if (!item) {
+      return {name: "graph focus badge release", pass: false, durationMs: Math.round(performance.now() - startedAt), errors: ["graph metric button not found"]};
+    }
+    item.button.click();
+    await delay(SELF_TEST_SETTLE_MS);
+    const browser = activeBrowser();
+    const state = browser && browser.__relationshipState;
+    const graph = state && state.visibleGraph;
+    const canvasWrap = browser && browser.querySelector(".relationship-canvas-wrap");
+    const badge = browser && browser.querySelector("[data-relationship-focus-badge]");
+    const statusFilter = browser && browser.querySelector("[data-relationship-status-filter]");
+    const selectionPanel = browser && browser.querySelector(".relationship-selection-panel");
+    const explorer = browser && browser.querySelector(".relationship-explorer-main");
+    const focusSelect = browser && browser.querySelector("[data-relationship-node-select]");
+    const targetNode = visibleTargetNode(graph, item);
+    if (!browser || !state || !canvasWrap || !badge || !statusFilter || !selectionPanel || !explorer || !focusSelect || !targetNode) {
+      return {name: "graph focus badge release", pass: false, durationMs: Math.round(performance.now() - startedAt), errors: ["graph controls or target node not visible after metric click"]};
+    }
+    const initial = dumpState();
+    const canvas = browser.querySelector("[data-relationship-canvas]");
+    const initialCanvasPointerEvents = canvas ? window.getComputedStyle(canvas).pointerEvents : "";
+    if (initialCanvasPointerEvents === "none") {
+      errors.push("inactive graph canvas blocks pointer events");
+    }
+    const pointerDown = (element) => element.dispatchEvent(new PointerEvent("pointerdown", {bubbles: true, composed: true}));
+    const mouseDown = (element) => element.dispatchEvent(new MouseEvent("mousedown", {bubbles: true, composed: true}));
+    const click = (element) => element.dispatchEvent(new MouseEvent("click", {bubbles: true, composed: true}));
+    const canvasRectBeforeFocus = rectSummary(canvasWrap);
+    pointerDown(canvasWrap);
+    await delay(SELF_TEST_SETTLE_MS);
+    const focused = dumpState();
+    const canvasRectAfterFocus = rectSummary(canvasWrap);
+    if (!focused.graphFocused) {
+      errors.push("graph focus flag is not enabled after canvas wrap pointerdown");
+    }
+    if (!focused.focusBadgeVisible) {
+      errors.push("graph focus badge is not visible after canvas wrap pointerdown");
+    }
+    if (focused.canvasBackground && initial.canvasBackground && focused.canvasBackground !== initial.canvasBackground) {
+      errors.push(`graph focus changed canvas background: ${initial.canvasBackground} -> ${focused.canvasBackground}`);
+    }
+    if (String(focused.canvasBoxShadow || "").includes("inset")) {
+      errors.push("graph focus uses an inset canvas shadow");
+    }
+    if (
+      canvasRectBeforeFocus && canvasRectAfterFocus &&
+      (
+        canvasRectBeforeFocus.clientWidth !== canvasRectAfterFocus.clientWidth ||
+        canvasRectBeforeFocus.clientHeight !== canvasRectAfterFocus.clientHeight ||
+        canvasRectBeforeFocus.width !== canvasRectAfterFocus.width ||
+        canvasRectBeforeFocus.height !== canvasRectAfterFocus.height
+      )
+    ) {
+      errors.push(
+        `graph focus changed canvas size: ` +
+        `${canvasRectBeforeFocus.width}x${canvasRectBeforeFocus.height}/${canvasRectBeforeFocus.clientWidth}x${canvasRectBeforeFocus.clientHeight} -> ` +
+        `${canvasRectAfterFocus.width}x${canvasRectAfterFocus.height}/${canvasRectAfterFocus.clientWidth}x${canvasRectAfterFocus.clientHeight}`
+      );
+    }
+    const pageCount = browser.querySelector("[data-relationship-page-count]");
+    const originalPageText = pageCount ? pageCount.textContent : "";
+    if (pageCount) pageCount.textContent = "17 nodes";
+    const badgeCenterBefore = rectSummary(badge);
+    if (pageCount) pageCount.textContent = "1-50 of 480";
+    await delay(SELF_TEST_SETTLE_MS);
+    const badgeCenterAfter = rectSummary(badge);
+    if (pageCount) pageCount.textContent = originalPageText;
+    if (badgeCenterBefore && badgeCenterAfter) {
+      const beforeX = Math.round(badgeCenterBefore.left + badgeCenterBefore.width / 2);
+      const afterX = Math.round(badgeCenterAfter.left + badgeCenterAfter.width / 2);
+      if (Math.abs(beforeX - afterX) > 1) {
+        errors.push(`graph focus badge moved horizontally: ${beforeX} -> ${afterX}`);
+      }
+    }
+    pointerDown(statusFilter);
+    await delay(SELF_TEST_SETTLE_MS);
+    const releasedByStatus = dumpState();
+    if (releasedByStatus.graphFocused) {
+      errors.push("graph focus flag is still enabled after status filter pointerdown");
+    }
+    pointerDown(canvasWrap);
+    await delay(SELF_TEST_SETTLE_MS);
+    if (!dumpState().graphFocused) {
+      errors.push("graph focus flag did not re-enable after second canvas wrap pointerdown");
+    }
+    pointerDown(selectionPanel);
+    await delay(SELF_TEST_SETTLE_MS);
+    const releasedBySelectionTable = dumpState();
+    if (releasedBySelectionTable.graphFocused) {
+      errors.push("graph focus flag is still enabled after selection table pointerdown");
+    }
+    explorer.scrollTop = Math.min(160, Math.max(0, explorer.scrollHeight - explorer.clientHeight));
+    explorer.dispatchEvent(new Event("scroll", {bubbles: true}));
+    await delay(SELF_TEST_SETTLE_MS);
+    mouseDown(canvasWrap);
+    click(canvasWrap);
+    await delay(SELF_TEST_SETTLE_MS);
+    const focusedAfterPartialScroll = dumpState();
+    if (!focusedAfterPartialScroll.graphFocused) {
+      errors.push("graph focus flag is not enabled after click on scrolled canvas wrap");
+    }
+    const selectedBeforeRelease = focused.selectedId;
+    badge.click();
+    await delay(SELF_TEST_SETTLE_MS);
+    const released = dumpState();
+    if (released.graphFocused) {
+      errors.push("graph focus flag is still enabled after badge click");
+    }
+    if (released.focusBadgeVisible) {
+      errors.push("graph focus badge is still visible after badge click");
+    }
+    if (released.selectedId !== selectedBeforeRelease) {
+      errors.push("badge release changed selected node");
+    }
+    focusSelect.value = targetNode.id;
+    focusSelect.dispatchEvent(new Event("change", {bubbles: true}));
+    await delay(SELF_TEST_SETTLE_MS);
+    const after = dumpState();
+    if (!after.activeView) {
+      errors.push("active view flag was cleared by node selection");
+    }
+    return {
+      name: "graph focus badge release",
+      targetNode: targetNode.id,
+      initial,
+      focused,
+      releasedByStatus,
+      releasedBySelectionTable,
+      focusedAfterPartialScroll,
+      released,
+      after,
+      durationMs: Math.round(performance.now() - startedAt),
+      pass: errors.length === 0,
+      errors
+    };
+  }
+
+  async function runNodeTransitionBenchmark() {
+    const startedAt = performance.now();
+    const errors = [];
+    const browser = activeBrowser();
+    const focusSelect = browser && browser.querySelector("[data-relationship-node-select]");
+    if (!browser || !focusSelect) {
+      return {name: "node transition benchmark", pass: false, durationMs: Math.round(performance.now() - startedAt), errors: ["graph controls not found"]};
+    }
+    let item = null;
+    let state = null;
+    let candidates = [];
+    for (const candidate of graphMetricCandidates()) {
+      candidate.button.click();
+      await delay(SELF_TEST_SETTLE_MS);
+      state = browser.__relationshipState;
+      const graph = state && state.visibleGraph;
+      const targetType = candidate.view.target_type;
+      candidates = graph && graph.nodes
+        ? graph.nodes.filter((node) => node.type === targetType).slice(0, 12)
+        : [];
+      if (candidates.length >= 2) {
+        item = candidate;
+        break;
+      }
+    }
+    if (!item || !state || candidates.length < 2) {
+      return {name: "node transition benchmark", pass: false, durationMs: Math.round(performance.now() - startedAt), errors: ["graph metric button not found"]};
+    }
+    const targetType = item.view.target_type;
+    const transitions = [];
+    for (const node of candidates) {
+      const beforeVersion = Number(state.renderVersion || 0);
+      const transitionStartedAt = performance.now();
+      focusSelect.value = node.id;
+      focusSelect.dispatchEvent(new Event("change", {bubbles: true}));
+      const elapsedMs = performance.now() - transitionStartedAt;
+      const afterVersion = Number(state.renderVersion || 0);
+      if (afterVersion < beforeVersion) {
+        errors.push(`render version moved backwards for ${node.id}`);
+      }
+      transitions.push({
+        nodeId: node.id,
+        elapsedMs: Math.round(elapsedMs * 100) / 100,
+        renderMs: Math.round(Number(state.lastRenderDurationMs || 0) * 100) / 100,
+        nodes: state.visibleGraph && state.visibleGraph.nodes ? state.visibleGraph.nodes.length : 0,
+        edges: state.visibleGraph && state.visibleGraph.edges ? state.visibleGraph.edges.length : 0
+      });
+      await delay(0);
+    }
+    const batchIterations = 80;
+    const beforeBatchVersion = Number(state.renderVersion || 0);
+    const batchStartedAt = performance.now();
+    for (let index = 0; index < batchIterations; index += 1) {
+      const node = candidates[index % candidates.length];
+      focusSelect.value = node.id;
+      focusSelect.dispatchEvent(new Event("change", {bubbles: true}));
+    }
+    const batchElapsedMs = performance.now() - batchStartedAt;
+    const batchRenderCount = Number(state.renderVersion || 0) - beforeBatchVersion;
+    if (batchRenderCount <= 0) {
+      errors.push("batch did not trigger any graph renders");
+    }
+    if (batchRenderCount > batchIterations) {
+      errors.push(`batch render count ${batchRenderCount} > ${batchIterations}`);
+    }
+    return {
+      name: "node transition benchmark",
+      pass: errors.length === 0,
+      durationMs: Math.round(performance.now() - startedAt),
+      transitionStats: stats(transitions.map((item) => item.elapsedMs)),
+      renderStats: stats(transitions.map((item) => item.renderMs)),
+      batch: {
+        iterations: batchIterations,
+        elapsedMs: Math.round(batchElapsedMs * 100) / 100,
+        avgMs: Math.round((batchElapsedMs / batchIterations) * 100) / 100,
+        renderCount: batchRenderCount
+      },
+      transitions,
+      errors
+    };
+  }
+
+  async function runAll() {
+    const startedAt = performance.now();
+    const candidates = graphMetricCandidates();
+    const results = [];
+    results.push(await runLayoutAndScroll());
+    for (const item of candidates) {
+      results.push(await runMetricButton(item));
+    }
+    results.push(await runGraphFocusBadgeRelease());
+    results.push(await runEntitySwitchReset());
+    results.push(await runNodeTransitionBenchmark());
+    return {
+      pass: results.every((result) => result.pass),
+      total: results.length,
+      durationMs: Math.round(performance.now() - startedAt),
+      results
+    };
+  }
+
+  function writeResult(result) {
+    let output = document.querySelector("[data-report-self-test-result]");
+    if (!output) {
+      output = document.createElement("script");
+      output.type = "application/json";
+      output.setAttribute("data-report-self-test-result", "");
+      document.body.appendChild(output);
+    }
+    output.textContent = JSON.stringify(result, null, 2);
+  }
+
+  window.__reportSelfTest = {
+    dumpState,
+    metricButtons: () => metricButtons().map((item) => ({
+      title: item.button.getAttribute("title") || String(item.button.textContent || "").trim(),
+      view: item.view,
+      count: metricCount(item.button)
+    })),
+    runAll
+  };
+
+  window.addEventListener("load", () => {
+    const params = new URLSearchParams(window.location.search || "");
+    if (params.get("report-self-test") !== "run") return;
+    setTimeout(() => {
+      runAll()
+        .then(writeResult)
+        .catch((error) => writeResult({pass: false, error: String(error && error.stack || error)}));
+    }, 200);
+  });
 })();
 </script>
 """

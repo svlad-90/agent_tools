@@ -8,6 +8,9 @@ import re
 import shutil
 import subprocess
 import sys
+import tarfile
+import tempfile
+import urllib.request
 
 from agent_tools.tools.task_context import DICTIONARY_AUTO_DISCOVERY_DEFAULT
 from agent_tools.tools.task_context import DICTIONARY_MAX_TERM_WORDS
@@ -59,6 +62,8 @@ AGENT_WORKSPACE_AGENT_INSTALL_COMMANDS = {
 }
 AGENT_WORKSPACE_GEOMETRY_RE = re.compile(r"^\d+x\d+(?:[+-]\d+[+-]\d+)?$")
 TASK_CONTEXT_PROMPT_INJECTION_DEFAULT = True
+AgentWorkspaceSettingValue = int | float | str | bool | list[str]
+AGENT_WORKSPACE_RELEASES_API = "https://api.github.com/repos/svlad-90/agent_tools/releases/latest"
 
 
 @dataclass(frozen=True)
@@ -113,6 +118,25 @@ class AgentWorkspaceUpdateResult:
         return self.returncode == 0
 
 
+@dataclass(frozen=True)
+class AgentWorkspaceUpdateCheckResult:
+    commands: tuple[tuple[str, ...], ...]
+    returncode: int
+    output: str
+    current_version: str = ""
+    latest_version: str = ""
+    release_url: str = ""
+    tarball_url: str = ""
+
+    @property
+    def ok(self) -> bool:
+        return self.returncode == 0
+
+    @property
+    def update_available(self) -> bool:
+        return self.ok and _version_key(self.latest_version) > _version_key(self.current_version)
+
+
 def agent_workspace_settings_path() -> Path:
     config_root = os.environ.get("XDG_CONFIG_HOME")
     if config_root:
@@ -128,16 +152,18 @@ def agent_workspace_root(start: Path | None = None) -> Path:
     raise RuntimeError(f"cannot resolve Agent Workspace root from {path}")
 
 
+def agent_workspace_install_root(start: Path | None = None) -> Path:
+    return agent_workspace_root(start)
+
+
 def agent_workspace_update_commands(
     workspace: Path | None = None,
     *,
     python_executable: str | None = None,
 ) -> tuple[tuple[str, ...], ...]:
-    root = agent_workspace_root(workspace) if workspace is not None else agent_workspace_root()
+    root = agent_workspace_install_root(workspace) if workspace is not None else agent_workspace_install_root()
     python = python_executable or sys.executable
-    git = shutil.which("git") or "git"
     return (
-        (git, "-C", str(root), "pull", "--ff-only"),
         (
             python,
             str(root / "install-agent-tools.py"),
@@ -148,15 +174,68 @@ def agent_workspace_update_commands(
     )
 
 
+def run_agent_workspace_update_check(
+    install_root: Path | None = None,
+    *,
+    timeout: float | None = None,
+) -> AgentWorkspaceUpdateCheckResult:
+    root = agent_workspace_install_root(install_root) if install_root is not None else agent_workspace_install_root()
+    current_version = _agent_workspace_current_version(root)
+    commands = (("GET", AGENT_WORKSPACE_RELEASES_API),)
+    output_parts: list[str] = []
+    try:
+        payload = _read_release_json(timeout=timeout)
+    except TimeoutError:
+        output_parts.append(f"Timed out after {timeout} seconds.")
+        return AgentWorkspaceUpdateCheckResult(commands, 124, "\n".join(output_parts).rstrip() + "\n", current_version)
+    except (OSError, ValueError, json.JSONDecodeError) as error:
+        output_parts.append(f"{type(error).__name__}: {error}")
+        return AgentWorkspaceUpdateCheckResult(commands, 1, "\n".join(output_parts).rstrip() + "\n", current_version)
+    latest_version = _release_version(payload.get("tag_name"))
+    release_url = _string_value(payload.get("html_url"))
+    tarball_url = _string_value(payload.get("tarball_url"))
+    if not latest_version or not tarball_url:
+        output_parts.append("Latest GitHub release does not contain tag_name and tarball_url.")
+        return AgentWorkspaceUpdateCheckResult(commands, 1, "\n".join(output_parts).rstrip() + "\n", current_version)
+    output_parts.append(f"Current version: {current_version}")
+    output_parts.append(f"Latest release: {latest_version}")
+    return AgentWorkspaceUpdateCheckResult(
+        commands,
+        0,
+        "\n".join(output_parts).rstrip() + "\n",
+        current_version,
+        latest_version,
+        release_url,
+        tarball_url,
+    )
+
+
 def run_agent_workspace_update(
-    workspace: Path | None = None,
+    install_root: Path | None = None,
     *,
     python_executable: str | None = None,
     timeout: float | None = None,
 ) -> AgentWorkspaceUpdateResult:
-    root = agent_workspace_root(workspace) if workspace is not None else agent_workspace_root()
+    root = agent_workspace_install_root(install_root) if install_root is not None else agent_workspace_install_root()
+    check = run_agent_workspace_update_check(root, timeout=timeout)
+    if not check.ok:
+        return AgentWorkspaceUpdateResult(check.commands, check.returncode, check.output)
+    if not check.update_available:
+        return AgentWorkspaceUpdateResult(check.commands, 0, check.output + "No release update available.\n")
     commands = agent_workspace_update_commands(root, python_executable=python_executable)
     output_parts: list[str] = []
+    output_parts.append(check.output.rstrip())
+    try:
+        with tempfile.TemporaryDirectory(prefix="agent-workspace-update-") as temp_dir:
+            release_source = _download_and_extract_release(check.tarball_url, Path(temp_dir), timeout=timeout)
+            _copy_release_tree(release_source, root)
+    except (OSError, tarfile.TarError, ValueError) as error:
+        output_parts.append(f"{type(error).__name__}: {error}")
+        return AgentWorkspaceUpdateResult(
+            (("download", check.tarball_url), *commands),
+            1,
+            "\n".join(output_parts).rstrip() + "\n",
+        )
     env = os.environ.copy()
     current_pythonpath = env.get("PYTHONPATH")
     env["PYTHONPATH"] = str(root) if not current_pythonpath else f"{root}{os.pathsep}{current_pythonpath}"
@@ -183,7 +262,102 @@ def run_agent_workspace_update(
             output_parts.append(completed.stderr.rstrip())
         if completed.returncode != 0:
             return AgentWorkspaceUpdateResult(commands, completed.returncode, "\n".join(output_parts).rstrip() + "\n")
-    return AgentWorkspaceUpdateResult(commands, 0, "\n".join(output_parts).rstrip() + "\n")
+    return AgentWorkspaceUpdateResult((("download", check.tarball_url), *commands), 0, "\n".join(output_parts).rstrip() + "\n")
+
+
+def _read_release_json(*, timeout: float | None) -> dict[str, object]:
+    request = urllib.request.Request(
+        AGENT_WORKSPACE_RELEASES_API,
+        headers={
+            "Accept": "application/vnd.github+json",
+            "User-Agent": "agent-workspace-updater",
+        },
+    )
+    with urllib.request.urlopen(request, timeout=timeout) as response:
+        data = json.loads(response.read().decode("utf-8"))
+    if not isinstance(data, dict):
+        raise ValueError("GitHub release response is not a JSON object")
+    return data
+
+
+def _agent_workspace_current_version(root: Path) -> str:
+    version_file = root / "agent_tools" / "VERSION"
+    if version_file.is_file():
+        version = version_file.read_text(encoding="utf-8").strip()
+        if version:
+            return _release_version(version)
+    git = shutil.which("git")
+    if git is not None and (root / ".git").exists():
+        completed = subprocess.run(
+            (git, "-C", str(root), "describe", "--tags", "--abbrev=0"),
+            text=True,
+            capture_output=True,
+            timeout=5,
+        )
+        if completed.returncode == 0 and completed.stdout.strip():
+            return _release_version(completed.stdout.strip())
+    return "0.0.0"
+
+
+def _download_and_extract_release(tarball_url: str, temp_dir: Path, *, timeout: float | None) -> Path:
+    archive_path = temp_dir / "release.tar.gz"
+    request = urllib.request.Request(tarball_url, headers={"User-Agent": "agent-workspace-updater"})
+    with urllib.request.urlopen(request, timeout=timeout) as response:
+        archive_path.write_bytes(response.read())
+    extract_dir = temp_dir / "extract"
+    extract_dir.mkdir()
+    with tarfile.open(archive_path, "r:*") as archive:
+        _safe_extract_tar(archive, extract_dir)
+    children = [path for path in extract_dir.iterdir() if path.is_dir()]
+    if len(children) != 1:
+        raise ValueError("release archive must contain one top-level directory")
+    release_source = children[0]
+    if not (release_source / "install-agent-tools.py").is_file() or not (release_source / "agent_tools").is_dir():
+        raise ValueError("release archive does not look like Agent Workspace")
+    return release_source
+
+
+def _safe_extract_tar(archive: tarfile.TarFile, target: Path) -> None:
+    target_root = target.resolve()
+    for member in archive.getmembers():
+        if member.issym() or member.islnk():
+            raise ValueError(f"links are not allowed in release archive: {member.name}")
+        member_target = (target / member.name).resolve()
+        try:
+            member_target.relative_to(target_root)
+        except ValueError as error:
+            raise ValueError(f"unsafe path in release archive: {member.name}") from error
+    archive.extractall(target)
+
+
+def _copy_release_tree(source: Path, target: Path) -> None:
+    for item in source.iterdir():
+        if item.name == ".git":
+            continue
+        destination = target / item.name
+        if item.is_dir():
+            shutil.copytree(item, destination, dirs_exist_ok=True)
+        else:
+            shutil.copy2(item, destination)
+
+
+def _release_version(value: object) -> str:
+    if not isinstance(value, str):
+        return ""
+    return value.strip().removeprefix("v")
+
+
+def _string_value(value: object) -> str:
+    return value.strip() if isinstance(value, str) else ""
+
+
+def _version_key(version: str) -> tuple[int, ...]:
+    numbers = []
+    for part in version.split("."):
+        if not part.isdigit():
+            break
+        numbers.append(int(part))
+    return tuple(numbers)
 
 
 def normalize_agent(agent: object) -> str:
@@ -400,7 +574,7 @@ def ai_agent_model_settings(
     )
 
 
-def load_agent_workspace_settings(path: Path | None = None) -> dict[str, int | float | str | bool]:
+def load_agent_workspace_settings(path: Path | None = None) -> dict[str, AgentWorkspaceSettingValue]:
     settings_path = path or agent_workspace_settings_path()
     if not settings_path.is_file():
         return {}
@@ -410,7 +584,7 @@ def load_agent_workspace_settings(path: Path | None = None) -> dict[str, int | f
         return {}
     if not isinstance(data, dict):
         return {}
-    settings: dict[str, int | float | str | bool] = {}
+    settings: dict[str, AgentWorkspaceSettingValue] = {}
     text_font_size = data.get("text_font_size", data.get("font_size"))
     button_font_size = data.get("button_font_size")
     theme = data.get("theme")
@@ -440,6 +614,8 @@ def load_agent_workspace_settings(path: Path | None = None) -> dict[str, int | f
     main_split_ratio = data.get("main_split_ratio")
     details_split_ratio = data.get("details_split_ratio")
     actions_split_ratio = data.get("actions_split_ratio")
+    last_workspace = data.get("last_workspace")
+    recent_workspaces = data.get("recent_workspaces")
     if isinstance(text_font_size, int):
         settings["text_font_size"] = max(8, min(28, text_font_size))
     if isinstance(button_font_size, int):
@@ -490,16 +666,51 @@ def load_agent_workspace_settings(path: Path | None = None) -> dict[str, int | f
     ):
         if isinstance(value, int | float) and 0.05 <= float(value) <= 0.95:
             settings[key] = float(value)
+    if isinstance(last_workspace, str) and last_workspace.strip():
+        settings["last_workspace"] = last_workspace.strip()
+    if isinstance(recent_workspaces, list):
+        normalized_recent = []
+        seen = set()
+        for item in recent_workspaces:
+            if isinstance(item, str) and item.strip() and item not in seen:
+                normalized_recent.append(item.strip())
+                seen.add(item)
+        if normalized_recent:
+            settings["recent_workspaces"] = normalized_recent[:10]
     return settings
 
 
-def save_agent_workspace_settings(settings: dict[str, int | float | str | bool], path: Path | None = None) -> None:
+def save_agent_workspace_settings(settings: dict[str, AgentWorkspaceSettingValue], path: Path | None = None) -> None:
     settings_path = path or agent_workspace_settings_path()
     try:
         settings_path.parent.mkdir(parents=True, exist_ok=True)
         settings_path.write_text(json.dumps(settings, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     except OSError:
         return
+
+
+def remember_agent_workspace(workspace: Path, path: Path | None = None) -> dict[str, AgentWorkspaceSettingValue]:
+    root = str(workspace.resolve())
+    settings = load_agent_workspace_settings(path)
+    recent = [root]
+    existing_recent = settings.get("recent_workspaces")
+    if isinstance(existing_recent, list):
+        for item in existing_recent:
+            if isinstance(item, str) and item != root:
+                recent.append(item)
+    previous_last = settings.get("last_workspace")
+    if isinstance(previous_last, str) and previous_last != root:
+        recent.append(previous_last)
+    normalized_recent = []
+    seen = set()
+    for item in recent:
+        if item and item not in seen:
+            normalized_recent.append(item)
+            seen.add(item)
+    settings["last_workspace"] = root
+    settings["recent_workspaces"] = normalized_recent[:10]
+    save_agent_workspace_settings(settings, path)
+    return settings
 
 
 def _codex_model_choices_from_cli(*, timeout: float) -> tuple[str, ...] | None:

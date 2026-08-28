@@ -9,7 +9,7 @@ from contextlib import redirect_stderr
 from contextlib import redirect_stdout
 from pathlib import Path
 
-from agent_tools.tools.commit_msg import format_commit_message, main as commit_msg_main
+from agent_tools.tools.commit_msg import GitIdentity, format_commit_message, main as commit_msg_main
 from agent_tools.tools.commit_msg.workflow import (
     check_commits,
     check_repo_identity,
@@ -140,6 +140,25 @@ class CommitMessageComposeTests(unittest.TestCase):
         self.assertTrue(
             message.rstrip().endswith("Assisted-by: Codex:gpt-5 cpp-code-map")
         )
+
+    def test_format_existing_message_deduplicates_signoff_with_blank_trailer_gap(self) -> None:
+        message = format_commit_message(
+            textwrap.dedent(
+                """\
+                tools: normalize spaced trailers
+
+                Body.
+
+                Signed-off-by: Example Author <author@example.com>
+
+                Assisted-by: Codex:gpt-5
+                """
+            ),
+            identity=GitIdentity("Example Author", "author@example.com"),
+        )
+
+        self.assertEqual(1, message.count("Signed-off-by: Example Author <author@example.com>"))
+        self.assertTrue(message.rstrip().endswith("Assisted-by: Codex:gpt-5"))
 
     def test_zephyr_assisted_by_check(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

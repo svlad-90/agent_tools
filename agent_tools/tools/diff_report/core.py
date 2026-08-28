@@ -76,9 +76,10 @@ def generate_report_json(
     report_file: Path,
     output_path: Path,
     title: str | None = None,
+    test_mode: bool = False,
 ) -> None:
     report = load_report_json(report_file)
     if title is not None:
         report = replace(report, title=title)
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    output_path.write_text(render_report_json_html(report), encoding="utf-8")
+    output_path.write_text(render_report_json_html(report, test_mode=test_mode), encoding="utf-8")
