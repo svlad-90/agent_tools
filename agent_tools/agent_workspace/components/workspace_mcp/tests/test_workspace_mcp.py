@@ -32,9 +32,12 @@ def test_workspace_mcp_lists_agent_search_tools(tmp_path: Path) -> None:
         "push_guard_install_hook",
         "push_guard_mark_success",
         "push_guard_status",
+        "task_actions_add",
+        "task_actions_delete",
         "task_actions_list",
         "task_actions_run",
         "task_actions_show",
+        "task_actions_update",
         "task_context_add_entry",
         "task_context_compact",
         "task_context_compile_dictionary",
@@ -348,9 +351,12 @@ with tempfile.TemporaryDirectory() as workspace_text:
         "push_guard_install_hook",
         "push_guard_mark_success",
         "push_guard_status",
+        "task_actions_add",
+        "task_actions_delete",
         "task_actions_list",
         "task_actions_run",
         "task_actions_show",
+        "task_actions_update",
         "task_context_add_entry",
         "task_context_compact",
         "task_context_compile_dictionary",
@@ -667,6 +673,48 @@ def test_workspace_mcp_task_actions_lists_shows_and_runs(tmp_path: Path) -> None
     assert shown["result"]["structuredContent"]["action"]["parameters"][0]["name"] == "profile"
     assert run["result"]["isError"] is False
     assert run["result"]["structuredContent"]["stdout"] == "ok\n"
+
+
+def test_workspace_mcp_task_actions_adds_updates_and_deletes(tmp_path: Path) -> None:
+    task = tmp_path / "tasks" / "sample"
+    task.mkdir(parents=True)
+    server = build_workspace_mcp_server(tmp_path)
+
+    added = _mcp_call(
+        server,
+        "task_actions_add",
+        {
+            "task": "tasks/sample",
+            "action": "smoke",
+            "label": "Smoke",
+            "command": [sys.executable, "-c", "print('old')"],
+            "env": {"MODE": "dev"},
+        },
+    )
+    updated = _mcp_call(
+        server,
+        "task_actions_update",
+        {
+            "task": "tasks/sample",
+            "action": "smoke",
+            "label": "Smoke test",
+            "command": [sys.executable, "-c", "print('new')"],
+            "env": {"MODE": "release"},
+        },
+    )
+    run = _mcp_call(server, "task_actions_run", {"task": "tasks/sample", "action": "smoke"})
+    deleted = _mcp_call(server, "task_actions_delete", {"task": "tasks/sample", "action": "smoke"})
+
+    assert added["result"]["isError"] is False
+    assert added["result"]["structuredContent"]["action"]["id"] == "smoke"
+    assert updated["result"]["structuredContent"]["action"]["label"] == "Smoke test"
+    assert updated["result"]["structuredContent"]["action"]["env"] == {"MODE": "release"}
+    assert run["result"]["structuredContent"]["stdout"] == "new\n"
+    assert deleted["result"]["structuredContent"]["deleted"] == {
+        "id": "smoke",
+        "actions": 1,
+        "shortcuts": 0,
+    }
 
 
 def test_workspace_mcp_task_actions_rejects_non_task_path(tmp_path: Path) -> None:

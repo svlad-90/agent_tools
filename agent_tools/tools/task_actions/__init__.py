@@ -13,6 +13,8 @@ from agent_tools.agent_workspace.components.task_actions.api import PAF_HIDE_TAS
 from agent_tools.agent_workspace.components.task_actions.api import TaskAction
 from agent_tools.agent_workspace.components.task_actions.api import bind_task_action_parameters
 from agent_tools.agent_workspace.components.task_actions.api import load_task_actions_config
+from agent_tools.agent_workspace.components.task_actions.api import load_task_actions_data
+from agent_tools.agent_workspace.components.task_actions.api import save_task_actions_data
 from agent_tools.agent_workspace.components.task_catalog.api import TaskSummary
 
 
@@ -44,8 +46,34 @@ def main(argv: Sequence[str] | None = None) -> int:
     run_parser.add_argument("--json", action="store_true", help="Render JSON.")
     run_parser.set_defaults(func=_main_run)
 
+    add_parser = subparsers.add_parser("add", help="Add one task action.")
+    add_parser.add_argument("--task", required=True, help="Task directory.")
+    add_parser.add_argument("--action", required=True, help="Action id.")
+    add_parser.add_argument("--label", required=True, help="Action label.")
+    _add_edit_arguments(add_parser, require_command=True)
+    add_parser.add_argument("--json", action="store_true", help="Render JSON.")
+    add_parser.set_defaults(func=_main_add)
+
+    update_parser = subparsers.add_parser("update", help="Update one task action.")
+    update_parser.add_argument("--task", required=True, help="Task directory.")
+    update_parser.add_argument("--action", required=True, help="Action id.")
+    update_parser.add_argument("--label", help="Action label.")
+    _add_edit_arguments(update_parser, require_command=False)
+    update_parser.add_argument("--json", action="store_true", help="Render JSON.")
+    update_parser.set_defaults(func=_main_update)
+
+    delete_parser = subparsers.add_parser("delete", help="Delete one task action.")
+    delete_parser.add_argument("--task", required=True, help="Task directory.")
+    delete_parser.add_argument("--action", required=True, help="Action id.")
+    delete_parser.add_argument("--json", action="store_true", help="Render JSON.")
+    delete_parser.set_defaults(func=_main_delete)
+
     args = parser.parse_args(list(argv) if argv is not None else None)
-    return int(args.func(args))
+    try:
+        return int(args.func(args))
+    except ValueError as error:
+        print(f"task_actions: error: {error}", file=sys.stderr)
+        return 1
 
 
 def list_actions(task_dir: Path) -> dict[str, object]:
@@ -112,6 +140,93 @@ def run_action(
     }
 
 
+def add_action(
+    task_dir: Path,
+    action_id: str,
+    label: str,
+    command: str | list[str],
+    *,
+    cwd: str = ".",
+    env: dict[str, str] | None = None,
+    parameters: list[dict[str, object]] | None = None,
+) -> dict[str, object]:
+    task = _task_summary(task_dir)
+    data, errors = load_task_actions_data(task)
+    if errors:
+        raise ValueError("; ".join(errors))
+    actions = _actions_data(data)
+    if _find_action(actions, action_id) is not None:
+        raise ValueError(f"task action already exists: {action_id}")
+    entry: dict[str, object] = {
+        "id": action_id,
+        "label": label,
+        "command": command,
+        "cwd": cwd,
+    }
+    if env:
+        entry["env"] = dict(env)
+    if parameters:
+        entry["parameters"] = list(parameters)
+    actions.append(entry)
+    save_task_actions_data(task, data)
+    return show_action(task_dir, action_id)
+
+
+def update_action(
+    task_dir: Path,
+    action_id: str,
+    *,
+    label: str | None = None,
+    command: str | list[str] | None = None,
+    cwd: str | None = None,
+    env: dict[str, str] | None = None,
+    parameters: list[dict[str, object]] | None = None,
+) -> dict[str, object]:
+    task = _task_summary(task_dir)
+    data, errors = load_task_actions_data(task)
+    if errors:
+        raise ValueError("; ".join(errors))
+    action = _find_action(_actions_data(data), action_id)
+    if action is None:
+        raise ValueError(f"task action not found: {action_id}")
+    if label is not None:
+        action["label"] = label
+    if command is not None:
+        action["command"] = command
+    if cwd is not None:
+        action["cwd"] = cwd
+    if env is not None:
+        action["env"] = dict(env)
+    if parameters is not None:
+        action["parameters"] = list(parameters)
+    save_task_actions_data(task, data)
+    return show_action(task_dir, action_id)
+
+
+def delete_action(task_dir: Path, action_id: str) -> dict[str, object]:
+    task = _task_summary(task_dir)
+    data, errors = load_task_actions_data(task)
+    if errors:
+        raise ValueError("; ".join(errors))
+    actions = _actions_data(data)
+    before = len(actions)
+    data["actions"] = [
+        entry for entry in actions if not (isinstance(entry, dict) and entry.get("id") == action_id)
+    ]
+    removed_actions = before - len(data["actions"])
+    removed_shortcuts = _delete_shortcuts_for_action(data, action_id)
+    if not removed_actions and not removed_shortcuts:
+        raise ValueError(f"task action not found: {action_id}")
+    save_task_actions_data(task, data)
+    payload = list_actions(task_dir)
+    payload["deleted"] = {
+        "id": action_id,
+        "actions": removed_actions,
+        "shortcuts": removed_shortcuts,
+    }
+    return payload
+
+
 def _main_list(args: argparse.Namespace) -> int:
     payload = list_actions(Path(args.task))
     _print_payload(payload, json_output=args.json)
@@ -128,6 +243,40 @@ def _main_run(args: argparse.Namespace) -> int:
     payload = run_action(Path(args.task), args.action, _parse_bindings(args.binding))
     _print_payload(payload, json_output=args.json)
     return int(payload["returncode"])
+
+
+def _main_add(args: argparse.Namespace) -> int:
+    payload = add_action(
+        Path(args.task),
+        args.action,
+        args.label,
+        _command_arg(args),
+        cwd=args.cwd,
+        env=_json_object_arg(args.env_json, "env-json"),
+        parameters=_json_list_arg(args.parameters_json, "parameters-json"),
+    )
+    _print_payload(payload["action"], json_output=args.json)
+    return 0
+
+
+def _main_update(args: argparse.Namespace) -> int:
+    payload = update_action(
+        Path(args.task),
+        args.action,
+        label=args.label,
+        command=_command_arg(args) if args.command or args.command_json else None,
+        cwd=args.cwd,
+        env=_json_object_arg(args.env_json, "env-json") if args.env_json else None,
+        parameters=_json_list_arg(args.parameters_json, "parameters-json") if args.parameters_json else None,
+    )
+    _print_payload(payload["action"], json_output=args.json)
+    return 0
+
+
+def _main_delete(args: argparse.Namespace) -> int:
+    payload = delete_action(Path(args.task), args.action)
+    _print_payload(payload, json_output=args.json)
+    return 0
 
 
 def _task_summary(task_dir: Path) -> TaskSummary:
@@ -166,6 +315,31 @@ def _find_action(actions: object, action_id: str) -> dict[str, object] | None:
     return None
 
 
+def _actions_data(data: dict[str, object]) -> list[object]:
+    actions = data.setdefault("actions", [])
+    if not isinstance(actions, list):
+        raise ValueError("TASK_ACTIONS.json: actions must be a list")
+    return actions
+
+
+def _delete_shortcuts_for_action(data: dict[str, object], action_id: str) -> int:
+    shortcuts = data.get("shortcuts")
+    if not isinstance(shortcuts, list):
+        return 0
+    filtered = [
+        entry
+        for entry in shortcuts
+        if not (
+            isinstance(entry, dict)
+            and (entry.get("id") == action_id or entry.get("action") == action_id)
+        )
+    ]
+    removed = len(shortcuts) - len(filtered)
+    if removed:
+        data["shortcuts"] = filtered
+    return removed
+
+
 def _find_task_action(actions: list[TaskAction], action_id: str) -> TaskAction | None:
     for action in actions:
         if action.action_id == action_id:
@@ -183,6 +357,47 @@ def _parse_bindings(values: list[str]) -> dict[str, str]:
             raise ValueError(f"binding name must not be empty: {value}")
         bindings[name] = binding
     return bindings
+
+
+def _add_edit_arguments(parser: argparse.ArgumentParser, *, require_command: bool) -> None:
+    command_group = parser.add_mutually_exclusive_group(required=require_command)
+    command_group.add_argument("--command", help="Shell command string.")
+    command_group.add_argument("--command-json", help="JSON string or string list command.")
+    parser.add_argument("--cwd", default=".", help="Action working directory relative to task.")
+    parser.add_argument("--env-json", help="JSON string map for action environment.")
+    parser.add_argument("--parameters-json", help="JSON list for action parameters.")
+
+
+def _command_arg(args: argparse.Namespace) -> str | list[str]:
+    if args.command is not None:
+        return str(args.command)
+    value = json.loads(args.command_json)
+    if isinstance(value, str):
+        return value
+    if isinstance(value, list) and all(isinstance(item, str) for item in value):
+        return value
+    raise ValueError("command-json must be a string or a list of strings")
+
+
+def _json_object_arg(value: str | None, name: str) -> dict[str, str] | None:
+    if value is None:
+        return None
+    parsed = json.loads(value)
+    if not isinstance(parsed, dict) or not all(
+        isinstance(key, str) and isinstance(item, str)
+        for key, item in parsed.items()
+    ):
+        raise ValueError(f"{name} must be a string map")
+    return dict(parsed)
+
+
+def _json_list_arg(value: str | None, name: str) -> list[dict[str, object]] | None:
+    if value is None:
+        return None
+    parsed = json.loads(value)
+    if not isinstance(parsed, list) or not all(isinstance(item, dict) for item in parsed):
+        raise ValueError(f"{name} must be a list of objects")
+    return [dict(item) for item in parsed]
 
 
 def _print_payload(payload: object, *, json_output: bool) -> None:
