@@ -136,6 +136,7 @@ class WorkspaceMcpServer:
         from .commit_msg_tools import commit_msg_tools
         from .cpp_code_map_tools import cpp_code_map_tools
         from .cpp_light_code_map_tools import cpp_light_code_map_tools
+        from .diff_report_tools import diff_report_tools
         from .knowledge_tools import knowledge_tools
         from .push_guard_tools import push_guard_tools
         from .task_actualize_tools import task_actualize_tools
@@ -151,6 +152,8 @@ class WorkspaceMcpServer:
         for tool in cpp_code_map_tools():
             self.registry.register(tool)
         for tool in cpp_light_code_map_tools():
+            self.registry.register(tool)
+        for tool in diff_report_tools():
             self.registry.register(tool)
         for tool in knowledge_tools():
             self.registry.register(tool)

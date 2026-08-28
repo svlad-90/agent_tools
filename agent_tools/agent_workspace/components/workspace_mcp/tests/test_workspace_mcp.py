@@ -68,6 +68,10 @@ def test_workspace_mcp_lists_agent_search_tools(tmp_path: Path) -> None:
         "cpp_light_symbol_get",
         "cpp_light_symbols",
         "cpp_light_unmapped",
+        "diff_report_compose_findings",
+        "diff_report_init_comments",
+        "diff_report_render",
+        "diff_report_render_json",
         "knowledge_get_topic",
         "knowledge_list_topics",
         "knowledge_search_topics",
@@ -440,6 +444,10 @@ with tempfile.TemporaryDirectory() as workspace_text:
         "cpp_light_symbol_get",
         "cpp_light_symbols",
         "cpp_light_unmapped",
+        "diff_report_compose_findings",
+        "diff_report_init_comments",
+        "diff_report_render",
+        "diff_report_render_json",
         "knowledge_get_topic",
         "knowledge_list_topics",
         "knowledge_search_topics",
@@ -1148,6 +1156,102 @@ def test_workspace_mcp_cpp_code_map_blocks_batch_paths_outside_workspace(tmp_pat
     assert "outside workspace" in response["result"]["content"][0]["text"]
 
 
+def test_workspace_mcp_diff_report_renders_and_composes_reports(tmp_path: Path) -> None:
+    diff_path = _write_sample_diff(tmp_path)
+    comments_path = tmp_path / "comments.json"
+    comments_path.write_text(
+        json.dumps({"inline": [{"file": "app.py", "line": 2, "body": "MCP note"}]}),
+        encoding="utf-8",
+    )
+    report_json_path = tmp_path / "dashboard.json"
+    report_json_path.write_text(
+        json.dumps({"title": "Dashboard", "metrics": [{"label": "Rows", "value": 3}]}),
+        encoding="utf-8",
+    )
+    findings_path = tmp_path / "findings.json"
+    findings_path.write_text(
+        json.dumps(
+            {
+                "summary": "Generated from MCP findings",
+                "inline": [
+                    {
+                        "file": "app.py",
+                        "contains": "added",
+                        "title": "Added call",
+                        "body": "Review this call.",
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    server = build_workspace_mcp_server(tmp_path)
+
+    rendered = _mcp_call(
+        server,
+        "diff_report_render",
+        {
+            "diff_file": "change.patch",
+            "comments": "comments.json",
+            "output": "report.html",
+            "title": "MCP diff report",
+        },
+    )
+    initialized = _mcp_call(
+        server,
+        "diff_report_init_comments",
+        {"diff_file": "change.patch", "output_comments": "template.json"},
+    )
+    composed = _mcp_call(
+        server,
+        "diff_report_compose_findings",
+        {
+            "diff_file": "change.patch",
+            "findings": "findings.json",
+            "output_comments": "composed.json",
+            "compose_report": "compose-report.json",
+            "output": "composed.html",
+            "title": "Composed report",
+        },
+    )
+    dashboard = _mcp_call(
+        server,
+        "diff_report_render_json",
+        {"report_json": "dashboard.json", "output": "dashboard.html"},
+    )
+
+    assert rendered["result"]["isError"] is False
+    assert rendered["result"]["structuredContent"]["output"] == str(tmp_path / "report.html")
+    assert "MCP note" in (tmp_path / "report.html").read_text(encoding="utf-8")
+    assert initialized["result"]["isError"] is False
+    assert json.loads((tmp_path / "template.json").read_text(encoding="utf-8"))["inline"][0]["line"] == 2
+    assert composed["result"]["isError"] is False
+    assert composed["result"]["structuredContent"]["diagnostics"] == []
+    assert "Generated from MCP findings" in (tmp_path / "composed.json").read_text(encoding="utf-8")
+    assert (tmp_path / "compose-report.json").exists()
+    assert "Composed report" in (tmp_path / "composed.html").read_text(encoding="utf-8")
+    assert dashboard["result"]["isError"] is False
+    assert "Dashboard" in (tmp_path / "dashboard.html").read_text(encoding="utf-8")
+    assert diff_path.exists()
+
+
+def test_workspace_mcp_diff_report_blocks_paths_outside_workspace(tmp_path: Path) -> None:
+    _write_sample_diff(tmp_path)
+    server = build_workspace_mcp_server(tmp_path)
+
+    response = _mcp_call(
+        server,
+        "diff_report_render",
+        {
+            "diff_file": "change.patch",
+            "output": str(tmp_path.parent / "outside.html"),
+        },
+    )
+
+    assert response["result"]["isError"] is True
+    assert "outside workspace" in response["result"]["content"][0]["text"]
+
+
 def test_workspace_mcp_yaml_map_inspects_and_edits_with_hash_guard(tmp_path: Path) -> None:
     source = tmp_path / "config.yaml"
     source.write_text(
@@ -1494,6 +1598,21 @@ def _write_cpp_sample_project(root: Path) -> Path:
         encoding="utf-8",
     )
     return source
+
+
+def _write_sample_diff(root: Path) -> Path:
+    diff_path = root / "change.patch"
+    diff_path.write_text(
+        "diff --git a/app.py b/app.py\n"
+        "index 1111111..2222222 100644\n"
+        "--- a/app.py\n"
+        "+++ b/app.py\n"
+        "@@ -1 +1,2 @@\n"
+        " keep()\n"
+        "+added()\n",
+        encoding="utf-8",
+    )
+    return diff_path
 
 
 def _git(repo: Path, *args: str) -> subprocess.CompletedProcess[str]:
