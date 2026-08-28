@@ -420,8 +420,7 @@ def test_agent_workspace_update_commands_pull_then_install(tmp_path: Path) -> No
 
     commands = agent_workspace_update_commands(workspace, python_executable="/python")
 
-    assert commands[0][-3:] == ("pull", "--ff-only")
-    assert commands[0][-4] == str(workspace)
+    assert commands[0][1:] == ("-C", str(workspace), "pull", "--ff-only")
     assert commands[1] == (
         "/python",
         str(workspace / "install-agent-tools.py"),
