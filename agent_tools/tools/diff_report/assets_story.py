@@ -846,6 +846,9 @@ def story_script() -> str:
     story.style.minHeight = "";
     const storyTop = Math.max(0, Math.ceil(story.getBoundingClientRect().top));
     const currentHeight = Math.ceil(story.getBoundingClientRect().height);
+    if (storySentinel && document.body.classList.contains("has-pinned-story")) {
+      storySentinel.style.height = currentHeight + "px";
+    }
     document.documentElement.style.setProperty("--story-offset", (storyTop + currentHeight) + "px");
   }
 
@@ -870,8 +873,21 @@ def story_script() -> str:
         hasLeftTop && storySentinel && storySentinel.getBoundingClientRect().top <= 0
       );
       document.body.classList.toggle("has-left-top", hasLeftTop);
-      document.body.classList.toggle("has-pinned-story", storyPinned);
+      setStoryPinned(storyPinned);
     });
+  }
+
+  function setStoryPinned(storyPinned) {
+    if (!story || !storySentinel) {
+      return;
+    }
+    if (storyPinned) {
+      storySentinel.style.height = Math.ceil(story.getBoundingClientRect().height) + "px";
+      document.body.classList.add("has-pinned-story");
+      return;
+    }
+    document.body.classList.remove("has-pinned-story");
+    storySentinel.style.height = "0px";
   }
 
   function setActive(index) {
