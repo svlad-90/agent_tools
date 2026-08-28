@@ -107,6 +107,8 @@ def test_workspace_mcp_lists_agent_search_tools(tmp_path: Path) -> None:
         "yaml_map_path_get",
         "yaml_map_path_set",
         "yaml_map_project",
+        "yocto_diag_analyze_graph",
+        "yocto_diag_command",
     ]
     assert tools[0]["inputSchema"]["type"] == "object"
 
@@ -485,6 +487,8 @@ with tempfile.TemporaryDirectory() as workspace_text:
         "yaml_map_path_get",
         "yaml_map_path_set",
         "yaml_map_project",
+        "yocto_diag_analyze_graph",
+        "yocto_diag_command",
     ]
     assert payload["query"]["result"]["isError"] is False
     assert "Read context without search deps." in payload["query"]["result"]["content"][0]["text"]
@@ -1283,6 +1287,64 @@ def test_workspace_mcp_rules_sync_blocks_root_outside_workspace(tmp_path: Path) 
     assert "outside workspace" in response["result"]["content"][0]["text"]
 
 
+def test_workspace_mcp_yocto_diag_builds_command_and_analyzes_graphs(tmp_path: Path) -> None:
+    yocto_dir = tmp_path / "yocto"
+    yocto_dir.mkdir()
+    prefix = tmp_path / "logs" / "bitbake-graph"
+    _write_yocto_graphs(prefix)
+    server = build_workspace_mcp_server(tmp_path)
+
+    command = _mcp_call(
+        server,
+        "yocto_diag_command",
+        {
+            "yocto_dir": "yocto",
+            "build_dir": "build",
+            "init_script": "poky/oe-init-build-env",
+            "bitbake_args": "-g core-image-minimal",
+            "graph_output_dir": "logs",
+            "graph_label": "graph label",
+        },
+    )
+    analyzed = _mcp_call(
+        server,
+        "yocto_diag_analyze_graph",
+        {"prefix": "logs/bitbake-graph"},
+    )
+
+    assert command["result"]["isError"] is False
+    assert "bitbake -T" in command["result"]["structuredContent"]["command"]
+    assert "graph_label-" in command["result"]["structuredContent"]["command"]
+    assert "/yocto" in command["result"]["structuredContent"]["yocto_dir"]
+    assert command["result"]["structuredContent"]["graph_copy"]["label"] == "graph label"
+    assert analyzed["result"]["isError"] is False
+    assert "- recipes in pn-buildlist: 2" in analyzed["result"]["content"][0]["text"]
+    assert "- edges: 2" in analyzed["result"]["content"][0]["text"]
+
+
+def test_workspace_mcp_yocto_diag_blocks_paths_outside_workspace(tmp_path: Path) -> None:
+    server = build_workspace_mcp_server(tmp_path)
+
+    command = _mcp_call(
+        server,
+        "yocto_diag_command",
+        {
+            "yocto_dir": str(tmp_path.parent),
+            "bitbake_args": "-g core-image-minimal",
+        },
+    )
+    analyzed = _mcp_call(
+        server,
+        "yocto_diag_analyze_graph",
+        {"prefix": str(tmp_path.parent / "graph")},
+    )
+
+    assert command["result"]["isError"] is True
+    assert analyzed["result"]["isError"] is True
+    assert "outside workspace" in command["result"]["content"][0]["text"]
+    assert "outside workspace" in analyzed["result"]["content"][0]["text"]
+
+
 def test_workspace_mcp_yaml_map_inspects_and_edits_with_hash_guard(tmp_path: Path) -> None:
     source = tmp_path / "config.yaml"
     source.write_text(
@@ -1675,6 +1737,17 @@ def _write_rules_sync_workspace(root: Path) -> None:
         "# Widget Tool\n\n"
         "Codex should run widget checks.\n",
     )
+
+
+def _write_yocto_graphs(prefix: Path) -> None:
+    _write_text(prefix.with_name(prefix.name + "-pn-buildlist"), "busybox\ncore-image-minimal\n")
+    _write_text(
+        prefix.with_name(prefix.name + "-task-depends.dot"),
+        '"do_rootfs" -> "do_package" [label="x"];\n'
+        '"do_package" -> "do_compile" [label="x"];\n',
+    )
+    _write_text(prefix.with_name(prefix.name + "-recipe-depends.dot"), '"image" -> "busybox";\n')
+    _write_text(prefix.with_name(prefix.name + "-package-depends.dot"), '"busybox" -> "libc";\n')
 
 
 def _write_text(path: Path, text: str) -> None:
