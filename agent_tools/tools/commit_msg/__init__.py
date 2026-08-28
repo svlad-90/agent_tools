@@ -314,14 +314,31 @@ def _split_trailers(lines: list[str]) -> tuple[list[str], list[str]]:
         return [], []
 
     index = len(stripped)
-    while index > 0 and _is_trailer_line(stripped[index - 1]):
-        index -= 1
+    trailer_start = index
+    has_trailer = False
+    while index > 0:
+        line = stripped[index - 1]
+        if _is_trailer_line(line):
+            has_trailer = True
+            trailer_start = index - 1
+            index -= 1
+            continue
+        if (
+            has_trailer
+            and line == ""
+            and index > 2
+            and _is_trailer_line(stripped[index - 2])
+        ):
+            index -= 1
+            continue
+        break
 
-    if index == len(stripped):
+    if not has_trailer:
         return stripped, []
     if index > 0 and stripped[index - 1] != "":
         return stripped, []
-    return _strip_blank_edges(stripped[:index]), stripped[index:]
+    trailer_lines = [line for line in stripped[trailer_start:] if _is_trailer_line(line)]
+    return _strip_blank_edges(stripped[:index]), trailer_lines
 
 
 def _is_trailer_line(line: str) -> bool:
