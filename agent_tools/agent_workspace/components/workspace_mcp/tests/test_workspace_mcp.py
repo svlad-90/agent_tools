@@ -81,6 +81,8 @@ def test_workspace_mcp_lists_agent_search_tools(tmp_path: Path) -> None:
         "push_guard_install_hook",
         "push_guard_mark_success",
         "push_guard_status",
+        "rules_sync_apply",
+        "rules_sync_check",
         "task_actions_add",
         "task_actions_delete",
         "task_actions_list",
@@ -457,6 +459,8 @@ with tempfile.TemporaryDirectory() as workspace_text:
         "push_guard_install_hook",
         "push_guard_mark_success",
         "push_guard_status",
+        "rules_sync_apply",
+        "rules_sync_check",
         "task_actions_add",
         "task_actions_delete",
         "task_actions_list",
@@ -1252,6 +1256,33 @@ def test_workspace_mcp_diff_report_blocks_paths_outside_workspace(tmp_path: Path
     assert "outside workspace" in response["result"]["content"][0]["text"]
 
 
+def test_workspace_mcp_rules_sync_checks_and_applies_mirrors(tmp_path: Path) -> None:
+    _write_rules_sync_workspace(tmp_path)
+    server = build_workspace_mcp_server(tmp_path)
+
+    checked = _mcp_call(server, "rules_sync_check", {})
+    applied = _mcp_call(server, "rules_sync_apply", {})
+    checked_again = _mcp_call(server, "rules_sync_check", {})
+
+    assert checked["result"]["isError"] is True
+    assert ".claude/skills/widget-tool/SKILL.md" in checked["result"]["structuredContent"]["changed"]
+    assert applied["result"]["isError"] is False
+    assert ".claude/skills/widget-tool/SKILL.md" in applied["result"]["structuredContent"]["changed"]
+    assert checked_again["result"]["isError"] is False
+    assert checked_again["result"]["structuredContent"]["clean"] is True
+    assert (tmp_path / ".claude" / "skills" / "widget-tool" / "SKILL.md").is_file()
+    assert "Always Rule" in (tmp_path / "CLAUDE.md").read_text(encoding="utf-8")
+
+
+def test_workspace_mcp_rules_sync_blocks_root_outside_workspace(tmp_path: Path) -> None:
+    server = build_workspace_mcp_server(tmp_path)
+
+    response = _mcp_call(server, "rules_sync_check", {"root": str(tmp_path.parent)})
+
+    assert response["result"]["isError"] is True
+    assert "outside workspace" in response["result"]["content"][0]["text"]
+
+
 def test_workspace_mcp_yaml_map_inspects_and_edits_with_hash_guard(tmp_path: Path) -> None:
     source = tmp_path / "config.yaml"
     source.write_text(
@@ -1613,6 +1644,42 @@ def _write_sample_diff(root: Path) -> Path:
         encoding="utf-8",
     )
     return diff_path
+
+
+def _write_rules_sync_workspace(root: Path) -> None:
+    (root / "AGENTS.md").write_text("# Workspace instructions\n", encoding="utf-8")
+    (root / "CLAUDE.md").write_text("# Claude Code workspace instructions\n", encoding="utf-8")
+    _write_text(
+        root / "agent_tools" / "rules" / "always-rule.md",
+        "---\n"
+        "sync: always\n"
+        "---\n\n"
+        "# Always Rule\n\n"
+        "These rules apply everywhere.\n",
+    )
+    _write_text(
+        root / "agent_tools" / "rules" / "widget-rule.md",
+        "---\n"
+        "sync: skill\n"
+        "---\n\n"
+        "# Widget Rule\n\n"
+        "These rules apply to widgets.\n",
+    )
+    _write_text(
+        root / "agent_tools" / "skills" / "widget-tool" / "SKILL.md",
+        "---\n"
+        "name: widget-tool\n"
+        "description: Use when Codex works on widgets.\n"
+        "rule: agent_tools/rules/widget-rule.md\n"
+        "---\n\n"
+        "# Widget Tool\n\n"
+        "Codex should run widget checks.\n",
+    )
+
+
+def _write_text(path: Path, text: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(text, encoding="utf-8")
 
 
 def _git(repo: Path, *args: str) -> subprocess.CompletedProcess[str]:
