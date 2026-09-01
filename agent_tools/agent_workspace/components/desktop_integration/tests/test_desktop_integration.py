@@ -1,5 +1,9 @@
 from __future__ import annotations
 
+import argparse
+
+import pytest
+
 from agent_tools.agent_workspace.components.desktop_integration.api import agent_tools_package_root
 from agent_tools.agent_workspace.components.desktop_integration.api import agent_workspace_icon_source
 from agent_tools.agent_workspace.components.desktop_integration.api import workspace_root
@@ -108,3 +112,49 @@ def test_install_agent_tools_default_launchers_use_workspace_relative_venv() -> 
     assert '"$WORKSPACE_ROOT/agent_tools/.venv/bin/python3"' in unix
     assert str(_workspace_root()) not in windows
     assert '"%WORKSPACE_ROOT%agent_tools\\.venv\\Scripts\\python.exe"' in windows
+
+
+def test_install_agent_tools_linux_auto_desktop_venv_uses_system_site_packages(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    installer_path = _workspace_root() / "install-agent-tools.py"
+    spec = importlib.util.spec_from_file_location("install_agent_tools_test", installer_path)
+    assert spec is not None
+    assert spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    args = argparse.Namespace(
+        gui=False,
+        no_desktop=False,
+        no_launcher=False,
+        ui=None,
+        venv=tmp_path / ".venv",
+    )
+
+    monkeypatch.setattr(module.platform, "system", lambda: "Linux")
+
+    assert module._venv_should_include_system_site_packages(args)
+
+
+def test_install_agent_tools_web_only_venv_does_not_force_system_site_packages(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    installer_path = _workspace_root() / "install-agent-tools.py"
+    spec = importlib.util.spec_from_file_location("install_agent_tools_test", installer_path)
+    assert spec is not None
+    assert spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    args = argparse.Namespace(
+        gui=False,
+        no_desktop=False,
+        no_launcher=False,
+        ui="web",
+        venv=tmp_path / ".venv",
+    )
+
+    monkeypatch.setattr(module.platform, "system", lambda: "Linux")
+
+    assert not module._venv_should_include_system_site_packages(args)

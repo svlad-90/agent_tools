@@ -105,6 +105,19 @@ class BrowserSmokeTests(unittest.TestCase):
 
 def _generic_report_payload() -> dict[str, object]:
     rows = [{"id": f"row-{index:03d}", "status": "not_failed"} for index in range(1, 80)]
+    component_nodes = [
+        {
+            "id": f"component:{index}",
+            "type": "component",
+            "label": f"Component {index}",
+            "status": "not_failed",
+        }
+        for index in range(1, 61)
+    ]
+    component_edges = [
+        {"source": "product:test", "target": f"component:{index}", "relation": "contains"}
+        for index in range(1, 61)
+    ]
     return {
         "title": "Synthetic dashboard",
         "summary_blocks": [{"type": "text", "body": "Synthetic browser smoke report."}],
@@ -127,7 +140,7 @@ def _generic_report_payload() -> dict[str, object]:
                                 },
                             },
                             "passed": {
-                                "text": "3",
+                                "text": "60",
                                 "status": "not_failed",
                                 "graph_view": {
                                     "focus": "product:test",
@@ -146,15 +159,9 @@ def _generic_report_payload() -> dict[str, object]:
             "title": "Synthetic graph",
             "nodes": [
                 {"id": "product:test", "type": "product", "label": "Test product", "status": "not_failed"},
-                {"id": "component:1", "type": "component", "label": "Component 1", "status": "not_failed"},
-                {"id": "component:2", "type": "component", "label": "Component 2", "status": "not_failed"},
-                {"id": "component:3", "type": "component", "label": "Component 3", "status": "not_failed"},
+                *component_nodes,
             ],
-            "edges": [
-                {"source": "product:test", "target": "component:1", "relation": "contains"},
-                {"source": "product:test", "target": "component:2", "relation": "contains"},
-                {"source": "product:test", "target": "component:3", "relation": "contains"},
-            ],
+            "edges": component_edges,
         },
     }
 
