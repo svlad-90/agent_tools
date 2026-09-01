@@ -1,0 +1,17 @@
+version: 1
+repo:
+  id: agent_tools
+  names:
+    - agent_tools
+  github_repos:
+    - github.com/svlad-90/agent_tools
+  allow_forks: true
+  characteristic_files:
+    - agent_tools
+    - install-agent-tools.py
+checks:
+  - id: python-parse-check-changed
+    level: repo
+    backend: builtin
+    cost: medium
+    required: true
