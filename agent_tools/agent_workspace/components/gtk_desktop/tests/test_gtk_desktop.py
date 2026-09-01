@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 import subprocess
 import sys
 import textwrap
@@ -2570,28 +2571,8 @@ def test_gtk_terminal_text_tail_reads_recent_text() -> None:
 
 
 def test_gtk_theme_colors_cover_widget_css_keys() -> None:
-    required = {
-        "background",
-        "border",
-        "codex_running_background",
-        "codex_running_border",
-        "codex_running_foreground",
-        "codex_running_glow",
-        "control_background",
-        "control_hover_background",
-        "foreground",
-        "menu_background",
-        "muted_foreground",
-        "separator",
-        "selection_background",
-        "selection_foreground",
-        "tab_background",
-        "tab_selected_background",
-        "tab_selected_foreground",
-        "terminal_background",
-        "text_background",
-        "titlebar_background",
-    }
+    source = Path(gtk_ui_module.__file__).read_text(encoding="utf-8")
+    required = set(re.findall(r"colors\['([^']+)'\]", source))
 
     assert required <= set(gtk_theme_colors("dark"))
     assert required <= set(gtk_theme_colors("light"))
