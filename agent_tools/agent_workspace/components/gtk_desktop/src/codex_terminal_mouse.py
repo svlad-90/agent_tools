@@ -3,7 +3,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import Literal
 
-from .gtk_bootstrap import sync_gtk_environment
+from agent_tools.agent_workspace.components.desktop_integration.api.gtk_bootstrap import sync_gtk_environment
 
 
 sync_gtk_environment()

@@ -4,7 +4,7 @@ import argparse
 import os
 from pathlib import Path
 
-from agent_tools.agent_workspace.components.gtk_desktop.src.gtk_bootstrap import sync_gtk_environment
+from agent_tools.agent_workspace.components.desktop_integration.api.gtk_bootstrap import sync_gtk_environment
 
 
 sync_gtk_environment()

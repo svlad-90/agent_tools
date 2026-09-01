@@ -12,9 +12,9 @@ import sys
 import threading
 import time
 
-from .gtk_bootstrap import gtk_cursor_size
-from .gtk_bootstrap import gtk_cursor_theme
-from .gtk_bootstrap import sync_gtk_environment
+from agent_tools.agent_workspace.components.desktop_integration.api.gtk_bootstrap import gtk_cursor_size
+from agent_tools.agent_workspace.components.desktop_integration.api.gtk_bootstrap import gtk_cursor_theme
+from agent_tools.agent_workspace.components.desktop_integration.api.gtk_bootstrap import sync_gtk_environment
 
 
 sync_gtk_environment()
