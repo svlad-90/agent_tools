@@ -46,8 +46,6 @@ def acquire_agent_workspace_lock(workspace: Path) -> io.TextIOWrapper | None:
         return handle
     except BlockingIOError:
         return None
-    except OSError:
-        return None
 
 
 def log_agent_workspace_exception(

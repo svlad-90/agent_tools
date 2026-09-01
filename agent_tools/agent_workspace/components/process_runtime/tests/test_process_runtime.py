@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import pytest
+
 from agent_tools.agent_workspace.components.test_support.src.helpers import *
 from agent_tools.agent_workspace.components.process_runtime.src import runtime as process_runtime_module
 
@@ -40,6 +42,16 @@ def test_agent_workspace_failed_lock_does_not_truncate_owner_pid(tmp_path: Path)
         assert lock_path.read_text(encoding="utf-8") == owner
     finally:
         first.close()
+
+
+def test_agent_workspace_lock_surfaces_filesystem_errors(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(process_runtime_module, "agent_workspace_lock_path", lambda _workspace: tmp_path)
+
+    with pytest.raises(OSError):
+        acquire_agent_workspace_lock(tmp_path)
 
 
 def test_abort_agent_workspace_with_stack_dump_writes_traceback_then_aborts(
