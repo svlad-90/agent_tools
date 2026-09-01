@@ -100,6 +100,9 @@ def test_workspace_mcp_lists_agent_search_tools(tmp_path: Path) -> None:
         "task_context_set_slot",
         "validate_changed",
         "validate_task",
+        "workspace_validate",
+        "workspace_validation_policy",
+        "workspace_validation_status",
         "yaml_map_file",
         "yaml_map_item_insert",
         "yaml_map_parse_check",
@@ -480,6 +483,9 @@ with tempfile.TemporaryDirectory() as workspace_text:
         "task_context_set_slot",
         "validate_changed",
         "validate_task",
+        "workspace_validate",
+        "workspace_validation_policy",
+        "workspace_validation_status",
         "yaml_map_file",
         "yaml_map_item_insert",
         "yaml_map_parse_check",
@@ -791,7 +797,9 @@ def test_workspace_mcp_task_actions_lists_shows_and_runs(tmp_path: Path) -> None
     )
 
     assert listed["result"]["isError"] is False
-    assert listed["result"]["structuredContent"]["actions"][0]["id"] == "echo"
+    action_ids = [action["id"] for action in listed["result"]["structuredContent"]["actions"]]
+    assert action_ids[:2] == ["workspace:validate", "workspace:task-check"]
+    assert "echo" in action_ids
     assert shown["result"]["structuredContent"]["action"]["parameters"][0]["name"] == "profile"
     assert run["result"]["isError"] is False
     assert run["result"]["structuredContent"]["stdout"] == "ok\n"
@@ -1504,6 +1512,43 @@ def test_workspace_mcp_validate_task_writes_task_receipt(
     assert result["isError"] is False
     assert result["structuredContent"]["task_dir"] == str(task_dir.resolve())
     assert (task_dir / "report" / "validation" / "latest.json").is_file()
+
+
+def test_workspace_mcp_lists_high_level_repo_guard_tools(tmp_path: Path) -> None:
+    server = build_workspace_mcp_server(tmp_path)
+
+    response = server.handle_message({"jsonrpc": "2.0", "id": 1, "method": "tools/list"})
+
+    assert response is not None
+    tools = {tool["name"] for tool in response["result"]["tools"]}
+    assert {
+        "workspace_validate",
+        "workspace_validation_policy",
+        "workspace_validation_status",
+    }.issubset(tools)
+    assert "workspace_validation_commit_message" not in tools
+    assert "workspace_validation_receipt_writer" not in tools
+
+
+def test_workspace_mcp_repo_guard_policy_and_validate(tmp_path: Path) -> None:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _git(repo, "init")
+    _git(repo, "config", "user.name", "Test User")
+    _git(repo, "config", "user.email", "test@example.com")
+    (repo / "README.md").write_text("ok\n", encoding="utf-8")
+    _git(repo, "add", "README.md")
+    _git(repo, "commit", "-m", "Initial", "-s")
+    server = build_workspace_mcp_server(tmp_path)
+
+    policy_response = _mcp_call(server, "workspace_validation_policy", {"repo": "repo"})
+    validate_response = _mcp_call(server, "workspace_validate", {"repo": "repo"})
+
+    assert policy_response["result"]["isError"] is False
+    assert policy_response["result"]["structuredContent"]["checks"]
+    assert validate_response["result"]["isError"] is False
+    assert validate_response["result"]["structuredContent"]["status"] == "pass"
+    assert "repo_guard: pass" in validate_response["result"]["content"][0]["text"]
 
 
 def test_workspace_mcp_calls_task_context_query(tmp_path: Path) -> None:
