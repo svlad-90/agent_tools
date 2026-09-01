@@ -803,6 +803,33 @@ def test_limited_bash_streams_live_logs_before_command_finishes(
     assert not log_dir.exists() or list(log_dir.iterdir()) == []
 
 
+def test_limited_bash_reports_silent_running_command(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    task_dir = _task(tmp_path)
+    monkeypatch.setenv("AGENT_TOOLS_TASK_DIR", str(task_dir))
+
+    result = run_limited_bash(
+        "sleep 0.2; printf done",
+        limit=100,
+        cwd=tmp_path,
+        idle_notice_seconds=0.05,
+    )
+
+    captured = capsys.readouterr()
+    assert result.exit_code == 0
+    assert result.exceeded is False
+    assert result.idle_notice_emitted is True
+    assert result.log_base is not None
+    assert captured.out == "done"
+    assert "command is still running with no output" in captured.err
+    assert "Live stdout log:" in captured.err
+    assert result.log_base.with_suffix(".stdout.log").read_text(encoding="utf-8") == "done"
+    assert "idle_notice_emitted=true" in result.log_base.with_suffix(".meta.txt").read_text(encoding="utf-8")
+
+
 def test_harness_adapter_records_context_injection_points(tmp_path: Path) -> None:
     task_dir = _task(tmp_path)
     clear_harness_debug_events(tmp_path)
