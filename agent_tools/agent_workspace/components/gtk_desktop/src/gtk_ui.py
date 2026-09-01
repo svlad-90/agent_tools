@@ -23,10 +23,8 @@ import gi
 
 gi.require_version("Gtk", "3.0")
 gi.require_version("Gdk", "3.0")
-gi.require_version("GdkPixbuf", "2.0")
 gi.require_version("Vte", "2.91")
 from gi.repository import Gdk
-from gi.repository import GdkPixbuf
 from gi.repository import Gio
 from gi.repository import GLib
 from gi.repository import Gtk
@@ -328,8 +326,6 @@ class WorkspaceGtkGui:
         self.harness_debug_latest_by_task: dict[Path, HarnessDebugEvent] = {}
         self.workspace_ipc_server: WorkspaceIpcServer | None = None
         self.active_main_page: Gtk.Widget | None = None
-        self.default_pointer_cursor: Gdk.Cursor | None = None
-
         settings = agent_workspace_runtime_settings(load_agent_workspace_settings(), default_font_size=13)
         self.text_font_size = settings.text_font_size
         self.button_font_size = settings.button_font_size
@@ -458,7 +454,6 @@ class WorkspaceGtkGui:
         workspace_menu_popover.add(workspace_menu_content)
         workspace_menu_content.show_all()
         workspace_menu_button.set_popover(workspace_menu_popover)
-        workspace_menu_popover.connect("map", lambda popover: self._apply_default_pointer_cursor(popover))
         self._disable_action_hover_tracking(workspace_menu_button)
         self.label_widgets["workspace_menu"] = workspace_menu_button
         toolbar.pack_start(workspace_menu_button, False, False, 0)
@@ -1712,7 +1707,6 @@ class WorkspaceGtkGui:
             grid.attach(description_label, 2, row, 1, 1)
 
         dialog.show_all()
-        GLib.idle_add(self._apply_default_pointer_cursor, dialog)
         dialog.run()
         dialog.destroy()
 
@@ -1879,7 +1873,6 @@ class WorkspaceGtkGui:
         box.pack_start(private_radio, False, False, 0)
 
         dialog.show_all()
-        GLib.idle_add(self._apply_default_pointer_cursor, dialog)
         response = dialog.run()
         task_name = entry.get_text().strip()
         privacy = "private" if private_radio.get_active() else "public"
@@ -2883,7 +2876,6 @@ class WorkspaceGtkGui:
         self._disable_button_hover_tracking_recursive(dialog)
 
         dialog.show_all()
-        GLib.idle_add(self._apply_default_pointer_cursor, dialog)
         if codex_available:
             def refresh_codex_models() -> None:
                 info = codex_model_choices_info(use_cli=True)
@@ -3976,7 +3968,6 @@ class WorkspaceGtkGui:
             grid.attach(Gtk.Label(label=field_name), 0, row, 1, 1)
             grid.attach(editor, 1, row, 1, 1)
         dialog.show_all()
-        GLib.idle_add(self._apply_default_pointer_cursor, dialog)
         response = dialog.run()
         if response == Gtk.ResponseType.OK:
             name_text = field_getters.get("name", lambda: "")().strip()
@@ -4076,7 +4067,6 @@ class WorkspaceGtkGui:
         grid.attach(Gtk.Label(label=self._s("action.shortcut_id")), 0, 1, 1, 1)
         grid.attach(id_entry, 1, 1, 1, 1)
         dialog.show_all()
-        GLib.idle_add(self._apply_default_pointer_cursor, dialog)
         response = dialog.run()
         if response == Gtk.ResponseType.OK:
             shortcut_id = id_entry.get_text().strip()
@@ -4817,7 +4807,6 @@ class WorkspaceGtkGui:
         self._set_text(view, _harness_debug_event_details_text(event, language=self.language))
         content.pack_start(_scrolled(view), True, True, 0)
         dialog.show_all()
-        GLib.idle_add(self._apply_default_pointer_cursor, dialog)
         dialog.run()
         dialog.destroy()
 
@@ -5722,78 +5711,6 @@ class WorkspaceGtkGui:
             return True
         return False
 
-    def _apply_default_pointer_cursor(self, root: Gtk.Widget | None = None) -> bool:
-        cursor = self._default_pointer_cursor()
-        if cursor is None:
-            return False
-        self._apply_default_pointer_cursor_to_widget(root or self.window, cursor)
-        return False
-
-    def _default_pointer_cursor(self) -> Gdk.Cursor | None:
-        if self.default_pointer_cursor is not None:
-            return self.default_pointer_cursor
-        display = Gdk.Display.get_default()
-        if display is None:
-            return None
-        width = 16
-        height = 24
-        rows = (
-            "#               ",
-            "##              ",
-            "#.#             ",
-            "#..#            ",
-            "#...#           ",
-            "#....#          ",
-            "#.....#         ",
-            "#......#        ",
-            "#.......#       ",
-            "#........#      ",
-            "#.........#     ",
-            "#..........#    ",
-            "#....######     ",
-            "#..#.##         ",
-            "#.#  #.#        ",
-            "##   #.#        ",
-            "#     #.#       ",
-            "      #.#       ",
-            "       #.#      ",
-            "       #.#      ",
-            "        ##      ",
-            "                ",
-            "                ",
-            "                ",
-        )
-        pixels = bytearray()
-        for row in rows:
-            for char in row:
-                if char == "#":
-                    pixels.extend((0, 0, 0, 255))
-                elif char == ".":
-                    pixels.extend((255, 255, 255, 255))
-                else:
-                    pixels.extend((0, 0, 0, 0))
-        pixbuf = GdkPixbuf.Pixbuf.new_from_bytes(
-            GLib.Bytes.new(bytes(pixels)),
-            GdkPixbuf.Colorspace.RGB,
-            True,
-            8,
-            width,
-            height,
-            width * 4,
-        )
-        self.default_pointer_cursor = Gdk.Cursor.new_from_pixbuf(display, pixbuf, 1, 1)
-        return self.default_pointer_cursor
-
-    def _apply_default_pointer_cursor_to_widget(self, widget: Gtk.Widget, cursor: Gdk.Cursor) -> None:
-        if isinstance(widget, (Gtk.Entry, Gtk.TextView, Vte.Terminal)):
-            return
-        window = widget.get_window()
-        if window is not None:
-            window.set_cursor(cursor)
-        if isinstance(widget, Gtk.Container):
-            for child in widget.get_children():
-                self._apply_default_pointer_cursor_to_widget(child, cursor)
-
     def _apply_css(self) -> None:
         colors = _theme_colors(self.theme)
         settings = Gtk.Settings.get_default()
@@ -6613,7 +6530,6 @@ def main(argv: list[str] | None = None) -> int:
     clear_harness_debug_events(workspace)
     gui = WorkspaceGtkGui(workspace)
     gui.window.show_all()
-    GLib.idle_add(gui._apply_default_pointer_cursor)
     gui._disable_button_hover_tracking_recursive(gui.window)
     Gtk.main()
     return 0

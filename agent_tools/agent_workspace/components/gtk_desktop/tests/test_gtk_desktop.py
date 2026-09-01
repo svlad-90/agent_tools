@@ -2597,6 +2597,14 @@ def test_gtk_theme_colors_cover_widget_css_keys() -> None:
     assert required <= set(gtk_theme_colors("light"))
 
 
+def test_gtk_ui_uses_system_cursor_theme_instead_of_pixbuf_workaround() -> None:
+    source = Path(gtk_ui_module.__file__).read_text(encoding="utf-8")
+
+    assert "GdkPixbuf" not in source
+    assert "new_from_pixbuf" not in source
+    assert "set_cursor(cursor)" not in source
+
+
 def test_gtk_dark_terminal_palette_uses_readable_blue() -> None:
     palette = gtk_terminal_palette("dark")
 
