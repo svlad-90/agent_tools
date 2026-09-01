@@ -29,6 +29,19 @@ def test_agent_workspace_lock_allows_single_running_instance(tmp_path: Path) -> 
     second.close()
 
 
+def test_agent_workspace_failed_lock_does_not_truncate_owner_pid(tmp_path: Path) -> None:
+    first = acquire_agent_workspace_lock(tmp_path)
+    assert first is not None
+    lock_path = process_runtime_module.agent_workspace_lock_path(tmp_path)
+    owner = lock_path.read_text(encoding="utf-8")
+
+    try:
+        assert acquire_agent_workspace_lock(tmp_path) is None
+        assert lock_path.read_text(encoding="utf-8") == owner
+    finally:
+        first.close()
+
+
 def test_abort_agent_workspace_with_stack_dump_writes_traceback_then_aborts(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

@@ -12,14 +12,21 @@ import sys
 import threading
 import time
 
-os.environ.setdefault("GDK_BACKEND", "x11")
+from .gtk_bootstrap import gtk_cursor_size
+from .gtk_bootstrap import gtk_cursor_theme
+from .gtk_bootstrap import sync_gtk_environment
+
+
+sync_gtk_environment()
 
 import gi
 
 gi.require_version("Gtk", "3.0")
 gi.require_version("Gdk", "3.0")
+gi.require_version("GdkPixbuf", "2.0")
 gi.require_version("Vte", "2.91")
 from gi.repository import Gdk
+from gi.repository import GdkPixbuf
 from gi.repository import Gio
 from gi.repository import GLib
 from gi.repository import Gtk
@@ -321,6 +328,7 @@ class WorkspaceGtkGui:
         self.harness_debug_latest_by_task: dict[Path, HarnessDebugEvent] = {}
         self.workspace_ipc_server: WorkspaceIpcServer | None = None
         self.active_main_page: Gtk.Widget | None = None
+        self.default_pointer_cursor: Gdk.Cursor | None = None
 
         settings = agent_workspace_runtime_settings(load_agent_workspace_settings(), default_font_size=13)
         self.text_font_size = settings.text_font_size
@@ -439,9 +447,22 @@ class WorkspaceGtkGui:
         toolbar.set_border_width(6)
         root.pack_start(toolbar, False, False, 0)
         self._profile_widget("toolbar", toolbar)
+        workspace_menu_button = Gtk.MenuButton(label=self._tr("workspace_menu"))
+        workspace_menu_popover = Gtk.Popover()
+        workspace_menu_content = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
+        workspace_menu_content.set_border_width(8)
+        open_workspace_button = self._button("open_workspace_action", self.open_workspace_dialog)
+        create_workspace_button = self._button("create_workspace_action", self.create_workspace_dialog)
+        workspace_menu_content.pack_start(open_workspace_button, False, False, 0)
+        workspace_menu_content.pack_start(create_workspace_button, False, False, 0)
+        workspace_menu_popover.add(workspace_menu_content)
+        workspace_menu_content.show_all()
+        workspace_menu_button.set_popover(workspace_menu_popover)
+        workspace_menu_popover.connect("map", lambda popover: self._apply_default_pointer_cursor(popover))
+        self._disable_action_hover_tracking(workspace_menu_button)
+        self.label_widgets["workspace_menu"] = workspace_menu_button
+        toolbar.pack_start(workspace_menu_button, False, False, 0)
         toolbar.pack_start(self._button("settings", self.open_settings), False, False, 0)
-        toolbar.pack_start(self._button("open_workspace_dialog", self.open_workspace_dialog), False, False, 0)
-        toolbar.pack_start(self._button("create_workspace_dialog", self.create_workspace_dialog), False, False, 0)
         self.summary_label = Gtk.Label(label="")
         self.summary_label.set_xalign(0)
         toolbar.pack_start(self.summary_label, False, False, 6)
@@ -1691,6 +1712,7 @@ class WorkspaceGtkGui:
             grid.attach(description_label, 2, row, 1, 1)
 
         dialog.show_all()
+        GLib.idle_add(self._apply_default_pointer_cursor, dialog)
         dialog.run()
         dialog.destroy()
 
@@ -1857,6 +1879,7 @@ class WorkspaceGtkGui:
         box.pack_start(private_radio, False, False, 0)
 
         dialog.show_all()
+        GLib.idle_add(self._apply_default_pointer_cursor, dialog)
         response = dialog.run()
         task_name = entry.get_text().strip()
         privacy = "private" if private_radio.get_active() else "public"
@@ -2351,9 +2374,9 @@ class WorkspaceGtkGui:
         notebook.set_hexpand(True)
         notebook.set_vexpand(True)
         content.add(notebook)
-        general_grid = Gtk.Grid(column_spacing=10, row_spacing=10)
-        general_grid.set_border_width(12)
-        general_scrolled = _scrolled(general_grid)
+        general_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=18)
+        general_box.set_border_width(12)
+        general_scrolled = _scrolled(general_box)
         general_scrolled.set_hexpand(True)
         general_scrolled.set_vexpand(True)
         dictionary_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
@@ -2423,6 +2446,111 @@ class WorkspaceGtkGui:
         notebook.append_page(dictionary_scrolled, Gtk.Label(label=self._tr("settings_dictionary_dictionary")))
         notebook.append_page(settings_update_box, Gtk.Label(label=self._tr("settings_updates")))
         notebook.append_page(profiling_box, Gtk.Label(label=self._tr("settings_profiling")))
+        active_text_view: dict[str, Gtk.TextView | None] = {"view": None}
+
+        def set_passive_text_view_active(view: Gtk.TextView, active: bool) -> None:
+            view.set_can_focus(active)
+            view.set_cursor_visible(active and view.get_editable())
+
+        def deactivate_passive_text_view() -> None:
+            view = active_text_view["view"]
+            if view is not None:
+                set_passive_text_view_active(view, False)
+            active_text_view["view"] = None
+
+        def activate_passive_text_view(view: Gtk.TextView) -> None:
+            current = active_text_view["view"]
+            if current is not view:
+                deactivate_passive_text_view()
+            active_text_view["view"] = view
+            set_passive_text_view_active(view, True)
+            view.grab_focus()
+
+        def scroll_outer_settings_page(outer: Gtk.ScrolledWindow, event: Gdk.Event) -> bool:
+            adjustment = outer.get_vadjustment()
+            direction = getattr(event, "direction", None)
+            step = adjustment.get_step_increment() or 32.0
+            amount = 0.0
+            if direction == Gdk.ScrollDirection.UP:
+                amount = -step * 3.0
+            elif direction == Gdk.ScrollDirection.DOWN:
+                amount = step * 3.0
+            elif direction == Gdk.ScrollDirection.SMOOTH and hasattr(event, "get_scroll_deltas"):
+                _ok, _delta_x, delta_y = event.get_scroll_deltas()
+                amount = float(delta_y) * step * 3.0
+            if amount == 0.0:
+                return False
+            lower = adjustment.get_lower()
+            upper = adjustment.get_upper() - adjustment.get_page_size()
+            adjustment.set_value(max(lower, min(upper, adjustment.get_value() + amount)))
+            return True
+
+        def on_passive_text_button_press(view: Gtk.TextView, _event: Gdk.Event) -> bool:
+            activate_passive_text_view(view)
+            return False
+
+        def on_passive_text_focus_out(view: Gtk.TextView, _event: Gdk.Event) -> bool:
+            if active_text_view["view"] is view:
+                deactivate_passive_text_view()
+            return False
+
+        def on_passive_text_scroll(
+            _widget: Gtk.Widget,
+            event: Gdk.Event,
+            view: Gtk.TextView,
+            outer: Gtk.ScrolledWindow,
+        ) -> bool:
+            if active_text_view["view"] is view:
+                return False
+            return scroll_outer_settings_page(outer, event)
+
+        def register_passive_text_view(view: Gtk.TextView, scrolled: Gtk.ScrolledWindow, outer: Gtk.ScrolledWindow) -> None:
+            set_passive_text_view_active(view, False)
+            view.add_events(Gdk.EventMask.BUTTON_PRESS_MASK | Gdk.EventMask.SCROLL_MASK | Gdk.EventMask.SMOOTH_SCROLL_MASK)
+            scrolled.add_events(Gdk.EventMask.SCROLL_MASK | Gdk.EventMask.SMOOTH_SCROLL_MASK)
+            view.connect("button-press-event", on_passive_text_button_press)
+            view.connect("focus-out-event", on_passive_text_focus_out)
+            view.connect("scroll-event", on_passive_text_scroll, view, outer)
+            scrolled.connect("scroll-event", on_passive_text_scroll, view, outer)
+
+        def on_settings_control_scroll(_widget: Gtk.Widget, event: Gdk.Event, outer: Gtk.ScrolledWindow) -> bool:
+            scroll_outer_settings_page(outer, event)
+            return True
+
+        def register_outer_scroll_control(widget: Gtk.Widget, outer: Gtk.ScrolledWindow) -> None:
+            widget.add_events(Gdk.EventMask.SCROLL_MASK | Gdk.EventMask.SMOOTH_SCROLL_MASK)
+            widget.connect("scroll-event", on_settings_control_scroll, outer)
+
+        def on_settings_dialog_button_press(widget: Gtk.Widget, event: Gdk.Event) -> bool:
+            if getattr(event, "window", None) is widget.get_window():
+                deactivate_passive_text_view()
+                return False
+
+            def deactivate_if_focus_left_text_view() -> bool:
+                view = active_text_view["view"]
+                if view is not None and dialog.get_focus() is not view:
+                    deactivate_passive_text_view()
+                return False
+
+            GLib.idle_add(deactivate_if_focus_left_text_view)
+            return False
+
+        general_box.add_events(Gdk.EventMask.BUTTON_PRESS_MASK)
+        dictionary_box.add_events(Gdk.EventMask.BUTTON_PRESS_MASK)
+        general_box.connect("button-press-event", on_settings_dialog_button_press)
+        dictionary_box.connect("button-press-event", on_settings_dialog_button_press)
+        register_passive_text_view(system_prompt_view, system_prompt_scrolled, general_scrolled)
+        for widget in (
+            text_size,
+            button_size,
+            theme_combo,
+            language_combo,
+            default_agent_combo,
+            codex_model_combo,
+            codex_reasoning_combo,
+            limited_bash_output_tokens,
+        ):
+            register_outer_scroll_control(widget, general_scrolled)
 
         def run_settings_update_check(*_ignored: object) -> None:
             if self.settings_update_running:
@@ -2529,6 +2657,8 @@ class WorkspaceGtkGui:
         settings_update_button.connect("clicked", run_settings_update)
         claude_model_combo = Gtk.ComboBoxText()
         claude_effort_combo = Gtk.ComboBoxText()
+        for widget in (claude_model_combo, claude_effort_combo):
+            register_outer_scroll_control(widget, general_scrolled)
         claude_animations_check = Gtk.CheckButton()
         claude_animations_check.set_active(self.claude_animations_enabled)
         codex_available = agent_executable("codex") is not None
@@ -2589,10 +2719,21 @@ class WorkspaceGtkGui:
         dictionary_min_term_length.set_value(self.task_dictionary_min_term_length)
         dictionary_max_term_words = Gtk.SpinButton.new_with_range(1, 20, 1)
         dictionary_max_term_words.set_value(self.task_dictionary_max_term_words)
+        for widget in (
+            dictionary_min_occurrences,
+            dictionary_min_saving,
+            dictionary_min_term_length,
+            dictionary_max_term_words,
+        ):
+            register_outer_scroll_control(widget, dictionary_scrolled)
         preview_input = _text_view(self.text_font_size, editable=True)
         preview_input.get_buffer().set_text(self.task_dictionary_preview_text)
         preview_output = _text_view(self.text_font_size, editable=False)
-        preview_metrics = _text_view(self.text_font_size, editable=False)
+        preview_metrics = Gtk.Label()
+        preview_metrics.set_xalign(0)
+        preview_metrics.set_selectable(True)
+        preview_metrics.set_margin_top(4)
+        preview_metrics.modify_font(Pango.FontDescription(f"Monospace {self.text_font_size}"))
         preview_input_scrolled = _scrolled(preview_input)
         preview_input_scrolled.set_hexpand(True)
         preview_input_scrolled.set_vexpand(True)
@@ -2601,10 +2742,8 @@ class WorkspaceGtkGui:
         preview_output_scrolled.set_hexpand(True)
         preview_output_scrolled.set_vexpand(True)
         preview_output_scrolled.set_min_content_height(180)
-        preview_metrics_scrolled = _scrolled(preview_metrics)
-        preview_metrics_scrolled.set_hexpand(True)
-        preview_metrics_scrolled.set_vexpand(False)
-        preview_metrics_scrolled.set_min_content_height(96)
+        register_passive_text_view(preview_input, preview_input_scrolled, dictionary_scrolled)
+        register_passive_text_view(preview_output, preview_output_scrolled, dictionary_scrolled)
         preview_input_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
         preview_input_box.set_hexpand(True)
         preview_input_box.set_vexpand(True)
@@ -2625,7 +2764,7 @@ class WorkspaceGtkGui:
         preview_output_box.pack_start(preview_output_label, False, False, 0)
         preview_output_box.pack_start(preview_output_scrolled, True, True, 0)
         preview_metrics_box.pack_start(preview_metrics_label, False, False, 0)
-        preview_metrics_box.pack_start(preview_metrics_scrolled, False, False, 0)
+        preview_metrics_box.pack_start(preview_metrics, False, False, 0)
 
         def dictionary_policy() -> TaskDictionaryPolicy:
             return TaskDictionaryPolicy(
@@ -2641,46 +2780,67 @@ class WorkspaceGtkGui:
             text = _text_buffer_text(preview_input.get_buffer())
             preview = preview_dictionary_compile(text, dictionary_policy())
             preview_output.get_buffer().set_text(_dictionary_preview_text(text, preview, language=self.language))
-            preview_metrics.get_buffer().set_text(_dictionary_preview_metrics_text(text, preview, language=self.language))
+            preview_metrics.set_text(_dictionary_preview_metrics_text(text, preview, language=self.language))
 
-        general_rows: list[tuple[str, Gtk.Widget | None]] = [
-            (self._tr("text_font_size"), text_size),
-            (self._tr("button_font_size"), button_size),
-            (self._tr("theme"), theme_combo),
-            (self._tr("language"), language_combo),
-            (self._tr("default_agent"), default_agent_combo),
-            (self._tr("system_prompt"), system_prompt_scrolled),
-            (agent_label("codex"), None),
-        ]
+        def add_settings_section(title: str, rows: list[tuple[str, Gtk.Widget]]) -> None:
+            section_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+            section_box.set_hexpand(True)
+            heading = Gtk.Label()
+            heading.set_xalign(0)
+            heading.set_markup(f"<b>{GLib.markup_escape_text(title)}</b>")
+            grid = Gtk.Grid(column_spacing=10, row_spacing=8)
+            grid.set_hexpand(True)
+            for row, (label, widget) in enumerate(rows):
+                label_widget = Gtk.Label(label=label)
+                label_widget.set_xalign(0)
+                if isinstance(widget, Gtk.Label):
+                    widget.set_xalign(0)
+                grid.attach(label_widget, 0, row, 1, 1)
+                grid.attach(widget, 1, row, 1, 1)
+            section_box.pack_start(heading, False, False, 0)
+            section_box.pack_start(grid, False, False, 0)
+            general_box.pack_start(section_box, False, False, 0)
+
+        add_settings_section(
+            self._tr("settings_section_ui"),
+            [
+                (self._tr("text_font_size"), text_size),
+                (self._tr("button_font_size"), button_size),
+                (self._tr("theme"), theme_combo),
+                (self._tr("language"), language_combo),
+            ],
+        )
+        add_settings_section(
+            self._tr("settings_section_agent_context"),
+            [
+                (self._tr("default_agent"), default_agent_combo),
+                (self._tr("system_prompt"), system_prompt_scrolled),
+            ],
+        )
+        codex_rows: list[tuple[str, Gtk.Widget]] = []
         if codex_models is not None:
-            general_rows.extend(
+            codex_rows.extend(
                 [
                     (self._tr("default_codex_model"), codex_model_combo),
                     (self._tr("default_codex_reasoning"), codex_reasoning_combo),
                 ]
             )
-        general_rows.append((self._tr("codex_animations_enabled"), codex_animations_check))
-        general_rows.append((self._tr("limited_bash_output_tokens"), limited_bash_output_tokens))
-        general_rows.append((agent_label("claude"), None))
+        codex_rows.append((self._tr("codex_animations_enabled"), codex_animations_check))
+        add_settings_section(agent_label("codex"), codex_rows)
+        claude_rows: list[tuple[str, Gtk.Widget]] = []
         if claude_models is not None:
-            general_rows.extend(
+            claude_rows.extend(
                 [
                     (self._tr("default_claude_model"), claude_model_combo),
                     (self._tr("default_claude_effort"), claude_effort_combo),
                 ]
             )
-        general_rows.append((self._tr("claude_animations_enabled"), claude_animations_check))
-        for row, (label, widget) in enumerate(general_rows):
-            label_widget = Gtk.Label(label=label)
-            label_widget.set_xalign(0)
-            if widget is None:
-                label_widget.get_style_context().add_class("settings-section-heading")
-                general_grid.attach(label_widget, 0, row, 2, 1)
-                continue
-            if isinstance(widget, Gtk.Label):
-                widget.set_xalign(0)
-            general_grid.attach(label_widget, 0, row, 1, 1)
-            general_grid.attach(widget, 1, row, 1, 1)
+        claude_rows.append((self._tr("claude_animations_enabled"), claude_animations_check))
+        add_settings_section(agent_label("claude"), claude_rows)
+        add_settings_section(
+            self._tr("settings_section_bash_output"),
+            [(self._tr("limited_bash_output_tokens"), limited_bash_output_tokens)],
+        )
 
         dictionary_box.pack_start(dictionary_grid, False, False, 0)
         dictionary_box.pack_start(preview_input_box, True, True, 0)
@@ -2723,6 +2883,7 @@ class WorkspaceGtkGui:
         self._disable_button_hover_tracking_recursive(dialog)
 
         dialog.show_all()
+        GLib.idle_add(self._apply_default_pointer_cursor, dialog)
         if codex_available:
             def refresh_codex_models() -> None:
                 info = codex_model_choices_info(use_cli=True)
@@ -3813,6 +3974,7 @@ class WorkspaceGtkGui:
             grid.attach(Gtk.Label(label=field_name), 0, row, 1, 1)
             grid.attach(editor, 1, row, 1, 1)
         dialog.show_all()
+        GLib.idle_add(self._apply_default_pointer_cursor, dialog)
         response = dialog.run()
         if response == Gtk.ResponseType.OK:
             name_text = field_getters.get("name", lambda: "")().strip()
@@ -3912,6 +4074,7 @@ class WorkspaceGtkGui:
         grid.attach(Gtk.Label(label=self._s("action.shortcut_id")), 0, 1, 1, 1)
         grid.attach(id_entry, 1, 1, 1, 1)
         dialog.show_all()
+        GLib.idle_add(self._apply_default_pointer_cursor, dialog)
         response = dialog.run()
         if response == Gtk.ResponseType.OK:
             shortcut_id = id_entry.get_text().strip()
@@ -4652,6 +4815,7 @@ class WorkspaceGtkGui:
         self._set_text(view, _harness_debug_event_details_text(event, language=self.language))
         content.pack_start(_scrolled(view), True, True, 0)
         dialog.show_all()
+        GLib.idle_add(self._apply_default_pointer_cursor, dialog)
         dialog.run()
         dialog.destroy()
 
@@ -5556,11 +5720,89 @@ class WorkspaceGtkGui:
             return True
         return False
 
+    def _apply_default_pointer_cursor(self, root: Gtk.Widget | None = None) -> bool:
+        cursor = self._default_pointer_cursor()
+        if cursor is None:
+            return False
+        self._apply_default_pointer_cursor_to_widget(root or self.window, cursor)
+        return False
+
+    def _default_pointer_cursor(self) -> Gdk.Cursor | None:
+        if self.default_pointer_cursor is not None:
+            return self.default_pointer_cursor
+        display = Gdk.Display.get_default()
+        if display is None:
+            return None
+        width = 16
+        height = 24
+        rows = (
+            "#               ",
+            "##              ",
+            "#.#             ",
+            "#..#            ",
+            "#...#           ",
+            "#....#          ",
+            "#.....#         ",
+            "#......#        ",
+            "#.......#       ",
+            "#........#      ",
+            "#.........#     ",
+            "#..........#    ",
+            "#....######     ",
+            "#..#.##         ",
+            "#.#  #.#        ",
+            "##   #.#        ",
+            "#     #.#       ",
+            "      #.#       ",
+            "       #.#      ",
+            "       #.#      ",
+            "        ##      ",
+            "                ",
+            "                ",
+            "                ",
+        )
+        pixels = bytearray()
+        for row in rows:
+            for char in row:
+                if char == "#":
+                    pixels.extend((0, 0, 0, 255))
+                elif char == ".":
+                    pixels.extend((255, 255, 255, 255))
+                else:
+                    pixels.extend((0, 0, 0, 0))
+        pixbuf = GdkPixbuf.Pixbuf.new_from_bytes(
+            GLib.Bytes.new(bytes(pixels)),
+            GdkPixbuf.Colorspace.RGB,
+            True,
+            8,
+            width,
+            height,
+            width * 4,
+        )
+        self.default_pointer_cursor = Gdk.Cursor.new_from_pixbuf(display, pixbuf, 1, 1)
+        return self.default_pointer_cursor
+
+    def _apply_default_pointer_cursor_to_widget(self, widget: Gtk.Widget, cursor: Gdk.Cursor) -> None:
+        if isinstance(widget, (Gtk.Entry, Gtk.TextView, Vte.Terminal)):
+            return
+        window = widget.get_window()
+        if window is not None:
+            window.set_cursor(cursor)
+        if isinstance(widget, Gtk.Container):
+            for child in widget.get_children():
+                self._apply_default_pointer_cursor_to_widget(child, cursor)
+
     def _apply_css(self) -> None:
         colors = _theme_colors(self.theme)
         settings = Gtk.Settings.get_default()
         if settings is not None:
             settings.set_property("gtk-application-prefer-dark-theme", self.theme == "dark")
+            cursor_size = gtk_cursor_size()
+            if cursor_size is not None:
+                settings.set_property("gtk-cursor-theme-size", cursor_size)
+            cursor_theme = gtk_cursor_theme()
+            if cursor_theme:
+                settings.set_property("gtk-cursor-theme-name", cursor_theme)
         css = f"""
         * {{ font-size: {self.button_font_size}pt; }}
         window, headerbar, box, paned, scrolledwindow, notebook {{
@@ -6365,6 +6607,7 @@ def main(argv: list[str] | None = None) -> int:
     clear_harness_debug_events(workspace)
     gui = WorkspaceGtkGui(workspace)
     gui.window.show_all()
+    GLib.idle_add(gui._apply_default_pointer_cursor)
     gui._disable_button_hover_tracking_recursive(gui.window)
     Gtk.main()
     return 0

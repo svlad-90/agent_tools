@@ -3,6 +3,11 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import Literal
 
+from .gtk_bootstrap import sync_gtk_environment
+
+
+sync_gtk_environment()
+
 import gi
 
 gi.require_version("Vte", "2.91")

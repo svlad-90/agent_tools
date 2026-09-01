@@ -85,6 +85,7 @@ from agent_tools.agent_workspace.components.settings.api import agent_workspace_
 from agent_tools.agent_workspace.components.settings.api import agent_workspace_update_commands
 from agent_tools.agent_workspace.components.settings.api import AGENT_WORKSPACE_DEFAULT_LIMITED_BASH_OUTPUT_TOKENS
 from agent_tools.agent_workspace.components.settings.api import AGENT_WORKSPACE_RELEASES_API
+from agent_tools.agent_workspace.components.settings.api import AGENT_WORKSPACE_RELEASES_LATEST_URL
 from agent_tools.agent_workspace.components.settings.api import ai_agent_model_settings
 from agent_tools.agent_workspace.components.settings.api import claude_model_choices_info
 from agent_tools.agent_workspace.components.settings.api import codex_model_choices

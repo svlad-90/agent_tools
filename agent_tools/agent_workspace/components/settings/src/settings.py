@@ -10,6 +10,7 @@ import subprocess
 import sys
 import tarfile
 import tempfile
+import urllib.parse
 import urllib.request
 
 from agent_tools.tools.task_context import DICTIONARY_AUTO_DISCOVERY_DEFAULT
@@ -64,6 +65,8 @@ AGENT_WORKSPACE_GEOMETRY_RE = re.compile(r"^\d+x\d+(?:[+-]\d+[+-]\d+)?$")
 TASK_CONTEXT_PROMPT_INJECTION_DEFAULT = True
 AgentWorkspaceSettingValue = int | float | str | bool | list[str]
 AGENT_WORKSPACE_RELEASES_API = "https://api.github.com/repos/svlad-90/agent_tools/releases/latest"
+AGENT_WORKSPACE_RELEASES_LATEST_URL = "https://github.com/svlad-90/agent_tools/releases/latest"
+AGENT_WORKSPACE_TARBALL_URL_TEMPLATE = "https://github.com/svlad-90/agent_tools/archive/refs/tags/{tag}.tar.gz"
 
 
 @dataclass(frozen=True)
@@ -181,21 +184,21 @@ def run_agent_workspace_update_check(
 ) -> AgentWorkspaceUpdateCheckResult:
     root = agent_workspace_install_root(install_root) if install_root is not None else agent_workspace_install_root()
     current_version = _agent_workspace_current_version(root)
-    commands = (("GET", AGENT_WORKSPACE_RELEASES_API),)
+    commands = (("GET", AGENT_WORKSPACE_RELEASES_LATEST_URL),)
     output_parts: list[str] = []
     try:
-        payload = _read_release_json(timeout=timeout)
+        latest_tag = _read_latest_release_tag(timeout=timeout)
     except TimeoutError:
         output_parts.append(f"Timed out after {timeout} seconds.")
         return AgentWorkspaceUpdateCheckResult(commands, 124, "\n".join(output_parts).rstrip() + "\n", current_version)
-    except (OSError, ValueError, json.JSONDecodeError) as error:
+    except (OSError, ValueError) as error:
         output_parts.append(f"{type(error).__name__}: {error}")
         return AgentWorkspaceUpdateCheckResult(commands, 1, "\n".join(output_parts).rstrip() + "\n", current_version)
-    latest_version = _release_version(payload.get("tag_name"))
-    release_url = _string_value(payload.get("html_url"))
-    tarball_url = _string_value(payload.get("tarball_url"))
-    if not latest_version or not tarball_url:
-        output_parts.append("Latest GitHub release does not contain tag_name and tarball_url.")
+    latest_version = _release_version(latest_tag)
+    release_url = f"https://github.com/svlad-90/agent_tools/releases/tag/{latest_tag}"
+    tarball_url = AGENT_WORKSPACE_TARBALL_URL_TEMPLATE.format(tag=urllib.parse.quote(latest_tag, safe=""))
+    if not latest_version:
+        output_parts.append("Latest GitHub release redirect does not contain a valid release tag.")
         return AgentWorkspaceUpdateCheckResult(commands, 1, "\n".join(output_parts).rstrip() + "\n", current_version)
     output_parts.append(f"Current version: {current_version}")
     output_parts.append(f"Latest release: {latest_version}")
@@ -278,6 +281,20 @@ def _read_release_json(*, timeout: float | None) -> dict[str, object]:
     if not isinstance(data, dict):
         raise ValueError("GitHub release response is not a JSON object")
     return data
+
+
+def _read_latest_release_tag(*, timeout: float | None) -> str:
+    request = urllib.request.Request(
+        AGENT_WORKSPACE_RELEASES_LATEST_URL,
+        headers={"User-Agent": "agent-workspace-updater"},
+    )
+    with urllib.request.urlopen(request, timeout=timeout) as response:
+        final_url = response.geturl()
+    parsed = urllib.parse.urlparse(final_url)
+    marker = "/releases/tag/"
+    if marker not in parsed.path:
+        raise ValueError(f"latest release redirect did not point to a tag: {final_url}")
+    return urllib.parse.unquote(parsed.path.rsplit(marker, 1)[1]).strip()
 
 
 def _agent_workspace_current_version(root: Path) -> str:

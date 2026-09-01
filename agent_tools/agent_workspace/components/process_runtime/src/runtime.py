@@ -37,8 +37,10 @@ def acquire_agent_workspace_lock(workspace: Path) -> io.TextIOWrapper | None:
         return None
     lock_path = agent_workspace_lock_path(workspace)
     try:
-        handle = lock_path.open("w", encoding="utf-8")
+        handle = lock_path.open("a+", encoding="utf-8")
         fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        handle.seek(0)
+        handle.truncate()
         handle.write(f"{os.getpid()}\n")
         handle.flush()
         return handle

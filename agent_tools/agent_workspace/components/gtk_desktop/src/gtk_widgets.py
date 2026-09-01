@@ -1,5 +1,10 @@
 from __future__ import annotations
 
+from .gtk_bootstrap import sync_gtk_environment
+
+
+sync_gtk_environment()
+
 import gi
 
 gi.require_version("Gtk", "3.0")

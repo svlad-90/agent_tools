@@ -475,8 +475,11 @@ def test_run_agent_workspace_update_returns_failed_installer_output(
         "agent_tools.agent_workspace.components.settings.src.settings.urllib.request.urlopen",
         _fake_urlopen_factory(
             {
-                AGENT_WORKSPACE_RELEASES_API: b'{"tag_name":"v2.1.0","html_url":"https://example/release","tarball_url":"https://example/tarball"}',
-                "https://example/tarball": tarball,
+                AGENT_WORKSPACE_RELEASES_LATEST_URL: (
+                    b"",
+                    "https://github.com/svlad-90/agent_tools/releases/tag/v2.1.0",
+                ),
+                "https://github.com/svlad-90/agent_tools/archive/refs/tags/v2.1.0.tar.gz": tarball,
             }
         ),
     )
@@ -504,7 +507,10 @@ def test_run_agent_workspace_update_check_reports_available_updates(
         "agent_tools.agent_workspace.components.settings.src.settings.urllib.request.urlopen",
         _fake_urlopen_factory(
             {
-                AGENT_WORKSPACE_RELEASES_API: b'{"tag_name":"v2.1.0","html_url":"https://example/release","tarball_url":"https://example/tarball"}',
+                AGENT_WORKSPACE_RELEASES_LATEST_URL: (
+                    b"",
+                    "https://github.com/svlad-90/agent_tools/releases/tag/v2.1.0",
+                ),
             }
         ),
     )
@@ -515,8 +521,9 @@ def test_run_agent_workspace_update_check_reports_available_updates(
     assert result.update_available is True
     assert result.current_version == "2.0.0"
     assert result.latest_version == "2.1.0"
-    assert result.release_url == "https://example/release"
-    assert result.tarball_url == "https://example/tarball"
+    assert result.release_url == "https://github.com/svlad-90/agent_tools/releases/tag/v2.1.0"
+    assert result.tarball_url == "https://github.com/svlad-90/agent_tools/archive/refs/tags/v2.1.0.tar.gz"
+    assert result.commands == (("GET", AGENT_WORKSPACE_RELEASES_LATEST_URL),)
 
 
 def test_run_agent_workspace_update_check_returns_failed_release_output(
@@ -543,8 +550,9 @@ def test_run_agent_workspace_update_check_returns_failed_release_output(
 
 
 class _FakeResponse:
-    def __init__(self, payload: bytes) -> None:
+    def __init__(self, payload: bytes, final_url: str = "") -> None:
         self.payload = payload
+        self.final_url = final_url
 
     def __enter__(self) -> "_FakeResponse":
         return self
@@ -555,11 +563,17 @@ class _FakeResponse:
     def read(self) -> bytes:
         return self.payload
 
+    def geturl(self) -> str:
+        return self.final_url
 
-def _fake_urlopen_factory(payloads: dict[str, bytes]) -> object:
+
+def _fake_urlopen_factory(payloads: dict[str, bytes | tuple[bytes, str]]) -> object:
     def fake_urlopen(request: object, **_kwargs: object) -> _FakeResponse:
         url = getattr(request, "full_url", request)
-        return _FakeResponse(payloads[str(url)])
+        payload = payloads[str(url)]
+        if isinstance(payload, tuple):
+            return _FakeResponse(payload[0], payload[1])
+        return _FakeResponse(payload, str(url))
 
     return fake_urlopen
 

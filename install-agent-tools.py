@@ -437,7 +437,7 @@ def _ensure_venv(args: argparse.Namespace) -> Path:
         if not args.recreate_venv_if_broken:
             _fail_unusable_venv(args.venv, subprocess.CalledProcessError(1, [str(python), "--version"]))
         _remove_broken_venv(args.venv)
-    system_site_packages = args.gui or _venv_has_system_site_packages(args.venv)
+    system_site_packages = _venv_should_include_system_site_packages(args)
     builder = venv.EnvBuilder(with_pip=True, system_site_packages=system_site_packages)
     try:
         builder.create(args.venv)
@@ -466,6 +466,21 @@ def _venv_has_system_site_packages(venv_path: Path) -> bool:
         line.partition("=")[2].strip().lower() == "true"
         for line in config.splitlines()
         if line.partition("=")[0].strip().lower() == "include-system-site-packages"
+    )
+
+
+def _venv_should_include_system_site_packages(args: argparse.Namespace) -> bool:
+    if args.gui or _venv_has_system_site_packages(args.venv):
+        return True
+    return _linux_desktop_launcher_prefers_gtk(args)
+
+
+def _linux_desktop_launcher_prefers_gtk(args: argparse.Namespace) -> bool:
+    return (
+        platform.system() == "Linux"
+        and not args.no_desktop
+        and not args.no_launcher
+        and args.ui in {None, "gtk"}
     )
 
 
