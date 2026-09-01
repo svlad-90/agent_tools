@@ -3125,6 +3125,8 @@ class WorkspaceGtkGui:
             return button
         button.connect("button-press-event", self._on_task_action_button_press, action)
         button.get_style_context().add_class("task-action-label-button")
+        if action.source == "workspace":
+            button.get_style_context().add_class("workspace-task-action")
         self.task_action_buttons[action.action_id] = button
         row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=1)
         setattr(row, "_task_reorder_id", action.action_id)
@@ -5899,6 +5901,10 @@ class WorkspaceGtkGui:
         button.task-action-play-button:focus {{
             outline-style: none;
             outline-width: 0;
+        }}
+        button.workspace-task-action {{
+            border-style: dashed;
+            border-color: {colors['muted']};
         }}
         button.task-action-selected {{
             background: {colors['codex_running_background']};

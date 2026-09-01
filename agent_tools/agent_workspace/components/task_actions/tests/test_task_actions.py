@@ -156,11 +156,12 @@ def test_load_task_actions_and_run_command(tmp_path: Path) -> None:
     )
 
     actions, errors = load_task_actions(discover_tasks_with_context(task, tmp_path))
-    report = run_task_action(actions[0])
+    action = next(item for item in actions if item.action_id == "unit")
+    report = run_task_action(action)
 
     assert errors == []
-    assert actions[0].label == "Unit tests"
-    assert actions[0].cwd == scripts.resolve()
+    assert action.label == "Unit tests"
+    assert action.cwd == scripts.resolve()
     assert "ok" in report
     assert "\n1\n" in report
     assert "exit code: 0" in report
@@ -433,8 +434,13 @@ def test_load_task_actions_resolves_parameter_sets_and_shortcuts(tmp_path: Path)
 
     assert config.errors == []
     assert config.global_parameter_bindings == {"board": "rpi6"}
-    assert [action.action_id for action in config.base_actions] == ["copy"]
-    assert config.base_actions[0].parameters[0].global_name == "board"
+    assert [action.action_id for action in config.base_actions] == [
+        "workspace:validate",
+        "workspace:task-check",
+        "copy",
+    ]
+    copy_action = next(action for action in config.base_actions if action.action_id == "copy")
+    assert copy_action.parameters[0].global_name == "board"
     assert shortcut.is_shortcut
     assert shortcut.base_action_id == "copy"
     assert shortcut.env["TASK_ACTION_PARAM_BOARD"] == "rpi6"
@@ -740,6 +746,30 @@ def test_load_task_actions_rejects_escaping_cwd(tmp_path: Path) -> None:
 
     actions, errors = load_task_actions(discover_tasks_with_context(task, tmp_path))
 
-    assert actions == []
+    assert [action.action_id for action in actions] == [
+        "workspace:validate",
+        "workspace:task-check",
+    ]
     assert "cwd escapes task" in errors[0]
 
+
+def test_workspace_standard_task_actions_are_injected_without_task_file(tmp_path: Path) -> None:
+    task = tmp_path / "tasks" / "sample-task"
+    task.mkdir(parents=True)
+    summary = discover_tasks_with_context(task, tmp_path)
+
+    actions, errors = load_task_actions(summary)
+
+    assert errors == []
+    assert [action.action_id for action in actions] == [
+        "workspace:validate",
+        "workspace:task-check",
+    ]
+    assert all(action.source == "workspace" for action in actions)
+    assert actions[0].command[:4] == (
+        "python3",
+        "-m",
+        "agent_tools.tools.repo_guard",
+        "validate",
+    )
+    assert actions[0].cwd == tmp_path

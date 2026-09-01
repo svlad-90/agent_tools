@@ -15,6 +15,7 @@ from ..src.actions import load_task_actions_data
 from ..src.actions import run_task_action
 from ..src.actions import save_task_actions_data
 from ..src.actions import task_action_log_basename
+from ..src.actions import workspace_standard_task_actions
 from ..src.files import task_action_code_path
 from ..src.menu import TaskActionMenuState
 from ..src.menu import TaskParameterMenuState
@@ -104,4 +105,5 @@ __all__ = [
     "task_reorder_order_for_drag_edges",
     "task_shortcut_menu_state",
     "upsert_parameter_set_value",
+    "workspace_standard_task_actions",
 ]
