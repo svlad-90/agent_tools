@@ -86,6 +86,7 @@ def render_html_report(
     )
     parts.append(_render_settings_launcher(" report-settings-launcher"))
     parts.append(_render_to_top_button())
+    parts.append(_render_story_nav_toggle_button())
     if comments.diagrams or comments.logs:
         parts.append(_render_diagram_modal(comments))
     parts.append(copy_selection_script())
@@ -308,6 +309,13 @@ def _render_to_top_button() -> str:
     return '  <button type="button" class="to-top-button" data-story-top aria-label="To top">↑</button>\n'
 
 
+def _render_story_nav_toggle_button() -> str:
+    return (
+        '  <button type="button" class="story-nav-toggle" data-story-nav-show '
+        'aria-label="Show story navigation" title="Show story navigation" hidden></button>\n'
+    )
+
+
 def _story_step_attrs(step: StoryStep, index: int, comments: ReviewComments) -> str:
     attrs = [
         f' data-story-index="{index}"',
@@ -485,6 +493,7 @@ def _render_diagram_modal(comments: ReviewComments) -> str:
     parts.append('  <button type="button" data-diagram-story-step="prev" aria-label="Previous review story step">&larr; Previous slide</button>\n')
     parts.append('  <button type="button" class="story-slide-toggle" data-diagram-story-toggle data-tooltip="Open slide" aria-label="Open slide"></button>\n')
     parts.append('  <button type="button" data-diagram-story-step="next" aria-label="Next review story step">Next slide &rarr;</button>\n')
+    parts.append('  <button type="button" class="story-nav-hide" data-story-nav-hide aria-label="Hide story navigation" title="Hide story navigation">&times;</button>\n')
     parts.append("</div>\n")
     parts.append('<div class="diagram-store" hidden>\n')
     for diagram in comments.diagrams.values():

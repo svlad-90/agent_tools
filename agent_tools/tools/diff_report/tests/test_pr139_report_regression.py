@@ -272,10 +272,15 @@ class Pr139ReportRegressionTests(unittest.TestCase):
             'ellipse[fill="#D4D4D4"]',
             'polygon[fill="#D4D4D4"]',
             'polygon[fill="#FBFB77"]',
-            ".settings-launcher { position: fixed; right: max(8px, calc(var(--floating-content-gutter) - var(--floating-control-size) - var(--floating-control-gap))); bottom: calc(var(--story-nav-height) + 24px);",
-            ".to-top-button { position: fixed; right: max(8px, calc(var(--floating-content-gutter) - var(--floating-control-size) - var(--floating-control-gap))); bottom: calc(var(--story-nav-height) + 24px + var(--floating-control-size) + 10px);",
-            ".report-settings-launcher { right: 14px; bottom: calc(var(--story-nav-height) + 24px); }",
-            ".to-top-button { right: 14px; bottom: calc(var(--story-nav-height) + 24px + var(--floating-control-size) + 12px); }",
+            "--floating-bottom-gap: 8px;",
+            "body.story-nav-hidden { --story-nav-height: 0px; --floating-bottom-gap: 24px; }",
+            ".settings-launcher { position: fixed; right: max(8px, calc(var(--floating-content-gutter) - var(--floating-control-size) - var(--floating-control-gap))); bottom: calc(var(--story-nav-height) + var(--floating-bottom-gap));",
+            ".to-top-button { position: fixed; right: max(8px, calc(var(--floating-content-gutter) - var(--floating-control-size) - var(--floating-control-gap))); bottom: calc(var(--story-nav-height) + var(--floating-bottom-gap) + var(--floating-control-size) + 10px);",
+            "body.story-nav-hidden .to-top-button { bottom: calc(var(--story-nav-height) + var(--floating-bottom-gap) + var(--floating-control-size) + 10px + var(--floating-control-size) + 10px); }",
+            ".report-settings-launcher { right: 14px; bottom: calc(var(--story-nav-height) + var(--floating-bottom-gap)); }",
+            ".to-top-button { right: 14px; bottom: calc(var(--story-nav-height) + var(--floating-bottom-gap) + var(--floating-control-size) + 12px); }",
+            "body.story-nav-hidden .to-top-button { bottom: calc(var(--story-nav-height) + var(--floating-bottom-gap) + var(--floating-control-size) + 12px + var(--floating-control-size) + 12px); }",
+            ".story-nav-toggle { right: 14px; bottom: calc(var(--story-nav-height) + var(--floating-bottom-gap) + var(--floating-control-size) + 12px); }",
             "body.has-left-top .to-top-button { opacity: 1; visibility: visible;",
             "class=\"settings-launcher report-settings-launcher\"",
             ".settings-toggle span, .settings-toggle::before, .settings-toggle::after",
@@ -536,6 +541,10 @@ class Pr139ReportRegressionTests(unittest.TestCase):
             "document.dispatchEvent(new CustomEvent(\"codex-review-file-link-selected\"",
             "left: 0; right: 0; bottom: 0;",
             ".diagram-story-nav button:disabled",
+            "body.story-nav-hidden",
+            ".story-nav-toggle",
+            'data-story-nav-hide',
+            'data-story-nav-show',
         ]
         for fragment in expected_fragments:
             with self.subTest(fragment=fragment):
@@ -552,6 +561,8 @@ class Pr139ReportRegressionTests(unittest.TestCase):
         self.assertNotIn("diagram-story-context", html)
         self.assertIn('data-story-nav="prev"', html)
         self.assertIn('data-story-nav="next"', html)
+        self.assertIn("data-story-nav-hide", html)
+        self.assertIn("data-story-nav-show", html)
         self.assertNotIn("story-controls", html)
         self.assertNotIn("story-settings-launcher", html)
         self.assertNotIn('id="story-counter"', html)

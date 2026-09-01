@@ -121,6 +121,7 @@ def stylesheet() -> str:
       --content-width: 1260px;
       --floating-control-size: 44px;
       --floating-control-gap: 18px;
+      --floating-bottom-gap: 8px;
       --floating-content-gutter: max(24px, calc((100vw - var(--nav-width) - var(--content-width)) / 2));
     }
     :root[data-theme="dark"] {
@@ -218,6 +219,7 @@ def stylesheet() -> str:
     * { box-sizing: border-box; }
     html { scrollbar-gutter: stable; }
     body { margin: 0; padding-bottom: var(--story-nav-height); background: var(--bg); color: var(--text); font: var(--scaled-body-font)/1.52 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+    body.story-nav-hidden { --story-nav-height: 0px; --floating-bottom-gap: 24px; }
     main { width: calc(100% - var(--nav-width) - (var(--page-gutter) * 3)); max-width: calc(100% - var(--nav-width) - (var(--page-gutter) * 3)); min-width: 0; margin: var(--page-gutter) var(--page-gutter) calc(16px + var(--story-nav-height)) calc(var(--nav-width) + (var(--page-gutter) * 2)); }
     .report-brand { position: fixed; left: var(--page-gutter); top: var(--page-gutter); z-index: 12; display: flex; align-items: center; justify-content: center; width: var(--nav-width); height: var(--brand-height); padding-top: 0; overflow: hidden; pointer-events: none; color: var(--brand-text); }
     .report-brand::before { content: ""; position: absolute; inset: 0; height: var(--brand-height); border-radius: 10px; background: var(--brand-panel); box-shadow: 0 10px 24px var(--shadow); }
@@ -228,7 +230,7 @@ def stylesheet() -> str:
     .report-brand-title { color: var(--brand-text); font-size: calc(var(--brand-title-size) * .62); font-weight: 850; white-space: nowrap; text-shadow: 0 2px 10px var(--shadow); }
     .report-brand-subtitle { color: var(--muted); font-size: var(--brand-subtitle-size); white-space: nowrap; }
     body.has-diagram-open .report-brand { z-index: 9; }
-    .settings-launcher { position: fixed; right: max(8px, calc(var(--floating-content-gutter) - var(--floating-control-size) - var(--floating-control-gap))); bottom: calc(var(--story-nav-height) + 24px); z-index: 32; width: auto; opacity: 1; visibility: visible; pointer-events: auto; transform: translateY(0) scale(1); transition: opacity .18s ease, transform .18s ease, visibility 0s linear .18s, border-color .12s ease, box-shadow .12s ease; }
+    .settings-launcher { position: fixed; right: max(8px, calc(var(--floating-content-gutter) - var(--floating-control-size) - var(--floating-control-gap))); bottom: calc(var(--story-nav-height) + var(--floating-bottom-gap)); z-index: 32; width: auto; opacity: 1; visibility: visible; pointer-events: auto; transform: translateY(0) scale(1); transition: opacity .18s ease, transform .18s ease, visibility 0s linear .18s, border-color .12s ease, box-shadow .12s ease; }
     .settings-toggle { display: inline-flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; width: var(--floating-control-size); height: var(--floating-control-size); padding: 0; border: 1px solid var(--border); border-radius: 999px; background: var(--button-bg); color: var(--link); box-shadow: 0 10px 28px var(--shadow); cursor: pointer; font: 800 18px/1 ui-monospace, SFMono-Regular, Consolas, monospace; }
     .settings-toggle span, .settings-toggle::before, .settings-toggle::after { content: ""; display: block; width: 18px; height: 2px; border-radius: 99px; background: currentColor; }
     .settings-toggle:hover { border-color: var(--link); box-shadow: 0 12px 32px rgba(9,105,218,.22); }
@@ -296,7 +298,7 @@ def stylesheet() -> str:
     .review-summary-links a { display: inline-flex; align-items: center; min-height: 32px; padding: 0 10px; border: 1px solid var(--border); border-radius: 6px; background: var(--button-bg); color: var(--link); font-weight: 750; text-decoration: none; }
     .review-summary-links a:hover { border-color: var(--link); background: var(--button-hover-bg); }
     .report-metric-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; }
-    .report-card-grid { display: grid; grid-template-columns: repeat(2, minmax(320px, 1fr)); gap: 12px; }
+    .report-card-grid { display: grid; grid-template-columns: 1fr; gap: 12px; }
     .report-metric, .report-card, .report-artifact { min-width: 0; border: 1px solid var(--meta-border); border-radius: 8px; background: var(--meta-panel); color: var(--meta-text); }
     .report-metric { display: grid; gap: 6px; padding: 14px; border-left: 5px solid var(--meta-border); }
     .report-metric strong { font: 850 calc(var(--scaled-body-font) * 1.55)/1.05 ui-monospace, SFMono-Regular, Consolas, monospace; overflow-wrap: anywhere; }
@@ -306,9 +308,36 @@ def stylesheet() -> str:
     .report-card-group-title { grid-column: 1 / -1; margin: 6px 0 0; color: var(--muted); font: 850 .86rem/1.2 ui-monospace, SFMono-Regular, Consolas, monospace; letter-spacing: .04em; text-transform: uppercase; }
     .report-card h3 { min-width: 0; margin: 0; font-size: calc(var(--scaled-body-font) * 1.05); overflow-wrap: break-word; }
     .report-card-body { color: var(--meta-text); white-space: pre-line; overflow-wrap: break-word; }
-    .report-card-metrics { display: grid; grid-template-columns: repeat(auto-fit, minmax(126px, 1fr)); gap: 8px; }
-    .report-card-metrics span { min-width: 0; padding: 8px; border: 1px solid var(--border); border-radius: 6px; background: var(--panel); overflow-wrap: break-word; }
-    .report-card-metrics strong { display: block; margin-top: 3px; font-family: ui-monospace, SFMono-Regular, Consolas, monospace; }
+    .report-card-metrics { display: grid; grid-template-columns: 1fr; gap: 6px; }
+    .report-card-metrics > span { display: grid; grid-template-columns: minmax(220px, .92fr) minmax(260px, 1.08fr); gap: 12px; align-items: baseline; min-width: 0; padding: 8px 10px; border: 1px solid var(--border); border-radius: 6px; background: var(--panel); overflow-wrap: break-word; }
+    .report-card-metrics .label { margin: 0; color: var(--text); font: 500 .82em/1.35 ui-monospace, SFMono-Regular, Consolas, monospace; }
+    .report-card-metrics strong { display: block; min-width: 0; font: 500 .82em/1.35 ui-monospace, SFMono-Regular, Consolas, monospace; overflow-wrap: anywhere; }
+    .report-card-metric-parts { display: flex; flex-wrap: wrap; gap: 4px 8px; align-items: baseline; }
+    .report-card-metric-part { display: inline-flex; gap: 4px; align-items: baseline; min-width: 0; white-space: nowrap; }
+    .report-card-metric-separator { color: var(--muted); font-weight: 650; }
+    .report-card-metric-part-label, .report-card-metric-part-value { font: inherit; font-weight: inherit; }
+    .report-card-metric-part.status-covered, .report-card-metric-part.status-covered-candidate, .report-card-metric-part.status-pass, .report-card-metric-part.status-not-failed { color: var(--stat-add); }
+    .report-card-metric-part.status-risk, .report-card-metric-part.status-not-applicable-candidate, .report-card-metric-part.status-warning, .report-card-metric-part.status-assumption-failure, .report-card-metric-part.status-skip, .report-card-metric-part.status-skipped, .report-card-metric-part.status-auto-warning-candidate { color: var(--comment-border); }
+    .report-card-metric-part.status-gap, .report-card-metric-part.status-fail, .report-card-metric-part.status-blocked, .report-card-metric-part.status-needs-evidence, .report-card-metric-part.status-auto-fail-candidate { color: var(--stat-del); }
+    .report-card-metric-part.status-auto-pass-candidate { color: var(--graph-status-auto-pass-border); }
+    .report-card-metric-part.status-not-started, .report-card-metric-part.status-not-run, .report-card-metric-part.status-not-done, .report-card-metric-part.status-other, .report-card-metric-part.status-unknown, .report-card-metric-part.status-auto-no-result-candidate { color: var(--muted); }
+    .report-card-table-stack { display: grid; gap: 10px; min-width: 0; }
+    .report-card-table-wrap { min-width: 0; overflow-x: auto; border: 1px solid var(--border); border-radius: 6px; background: var(--panel); }
+    .report-card-table-wrap h4 { margin: 0; padding: 8px 10px; border-bottom: 1px solid var(--border); font-size: .86em; }
+    .report-card-table-note { margin: 0; padding: 0 10px 8px; color: var(--muted); font-size: .82em; }
+    .report-card-table { width: max-content; min-width: 100%; border-collapse: collapse; table-layout: auto; font: 500 .82em/1.35 ui-monospace, SFMono-Regular, Consolas, monospace; }
+    .report-card-table th, .report-card-table td { padding: 7px 10px; border-bottom: 1px solid var(--border); text-align: left; vertical-align: top; white-space: nowrap; }
+    .report-card-table th, .report-card-table td { min-width: 120px; }
+    .report-card-table th:first-child, .report-card-table td:first-child { min-width: 270px; }
+    .report-card-table thead th { color: var(--text); background: var(--meta-panel); font-weight: 650; }
+    .report-card-table tbody tr:last-child th, .report-card-table tbody tr:last-child td { border-bottom: 0; }
+    .report-card-table tbody th { color: var(--text); font-weight: 600; }
+    .report-card-table .report-metric-cell-link { font: inherit; font-weight: inherit; }
+    .report-card-table tbody th.status-covered, .report-card-table tbody th.status-covered-candidate, .report-card-table tbody th.status-pass, .report-card-table tbody th.status-not-failed, .report-card-table tbody td.status-covered, .report-card-table tbody td.status-covered-candidate, .report-card-table tbody td.status-pass, .report-card-table tbody td.status-not-failed { background: color-mix(in srgb, var(--add-bg) 70%, var(--panel)); color: var(--stat-add); }
+    .report-card-table tbody td.status-risk, .report-card-table tbody td.status-warning, .report-card-table tbody td.status-assumption-failure, .report-card-table tbody td.status-skip, .report-card-table tbody td.status-skipped, .report-card-table tbody td.status-auto-warning-candidate { background: color-mix(in srgb, var(--comment-bg) 70%, var(--panel)); color: var(--comment-border); }
+    .report-card-table tbody td.status-gap, .report-card-table tbody td.status-fail, .report-card-table tbody td.status-blocked, .report-card-table tbody td.status-needs-evidence, .report-card-table tbody td.status-auto-fail-candidate { background: color-mix(in srgb, var(--del-bg) 70%, var(--panel)); color: var(--stat-del); }
+    .report-card-table tbody td.status-auto-pass-candidate { background: color-mix(in srgb, var(--graph-status-auto-pass-bg) 70%, var(--panel)); color: var(--graph-status-auto-pass-border); }
+    .report-card-table tbody td.status-not-run, .report-card-table tbody td.status-not-done, .report-card-table tbody td.status-not-started, .report-card-table tbody td.status-other, .report-card-table tbody td.status-unknown, .report-card-table tbody td.status-auto-no-result-candidate { background: color-mix(in srgb, var(--graph-status-neutral-border) 22%, var(--panel)); color: var(--muted); }
     .report-card-links { display: flex; flex-wrap: wrap; gap: 8px; }
     .report-card-links a, .report-artifact { color: var(--link); text-decoration: none; }
     .report-card-links a { display: inline-flex; align-items: center; min-height: 30px; padding: 0 9px; border: 1px solid var(--border); border-radius: 6px; background: var(--button-bg); font-weight: 700; }
@@ -316,18 +345,14 @@ def stylesheet() -> str:
     .report-status-badge { display: inline-flex; align-items: center; justify-content: center; min-height: 26px; padding: 3px 9px; border: 1px solid var(--meta-border); border-radius: 999px; background: var(--button-bg); color: var(--meta-text); font: 800 13px/1.1 ui-monospace, SFMono-Regular, Consolas, monospace; white-space: nowrap; }
     .status-covered, .status-covered-candidate, .status-pass, .status-not-failed { border-color: color-mix(in srgb, var(--stat-add) 70%, var(--meta-border)); }
     .status-covered .report-status-badge, .status-covered-candidate .report-status-badge, .status-pass .report-status-badge, .status-not-failed .report-status-badge, .report-status-badge.status-covered, .report-status-badge.status-covered-candidate, .report-status-badge.status-pass, .report-status-badge.status-not-failed { color: var(--stat-add); border-color: color-mix(in srgb, var(--stat-add) 70%, var(--meta-border)); background: color-mix(in srgb, var(--add-bg) 72%, var(--panel)); }
-    .status-risk, .status-needs-evidence, .status-not-applicable-candidate, .status-warning { border-color: color-mix(in srgb, var(--comment-border) 70%, var(--meta-border)); }
-    .status-risk .report-status-badge, .status-needs-evidence .report-status-badge, .status-not-applicable-candidate .report-status-badge, .status-warning .report-status-badge, .report-status-badge.status-risk, .report-status-badge.status-needs-evidence, .report-status-badge.status-not-applicable-candidate, .report-status-badge.status-warning { color: var(--comment-border); border-color: color-mix(in srgb, var(--comment-border) 70%, var(--meta-border)); background: color-mix(in srgb, var(--comment-bg) 70%, var(--panel)); }
-    .status-gap, .status-fail, .status-blocked { border-color: color-mix(in srgb, var(--stat-del) 72%, var(--meta-border)); }
-    .status-gap .report-status-badge, .status-fail .report-status-badge, .status-blocked .report-status-badge, .report-status-badge.status-gap, .report-status-badge.status-fail, .report-status-badge.status-blocked { color: var(--stat-del); border-color: color-mix(in srgb, var(--stat-del) 72%, var(--meta-border)); background: color-mix(in srgb, var(--del-bg) 70%, var(--panel)); }
-    .status-assumption-failure, .status-skip, .status-skipped { border-color: color-mix(in srgb, var(--graph-status-info-border) 70%, var(--meta-border)); }
-    .status-assumption-failure .report-status-badge, .status-skip .report-status-badge, .status-skipped .report-status-badge, .report-status-badge.status-assumption-failure, .report-status-badge.status-skip, .report-status-badge.status-skipped { color: var(--graph-status-info-border); border-color: color-mix(in srgb, var(--graph-status-info-border) 70%, var(--meta-border)); background: color-mix(in srgb, var(--graph-status-info-bg) 70%, var(--panel)); }
-    .status-auto-fail-candidate, .status-auto-warning-candidate { border-color: color-mix(in srgb, var(--graph-status-info-border) 70%, var(--meta-border)); }
-    .status-auto-fail-candidate .report-status-badge, .status-auto-warning-candidate .report-status-badge, .report-status-badge.status-auto-fail-candidate, .report-status-badge.status-auto-warning-candidate { color: var(--graph-status-info-border); border-color: color-mix(in srgb, var(--graph-status-info-border) 70%, var(--meta-border)); background: color-mix(in srgb, var(--graph-status-info-bg) 70%, var(--panel)); }
+    .status-risk, .status-needs-evidence, .status-not-applicable-candidate, .status-warning, .status-assumption-failure, .status-skip, .status-skipped, .status-auto-warning-candidate { border-color: color-mix(in srgb, var(--comment-border) 70%, var(--meta-border)); }
+    .status-risk .report-status-badge, .status-needs-evidence .report-status-badge, .status-not-applicable-candidate .report-status-badge, .status-warning .report-status-badge, .status-assumption-failure .report-status-badge, .status-skip .report-status-badge, .status-skipped .report-status-badge, .status-auto-warning-candidate .report-status-badge, .report-status-badge.status-risk, .report-status-badge.status-needs-evidence, .report-status-badge.status-not-applicable-candidate, .report-status-badge.status-warning, .report-status-badge.status-assumption-failure, .report-status-badge.status-skip, .report-status-badge.status-skipped, .report-status-badge.status-auto-warning-candidate { color: var(--comment-border); border-color: color-mix(in srgb, var(--comment-border) 70%, var(--meta-border)); background: color-mix(in srgb, var(--comment-bg) 70%, var(--panel)); }
+    .status-gap, .status-fail, .status-blocked, .status-auto-fail-candidate { border-color: color-mix(in srgb, var(--stat-del) 72%, var(--meta-border)); }
+    .status-gap .report-status-badge, .status-fail .report-status-badge, .status-blocked .report-status-badge, .status-auto-fail-candidate .report-status-badge, .report-status-badge.status-gap, .report-status-badge.status-fail, .report-status-badge.status-blocked, .report-status-badge.status-auto-fail-candidate { color: var(--stat-del); border-color: color-mix(in srgb, var(--stat-del) 72%, var(--meta-border)); background: color-mix(in srgb, var(--del-bg) 70%, var(--panel)); }
     .status-auto-pass-candidate { border-color: color-mix(in srgb, var(--graph-status-auto-pass-border) 70%, var(--meta-border)); }
     .status-auto-pass-candidate .report-status-badge, .report-status-badge.status-auto-pass-candidate { color: var(--graph-status-auto-pass-border); border-color: color-mix(in srgb, var(--graph-status-auto-pass-border) 70%, var(--meta-border)); background: color-mix(in srgb, var(--graph-status-auto-pass-bg) 70%, var(--panel)); }
-    .status-not-started, .status-not-run, .status-not-done, .status-unknown { border-color: color-mix(in srgb, var(--graph-status-neutral-border) 70%, var(--meta-border)); }
-    .status-not-started .report-status-badge, .status-not-run .report-status-badge, .status-not-done .report-status-badge, .status-unknown .report-status-badge, .status-auto-no-result-candidate .report-status-badge, .report-status-badge.status-not-started, .report-status-badge.status-not-run, .report-status-badge.status-not-done, .report-status-badge.status-unknown, .report-status-badge.status-auto-no-result-candidate { color: var(--graph-status-neutral-border); border-color: color-mix(in srgb, var(--graph-status-neutral-border) 70%, var(--meta-border)); background: color-mix(in srgb, var(--graph-status-neutral-bg) 70%, var(--panel)); }
+    .status-not-started, .status-not-run, .status-not-done, .status-other, .status-unknown { border-color: color-mix(in srgb, var(--graph-status-neutral-border) 70%, var(--meta-border)); }
+    .status-not-started .report-status-badge, .status-not-run .report-status-badge, .status-not-done .report-status-badge, .status-other .report-status-badge, .status-unknown .report-status-badge, .status-auto-no-result-candidate .report-status-badge, .report-status-badge.status-not-started, .report-status-badge.status-not-run, .report-status-badge.status-not-done, .report-status-badge.status-other, .report-status-badge.status-unknown, .report-status-badge.status-auto-no-result-candidate { color: var(--graph-status-neutral-border); border-color: color-mix(in srgb, var(--graph-status-neutral-border) 70%, var(--meta-border)); background: color-mix(in srgb, var(--graph-status-neutral-bg) 70%, var(--panel)); }
     .report-heatmap-grid { display: grid; gap: 6px; overflow-x: auto; padding-bottom: 2px; }
     .report-heatmap-row { display: grid; grid-template-columns: repeat(var(--report-heatmap-columns, 7), minmax(120px, 1fr)); gap: 6px; min-width: max-content; }
     .report-heatmap-row[data-relationship-open-focus] { cursor: pointer; }
@@ -335,12 +360,10 @@ def stylesheet() -> str:
     .report-heatmap-row > div { min-width: 0; padding: 9px 10px; border: 1px solid var(--meta-border); border-radius: 6px; background: var(--meta-panel); overflow-wrap: anywhere; }
     .report-heatmap-header > div { background: var(--header-bg); color: var(--meta-label); font-size: .82em; font-weight: 800; text-transform: uppercase; letter-spacing: .04em; }
     .report-heatmap-cell.status-covered, .report-heatmap-cell.status-covered-candidate { background: color-mix(in srgb, var(--add-bg) 78%, var(--panel)); color: var(--stat-add); font-weight: 800; }
-    .report-heatmap-cell.status-risk, .report-heatmap-cell.status-needs-evidence, .report-heatmap-cell.status-not-applicable-candidate, .report-heatmap-cell.status-warning { background: color-mix(in srgb, var(--comment-bg) 76%, var(--panel)); color: var(--comment-border); font-weight: 800; }
-    .report-heatmap-cell.status-gap, .report-heatmap-cell.status-fail, .report-heatmap-cell.status-blocked { background: color-mix(in srgb, var(--del-bg) 76%, var(--panel)); color: var(--stat-del); font-weight: 800; }
-    .report-heatmap-cell.status-assumption-failure, .report-heatmap-cell.status-skip, .report-heatmap-cell.status-skipped { background: color-mix(in srgb, var(--graph-status-info-bg) 76%, var(--panel)); color: var(--graph-status-info-border); font-weight: 800; }
-    .report-heatmap-cell.status-auto-fail-candidate, .report-heatmap-cell.status-auto-warning-candidate { background: color-mix(in srgb, var(--graph-status-info-bg) 76%, var(--panel)); color: var(--graph-status-info-border); font-weight: 800; }
+    .report-heatmap-cell.status-risk, .report-heatmap-cell.status-needs-evidence, .report-heatmap-cell.status-not-applicable-candidate, .report-heatmap-cell.status-warning, .report-heatmap-cell.status-assumption-failure, .report-heatmap-cell.status-skip, .report-heatmap-cell.status-skipped, .report-heatmap-cell.status-auto-warning-candidate { background: color-mix(in srgb, var(--comment-bg) 76%, var(--panel)); color: var(--comment-border); font-weight: 800; }
+    .report-heatmap-cell.status-gap, .report-heatmap-cell.status-fail, .report-heatmap-cell.status-blocked, .report-heatmap-cell.status-auto-fail-candidate { background: color-mix(in srgb, var(--del-bg) 76%, var(--panel)); color: var(--stat-del); font-weight: 800; }
     .report-heatmap-cell.status-auto-pass-candidate { background: color-mix(in srgb, var(--graph-status-auto-pass-bg) 76%, var(--panel)); color: var(--graph-status-auto-pass-border); font-weight: 800; }
-    .report-heatmap-cell.status-not-run, .report-heatmap-cell.status-not-done, .report-heatmap-cell.status-not-started, .report-heatmap-cell.status-unknown, .report-heatmap-cell.status-auto-no-result-candidate { background: color-mix(in srgb, var(--graph-status-neutral-bg) 76%, var(--panel)); color: var(--graph-status-neutral-border); font-weight: 800; }
+    .report-heatmap-cell.status-not-run, .report-heatmap-cell.status-not-done, .report-heatmap-cell.status-not-started, .report-heatmap-cell.status-other, .report-heatmap-cell.status-unknown, .report-heatmap-cell.status-auto-no-result-candidate { background: color-mix(in srgb, var(--graph-status-neutral-bg) 76%, var(--panel)); color: var(--graph-status-neutral-border); font-weight: 800; }
     .report-metric-table-note { margin: 0 0 10px; color: var(--muted); }
     .report-status-cards-note { margin: 0 0 10px; color: var(--muted); }
     .report-metric-table { width: 100%; min-width: 640px; border-collapse: separate; border-spacing: 0; table-layout: auto; }
@@ -393,14 +416,16 @@ def stylesheet() -> str:
     .relationship-launcher p { margin: 0; color: var(--meta-text); overflow-wrap: anywhere; }
     .relationship-preview { display: grid; gap: 7px; margin-top: 12px; }
     .relationship-preview-row { display: flex; flex-wrap: wrap; gap: 6px; }
-    .relationship-preview-row span { display: inline-flex; align-items: center; gap: 5px; min-height: 24px; padding: 0 8px; border: 1px solid var(--border); border-radius: 999px; background: var(--panel); color: var(--meta-text); font-size: .86em; }
+    .relationship-launcher .relationship-preview-row span, .relationship-launcher .relationship-preview-row button { display: inline-flex; align-items: center; gap: 5px; width: auto; min-width: 0; min-height: 24px; height: auto; padding: 0 8px; border: 1px solid var(--border); border-radius: 999px; background: var(--panel); color: var(--meta-text); box-shadow: none; font: 700 .86em/1.1 var(--font-stack); text-transform: none; letter-spacing: 0; white-space: nowrap; }
+    .relationship-preview-row button { cursor: pointer; }
+    .relationship-launcher .relationship-preview-row button:hover { border-color: var(--link); background: var(--button-hover-bg); color: var(--link); box-shadow: none; }
     .relationship-preview-row strong { display: inline; margin: 0; font-size: inherit; color: var(--text); }
-    .relationship-preview-row span.status-risk, .relationship-preview-row span.status-needs-evidence, .relationship-preview-row span.status-warning { border-color: color-mix(in srgb, var(--comment-border) 72%, var(--border)); }
-    .relationship-preview-row span.status-gap, .relationship-preview-row span.status-fail { border-color: color-mix(in srgb, var(--stat-del) 72%, var(--border)); }
-    .relationship-preview-row span.status-covered, .relationship-preview-row span.status-covered-candidate, .relationship-preview-row span.status-pass, .relationship-preview-row span.status-not-failed { border-color: color-mix(in srgb, var(--stat-add) 72%, var(--border)); }
-    .relationship-preview-row span.status-assumption-failure, .relationship-preview-row span.status-skip, .relationship-preview-row span.status-skipped, .relationship-preview-row span.status-auto-fail-candidate, .relationship-preview-row span.status-auto-warning-candidate { border-color: color-mix(in srgb, var(--graph-status-info-border) 72%, var(--border)); }
-    .relationship-preview-row span.status-auto-pass-candidate { border-color: color-mix(in srgb, var(--graph-status-auto-pass-border) 72%, var(--border)); }
-    .relationship-preview-row span.status-not-run, .relationship-preview-row span.status-not-done, .relationship-preview-row span.status-unknown, .relationship-preview-row span.status-auto-no-result-candidate { border-color: color-mix(in srgb, var(--graph-status-neutral-border) 72%, var(--border)); }
+    .relationship-preview-row span.status-risk, .relationship-preview-row button.status-risk, .relationship-preview-row span.status-needs-evidence, .relationship-preview-row button.status-needs-evidence, .relationship-preview-row span.status-warning, .relationship-preview-row button.status-warning { border-color: color-mix(in srgb, var(--comment-border) 72%, var(--border)); }
+    .relationship-preview-row span.status-gap, .relationship-preview-row button.status-gap, .relationship-preview-row span.status-fail, .relationship-preview-row button.status-fail { border-color: color-mix(in srgb, var(--stat-del) 72%, var(--border)); }
+    .relationship-preview-row span.status-covered, .relationship-preview-row button.status-covered, .relationship-preview-row span.status-covered-candidate, .relationship-preview-row button.status-covered-candidate, .relationship-preview-row span.status-pass, .relationship-preview-row button.status-pass, .relationship-preview-row span.status-not-failed, .relationship-preview-row button.status-not-failed { border-color: color-mix(in srgb, var(--stat-add) 72%, var(--border)); }
+    .relationship-preview-row span.status-assumption-failure, .relationship-preview-row button.status-assumption-failure, .relationship-preview-row span.status-skip, .relationship-preview-row button.status-skip, .relationship-preview-row span.status-skipped, .relationship-preview-row button.status-skipped, .relationship-preview-row span.status-auto-fail-candidate, .relationship-preview-row button.status-auto-fail-candidate, .relationship-preview-row span.status-auto-warning-candidate, .relationship-preview-row button.status-auto-warning-candidate { border-color: color-mix(in srgb, var(--graph-status-info-border) 72%, var(--border)); }
+    .relationship-preview-row span.status-auto-pass-candidate, .relationship-preview-row button.status-auto-pass-candidate { border-color: color-mix(in srgb, var(--graph-status-auto-pass-border) 72%, var(--border)); }
+    .relationship-preview-row span.status-not-run, .relationship-preview-row button.status-not-run, .relationship-preview-row span.status-not-done, .relationship-preview-row button.status-not-done, .relationship-preview-row span.status-unknown, .relationship-preview-row button.status-unknown, .relationship-preview-row span.status-auto-no-result-candidate, .relationship-preview-row button.status-auto-no-result-candidate { border-color: color-mix(in srgb, var(--graph-status-neutral-border) 72%, var(--border)); }
     .relationship-launcher button, .relationship-modal-head button { min-height: 36px; padding: 0 12px; border: 1px solid var(--border); border-radius: 6px; background: var(--button-bg); color: var(--text); font: 800 .92em/1 var(--font-stack); cursor: pointer; white-space: nowrap; }
     .relationship-launcher button { min-height: 44px; padding: 0 18px; border-color: color-mix(in srgb, var(--link) 72%, var(--border)); background: var(--link); color: #fff; box-shadow: 0 0 0 1px color-mix(in srgb, var(--link) 28%, transparent), 0 10px 28px color-mix(in srgb, var(--link) 26%, transparent); }
     .relationship-launcher button:hover { border-color: color-mix(in srgb, var(--link) 82%, #fff); background: color-mix(in srgb, var(--link) 84%, #fff); color: #fff; }
@@ -412,15 +437,27 @@ def stylesheet() -> str:
     .relationship-modal-head h3 { margin: 0; color: var(--text); font: 850 1.15em/1.2 var(--font-stack); overflow-wrap: anywhere; }
     .relationship-browser { display: grid; grid-template-rows: auto minmax(0, 1fr); gap: 8px; min-width: 0; min-height: 0; }
     .relationship-toolbar { display: grid; grid-template-columns: minmax(0, 1fr); grid-template-areas: "search" "status" "types"; gap: 6px 10px; align-items: end; }
-    .relationship-search-controls { grid-area: search; display: grid; grid-template-columns: minmax(180px, .75fr) minmax(280px, 1.3fr) minmax(140px, .3fr) auto; grid-template-areas: "find-label focus-label type-label ." "find-input focus-input type-input scope"; column-gap: 8px; row-gap: 3px; align-items: center; }
+    .relationship-search-controls { grid-area: search; display: grid; grid-template-columns: auto minmax(240px, 1fr); grid-template-areas: "find-label find-label" "regex find-input" "results results"; column-gap: 8px; row-gap: 4px; align-items: center; }
     .relationship-search-controls > * { min-width: 0; }
     .relationship-cell-find-label { grid-area: find-label; }
-    .relationship-cell-focus-label { grid-area: focus-label; }
-    .relationship-cell-type-label { grid-area: type-label; }
+    .relationship-cell-regex { grid-area: regex; }
     .relationship-cell-find-input { grid-area: find-input; }
-    .relationship-cell-focus-input { grid-area: focus-input; }
-    .relationship-cell-type-input { grid-area: type-input; }
-    .relationship-cell-scope { grid-area: scope; align-self: center; }
+    .relationship-search-results { grid-area: results; display: grid; gap: 3px; max-height: min(320px, 38vh); padding: 5px; overflow: auto; border: 1px solid var(--border); border-radius: 8px; background: var(--card-bg); box-shadow: var(--shadow); }
+    .relationship-search-results[hidden] { display: none; }
+    .relationship-search-result { display: flex; align-items: center; gap: 6px; min-height: 28px; padding: 4px 8px; border: 1px solid var(--border); border-radius: 999px; background: var(--button-bg); color: var(--text); font: 750 12px/1.2 var(--font-stack); text-align: left; cursor: pointer; overflow: hidden; }
+    .relationship-search-result.status-covered, .relationship-search-result.status-covered-candidate, .relationship-search-result.status-pass, .relationship-search-result.status-not-failed { border-color: color-mix(in srgb, var(--stat-add) 76%, var(--meta-border)); background: color-mix(in srgb, var(--add-bg) 86%, var(--panel)); }
+    .relationship-search-result.status-risk, .relationship-search-result.status-needs-evidence, .relationship-search-result.status-not-applicable-candidate, .relationship-search-result.status-warning { border-color: color-mix(in srgb, var(--comment-border) 76%, var(--meta-border)); background: color-mix(in srgb, var(--comment-bg) 84%, var(--panel)); }
+    .relationship-search-result.status-gap, .relationship-search-result.status-fail, .relationship-search-result.status-blocked { border-color: color-mix(in srgb, var(--stat-del) 78%, var(--meta-border)); background: color-mix(in srgb, var(--del-bg) 84%, var(--panel)); }
+    .relationship-search-result.status-assumption-failure, .relationship-search-result.status-skip, .relationship-search-result.status-skipped, .relationship-search-result.status-auto-fail-candidate, .relationship-search-result.status-auto-warning-candidate { border-color: color-mix(in srgb, var(--graph-status-info-border) 76%, var(--meta-border)); background: color-mix(in srgb, var(--graph-status-info-bg) 88%, var(--panel)); }
+    .relationship-search-result.status-auto-pass-candidate { border-color: color-mix(in srgb, var(--graph-status-auto-pass-border) 76%, var(--meta-border)); background: color-mix(in srgb, var(--graph-status-auto-pass-bg) 88%, var(--panel)); }
+    .relationship-search-result.status-not-started, .relationship-search-result.status-not-run, .relationship-search-result.status-not-done, .relationship-search-result.status-unknown, .relationship-search-result.status-auto-no-result-candidate { border-color: color-mix(in srgb, var(--graph-status-neutral-border) 76%, var(--meta-border)); background: color-mix(in srgb, var(--graph-isolated-option-bg) 64%, var(--panel)); }
+    .relationship-search-result:hover, .relationship-search-result:focus-visible { border-color: var(--link); background: var(--button-hover-bg); outline: 0; }
+    .relationship-search-result.is-selected { border-color: var(--link); box-shadow: inset 0 0 0 1px var(--link), 0 0 0 1px color-mix(in srgb, var(--link) 24%, transparent); }
+    .relationship-search-status { flex: 0 0 auto; max-width: 190px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .relationship-search-result-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .relationship-search-result mark { padding: 0 2px; border-radius: 3px; background: color-mix(in srgb, #ffd84d 68%, transparent); color: inherit; }
+    .relationship-search-message { padding: 6px 8px; color: var(--meta-text); font: 750 12px/1.3 var(--font-stack); }
+    .relationship-search-message.is-error { color: var(--status-fail-text); }
     .relationship-toolbar .relationship-search-controls > label.label { display: block; }
     .relationship-view-controls { grid-area: types; display: flex; flex-wrap: wrap; gap: 6px; align-items: flex-start; min-width: 0; }
     .relationship-toolbar label { display: grid; gap: 3px; min-width: 0; }
@@ -429,9 +466,6 @@ def stylesheet() -> str:
     .relationship-toolbar select option.relationship-option-isolated { color: var(--graph-isolated-option-text); background: var(--graph-isolated-option-bg); }
     .relationship-projection-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; min-width: 0; margin: 0; padding: 2px 0; border: 0; border-radius: 0; background: transparent; }
     .relationship-control-label { color: var(--meta-label); font: 800 11px/1 ui-monospace, SFMono-Regular, Consolas, monospace; text-transform: uppercase; letter-spacing: .04em; white-space: nowrap; }
-    .relationship-toolbar label.relationship-projection-auto { display: inline-flex; align-items: center; justify-content: center; gap: 5px; width: auto; min-width: 0; min-height: 26px; padding: 0 8px; border: 1px solid var(--border); border-radius: 999px; background: var(--button-bg); color: var(--meta-text); font: 850 12px/1.1 var(--font-stack); white-space: nowrap; cursor: pointer; }
-    .relationship-projection-auto:hover { border-color: var(--link); color: var(--link); }
-    .relationship-projection-auto input { width: 14px; height: 14px; min-height: 0; margin: 0; padding: 0; accent-color: var(--link); }
     .relationship-projection-levels { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; min-width: 0; }
     .relationship-projection-level { position: relative; display: inline-grid; grid-template-columns: auto minmax(96px, auto); align-items: center; gap: 4px; min-height: 26px; color: var(--meta-label); font: 800 11px/1.1 ui-monospace, SFMono-Regular, Consolas, monospace; text-transform: uppercase; letter-spacing: .03em; white-space: nowrap; }
     .relationship-projection-summary { position: relative; min-height: 26px; max-width: 210px; padding: 0 26px 0 9px; border: 1px solid var(--border); border-radius: 999px; background: var(--button-bg); color: var(--text); font: 750 12px/1.1 var(--font-stack); text-align: left; text-transform: none; letter-spacing: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: pointer; }
@@ -447,22 +481,29 @@ def stylesheet() -> str:
     .relationship-toolbar label.relationship-secondary-toggle { display: inline-flex; align-items: center; justify-content: center; gap: 5px; width: auto; min-width: 0; min-height: 26px; padding: 0 8px; border: 1px solid var(--border); border-radius: 999px; background: var(--button-bg); color: var(--meta-text); font: 750 12px/1.1 var(--font-stack); white-space: nowrap; }
     .relationship-toolbar label.relationship-secondary-toggle input { width: 14px; height: 14px; min-height: 0; margin: 0; padding: 0; accent-color: var(--link); }
     .relationship-toolbar label.relationship-secondary-toggle[hidden] { display: none; }
-    .relationship-toolbar label.relationship-focus-scope { display: inline-flex; align-items: center; gap: 5px; width: fit-content; min-height: 32px; padding: 0 10px; border: 1px solid var(--border); border-radius: 999px; background: var(--button-bg); color: var(--meta-text); font: 750 12px/1.1 var(--font-stack); white-space: nowrap; cursor: pointer; }
-    .relationship-toolbar label.relationship-focus-scope:hover { color: var(--link); }
-    .relationship-toolbar label.relationship-focus-scope input { width: 13px; height: 13px; min-height: 0; margin: 0; padding: 0; accent-color: var(--link); }
+    .relationship-search-tools { position: relative; display: inline-flex; align-items: center; gap: 6px; width: fit-content; }
+    .relationship-search-help-button { display: inline-grid; place-items: center; width: 32px; height: 32px; padding: 0; border: 1px solid var(--border); border-radius: 999px; background: var(--button-bg); color: var(--meta-text); font: 850 13px/1 var(--font-stack); cursor: pointer; }
+    .relationship-search-help-button:hover, .relationship-search-help-button[aria-expanded="true"] { border-color: var(--link); background: var(--button-hover-bg); color: var(--link); }
+    .relationship-search-help { position: absolute; z-index: 8; left: 0; top: calc(100% + 6px); width: min(360px, calc(100vw - 32px)); padding: 10px 12px; border: 1px solid var(--border); border-radius: 8px; background: var(--panel); color: var(--meta-text); box-shadow: var(--shadow); font: 650 12px/1.35 var(--font-stack); }
+    .relationship-search-help[hidden] { display: none; }
+    .relationship-search-help strong { display: block; margin-bottom: 6px; color: var(--text); font-weight: 850; }
+    .relationship-search-help p { margin: 5px 0 0; }
+    .relationship-toolbar label.relationship-search-regex { display: inline-flex; align-items: center; justify-content: center; gap: 5px; width: fit-content; min-height: 32px; padding: 0 10px; border: 1px solid var(--border); border-radius: 999px; background: var(--button-bg); color: var(--meta-text); font: 750 12px/1.1 var(--font-stack); white-space: nowrap; cursor: pointer; }
+    .relationship-toolbar label.relationship-search-regex:hover { color: var(--link); }
+    .relationship-toolbar label.relationship-search-regex input { width: 13px; height: 13px; min-height: 0; margin: 0; padding: 0; accent-color: var(--link); }
     .relationship-status-filter { grid-area: status; display: flex; flex-wrap: wrap; align-items: center; gap: 5px; min-width: 0; padding: 2px 0; border: 0; border-radius: 0; background: transparent; }
     .relationship-status-filter .relationship-status-chip { display: inline-flex; align-items: center; gap: 5px; min-height: 22px; padding: 1px 7px; font-size: 11px; cursor: pointer; }
     .relationship-status-filter .relationship-status-chip small { color: inherit; font: 800 10px/1 ui-monospace, SFMono-Regular, Consolas, monospace; opacity: .8; }
-    .relationship-status-filter label.relationship-status-all { display: inline-flex; align-items: center; gap: 4px; min-height: 22px; padding: 1px 9px 1px 7px; border: 1px solid var(--border); border-radius: 999px; background: var(--button-bg); color: var(--meta-text); font: 800 11px/1.1 var(--font-stack); white-space: nowrap; cursor: pointer; }
-    .relationship-status-filter label.relationship-status-all:hover { border-color: var(--link); color: var(--link); }
-    .relationship-status-filter label.relationship-status-all input { width: 13px; height: 13px; min-height: 0; margin: 0; padding: 0; accent-color: var(--link); }
+    .relationship-status-filter label.relationship-status-all, .relationship-status-filter label.relationship-plain-list { display: inline-flex; align-items: center; gap: 4px; min-height: 22px; padding: 1px 9px 1px 7px; border: 1px solid var(--border); border-radius: 999px; background: var(--button-bg); color: var(--meta-text); font: 800 11px/1.1 var(--font-stack); white-space: nowrap; cursor: pointer; }
+    .relationship-status-filter label.relationship-status-all:hover, .relationship-status-filter label.relationship-plain-list:hover { border-color: var(--link); color: var(--link); }
+    .relationship-status-filter label.relationship-status-all input, .relationship-status-filter label.relationship-plain-list input { width: 13px; height: 13px; min-height: 0; margin: 0; padding: 0; accent-color: var(--link); }
     .relationship-status-filter .relationship-status-chip:hover { border-color: var(--link); }
     .relationship-status-filter .relationship-status-chip.is-off { border-style: dashed; background: color-mix(in srgb, var(--button-bg) 78%, var(--panel)); color: var(--muted); text-decoration: line-through; }
     .relationship-page-controls { display: inline-flex; align-items: center; gap: 5px; min-height: 26px; padding: 0 5px; border: 1px solid var(--border); border-radius: 999px; background: var(--button-bg); color: var(--meta-text); font: 750 12px/1.1 var(--font-stack); white-space: nowrap; }
     .relationship-page-controls button { min-width: 24px; min-height: 22px; padding: 0 6px; }
-    .relationship-page-controls span { min-width: 86px; text-align: center; }
+    .relationship-page-controls span { min-width: 240px; text-align: center; }
     .relationship-page-controls.is-single-page { color: var(--muted); }
-    .relationship-control-bar { position: sticky; top: 0; z-index: 4; display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); gap: 8px; align-items: center; min-width: 0; padding: 4px 6px; border: 1px solid var(--border); border-radius: 8px; background: var(--panel); box-shadow: 0 4px 10px color-mix(in srgb, var(--shadow) 26%, transparent); }
+    .relationship-control-bar { position: sticky; top: 0; z-index: 4; display: grid; grid-template-columns: minmax(220px, 1fr) auto minmax(220px, 1fr); gap: 8px; align-items: center; min-width: 0; padding: 4px 6px; border: 1px solid var(--border); border-radius: 8px; background: var(--panel); box-shadow: 0 4px 10px color-mix(in srgb, var(--shadow) 26%, transparent); }
     .relationship-filters { flex-basis: 100%; min-width: 0; }
     .relationship-filters > summary { display: inline-flex; align-items: center; gap: 6px; width: fit-content; min-height: 26px; padding: 0 10px; border: 1px solid var(--border); border-radius: 999px; background: var(--button-bg); color: var(--meta-text); font: 800 12px/1.1 var(--font-stack); cursor: pointer; list-style: none; }
     .relationship-filters > summary::-webkit-details-marker { display: none; }
@@ -488,8 +529,8 @@ def stylesheet() -> str:
     .relationship-subfilter-popover .status-assumption-failure, .relationship-subfilter-popover .status-skip, .relationship-subfilter-popover .status-skipped { color: var(--graph-status-info-border); font-weight: 800; }
     .relationship-subfilter-popover .status-not-run, .relationship-subfilter-popover .status-not-done, .relationship-subfilter-popover .status-unknown { color: var(--graph-status-neutral-border); font-weight: 800; }
     .relationship-subfilter-popover p { margin: 0; color: var(--meta-text); }
-    .relationship-nav-controls { display: flex; flex-wrap: nowrap; gap: 6px; align-items: center; }
-    .relationship-page-controls { justify-self: end; }
+    .relationship-nav-controls { grid-column: 1; justify-self: start; display: flex; flex-wrap: nowrap; gap: 6px; align-items: center; }
+    .relationship-page-controls { grid-column: 3; justify-self: end; }
     .relationship-toolbar button { min-height: 28px; padding: 0 9px; border: 1px solid var(--border); border-radius: 999px; background: var(--button-bg); color: var(--text); font: 750 .86em/1.1 var(--font-stack); cursor: pointer; }
     .relationship-toolbar button:hover, .relationship-toolbar button.is-active { border-color: var(--link); background: var(--button-hover-bg); color: var(--link); }
     .relationship-toolbar button:disabled { cursor: default; color: var(--muted); border-color: var(--border); background: var(--button-bg); }
@@ -499,14 +540,16 @@ def stylesheet() -> str:
     .relationship-browser.is-graph-active .relationship-toolbar, .relationship-browser.is-graph-active .relationship-control-bar, .relationship-browser.is-graph-active .relationship-selection-panel, .relationship-browser.is-graph-active .relationship-detail { border-color: color-mix(in srgb, var(--link) 36%, var(--border)); }
     .relationship-browser.is-graph-active .relationship-canvas-wrap { border-color: color-mix(in srgb, var(--link) 50%, var(--border)); }
     .relationship-browser.is-graph-focused .relationship-canvas-wrap { border-color: color-mix(in srgb, var(--link) 78%, var(--border)); outline: 2px solid color-mix(in srgb, var(--link) 78%, var(--border)); outline-offset: -2px; box-shadow: 0 0 0 3px color-mix(in srgb, var(--link) 18%, transparent); }
-    .relationship-focus-badge { display: inline-flex; align-items: center; min-height: 28px; padding: 0 10px; border: 1px solid color-mix(in srgb, var(--link) 62%, var(--border)); border-radius: 999px; background: color-mix(in srgb, var(--button-hover-bg) 72%, var(--panel)); color: var(--link); cursor: pointer; font: 850 12px/1 var(--font-stack); text-transform: uppercase; letter-spacing: .04em; }
+    .relationship-focus-badge { grid-column: 2; justify-self: center; display: inline-flex; align-items: center; justify-content: center; min-width: 188px; min-height: 28px; padding: 0 10px; border: 1px solid color-mix(in srgb, var(--link) 62%, var(--border)); border-radius: 999px; background: color-mix(in srgb, var(--button-hover-bg) 72%, var(--panel)); color: var(--link); cursor: pointer; font: 850 12px/1 var(--font-stack); text-transform: uppercase; letter-spacing: .04em; }
     .relationship-focus-badge:hover { border-color: var(--link); background: var(--button-hover-bg); }
-    .relationship-focus-badge[hidden] { display: none !important; }
+    .relationship-focus-badge[hidden] { display: inline-flex !important; visibility: hidden; pointer-events: none; }
     .relationship-modal .relationship-browser { min-height: 0; }
     .relationship-modal .relationship-layout { grid-template-columns: minmax(0, 2fr) minmax(380px, .72fr); align-items: stretch; min-height: 0; height: 100%; overflow: hidden; }
-    .relationship-modal .relationship-canvas-wrap { height: clamp(520px, 58vh, 900px); min-height: 520px; max-height: none; }
-    .relationship-modal .relationship-explorer-main { grid-template-rows: auto auto auto; height: 100%; overflow: auto; padding-right: 8px; }
-    .relationship-modal .relationship-selection-panel { min-height: 360px; }
+    .relationship-modal .relationship-canvas-wrap { height: max(420px, calc(100% - 48px)); min-height: 420px; max-height: none; }
+    .relationship-modal .relationship-explorer-main { grid-template-rows: auto auto auto; height: 100%; overflow: auto; scroll-padding-top: 0; padding-right: 8px; }
+    .relationship-modal .relationship-control-bar { position: static; top: auto; z-index: auto; box-shadow: none; }
+    .relationship-modal .relationship-selection-panel { min-height: 360px; isolation: isolate; }
+    .relationship-modal .relationship-selection-table-head, .relationship-modal .relationship-selection-table thead { position: static; top: auto; z-index: auto; box-shadow: none; }
     .relationship-modal .relationship-detail { position: static; height: 100%; min-height: 0; max-height: none; }
     .relationship-explorer-main { display: grid; grid-template-rows: auto auto auto; gap: 8px; min-width: 0; min-height: 0; max-height: 100%; overflow: auto; overscroll-behavior: contain; padding-right: 8px; }
     .relationship-canvas-wrap { overflow: hidden; position: relative; background: var(--graph-bg); }
@@ -560,14 +603,15 @@ def stylesheet() -> str:
     .relationship-failure-list small { color: var(--muted); }
     .relationship-failure-list p { margin: 0; color: var(--meta-text); }
     .relationship-failure-list code { white-space: pre-wrap; color: var(--text); font-size: .86em; }
-    .relationship-selection-panel { display: grid; gap: 0; min-width: 0; min-height: 360px; overflow: visible; }
-    .relationship-selection-table { min-width: 0; min-height: 0; border: 1px solid var(--border); border-top: 0; border-radius: 0 0 8px 8px; background: var(--meta-panel); overflow: visible; }
+    .relationship-selection-panel { display: grid; align-content: start; gap: 0; min-width: 0; min-height: 360px; overflow: visible; }
+    .relationship-selection-table { align-self: start; min-width: 0; min-height: 0; border: 1px solid var(--border); border-top: 0; border-radius: 0 0 8px 8px; background: var(--meta-panel); overflow: visible; }
     .relationship-selection-table-head { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; justify-content: flex-start; padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px 8px 0 0; background: var(--meta-panel); color: var(--meta-label); font-size: .8em; font-weight: 850; text-transform: uppercase; letter-spacing: .04em; }
     .relationship-selection-table-head small { color: var(--muted); font: 700 .92em/1 var(--font-stack); text-transform: none; letter-spacing: 0; }
     .relationship-selection-table-scroll { min-height: 0; overflow: visible; overscroll-behavior: auto; }
-    .relationship-selection-table table { width: 100%; border-collapse: collapse; table-layout: fixed; font-size: .86em; }
-    .relationship-selection-table th, .relationship-selection-table td { padding: 7px 8px; border-bottom: 1px solid var(--border); text-align: left; vertical-align: top; overflow-wrap: anywhere; }
+    .relationship-selection-table table { width: 100%; border-collapse: separate; border-spacing: 0; table-layout: fixed; font-size: .86em; }
+    .relationship-selection-table th, .relationship-selection-table td { padding: 9px 8px; border-bottom: 0; text-align: left; vertical-align: top; overflow-wrap: anywhere; line-height: 1.35; }
     .relationship-selection-table th { background: var(--header-bg); color: var(--meta-label); font-size: .78em; text-transform: uppercase; letter-spacing: .04em; }
+    .relationship-selection-table thead tr, .relationship-selection-table tbody tr { box-shadow: inset 0 -1px 0 var(--border); }
     .relationship-selection-table tbody tr { cursor: pointer; }
     .relationship-selection-table tbody tr:hover { background: var(--button-hover-bg); }
     .relationship-selection-table tbody tr.is-focus { box-shadow: inset 4px 0 0 var(--link); }
@@ -640,10 +684,16 @@ def stylesheet() -> str:
     body.is-resizing-review-nav .story { transition: none; }
     body.has-diagram-open .story { transition: none; }
     .story h2 { margin: 0 0 6px; font-size: var(--scaled-code-font); }
-    .to-top-button { position: fixed; right: max(8px, calc(var(--floating-content-gutter) - var(--floating-control-size) - var(--floating-control-gap))); bottom: calc(var(--story-nav-height) + 24px + var(--floating-control-size) + 10px); z-index: 32; display: inline-flex; align-items: center; justify-content: center; width: var(--floating-control-size); height: var(--floating-control-size); border: 1px solid var(--border); border-radius: 999px; background: var(--button-bg); color: var(--link); box-shadow: 0 10px 28px var(--shadow); cursor: pointer; opacity: 0; visibility: hidden; pointer-events: none; transform: translateY(10px) scale(.96); transition: opacity .18s ease, transform .18s ease, visibility 0s linear .18s, border-color .12s ease, box-shadow .12s ease; font-size: 0; }
+    .to-top-button { position: fixed; right: max(8px, calc(var(--floating-content-gutter) - var(--floating-control-size) - var(--floating-control-gap))); bottom: calc(var(--story-nav-height) + var(--floating-bottom-gap) + var(--floating-control-size) + 10px); z-index: 32; display: inline-flex; align-items: center; justify-content: center; width: var(--floating-control-size); height: var(--floating-control-size); border: 1px solid var(--border); border-radius: 999px; background: var(--button-bg); color: var(--link); box-shadow: 0 10px 28px var(--shadow); cursor: pointer; opacity: 0; visibility: hidden; pointer-events: none; transform: translateY(10px) scale(.96); transition: opacity .18s ease, transform .18s ease, visibility 0s linear .18s, border-color .12s ease, box-shadow .12s ease; font-size: 0; }
     .to-top-button::before { content: ""; width: 13px; height: 13px; border-left: 4px solid currentColor; border-top: 4px solid currentColor; transform: translateY(4px) rotate(45deg); border-radius: 2px; }
     .to-top-button:hover { border-color: var(--link); box-shadow: 0 12px 32px rgba(9,105,218,.22); transform: translateY(0) scale(1.03); }
     body.has-left-top .to-top-button { opacity: 1; visibility: visible; pointer-events: auto; transform: translateY(0) scale(1); transition-delay: 0s; }
+    body.story-nav-hidden .to-top-button { bottom: calc(var(--story-nav-height) + var(--floating-bottom-gap) + var(--floating-control-size) + 10px + var(--floating-control-size) + 10px); }
+    .story-nav-toggle { position: fixed; right: max(8px, calc(var(--floating-content-gutter) - var(--floating-control-size) - var(--floating-control-gap))); bottom: calc(var(--story-nav-height) + var(--floating-bottom-gap) + var(--floating-control-size) + 10px); z-index: 32; display: inline-flex; align-items: center; justify-content: center; width: var(--floating-control-size); height: var(--floating-control-size); border: 1px solid var(--border); border-radius: 999px; background: var(--button-bg); color: var(--link); box-shadow: 0 10px 28px var(--shadow); cursor: pointer; opacity: 0; visibility: hidden; pointer-events: none; transform: translateY(10px) scale(.96); transition: opacity .18s ease, transform .18s ease, visibility 0s linear .18s, border-color .12s ease, box-shadow .12s ease; font-size: 0; }
+    .story-nav-toggle::before { content: ""; width: 18px; height: 14px; border: 3px solid currentColor; border-radius: 3px; box-shadow: inset 0 -4px 0 color-mix(in srgb, currentColor 28%, transparent); }
+    .story-nav-toggle::after { content: ""; position: absolute; width: 0; height: 0; border-left: 5px solid transparent; border-right: 5px solid transparent; border-bottom: 7px solid currentColor; transform: translateY(-1px); }
+    .story-nav-toggle:hover { border-color: var(--link); box-shadow: 0 12px 32px rgba(9,105,218,.22); transform: translateY(0) scale(1.03); }
+    body.story-nav-hidden .story-nav-toggle { opacity: 1; visibility: visible; pointer-events: auto; transform: translateY(0) scale(1); transition-delay: 0s; }
     .story-step-strip { display: grid; grid-template-columns: 32px minmax(0, 1fr) 32px; gap: 6px; align-items: stretch; overflow: hidden; }
     .story-page-button { display: inline-flex; align-items: center; justify-content: center; min-width: 0; min-height: 44px; border: 1px solid var(--story-step-border); border-radius: 6px; background: var(--story-step-bg); color: var(--link); font: 800 20px/1 ui-monospace, SFMono-Regular, Consolas, monospace; cursor: pointer; box-shadow: 0 1px 0 rgba(31,35,40,.08); }
     .story-page-button:hover { border-color: var(--story-step-active-border); background: var(--story-step-hover-bg); }
@@ -741,7 +791,8 @@ def stylesheet() -> str:
     .asset-story-comment.is-collapsed .asset-story-comment-content { display: none; }
     .asset-story-comment strong { display: block; margin-bottom: 4px; }
     .asset-story-comment-body { color: var(--text); font-size: clamp(17px, calc(var(--scaled-code-font) * 1.12), 21px); line-height: 1.48; white-space: pre-line; overflow-wrap: anywhere; }
-    .diagram-story-nav { position: fixed; left: 0; right: 0; bottom: 0; z-index: 1004; display: grid; grid-template-columns: minmax(0, 240px) 58px minmax(0, 240px); justify-content: center; gap: 14px; width: auto; min-height: var(--story-nav-height); padding: 12px max(16px, env(safe-area-inset-right)) calc(12px + env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left)); border: 0; border-top: 1px solid var(--story-step-active-border); border-radius: 0; background: color-mix(in srgb, var(--panel) 90%, var(--story-step-active-bg)); box-shadow: 0 -16px 36px rgba(1, 4, 9, .42), 0 -1px 0 color-mix(in srgb, var(--story-step-active-border) 34%, transparent); }
+    .diagram-story-nav { position: fixed; left: 0; right: 0; bottom: 0; z-index: 1004; display: grid; grid-template-columns: minmax(0, 240px) 58px minmax(0, 240px); justify-content: center; gap: 14px; width: auto; min-height: var(--story-nav-height); padding: 12px max(78px, calc(env(safe-area-inset-right) + 78px)) calc(12px + env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left)); border: 0; border-top: 1px solid var(--story-step-active-border); border-radius: 0; background: color-mix(in srgb, var(--panel) 90%, var(--story-step-active-bg)); box-shadow: 0 -16px 36px rgba(1, 4, 9, .42), 0 -1px 0 color-mix(in srgb, var(--story-step-active-border) 34%, transparent); transition: opacity .18s ease, transform .18s ease, visibility 0s; }
+    body.story-nav-hidden .diagram-story-nav { opacity: 0; visibility: hidden; pointer-events: none; transform: translateY(calc(100% + env(safe-area-inset-bottom))); transition: opacity .18s ease, transform .18s ease, visibility 0s; }
     .diagram-story-nav button { display: inline-flex; align-items: center; justify-content: center; width: 100%; min-width: 0; height: 50px; padding: 0 18px; overflow: hidden; border: 1px solid var(--story-step-active-border); border-radius: 6px; background: var(--story-step-active-bg); color: var(--text); cursor: pointer; font: 800 clamp(18px, var(--scaled-body-font), 22px)/1.08 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; white-space: nowrap; text-overflow: ellipsis; box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--story-step-active-border) 22%, transparent); }
     .diagram-story-nav button:hover { border-color: var(--link); color: var(--link); background: var(--button-hover-bg); }
     .diagram-story-nav .story-slide-toggle { position: relative; justify-self: center; width: 50px; padding: 0; overflow: visible; border-radius: 999px; background: radial-gradient(circle at 35% 28%, color-mix(in srgb, var(--button-hover-bg) 74%, white) 0 22%, transparent 23%), linear-gradient(145deg, color-mix(in srgb, var(--story-step-active-bg) 86%, white), color-mix(in srgb, var(--button-bg) 62%, var(--story-step-active-bg))); color: var(--story-step-active-border); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--story-step-active-border) 26%, transparent), 0 8px 20px rgba(9,105,218,.24); }
@@ -751,6 +802,7 @@ def stylesheet() -> str:
     .diagram-story-nav .story-slide-toggle:hover { border-color: var(--story-step-active-border); background: radial-gradient(circle at 35% 28%, color-mix(in srgb, var(--button-hover-bg) 78%, white) 0 22%, transparent 23%), linear-gradient(145deg, color-mix(in srgb, var(--story-step-active-bg) 72%, white), var(--story-step-active-bg)); color: var(--story-step-active-border); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--story-step-active-border) 34%, transparent), 0 10px 24px rgba(9,105,218,.32); }
     .diagram-story-nav .story-slide-toggle.is-open { border-color: var(--stat-del); background: radial-gradient(circle at 35% 28%, color-mix(in srgb, var(--del-bg) 55%, white) 0 22%, transparent 23%), linear-gradient(145deg, color-mix(in srgb, var(--del-bg) 74%, var(--button-bg)), color-mix(in srgb, var(--button-bg) 60%, var(--stat-del))); color: var(--stat-del); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--stat-del) 30%, transparent), 0 8px 20px color-mix(in srgb, var(--stat-del) 24%, transparent); }
     .diagram-story-nav .story-slide-toggle.is-open::before { width: 18px; height: 18px; margin-left: 0; border: 0; background: linear-gradient(45deg, transparent calc(50% - 2px), currentColor calc(50% - 2px) calc(50% + 2px), transparent calc(50% + 2px)), linear-gradient(-45deg, transparent calc(50% - 2px), currentColor calc(50% - 2px) calc(50% + 2px), transparent calc(50% + 2px)); filter: drop-shadow(0 1px 0 rgba(0,0,0,.18)); }
+    .diagram-story-nav .story-nav-hide { position: absolute; right: max(16px, calc(env(safe-area-inset-right) + 16px)); top: 12px; width: 50px; height: 50px; padding: 0; border-radius: 999px; font-size: 28px; line-height: 1; transform: none; box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--story-step-active-border) 18%, transparent); }
     .diagram-story-nav button:disabled, .diagram-story-nav button[aria-disabled="true"] { opacity: .48; cursor: default; border-color: var(--border); color: var(--muted); background: var(--button-bg); box-shadow: none; }
     .diagram-code-overlay { position: fixed; inset: 0; z-index: 1002; background: var(--overlay-bg); box-sizing: border-box; }
     .diagram-code-popover { position: fixed; left: 50vw; top: 50vh; transform: translate(-50%, -50%); width: min(1120px, calc(100vw - 32px)); height: min(86vh, calc(100vh - 32px)); margin: 0; border: 1px solid var(--border); border-radius: 8px; background: var(--panel); box-shadow: 0 12px 32px var(--shadow); overflow: hidden; display: flex; flex-direction: column; }
@@ -834,10 +886,10 @@ def stylesheet() -> str:
       .review-nav { padding-right: 10px; }
       .story-step { grid-template-columns: 28px minmax(0, 1fr); padding: 7px 8px; }
       .report-card-grid { grid-template-columns: 1fr; }
+      .report-card-metrics > span { grid-template-columns: 1fr; gap: 4px; }
     }
     @media (max-width: 1440px) and (min-width: 1101px) {
-      .relationship-search-controls { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); grid-template-areas: "find-label focus-label" "find-input focus-input" "type-label ." "type-input scope"; }
-      .relationship-cell-scope { justify-self: start; }
+      .relationship-search-controls { grid-template-columns: auto minmax(0, 1fr); grid-template-areas: "find-label find-label" "regex find-input" "results results"; }
     }
     @media (max-width: 1100px) {
       :root {
@@ -850,22 +902,27 @@ def stylesheet() -> str:
       main { width: calc(100% - 16px); max-width: calc(100vw - 16px); margin: 8px auto calc(16px + var(--story-nav-height)); }
       header, section, .file, .asset-inventory { width: 100%; margin-left: 0; margin-right: 0; }
       .report-brand { display: none; }
-      .report-settings-launcher { right: 14px; bottom: calc(var(--story-nav-height) + 24px); }
+      .report-settings-launcher { right: 14px; bottom: calc(var(--story-nav-height) + var(--floating-bottom-gap)); }
       .relationship-launcher, .relationship-modal-head { align-items: stretch; flex-direction: column; }
       .relationship-modal { padding: 10px; overflow: auto; }
       .relationship-modal-panel { height: auto; min-height: calc(100vh - 20px); padding: 10px; }
       .relationship-toolbar, .relationship-view-controls, .relationship-layout { grid-template-columns: 1fr; }
-      .relationship-search-controls { grid-template-columns: minmax(0, 1fr); grid-template-areas: "find-label" "find-input" "focus-label" "focus-input" "type-label" "type-input" "scope"; }
-      .relationship-cell-scope { justify-self: start; }
+      .relationship-search-controls { grid-template-columns: auto minmax(0, 1fr); grid-template-areas: "find-label find-label" "regex find-input" "focus-label focus-label" "focus-input focus-input" "results results"; }
       .relationship-modal .relationship-layout { grid-template-columns: minmax(0, 1fr); height: auto; overflow: visible; }
-      .relationship-explorer-main { max-height: none; overflow: visible; padding-right: 0; }
+      .relationship-explorer-main { max-height: none; overflow: visible; overscroll-behavior: auto; padding-right: 0; }
       .relationship-modal .relationship-detail { position: static; height: auto; min-height: 360px; }
-      .relationship-modal .relationship-canvas-wrap { height: 62vh; min-height: 420px; }
+      .relationship-modal .relationship-canvas-wrap { height: 100vh; min-height: 420px; }
+      .relationship-modal .relationship-selection-table-head, .relationship-modal .relationship-selection-table thead { position: static; top: auto; z-index: auto; box-shadow: none; }
+      .relationship-canvas-wrap, .relationship-canvas, .relationship-canvas canvas, .relationship-selection-panel, .relationship-selection-table, .relationship-selection-table-scroll { touch-action: pan-y; overscroll-behavior: auto; }
       .relationship-selection-panel { min-height: 340px; }
       .relationship-selection-table { min-height: 0; }
+      .relationship-control-bar { grid-template-columns: auto minmax(0, 1fr) auto; }
+      .relationship-focus-badge { min-width: 0; max-width: 220px; width: 100%; }
       .relationship-nav-controls { flex-wrap: wrap; }
-      .to-top-button { right: 14px; bottom: calc(var(--story-nav-height) + 24px + var(--floating-control-size) + 12px); }
-      .report-toc, .review-nav { position: static; width: calc(100% - 16px); max-height: 38vh; margin: 8px auto 16px; }
+      .to-top-button { right: 14px; bottom: calc(var(--story-nav-height) + var(--floating-bottom-gap) + var(--floating-control-size) + 12px); }
+      body.story-nav-hidden .to-top-button { bottom: calc(var(--story-nav-height) + var(--floating-bottom-gap) + var(--floating-control-size) + 12px + var(--floating-control-size) + 12px); }
+      .story-nav-toggle { right: 14px; bottom: calc(var(--story-nav-height) + var(--floating-bottom-gap) + var(--floating-control-size) + 12px); }
+      .report-toc, .review-nav { position: static; width: calc(100% - 16px); max-height: none; margin: 8px auto 16px; overflow: visible; overscroll-behavior: auto; touch-action: pan-y; }
       .review-nav-resizer { display: none; }
       .story { top: 0; }
       body.has-pinned-story .story, body.has-diagram-open .story { left: 8px; right: 8px; top: 0; max-height: 35vh; }

@@ -37,6 +37,7 @@ class TaskAction:
     bindings: dict[str, str] | None = None
     base_action_id: str | None = None
     is_shortcut: bool = False
+    source: str = "task"
 
 
 @dataclass(frozen=True)
@@ -55,16 +56,29 @@ def load_task_actions(task: TaskSummary) -> tuple[list[TaskAction], list[str]]:
 
 def load_task_actions_config(task: TaskSummary) -> TaskActionsConfig:
     path = task.path / TASK_ACTIONS_FILE
+    workspace_actions = workspace_standard_task_actions(task)
     if not path.is_file():
-        return TaskActionsConfig([], [], {}, {}, [])
+        return TaskActionsConfig(workspace_actions, workspace_actions, {}, {}, [])
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as error:
-        return TaskActionsConfig([], [], {}, {}, [f"{TASK_ACTIONS_FILE}: {error}"])
+        return TaskActionsConfig(
+            workspace_actions,
+            workspace_actions,
+            {},
+            {},
+            [f"{TASK_ACTIONS_FILE}: {error}"],
+        )
 
     entries = data.get("actions") if isinstance(data, dict) else None
     if not isinstance(entries, list):
-        return TaskActionsConfig([], [], {}, {}, [f"{TASK_ACTIONS_FILE}: expected object with actions list"])
+        return TaskActionsConfig(
+            workspace_actions,
+            workspace_actions,
+            {},
+            {},
+            [f"{TASK_ACTIONS_FILE}: expected object with actions list"],
+        )
 
     parameter_sets, parameter_errors = _parse_parameter_sets(data.get("parameter_sets", {}))
     parameter_types, parameter_type_errors = _parse_parameter_types(data.get("parameter_types", {}))
@@ -107,7 +121,13 @@ def load_task_actions_config(task: TaskSummary) -> TaskActionsConfig:
             continue
         shortcut_seen.add(shortcut.action_id)
         launch_actions.append(shortcut)
-    return TaskActionsConfig(launch_actions, base_actions, parameter_sets, global_bindings, errors)
+    return TaskActionsConfig(
+        [*workspace_actions, *launch_actions],
+        [*workspace_actions, *base_actions],
+        parameter_sets,
+        global_bindings,
+        errors,
+    )
 
 
 def bind_task_action_parameters(
@@ -136,7 +156,46 @@ def bind_task_action_parameters(
         bindings=effective_bindings,
         base_action_id=action.base_action_id,
         is_shortcut=action.is_shortcut,
+        source=action.source,
     )
+
+
+def workspace_standard_task_actions(task: TaskSummary) -> list[TaskAction]:
+    workspace = _workspace_for_task(task.path)
+    return [
+        TaskAction(
+            action_id="workspace:validate",
+            label="Validate",
+            command=(
+                "python3",
+                "-m",
+                "agent_tools.tools.repo_guard",
+                "validate",
+                "--repo",
+                str(workspace),
+                "--task-dir",
+                str(task.path),
+            ),
+            cwd=workspace,
+            env={},
+            source="workspace",
+        ),
+        TaskAction(
+            action_id="workspace:task-check",
+            label="Task check",
+            command=(
+                "python3",
+                "-m",
+                "agent_tools.paf_workspace.task_check",
+                str(task.path),
+                "--workspace",
+                str(workspace),
+            ),
+            cwd=workspace,
+            env={},
+            source="workspace",
+        ),
+    ]
 
 
 def load_task_actions_data(task: TaskSummary) -> tuple[dict[str, Any], list[str]]:
@@ -182,6 +241,14 @@ def run_task_action(action: TaskAction) -> str:
 def task_action_log_basename(action_id: str) -> str:
     safe_name = re.sub(r"[^A-Za-z0-9_.-]+", "-", action_id).strip(".-")
     return safe_name or "task-action"
+
+
+def _workspace_for_task(task_path: Path) -> Path:
+    resolved = task_path.resolve()
+    for parent in resolved.parents:
+        if parent.name == "tasks":
+            return parent.parent
+    return resolved.parent
 
 
 def _parse_task_action(

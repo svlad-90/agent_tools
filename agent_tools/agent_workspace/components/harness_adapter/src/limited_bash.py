@@ -11,6 +11,7 @@ import shlex
 import subprocess
 import sys
 import threading
+import time
 from typing import BinaryIO, TextIO
 from uuid import uuid4
 
@@ -18,6 +19,8 @@ from agent_tools.agent_workspace.components.markdown.api import rough_token_coun
 
 DEFAULT_LIMITED_BASH_OUTPUT_TOKENS = 2_000
 LIMIT_ENV_VAR = "AGENT_TOOLS_LIMITED_BASH_OUTPUT_TOKENS"
+DEFAULT_IDLE_NOTICE_SECONDS = 30.0
+IDLE_NOTICE_ENV_VAR = "AGENT_TOOLS_LIMITED_BASH_IDLE_NOTICE_SECONDS"
 
 
 @dataclass(frozen=True)
@@ -26,6 +29,7 @@ class LimitedBashResult:
     output_tokens: int
     exceeded: bool
     log_base: Path | None
+    idle_notice_emitted: bool = False
 
 
 def limited_bash_command(command: str, *, limit: int, cwd: Path | None = None) -> list[str]:
@@ -51,12 +55,26 @@ def limited_bash_shell_command(command: str, *, limit: int, cwd: Path | None = N
     return f"cd {shlex.quote(cwd_text)} && {_shell_join(limited_bash_command(command, limit=limit, cwd=cwd))}"
 
 
-def run_limited_bash(command: str, *, limit: int, cwd: Path | None = None) -> LimitedBashResult:
+def run_limited_bash(
+    command: str,
+    *,
+    limit: int,
+    cwd: Path | None = None,
+    idle_notice_seconds: float | None = None,
+) -> LimitedBashResult:
     if limit < 1:
         raise ValueError("limit must be positive")
+    if idle_notice_seconds is None:
+        idle_notice_seconds = idle_notice_seconds_from_env()
     counts = {"stdout_chars": 0, "stderr_chars": 0, "stdout_tokens": 0, "stderr_tokens": 0}
-    stream_state: dict[str, object] = {"notice_written": False, "streamed_tokens": 0}
+    stream_state: dict[str, object] = {
+        "notice_written": False,
+        "streamed_tokens": 0,
+        "last_activity": time.monotonic(),
+        "idle_notice_written": False,
+    }
     stream_lock = threading.Lock()
+    done = threading.Event()
     log_base = _new_log_base()
     stdout_log = log_base.with_suffix(".stdout.log")
     stderr_log = log_base.with_suffix(".stderr.log")
@@ -72,23 +90,63 @@ def run_limited_bash(command: str, *, limit: int, cwd: Path | None = None) -> Li
     with stdout_log.open("wb") as stdout_file, stderr_log.open("wb") as stderr_file:
         stdout_thread = threading.Thread(
             target=_copy_stream,
-            args=(process.stdout, stdout_file, sys.stdout, counts, "stdout", limit, log_base, stream_state, stream_lock),
+            args=(
+                process.stdout,
+                stdout_file,
+                sys.stdout,
+                counts,
+                "stdout",
+                limit,
+                log_base,
+                stream_state,
+                stream_lock,
+            ),
             daemon=True,
         )
         stderr_thread = threading.Thread(
             target=_copy_stream,
-            args=(process.stderr, stderr_file, sys.stderr, counts, "stderr", limit, log_base, stream_state, stream_lock),
+            args=(
+                process.stderr,
+                stderr_file,
+                sys.stderr,
+                counts,
+                "stderr",
+                limit,
+                log_base,
+                stream_state,
+                stream_lock,
+            ),
             daemon=True,
         )
+        idle_thread = threading.Thread(
+            target=_write_idle_notices,
+            args=(done, sys.stderr, idle_notice_seconds, log_base, stream_state, stream_lock),
+            daemon=True,
+        )
+        idle_thread.start()
         stdout_thread.start()
         stderr_thread.start()
-        exit_code = process.wait()
-        stdout_thread.join()
-        stderr_thread.join()
+        try:
+            exit_code = process.wait()
+        except BaseException:
+            if process.poll() is None:
+                process.terminate()
+                try:
+                    process.wait(timeout=5)
+                except subprocess.TimeoutExpired:
+                    process.kill()
+                    process.wait()
+            raise
+        finally:
+            done.set()
+            stdout_thread.join()
+            stderr_thread.join()
+            idle_thread.join(timeout=1)
 
     total_tokens = counts["stdout_tokens"] + counts["stderr_tokens"]
     total_chars = counts["stdout_chars"] + counts["stderr_chars"]
     exceeded = total_tokens > limit
+    idle_notice_emitted = bool(stream_state["idle_notice_written"])
     if exceeded:
         meta_log.write_text(
             "\n".join(
@@ -106,8 +164,38 @@ def run_limited_bash(command: str, *, limit: int, cwd: Path | None = None) -> Li
             encoding="utf-8",
         )
         print(f"\nlimited_bash: original command exit code: {exit_code}.")
-        return LimitedBashResult(exit_code=2, output_tokens=total_tokens, exceeded=True, log_base=log_base)
+        return LimitedBashResult(
+            exit_code=2,
+            output_tokens=total_tokens,
+            exceeded=True,
+            log_base=log_base,
+            idle_notice_emitted=idle_notice_emitted,
+        )
 
+    if idle_notice_emitted:
+        meta_log.write_text(
+            "\n".join(
+                (
+                    f"timestamp={datetime.now().astimezone().isoformat(timespec='seconds')}",
+                    f"cwd={cwd or Path.cwd()}",
+                    f"exit_code={exit_code}",
+                    f"limit_tokens={limit}",
+                    f"output_tokens={total_tokens}",
+                    f"output_chars={total_chars}",
+                    "idle_notice_emitted=true",
+                    f"command={command}",
+                )
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        return LimitedBashResult(
+            exit_code=exit_code,
+            output_tokens=total_tokens,
+            exceeded=False,
+            log_base=log_base,
+            idle_notice_emitted=True,
+        )
     _remove_logs(stdout_log, stderr_log, meta_log)
     return LimitedBashResult(exit_code=exit_code, output_tokens=total_tokens, exceeded=False, log_base=None)
 
@@ -122,9 +210,22 @@ def limit_from_env(env: dict[str, str] | None = None) -> int:
     return max(100, min(200_000, value))
 
 
+def idle_notice_seconds_from_env(env: dict[str, str] | None = None) -> float:
+    env = env or os.environ
+    raw = env.get(IDLE_NOTICE_ENV_VAR, "")
+    try:
+        value = float(raw)
+    except ValueError:
+        return DEFAULT_IDLE_NOTICE_SECONDS
+    if value <= 0:
+        return 0.0
+    return max(1.0, min(300.0, value))
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--limit", type=int, default=limit_from_env())
+    parser.add_argument("--idle-notice-seconds", type=float, default=idle_notice_seconds_from_env())
     parser.add_argument("--cwd")
     parser.add_argument("--command-b64", required=True)
     args = parser.parse_args(argv)
@@ -135,7 +236,12 @@ def main(argv: list[str] | None = None) -> int:
         return 2
     cwd = Path(args.cwd).resolve() if args.cwd else None
     try:
-        return run_limited_bash(command, limit=args.limit, cwd=cwd).exit_code
+        return run_limited_bash(
+            command,
+            limit=args.limit,
+            cwd=cwd,
+            idle_notice_seconds=args.idle_notice_seconds,
+        ).exit_code
     except (OSError, ValueError) as exc:
         print(f"limited_bash: {exc}", file=sys.stderr)
         return 2
@@ -190,6 +296,7 @@ def _write_limited_stream_part(
     log_base: Path,
     stream_state: dict[str, object],
 ) -> None:
+    stream_state["last_activity"] = time.monotonic()
     if bool(stream_state["notice_written"]):
         return
     streamed_tokens = int(stream_state["streamed_tokens"])
@@ -207,6 +314,32 @@ def _write_limited_stream_part(
     output.flush()
     stream_state["streamed_tokens"] = limit
     stream_state["notice_written"] = True
+
+
+def _write_idle_notices(
+    done: threading.Event,
+    output: TextIO,
+    idle_notice_seconds: float,
+    log_base: Path,
+    stream_state: dict[str, object],
+    stream_lock: threading.Lock,
+) -> None:
+    if idle_notice_seconds <= 0:
+        return
+    while not done.wait(idle_notice_seconds):
+        with stream_lock:
+            idle_for = time.monotonic() - float(stream_state["last_activity"])
+            if idle_for < idle_notice_seconds:
+                continue
+            output.write(
+                "\nlimited_bash: command is still running with no output "
+                f"for {int(idle_for)}s.\n"
+                f"Live stdout log: {log_base}.stdout.log\n"
+                f"Live stderr log: {log_base}.stderr.log\n"
+            )
+            output.flush()
+            stream_state["last_activity"] = time.monotonic()
+            stream_state["idle_notice_written"] = True
 
 
 def _stream_limit_message(

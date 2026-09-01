@@ -9,6 +9,9 @@ def story_script() -> str:
   const storyNavButtons = Array.from(document.querySelectorAll("[data-story-nav]"));
   const storyMoveButtons = Array.from(document.querySelectorAll("[data-diagram-story-step]"));
   const storyToggleButtons = Array.from(document.querySelectorAll("[data-diagram-story-toggle]"));
+  const storyNav = document.querySelector(".diagram-story-nav");
+  const storyNavHideButton = document.querySelector("[data-story-nav-hide]");
+  const storyNavShowButton = document.querySelector("[data-story-nav-show]");
   const detailsTitle = document.getElementById("story-details-title");
   const detailsBody = document.getElementById("story-details-body");
   const jumpDurationMs = 0;
@@ -1324,7 +1327,9 @@ def story_script() -> str:
   }
 
   function scrollSafeBottom() {
-    const storyNav = document.querySelector(".diagram-story-nav");
+    if (document.body.classList.contains("story-nav-hidden")) {
+      return 0;
+    }
     if (storyNav) {
       const rect = storyNav.getBoundingClientRect();
       if (rect.height > 0 && rect.bottom > window.innerHeight - 2) {
@@ -1334,6 +1339,23 @@ def story_script() -> str:
     const value = getComputedStyle(document.documentElement).getPropertyValue("--story-nav-height");
     const storyNavHeight = Number.parseFloat(value || "0");
     return Number.isFinite(storyNavHeight) ? Math.max(0, storyNavHeight) : 0;
+  }
+
+  function setStoryNavHidden(hidden) {
+    const shouldHide = Boolean(hidden);
+    document.body.classList.toggle("story-nav-hidden", shouldHide);
+    if (storyNav) {
+      storyNav.setAttribute("aria-hidden", shouldHide ? "true" : "false");
+    }
+    if (storyNavShowButton) {
+      storyNavShowButton.hidden = !shouldHide;
+      storyNavShowButton.setAttribute("aria-expanded", shouldHide ? "false" : "true");
+    }
+    if (storyNavHideButton) {
+      storyNavHideButton.setAttribute("aria-expanded", shouldHide ? "false" : "true");
+    }
+    updateStoryOffset();
+    updateTopButtonState();
   }
 
   function scrollOffsetForElement(element) {
@@ -1664,6 +1686,18 @@ def story_script() -> str:
   }
 
   document.addEventListener("click", function (event) {
+    if (event.target.closest("[data-story-nav-hide]")) {
+      event.preventDefault();
+      event.stopPropagation();
+      setStoryNavHidden(true);
+      return;
+    }
+    if (event.target.closest("[data-story-nav-show]")) {
+      event.preventDefault();
+      event.stopPropagation();
+      setStoryNavHidden(false);
+      return;
+    }
     const nav = event.target.closest("[data-story-nav]");
     if (nav) {
       event.preventDefault();

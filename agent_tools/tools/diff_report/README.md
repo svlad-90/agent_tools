@@ -358,6 +358,7 @@ It also supports dashboard-oriented widgets:
   ],
   "relationship_graph": {
     "title": "Requirement Traceability",
+    "status_order": ["fail", "needs_evidence", "risk", "covered_candidate", "unknown"],
     "nodes": [
       {
         "id": "vsr:GAS-VSR-3.2-001.006",
@@ -445,6 +446,10 @@ The graph toolbar keeps one control per concept:
   currently shown status so a single status can then be picked, checking it
   restores all shown statuses, and it renders indeterminate while only some are
   on.
+- `relationship_graph.status_order` optionally defines report-specific status
+  priority. The same order is used for the graph launcher's status preview
+  chips, the graph toolbar status chips, and graph/plain-list node ordering.
+  Status values missing from the priority list are appended alphabetically.
 - `Auto` is the default projection mode. It chooses the visible entity types
   from the current focus: the parent chain, the focus node, and the nearest
   visible child frontier. Selecting a new focus node re-enters this mode, so
@@ -457,11 +462,24 @@ The graph toolbar keeps one control per concept:
   compiled into the internal enabled-type set, so report-defined graph views
   and older filtering code still use one compact representation. This is a path
   projection control, not a Gen5-specific Product/Domain/Requirement/Test UI.
-- `Focus type` limits the focus list to one entity type, and carries no counts:
-  projection controls own visibility. It is user-owned: selecting a node no
-  longer rewrites it. The `only visible` checkbox next to it narrows the focus
-  list from every node in the graph to the nodes drawn on the current graph plus
-  the focus ancestry, so a leaf focus still offers a way back up.
+- `Find node` is a global object picker. It searches the candidate text shown
+  in the result list and does not filter the drawn graph while the user is
+  typing. Without `Regex`, matching is plain case-insensitive substring search
+  over `type name summary` with separators treated as spaces, so queries can
+  cross the boundary between the type chip and the node title, for example
+  `CDD Andr`. With `Regex`, matching is
+  case-insensitive regular-expression search over
+  `status · type · name · summary`, so a report can be searched by status or
+  type as well as by name. Results start with a status chip, are ranked by the
+  match position in the candidate string, and render inline highlighting when
+  the match is visible in the row text.
+  Choosing a result clears the query and rebuilds the graph around that focus
+  node.
+- `Plain list` in the graph status controls renders the current filtered object
+  set as a paginated list without relationship edges. Status preview chips open
+  this mode by default, so status counts can be inspected without implying a
+  dependency path. Clicking any graph object leaves plain-list mode and opens
+  the regular neighborhood graph around that object.
 - The focus node is pinned against every filter, projection, and status, so
   clearing all statuses leaves the same one-node view instead of an empty graph
   with no focus at all. A pinned focus does not pull its own status back into

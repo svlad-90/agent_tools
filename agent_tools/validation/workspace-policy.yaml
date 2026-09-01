@@ -1,0 +1,17 @@
+version: 1
+checks:
+  - id: workspace-file-hygiene
+    level: workspace
+    backend: builtin
+    cost: cheap
+    required: true
+  - id: shell-syntax-changed
+    level: workspace
+    backend: builtin
+    cost: cheap
+    required: true
+  - id: commit-message
+    level: workspace
+    backend: builtin
+    cost: medium
+    required: true

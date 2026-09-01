@@ -18,10 +18,18 @@ from .render import (
     _render_logs_section,
     _render_settings_launcher,
     _render_story_section,
+    _render_story_nav_toggle_button,
     _render_summary_section,
     _render_to_top_button,
 )
 from .assets import copy_selection_script, html_header, story_script, theme_script
+
+
+@dataclass(frozen=True)
+class ReportMetricPart:
+    label: str
+    value: str
+    status: str | None = None
 
 
 @dataclass(frozen=True)
@@ -30,6 +38,7 @@ class ReportMetric:
     value: str
     status: str | None = None
     note: str | None = None
+    parts: tuple[ReportMetricPart, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -39,6 +48,7 @@ class ReportStatusCard:
     body: str
     group: str | None = None
     metrics: tuple[ReportMetric, ...] = ()
+    metric_tables: tuple["ReportMetricTable", ...] = ()
     links: tuple[dict[str, str], ...] = ()
 
 
@@ -116,6 +126,7 @@ class RelationshipGraph:
     edges: tuple[dict[str, Any], ...]
     traversal: dict[str, Any] | None = None
     filter_defaults: dict[str, Any] | None = None
+    status_order: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -213,6 +224,7 @@ def render_report_json_html(report: GenericReport, test_mode: bool = False) -> s
         parts.append(_render_story_section(comments))
     parts.append(_render_settings_launcher(" report-settings-launcher"))
     parts.append(_render_to_top_button())
+    parts.append(_render_story_nav_toggle_button())
     if comments.diagrams or comments.logs:
         parts.append(_render_diagram_modal(comments))
     parts.append(copy_selection_script())
@@ -243,9 +255,30 @@ def metrics_from_payload(raw_metrics: Any) -> tuple[ReportMetric, ...]:
                 value=str(item.get("value", "")),
                 status=_optional_text(item, "status"),
                 note=_optional_text(item, "note"),
+                parts=metric_parts_from_payload(item.get("parts"), f"report.metrics[{index}].parts"),
             )
         )
     return tuple(metrics)
+
+
+def metric_parts_from_payload(raw_parts: Any, field: str) -> tuple[ReportMetricPart, ...]:
+    if raw_parts is None:
+        return ()
+    if not isinstance(raw_parts, list):
+        raise DiffReportError(f"{field} must be a list")
+    parts: list[ReportMetricPart] = []
+    for index, item in enumerate(raw_parts):
+        if not isinstance(item, dict):
+            raise DiffReportError(f"{field}[{index}] must be an object")
+        item_field = f"{field}[{index}]"
+        parts.append(
+            ReportMetricPart(
+                label=_required_text(item, "label", item_field),
+                value=str(item.get("value", "")),
+                status=_optional_text(item, "status"),
+            )
+        )
+    return tuple(parts)
 
 
 def _status_cards_section_text(raw_cards: Any, key: str, fallback: str) -> str | None:
@@ -276,10 +309,47 @@ def status_cards_from_payload(raw_cards: Any) -> tuple[ReportStatusCard, ...]:
                 body=str(item.get("body", "")),
                 group=str(item.get("group", "")).strip() or None,
                 metrics=metrics_from_payload(item.get("metrics", [])),
+                metric_tables=status_card_metric_tables_from_payload(
+                    item.get("metric_tables", item.get("metric_table")),
+                    f"report.status_cards[{index}].metric_tables",
+                ),
                 links=links_from_payload(item.get("links", []), f"report.status_cards[{index}].links"),
             )
         )
     return tuple(cards)
+
+
+def status_card_metric_tables_from_payload(raw_metric_tables: Any, field: str) -> tuple["ReportMetricTable", ...]:
+    if raw_metric_tables is None:
+        return ()
+    if isinstance(raw_metric_tables, dict):
+        raw_metric_tables = [raw_metric_tables]
+    if not isinstance(raw_metric_tables, list):
+        raise DiffReportError(f"{field} must be a list or object")
+    metric_tables: list[ReportMetricTable] = []
+    for index, item in enumerate(raw_metric_tables):
+        item_field = f"{field}[{index}]"
+        if not isinstance(item, dict):
+            raise DiffReportError(f"{item_field} must be an object")
+        columns = _metric_table_columns_from_payload(item.get("columns", []), f"{item_field}.columns")
+        if not columns:
+            raise DiffReportError(f"{item_field}.columns must contain at least one column")
+        raw_rows = item.get("rows", [])
+        if not isinstance(raw_rows, list):
+            raise DiffReportError(f"{item_field}.rows must be a list")
+        rows = tuple(
+            _metric_table_row_from_payload(row, columns, f"{item_field}.rows[{row_index}]")
+            for row_index, row in enumerate(raw_rows)
+        )
+        metric_tables.append(
+            ReportMetricTable(
+                title=str(item.get("title", "")),
+                columns=columns,
+                rows=rows,
+                note=_optional_text(item, "note"),
+            )
+        )
+    return tuple(metric_tables)
 
 
 def heatmaps_from_payload(raw_heatmaps: Any) -> tuple[ReportHeatmap, ...]:
@@ -408,17 +478,26 @@ def _graph_view_from_payload(raw_view: Any, field: str) -> dict[str, Any] | None
     if not isinstance(raw_view, dict):
         raise DiffReportError(f"{field} must be an object")
     view: dict[str, Any] = {}
-    for key in ("focus", "target_type", "label", "isolate_root"):
+    for key in ("focus", "target_type", "label", "isolate_root", "color_by"):
         if key in raw_view and raw_view[key] is not None:
             if not isinstance(raw_view[key], str):
                 raise DiffReportError(f"{field}.{key} must be a string")
             if raw_view[key]:
                 view[key] = raw_view[key]
+    if "plain_list" in raw_view:
+        if not isinstance(raw_view["plain_list"], bool):
+            raise DiffReportError(f"{field}.plain_list must be a boolean")
+        view["plain_list"] = raw_view["plain_list"]
     types = raw_view.get("types")
     if types is not None:
         if not isinstance(types, list) or not all(isinstance(item, str) for item in types):
             raise DiffReportError(f"{field}.types must be a string list")
         view["types"] = list(types)
+    node_ids = raw_view.get("node_ids")
+    if node_ids is not None:
+        if not isinstance(node_ids, list) or not all(isinstance(item, str) for item in node_ids):
+            raise DiffReportError(f"{field}.node_ids must be a string list")
+        view["node_ids"] = list(node_ids)
     filters = raw_view.get("filters")
     if filters is not None:
         if not isinstance(filters, dict):
@@ -582,6 +661,7 @@ def relationship_graph_from_payload(raw_graph: Any) -> RelationshipGraph | None:
         edges=tuple(edges),
         traversal=_relationship_graph_traversal_from_payload(raw_graph.get("traversal")),
         filter_defaults=_object_optional(raw_graph.get("filter_defaults"), "report.relationship_graph.filter_defaults"),
+        status_order=_string_tuple_optional(raw_graph.get("status_order"), "report.relationship_graph.status_order"),
     )
 
 
@@ -671,9 +751,15 @@ def _render_status_cards_section(
         if card.metrics:
             parts.append('<div class="report-card-metrics">')
             for metric in card.metrics:
+                value_html = _render_metric_parts(metric) if metric.parts else f"<strong>{_esc(metric.value)}</strong>"
                 parts.append(
-                    f'<span><span class="label">{_esc(metric.label)}</span><strong>{_esc(metric.value)}</strong></span>'
+                    f'<span><span class="label">{_esc(metric.label)}</span>{value_html}</span>'
                 )
+            parts.append("</div>")
+        if card.metric_tables:
+            parts.append('<div class="report-card-table-stack">')
+            for table in card.metric_tables:
+                parts.append(_render_status_card_metric_table(table))
             parts.append("</div>")
         if card.links:
             parts.append('<div class="report-card-links">')
@@ -682,6 +768,48 @@ def _render_status_cards_section(
             parts.append("</div>")
         parts.append("</article>\n")
     parts.append("  </div></section>\n")
+    return "".join(parts)
+
+
+def _render_status_card_metric_table(metric_table: ReportMetricTable) -> str:
+    parts: list[str] = ['<div class="report-card-table-wrap">']
+    if metric_table.title:
+        parts.append(f'<h4>{_esc(metric_table.title)}</h4>')
+    if metric_table.note:
+        parts.append(f'<p class="report-card-table-note">{_format_text(metric_table.note)}</p>')
+    parts.append('<table class="report-card-table"><thead><tr>')
+    for column in metric_table.columns:
+        sublabel = (
+            f'<small class="report-metric-table-sublabel">{_esc(column.sublabel)}</small>'
+            if column.sublabel
+            else ""
+        )
+        parts.append(f"<th>{_esc(column.label)}{sublabel}</th>")
+    parts.append("</tr></thead><tbody>")
+    for row in metric_table.rows:
+        parts.append("<tr>")
+        for position, cell in enumerate(row):
+            tag = "th" if position == 0 else "td"
+            scope = ' scope="row"' if position == 0 else ""
+            status_attr = f' class="{_status_class(cell.status)}"' if cell.status else ""
+            parts.append(f'<{tag}{status_attr}{scope}>{_render_metric_table_cell(cell)}</{tag}>')
+        parts.append("</tr>")
+    parts.append("</tbody></table></div>")
+    return "".join(parts)
+
+
+def _render_metric_parts(metric: ReportMetric) -> str:
+    parts = ['<strong class="report-card-metric-parts">']
+    for index, part in enumerate(metric.parts):
+        if index:
+            parts.append('<span class="report-card-metric-separator">/</span>')
+        parts.append(
+            f'<span class="report-card-metric-part {_status_class(part.status)}">'
+            f'<span class="report-card-metric-part-label">{_esc(part.label)}</span> '
+            f'<span class="report-card-metric-part-value">{_esc(part.value)}</span>'
+            "</span>"
+        )
+    parts.append("</strong>")
     return "".join(parts)
 
 
@@ -833,18 +961,63 @@ def _render_relationship_graph_section(graph: RelationshipGraph) -> str:
         graph_payload["traversal"] = graph.traversal
     if graph.filter_defaults:
         graph_payload["filter_defaults"] = graph.filter_defaults
+    if graph.status_order:
+        graph_payload["status_order"] = list(graph.status_order)
     graph_json = json.dumps(graph_payload, ensure_ascii=False).replace("</", "<\\/")
     node_count = len(graph.nodes)
     edge_count = len(graph.edges)
-    type_counts = Counter(str(node.get("type") or "entity") for node in graph.nodes)
-    status_counts = Counter(str(node.get("status") or "unknown") for node in graph.nodes)
+    preview_focus = _relationship_preview_focus(graph.nodes)
+    preview_focus_type = str(preview_focus.get("type") or "entity") if preview_focus else "entity"
+    preview_focus_id = str(preview_focus.get("id") or "") if preview_focus else ""
+    type_counts = Counter(
+        str(node.get("type") or "entity")
+        for node in graph.nodes
+        if str(node.get("id") or "") != preview_focus_id
+    )
+    type_preview_items = type_counts.most_common(8)
+    inspectable_types = {item for item, _count in type_preview_items}
+    preview_nodes = tuple(
+        node
+        for node in graph.nodes
+        if str(node.get("id") or "") != preview_focus_id and str(node.get("type") or "entity") in inspectable_types
+    )
+    preview_type_counts = Counter(str(node.get("type") or "entity") for node in preview_nodes)
+    status_counts = Counter(str(node.get("status") or "unknown") for node in preview_nodes)
     type_preview = "".join(
-        f'<span>{_esc(item)} <strong>{count}</strong></span>'
-        for item, count in type_counts.most_common(8)
+        _render_relationship_preview_chip(
+            item,
+            count,
+            {
+                "focus": preview_focus_id,
+                "types": list(dict.fromkeys([preview_focus_type, item])),
+                "target_type": item,
+                "node_ids": [
+                    str(node.get("id") or "")
+                    for node in preview_nodes
+                    if str(node.get("type") or "entity") == item and str(node.get("id") or "")
+                ],
+            },
+        )
+        for item, count in type_preview_items
     )
     status_preview = "".join(
-        f'<span class="{_status_class(item)}">{_esc(item)} <strong>{count}</strong></span>'
-        for item, count in status_counts.most_common(6)
+        _render_relationship_preview_chip(
+            item,
+            count,
+            {
+                "focus": preview_focus_id,
+                "filters": {type_name: {"status": [item]} for type_name in preview_type_counts},
+                "plain_list": True,
+                "label": f"Open graph for {item}",
+                "node_ids": [
+                    str(node.get("id") or "")
+                    for node in preview_nodes
+                    if str(node.get("status") or "unknown") == item and str(node.get("id") or "")
+                ],
+            },
+            extra_class=_status_class(item),
+        )
+        for item, count in _ordered_counter_items(status_counts, graph.status_order, 6)
     )
     return f"""
   <section class="report-relationship-section" id="report-relationship-graph">
@@ -874,19 +1047,21 @@ def _render_relationship_graph_section(graph: RelationshipGraph) -> str:
             </div>
             <div class="relationship-search-controls">
               <label class="label relationship-cell-find-label" for="relationship-find-node">Find node</label>
-              <label class="label relationship-cell-focus-label" for="relationship-focus-node">Focus <small data-relationship-node-count></small></label>
-              <label class="label relationship-cell-type-label" for="relationship-focus-type">Focus type</label>
+              <div class="relationship-search-tools relationship-cell-regex">
+                <button type="button" class="relationship-search-help-button" data-relationship-search-help aria-expanded="false" aria-label="Search help">?</button>
+                <label class="relationship-search-regex"><input type="checkbox" data-relationship-search-regex><span>Regex</span></label>
+                <div class="relationship-search-help" data-relationship-search-help-popover hidden>
+                  <strong>Search rules</strong>
+                  <p>Without Regex, search matches plain text built from type, name, and summary; separators are treated as spaces.</p>
+                  <p>With Regex, search matches this candidate string: status · type · name · summary.</p>
+                  <p>Examples: CDD Andr, fail, ^not_failed.*audio, storage|graphics.</p>
+                </div>
+              </div>
               <input class="relationship-cell-find-input" id="relationship-find-node" type="search" data-relationship-search placeholder="VSR, HAL, CTS, CDD">
-              <select class="relationship-cell-focus-input" id="relationship-focus-node" data-relationship-node-select aria-label="Select graph node"></select>
-              <select class="relationship-cell-type-input" id="relationship-focus-type" data-relationship-focus-type aria-label="Limit focus list to one entity type"></select>
-              <label class="relationship-focus-scope relationship-cell-scope"><input type="checkbox" data-relationship-focus-scope><span>only visible</span></label>
+              <div class="relationship-search-results" data-relationship-search-results role="listbox" hidden></div>
             </div>
             <div class="relationship-view-controls">
               <div class="relationship-projection-controls" data-relationship-projection-controls>
-                <label class="relationship-projection-auto">
-                  <input type="checkbox" data-relationship-projection-auto>
-                  <span>Auto</span>
-                </label>
                 <div class="relationship-projection-levels" data-relationship-projection-levels></div>
               </div>
               <label class="relationship-secondary-toggle">
@@ -937,6 +1112,40 @@ def _render_relationship_graph_section(graph: RelationshipGraph) -> str:
     </div>
   </section>
 """
+
+
+def _relationship_preview_focus(nodes: tuple[dict[str, Any], ...]) -> dict[str, Any] | None:
+    return next((node for node in nodes if str(node.get("type") or "entity") == "product"), None) or (nodes[0] if nodes else None)
+
+
+def _ordered_counter_items(counter: Counter[str], priority: tuple[str, ...], limit: int) -> list[tuple[str, int]]:
+    order = {value: index for index, value in enumerate(priority)}
+    return sorted(
+        counter.items(),
+        key=lambda item: (
+            0 if item[0] in order else 1,
+            order.get(item[0], 0),
+            -item[1],
+            item[0],
+        ),
+    )[:limit]
+
+
+def _render_relationship_preview_chip(
+    label: str,
+    count: int,
+    view: dict[str, Any],
+    *,
+    extra_class: str = "",
+) -> str:
+    view_json = json.dumps(view, ensure_ascii=False, sort_keys=True).replace("</", "<\\/")
+    classes = f' class="{extra_class}"' if extra_class else ""
+    title = view.get("label") or f"Open graph for {label}"
+    return (
+        f'<button type="button"{classes} title="{_esc(str(title))}" '
+        f"data-relationship-open-view='{_esc(view_json)}'>"
+        f'{_esc(label)} <strong>{count}</strong></button>'
+    )
 
 
 def _render_table_value(value: Any, comments: ReviewComments) -> str:
@@ -1096,6 +1305,14 @@ def _object_optional(value: Any, field: str) -> dict[str, Any] | None:
     if not isinstance(value, dict):
         raise DiffReportError(f"{field} must be an object")
     return dict(value)
+
+
+def _string_tuple_optional(value: Any, field: str) -> tuple[str, ...]:
+    if value is None:
+        return ()
+    if not isinstance(value, list) or not all(isinstance(item, str) for item in value):
+        raise DiffReportError(f"{field} must be a string list")
+    return tuple(item for item in value if item.strip())
 
 
 def _required_text(item: dict[str, Any], key: str, field: str) -> str:
@@ -1348,7 +1565,8 @@ def _relationship_graph_script() -> str:
         nodes: Array.isArray(parsed.nodes) ? parsed.nodes : [],
         edges: Array.isArray(parsed.edges) ? parsed.edges : [],
         traversal: parsed.traversal && typeof parsed.traversal === "object" ? parsed.traversal : {},
-        filterDefaults: parsed.filter_defaults && typeof parsed.filter_defaults === "object" ? parsed.filter_defaults : {}
+        filterDefaults: parsed.filter_defaults && typeof parsed.filter_defaults === "object" ? parsed.filter_defaults : {},
+        statusOrder: Array.isArray(parsed.status_order) ? parsed.status_order.map(String).filter((value) => value.trim()) : []
       };
     } catch (_error) {
       return {nodes: [], edges: []};
@@ -1439,7 +1657,24 @@ def _relationship_graph_script() -> str:
   }
 
   function subfilterFieldsForType(type, nodes) {
-    const candidates = ["suite", "domain", "applicability", "mapping_status", "coverage_strength", "evidence_trust"];
+    const candidates = [
+      "suite",
+      "domain",
+      "applicability",
+      "mapping_status",
+      "coverage_strength",
+      "evidence_trust",
+      "original_status",
+      "auto_candidate_status",
+      "auto_candidate_confidence",
+      "auto_domain_mapping_status",
+      "auto_domain_mapping_confidence",
+      "accepted_req_link_status",
+      "accepted_domain_link_status",
+      "accepted_test_link_status",
+      "case_req_link_status",
+      "case_req_link_source"
+    ];
     const typedNodes = nodes.filter((node) => (node.type || "entity") === type);
     const fields = [];
     for (const field of candidates) {
@@ -1469,9 +1704,14 @@ def _relationship_graph_script() -> str:
     return result;
   }
 
-  function createStatusFilter(nodes, defaults) {
+  function createStatusFilter(nodes, defaults, statusOrder) {
+    const rank = new Map((statusOrder || []).map((value, index) => [String(value), index]));
     const values = Array.from(new Set(nodes.map((node) => fieldValue(node, "status")).filter((value) => value.trim())))
-      .sort((left, right) => String(left).localeCompare(String(right)));
+      .sort((left, right) => {
+        const leftRank = rank.has(left) ? rank.get(left) : Number.POSITIVE_INFINITY;
+        const rightRank = rank.has(right) ? rank.get(right) : Number.POSITIVE_INFINITY;
+        return leftRank - rightRank || String(left).localeCompare(String(right));
+      });
     let include = null;
     const exclude = new Set();
     for (const typeDefaults of Object.values(defaults && typeof defaults === "object" ? defaults : {})) {
@@ -1492,7 +1732,7 @@ def _relationship_graph_script() -> str:
   function resetSubfilters(state) {
     const nodes = stateGraphNodes(state);
     state.subfilters = createSubfilters(nodes, state.filterDefaults);
-    state.statusFilter = createStatusFilter(nodes, state.filterDefaults);
+    state.statusFilter = createStatusFilter(nodes, state.filterDefaults, state.statusOrder);
   }
 
   function isSubfilterEnabled(node, state) {
@@ -1517,11 +1757,24 @@ def _relationship_graph_script() -> str:
     return true;
   }
 
+  function isActiveViewNodeAllowed(node, state) {
+    if (!node || !state || !state.activeViewNodeIds) return true;
+    if (node.id === state.selectedId) return true;
+    return state.activeViewNodeIds.has(node.id);
+  }
+
   function isNodeVisible(node, state) {
     if (!node) return false;
     if (!nodeInScope(state, node)) return false;
     if (state && node.id === state.selectedId) return true;
-    return isTypeEnabled(node, state && state.selectedId, state.enabledTypes) && isSubfilterEnabled(node, state);
+    return isActiveViewNodeAllowed(node, state) && isTypeEnabled(node, state && state.selectedId, state.enabledTypes) && isSubfilterEnabled(node, state);
+  }
+
+  function isNodeVisibleIgnoringStatus(node, state) {
+    if (!node) return false;
+    if (!nodeInScope(state, node)) return false;
+    if (state && node.id === state.selectedId) return true;
+    return isActiveViewNodeAllowed(node, state) && isTypeEnabled(node, state && state.selectedId, state.enabledTypes) && isNonStatusSubfilterEnabled(node, state);
   }
 
   function includeNodeInSubfilters(state, node) {
@@ -1717,20 +1970,21 @@ def _relationship_graph_script() -> str:
         downParents.set(toId, {parentId: fromId, edge: item.edge});
         if (isFallbackTraversalEdge(item.edge, traversal) && nodeVisible(toNode)) {
           fallbackDescendants.push(toId);
+          downQueue.push(toId);
         } else if (edgeSecondary && includeSecondaryLinks && fromId === selectedId && nodeVisible(toNode)) {
           secondaryDescendants.push(toId);
+          downQueue.push(toId);
         } else if (edgeSecondary) {
           downQueue.push(toId);
         } else if (nodeVisible(toNode)) {
           visibleDescendants.push(toId);
+          downQueue.push(toId);
         } else {
           downQueue.push(toId);
         }
       }
     }
     if (visibleDescendants.length || secondaryDescendants.length || fallbackDescendants.length) {
-      // Draw the first visible child rank only. Hidden intermediate nodes are still traversed,
-      // and direct shortcut edges to deeper ranks do not mix tests with requirements.
       const candidateDescendants = visibleDescendants.concat(secondaryDescendants, fallbackDescendants);
       const visibleChildRank = Math.min(...candidateDescendants.map((id) => rankOf(nodesById.get(id))));
       const shownDescendants = candidateDescendants.filter((id) => rankOf(nodesById.get(id)) === visibleChildRank);
@@ -1805,20 +2059,6 @@ def _relationship_graph_script() -> str:
     return {nodes: visibleNodes, edges: visibleEdges, distances, contextIds: new Set(ancestry)};
   }
 
-  function graphMatchesSearch(graph, query, state) {
-    const normalized = String(query || "").trim().toLowerCase();
-    if (!normalized) return graph;
-    const nodes = graph.nodes.filter((node) => searchableTextForState(state, node).includes(normalized));
-    const visible = new Set(nodes.map((node) => node.id));
-    return {
-      nodes,
-      edges: graph.edges.filter((edge) => visible.has(edge.source) && visible.has(edge.target)),
-      distances: graph.distances,
-      contextIds: graph.contextIds,
-      listMode: graph.listMode
-    };
-  }
-
   function singleEnabledType(state) {
     const types = Array.from(state.enabledTypes || []).filter(Boolean);
     return types.length === 1 ? types[0] : "";
@@ -1838,20 +2078,166 @@ def _relationship_graph_script() -> str:
     };
   }
 
-  function capGraph(graph, selectedId, limit, page) {
+  function buildFocusedTypeListGraph(state, statusSensitive) {
+    const selected = state.nodesById.get(state.selectedId || "");
+    if (!selected) return null;
+    const selectedType = selected.type || "entity";
+    const enabled = Array.from(state.enabledTypes || []).filter(Boolean);
+    if (enabled.length !== 2 || !enabled.includes(selectedType)) return null;
+    const targetType = enabled.find((type) => type !== selectedType);
+    if (!targetType) return null;
+    const filterNode = statusSensitive === false ? isNonStatusSubfilterEnabled : isSubfilterEnabled;
+    const nodes = [selected].concat(
+      stateGraphNodes(state)
+        .filter((node) => node.id !== selected.id && node.type === targetType && isActiveViewNodeAllowed(node, state) && filterNode(node, state))
+        .sort(graphOrderComparator(state, statusOrderMap(state)))
+    );
+    return {
+      nodes,
+      edges: [],
+      distances: new Map(nodes.map((node) => [node.id, node.id === selected.id ? 0 : 1])),
+      contextIds: new Set([selected.id]),
+      listMode: true,
+      stickyContext: true
+    };
+  }
+
+  function buildStatusChipScopeGraph(state) {
+    if (state.plainListMode) {
+      const compare = graphOrderComparator(state, statusOrderMap(state));
+      const targetTypes = plainListTargetTypes(state);
+      const nodes = stateGraphNodes(state)
+        .filter((node) => plainListNodeVisible(state, node, targetTypes, false))
+        .sort(compare);
+      return {
+        nodes,
+        edges: [],
+        distances: new Map(nodes.map((node) => [node.id, node.id === state.selectedId ? 0 : 1])),
+        listMode: true
+      };
+    }
+    const focusedTypeList = buildFocusedTypeListGraph(state, false);
+    if (focusedTypeList) return focusedTypeList;
+    const selectedType = singleEnabledType(state);
+    const selected = state.nodesById.get(state.selectedId || "");
+    if (selectedType && selected && (selected.type || "entity") === selectedType) {
+      const nodes = stateGraphNodes(state).filter((node) => node.type === selectedType && isNonStatusSubfilterEnabled(node, state));
+      return {
+        nodes,
+        edges: [],
+        distances: new Map(nodes.map((node) => [node.id, node.id === state.selectedId ? 0 : 1])),
+        listMode: true
+      };
+    }
+    return buildNeighborhood(
+      state.selectedId,
+      state.nodesById,
+      stateGraphEdges(state),
+      stateGraphAdjacency(state),
+      (node) => isNodeVisibleIgnoringStatus(node, state),
+      (node) => nodeInScope(state, node),
+      activeTraversal(state),
+      state.showSecondaryLinks
+    );
+  }
+
+  function statusOrderMap(state) {
+    const statusValues = (state.statusFilter && state.statusFilter.values) || [];
+    const enabledStatuses = state.statusFilter && state.statusFilter.enabled ? state.statusFilter.enabled : new Set();
+    return new Map(statusValues.filter((value) => enabledStatuses.has(value)).map((value, index) => [value, index]));
+  }
+
+  function statusRank(state, statusOrder, node) {
+    const statusValues = (state.statusFilter && state.statusFilter.values) || [];
+    const value = fieldValue(node, "status");
+    if (statusOrder.has(value)) return statusOrder.get(value);
+    const fallback = statusValues.indexOf(value);
+    return statusOrder.size + (fallback === -1 ? statusValues.length : fallback);
+  }
+
+  function graphOrderComparator(state, statusOrder) {
+    return (left, right) =>
+      statusRank(state, statusOrder, left) - statusRank(state, statusOrder, right) ||
+      traversalRank(state, left) - traversalRank(state, right) ||
+      typeRank(left) - typeRank(right) ||
+      String(left.type || "entity").localeCompare(String(right.type || "entity")) ||
+      String(left.label || left.id).localeCompare(String(right.label || right.id));
+  }
+
+  function plainListTargetTypes(state) {
+    const selected = state.nodesById.get(state.selectedId || "");
+    if (!selected) return null;
+    const selectedType = selected.type || "entity";
+    const targets = Array.from(state.enabledTypes || []).filter((type) => type && type !== selectedType);
+    return targets.length ? new Set(targets) : null;
+  }
+
+  function plainListNodeVisible(state, node, targetTypes, statusSensitive) {
+    if (!node || !nodeInScope(state, node)) return false;
+    const type = node.type || "entity";
+    if (targetTypes) {
+      if (!targetTypes.has(type)) return false;
+    } else if (!state.enabledTypes.has(type)) {
+      return false;
+    }
+    if (!isActiveViewNodeAllowed(node, state)) return false;
+    return statusSensitive ? isSubfilterEnabled(node, state) : isNonStatusSubfilterEnabled(node, state);
+  }
+
+  function buildPlainListGraph(state) {
+    if (!state.plainListMode) return null;
+    const compare = graphOrderComparator(state, statusOrderMap(state));
+    const targetTypes = plainListTargetTypes(state);
+    const nodes = stateGraphNodes(state)
+      .filter((node) => plainListNodeVisible(state, node, targetTypes, true))
+      .sort(compare);
+    return {
+      nodes,
+      edges: [],
+      distances: new Map(nodes.map((node) => [node.id, node.id === state.selectedId ? 0 : 1])),
+      listMode: true
+    };
+  }
+
+  function capGraph(graph, state, limit, page) {
+    const selectedId = state.selectedId;
     if (!limit) {
       return Object.assign({}, graph, {pagination: {enabled: false, page: 0, pageCount: 1, start: 0, end: graph.nodes.length, total: graph.nodes.length, rendered: graph.nodes.length}});
     }
+    const pageEdges = (nodes) => {
+      const visible = new Set(nodes.map((node) => node.id));
+      const edges = graph.edges.filter((edge) => visible.has(edge.source) && visible.has(edge.target));
+      if (graph.stickyContext && !state.plainListMode && selectedId && visible.has(selectedId)) {
+        const existing = new Set(edges.map((edge) => `${edge.source}\u0000${edge.target}`));
+        for (const node of nodes) {
+          if (node.id === selectedId) continue;
+          const key = `${selectedId}\u0000${node.id}`;
+          if (existing.has(key)) continue;
+          existing.add(key);
+          edges.push({source: selectedId, target: node.id, relation: "through_filtered"});
+        }
+      }
+      return edges;
+    };
+    const statusOrder = statusOrderMap(state);
+    const graphCompare = graphOrderComparator(state, statusOrder);
     const score = (node) => {
-      const status = String(node.status || "");
       const distance = graph.distances && graph.distances.get(node.id);
-      const statusScore = ["gap", "risk", "needs_evidence", "fail", "blocked"].includes(status) ? 0 : 1;
-      return [
-        distance == null ? 9 : distance,
-        statusScore,
-        typeRank(node),
-        String(node.label || node.id)
-      ];
+      return graph.listMode
+        ? [
+          distance == null ? 9 : distance,
+          statusRank(state, statusOrder, node),
+          traversalRank(state, node),
+          String(node.label || node.id)
+        ]
+        : [
+          statusRank(state, statusOrder, node),
+          traversalRank(state, node),
+          typeRank(node),
+          String(node.type || "entity"),
+          String(node.label || node.id),
+          distance == null ? 9 : distance
+        ];
     };
     const compare = (left, right) => {
       const leftScore = score(left);
@@ -1862,57 +2248,50 @@ def _relationship_graph_script() -> str:
       }
       return 0;
     };
-    const selectedNode = graph.nodes.find((node) => node.id === selectedId);
-    const contextIds = graph.contextIds || new Set(selectedNode ? [selectedId] : []);
-    const contextNodes = graph.listMode ? [] : graph.nodes.filter((node) => contextIds.has(node.id));
     const pageSize = Math.max(1, limit);
-    const buckets = new Map();
-    for (const node of graph.nodes) {
-      if (contextIds.has(node.id)) continue;
-      const distance = graph.distances && graph.distances.get(node.id);
-      const key = `${distance == null ? 9 : distance}\u0000${typeRank(node)}\u0000${node.type || "entity"}`;
-      if (!buckets.has(key)) buckets.set(key, []);
-      buckets.get(key).push(node);
+    let pageCache = graph.pageCache;
+    if (!pageCache || pageCache.pageSize !== pageSize || pageCache.selectedId !== selectedId) {
+      const selectedNode = graph.nodes.find((node) => node.id === selectedId);
+      const contextIds = graph.contextIds || new Set(selectedNode ? [selectedId] : []);
+      const contextNodes = graph.listMode && !graph.stickyContext ? [] : graph.nodes.filter((node) => contextIds.has(node.id));
+      const orderedNodes = graph.listMode
+        ? (graph.stickyContext ? graph.nodes.filter((node) => !contextIds.has(node.id)) : graph.nodes.slice())
+        : graph.nodes.filter((node) => !contextIds.has(node.id)).sort(compare);
+      pageCache = {
+        pageSize,
+        selectedId,
+        contextIds,
+        contextNodes,
+        orderedNodes,
+        total: orderedNodes.length,
+        pageCount: Math.max(1, Math.ceil(orderedNodes.length / pageSize))
+      };
+      graph.pageCache = pageCache;
     }
-    for (const bucket of buckets.values()) bucket.sort(compare);
-    const orderedKeys = Array.from(buckets.keys()).sort((left, right) => {
-      const [leftDistance, leftRank, leftType] = left.split("\u0000");
-      const [rightDistance, rightRank, rightType] = right.split("\u0000");
-      return Number(leftDistance) - Number(rightDistance) ||
-        Number(leftRank) - Number(rightRank) ||
-        String(leftType).localeCompare(String(rightType));
-    });
-    const orderedNodes = [];
-    while (orderedKeys.length) {
-      let added = false;
-      for (const key of orderedKeys) {
-        const bucket = buckets.get(key) || [];
-        const node = bucket.shift();
-        if (!node) continue;
-        orderedNodes.push(node);
-        added = true;
-      }
-      if (!added) break;
-    }
-    const total = orderedNodes.length;
+    const contextNodes = pageCache.contextNodes;
+    const orderedNodes = pageCache.orderedNodes;
+    const total = pageCache.total;
     if (total <= pageSize) {
+      const nodes = graph.listMode && !graph.stickyContext ? orderedNodes : contextNodes.concat(orderedNodes);
       return Object.assign({}, graph, {
-        pagination: {enabled: false, page: 0, pageCount: 1, start: total ? 1 : 0, end: total, total, pageSize, rendered: graph.nodes.length}
+        nodes,
+        edges: pageEdges(nodes),
+        pagination: {enabled: false, page: 0, pageCount: 1, start: total ? 1 : 0, end: total, total, pageSize, rendered: nodes.length}
       });
     }
-    const pageCount = Math.max(1, Math.ceil(total / pageSize));
+    const pageCount = pageCache.pageCount;
     const currentPage = Math.min(Math.max(Number(page) || 0, 0), pageCount - 1);
     const startIndex = currentPage * pageSize;
     const pageNodes = orderedNodes.slice(startIndex, startIndex + pageSize);
-    const nodes = graph.listMode ? pageNodes : contextNodes.concat(pageNodes);
+    const nodes = graph.listMode && !graph.stickyContext ? pageNodes : contextNodes.concat(pageNodes);
     const end = Math.min(startIndex + pageSize, total);
-    const visible = new Set(nodes.map((node) => node.id));
     return {
       nodes,
-      edges: graph.edges.filter((edge) => visible.has(edge.source) && visible.has(edge.target)),
+      edges: pageEdges(nodes),
       distances: graph.distances,
       contextIds: graph.contextIds,
       listMode: graph.listMode,
+      stickyContext: graph.stickyContext,
       omitted: total - pageNodes.length,
       pagination: {
         enabled: true,
@@ -2165,32 +2544,38 @@ def _relationship_graph_script() -> str:
       {selector: ".is-list-item", style: {"width": 190, "height": 58, "text-max-width": 162, "font-size": 9}},
       {selector: '.is-list-item[type = "cdd"]', style: {"width": 122, "height": 80, "text-max-width": 92}},
       {selector: "edge", style: {"width": 1.4, "line-color": muted, "target-arrow-color": muted, "target-arrow-shape": "triangle", "curve-style": "bezier", "opacity": .52}},
-      {selector: ".status-covered, .status-covered-candidate, .status-pass, .status-not-failed", style: {"border-color": pass, "background-color": passBg}},
-      {selector: ".status-risk, .status-needs-evidence, .status-not-applicable-candidate, .status-warning", style: {"border-color": risk, "background-color": riskBg}},
-      {selector: ".status-gap, .status-fail, .status-blocked", style: {"border-color": fail, "background-color": failBg}},
-      {selector: ".status-assumption-failure, .status-skip, .status-skipped, .status-auto-fail-candidate, .status-auto-warning-candidate", style: {"border-color": info, "background-color": infoBg}},
+      {selector: ".status-covered, .status-covered-candidate, .status-pass, .status-not-failed, .status-available, .status-mapped, .status-high", style: {"border-color": pass, "background-color": passBg}},
+      {selector: ".status-risk, .status-needs-evidence, .status-not-applicable-candidate, .status-warning, .status-assumption-failure, .status-skip, .status-skipped, .status-auto-warning-candidate, .status-medium, .status-assumption", style: {"border-color": risk, "background-color": riskBg}},
+      {selector: ".status-gap, .status-fail, .status-blocked, .status-auto-fail-candidate, .status-not-available, .status-not-mapped, .status-pending, .status-low", style: {"border-color": fail, "background-color": failBg}},
       {selector: ".status-auto-pass-candidate", style: {"border-color": autoPass, "background-color": autoPassBg}},
-      {selector: ".status-not-run, .status-not-done, .status-unknown, .status-auto-no-result-candidate", style: {"border-color": neutral, "background-color": neutralBg}},
+      {selector: ".status-not-run, .status-not-done, .status-not-started, .status-other, .status-unknown, .status-auto-no-result-candidate, .status-no-test-signal", style: {"border-color": neutral, "background-color": neutralBg}},
       {selector: ".is-selected", style: {"border-color": link, "border-width": 5, "outline-color": link, "outline-width": 3, "outline-opacity": .52}},
-      {selector: ".is-active", style: {"border-color": active, "border-width": 4}},
+      {selector: ".is-active", style: {"outline-color": active, "outline-width": 3, "outline-opacity": .45}},
       {selector: "node:selected", style: {"border-color": link, "border-width": 4}}
     ];
     return cachedCytoscapeStyle;
   }
 
-  function listNodePosition(index, graph) {
+  function listNodePosition(index, graph, node) {
     const layout = graph.listLayout || {};
+    if (graph.stickyContext && node && node.id === graph.selectedId) {
+      return {x: (layout.width || 900) / 2, y: layout.focusTop || 92};
+    }
     const cols = Math.max(1, layout.cols || 1);
-    const rows = Math.max(1, layout.rows || 1);
-    const col = index % cols;
-    const row = Math.floor(index / cols);
+    const rows = Math.max(1, layout.positionRows || layout.rows || 1);
+    const itemIndex = graph.stickyContext ? Math.max(0, index - 1) : index;
+    const col = itemIndex % cols;
+    const row = Math.floor(itemIndex / cols);
+    const itemCount = Math.max(1, layout.itemCount || graph.nodes.length || 1);
+    const rowItemCount = Math.max(1, Math.min(cols, itemCount - row * cols));
+    const centeredCol = col + Math.max(0, (cols - rowItemCount) / 2);
     const left = layout.left || 120;
     const top = layout.top || 90;
     const usableWidth = Math.max(1, (layout.width || 900) - left * 2);
-    const usableHeight = Math.max(1, (layout.height || 720) - top * 2);
+    const usableHeight = Math.max(1, (layout.height || 720) - top - (layout.bottom || 92));
     const colGap = cols > 1 ? usableWidth / (cols - 1) : 0;
     const rowGap = rows > 1 ? usableHeight / (rows - 1) : 0;
-    return {x: left + col * colGap, y: top + row * rowGap};
+    return {x: left + centeredCol * colGap, y: top + row * rowGap};
   }
 
   function nodeTraversalRank(node, traversal) {
@@ -2200,59 +2585,69 @@ def _relationship_graph_script() -> str:
     return Number.isFinite(value) ? value : 99;
   }
 
-  function buildHierarchicalLayout(nodes, width, height, selectedId, traversal) {
+  function buildHierarchicalLayout(nodes, width, height, selectedId, traversal, compareNodes) {
     const positions = new Map();
     if (!nodes.length) {
       return {positions, width, height};
     }
-    const groups = new Map();
+    const selected = nodes.find((node) => node.id === selectedId);
+    const selectedRank = selected ? nodeTraversalRank(selected, traversal) : 0;
+    const contextGroups = new Map();
+    const descendants = [];
     for (const node of nodes) {
       const rank = nodeTraversalRank(node, traversal);
-      if (!groups.has(rank)) groups.set(rank, []);
-      groups.get(rank).push(node);
+      if (node.id === selectedId || rank < selectedRank) {
+        if (!contextGroups.has(rank)) contextGroups.set(rank, []);
+        contextGroups.get(rank).push(node);
+      } else {
+        descendants.push(node);
+      }
     }
-    const ranks = Array.from(groups.keys()).sort((left, right) => left - right);
-    const columnWidth = 180;
+    const rows = Array.from(contextGroups.keys()).sort((left, right) => left - right).map((rank) => ({
+      key: `context:${rank}`,
+      nodes: contextGroups.get(rank)
+    }));
+    if (descendants.length) {
+      rows.push({
+        key: "descendants",
+        nodes: descendants.slice().sort(compareNodes)
+      });
+    }
+    const columnWidth = 240;
     const rowHeight = 138;
     const rankGap = 170;
     const left = 120;
     const top = 92;
     const baseWidth = Math.max(width || 900, 640);
-    const columnCounts = new Map();
-    for (const [rank, group] of groups) {
-      columnCounts.set(rank, Math.max(1, Math.ceil(Math.sqrt(group.length))));
-    }
-    const maxColumns = Math.max(...Array.from(columnCounts.values()));
-    const rowCounts = new Map();
-    for (const [rank, group] of groups) {
-      rowCounts.set(rank, Math.max(1, Math.ceil(group.length / columnCounts.get(rank))));
-    }
-    const totalRows = Array.from(rowCounts.values()).reduce((sum, rows) => sum + rows, 0);
+    const columnCounts = rows.map((row) => Math.max(1, Math.ceil(Math.sqrt(row.nodes.length))));
+    const maxColumns = Math.max(...columnCounts);
+    const rowCounts = rows.map((row, index) => Math.max(1, Math.ceil(row.nodes.length / columnCounts[index])));
+    const totalRows = rowCounts.reduce((sum, count) => sum + count, 0);
     const layoutWidth = Math.max(baseWidth, left * 2 + Math.max(0, maxColumns - 1) * columnWidth);
     const layoutHeight = Math.max(
       height || 520,
-      top * 2 + Math.max(0, totalRows - 1) * rowHeight + Math.max(0, ranks.length - 1) * (rankGap - rowHeight)
+      top * 2 + Math.max(0, totalRows - 1) * rowHeight + Math.max(0, rows.length - 1) * (rankGap - rowHeight)
     );
-    const usableWidth = Math.max(1, layoutWidth - left * 2);
     let rankTop = top;
-    ranks.forEach((rank) => {
-      const group = groups.get(rank).slice().sort((leftNode, rightNode) => {
+    rows.forEach((row, rowIndex) => {
+      const group = row.nodes.slice().sort((leftNode, rightNode) => {
         if (leftNode.id === selectedId) return -1;
         if (rightNode.id === selectedId) return 1;
-        return String(leftNode.label || leftNode.id).localeCompare(String(rightNode.label || rightNode.id));
+        return compareNodes(leftNode, rightNode);
       });
-      const cols = Math.min(group.length, columnCounts.get(rank));
-      const rows = Math.max(1, Math.ceil(group.length / cols));
-      const colGap = cols > 1 ? usableWidth / (cols - 1) : 0;
+      const cols = Math.min(group.length, columnCounts[rowIndex]);
+      const rowSpan = Math.max(1, Math.ceil(group.length / cols));
+      const rowWidth = Math.max(0, (cols - 1) * columnWidth);
+      const rowLeft = (layoutWidth - rowWidth) / 2;
       group.forEach((node, index) => {
-        const colIndex = Math.floor(index / rows);
-        const rowIndex = index % rows;
+        const colIndex = index % cols;
+        const rowIndex = Math.floor(index / cols);
         positions.set(node.id, {
-          x: cols > 1 ? left + colIndex * colGap : layoutWidth / 2,
+          x: cols > 1 ? rowLeft + colIndex * columnWidth : layoutWidth / 2,
           y: rankTop + rowIndex * rowHeight
         });
       });
-      rankTop += Math.max(0, rows - 1) * rowHeight + rankGap;
+      rankTop += Math.max(0, rowSpan - 1) * rowHeight + rankGap;
     });
     return {positions, width: layoutWidth, height: layoutHeight};
   }
@@ -2264,6 +2659,12 @@ def _relationship_graph_script() -> str:
     return position ? {x: position.x, y: position.y} : undefined;
   }
 
+  function graphNodeVisualStatus(node, graph) {
+    const field = graph && graph.visualStatusField || "";
+    const value = field ? fieldValue(node, field) : "";
+    return value || node.status || "unknown";
+  }
+
   function cytoscapeElements(graph) {
     const nodes = graph.nodes.map((node, index) => ({
       group: "nodes",
@@ -2272,10 +2673,10 @@ def _relationship_graph_script() -> str:
         label: node.label || node.id,
         displayLabel: `${nodeTypeLabel(node)}\n${wrapNodeDisplayLabel(node)}`,
         type: node.type || "entity",
-        status: node.status || "unknown"
+        status: graphNodeVisualStatus(node, graph)
       },
-      position: graph.listMode ? listNodePosition(index, graph) : hierarchyNodePosition(node, graph),
-      classes: `${cssStatus(node.status)} ${graph.listMode ? "is-list-item" : ""} ${node.id === graph.selectedId ? "is-selected" : ""} ${node.id === graph.activeId ? "is-active" : ""}`
+      position: graph.listMode ? listNodePosition(index, graph, node) : hierarchyNodePosition(node, graph),
+      classes: `${cssStatus(graphNodeVisualStatus(node, graph))} ${graph.listMode ? "is-list-item" : ""} ${node.id === graph.selectedId ? "is-selected" : ""} ${node.id === graph.activeId ? "is-active" : ""}`
     }));
     const edges = visibleEdgesForCanvas(graph.selectedId, graph).map((edge, index) => ({
       group: "edges",
@@ -2289,18 +2690,104 @@ def _relationship_graph_script() -> str:
     return [...nodes, ...edges];
   }
 
+  function updateGraphCanvasHeight(browser) {
+    const modal = browser && browser.closest ? browser.closest("[data-relationship-modal]") : null;
+    const wrap = browser && browser.querySelector ? browser.querySelector(".relationship-canvas-wrap") : null;
+    if (!modal || !wrap) return;
+    if (window.matchMedia && window.matchMedia("(max-width: 880px)").matches) {
+      wrap.style.height = "";
+      return;
+    }
+    const explorer = browser.querySelector(".relationship-explorer-main");
+    const control = browser.querySelector(".relationship-control-bar");
+    if (!explorer || !control) return;
+    const style = window.getComputedStyle(explorer);
+    const gap = Number.parseFloat(style.rowGap || style.gap || "8") || 8;
+    browser.style.setProperty("--relationship-control-bar-height", `${control.offsetHeight}px`);
+    browser.style.setProperty("--relationship-explorer-gap", `${gap}px`);
+    const available = explorer.clientHeight - control.offsetHeight - gap;
+    wrap.style.height = `${Math.max(420, Math.floor(available))}px`;
+  }
+
   function fitGraph(state, padding) {
     if (!state.cy) return;
-    requestAnimationFrame(() => {
-      if (!state.cy) return;
-      state.cy.resize();
-      state.cy.fit(undefined, padding || 72);
-    });
+    updateGraphCanvasHeight(state.browser);
+    state.cy.resize();
+    const graph = state.visibleGraph || {};
+    const layout = graph.listMode && graph.stickyContext ? graph.listLayout : null;
+    const pad = padding || 72;
+    if (layout) {
+      const pagination = graph.pagination || {};
+      const total = Number.isFinite(pagination.total) ? pagination.total : Math.max(0, (graph.nodes || []).length - 1);
+      const pageSize = Number.isFinite(pagination.pageSize) ? pagination.pageSize : 25;
+      const rendered = Number.isFinite(pagination.rendered) ? pagination.rendered : Math.max(0, (graph.nodes || []).length - 1);
+      if (total < pageSize || rendered < pageSize) {
+        state.cy.fit(undefined, pad);
+        const maxZoom = total <= 1 ? .95 : 1.05;
+        if (state.cy.zoom() > maxZoom) {
+          const viewport = state.cy.container();
+          const viewportWidth = viewport ? viewport.clientWidth || 1 : 1;
+          const viewportHeight = viewport ? viewport.clientHeight || 1 : 1;
+          const box = state.cy.elements().boundingBox();
+          const centerX = box.x1 + box.w / 2;
+          const centerY = box.y1 + box.h / 2;
+          state.cy.zoom(maxZoom);
+          state.cy.pan({
+            x: viewportWidth / 2 - centerX * maxZoom,
+            y: viewportHeight / 2 - centerY * maxZoom
+          });
+        }
+        return;
+      }
+      const viewport = state.cy.container();
+      const viewportWidth = viewport ? viewport.clientWidth || 1 : 1;
+      const viewportHeight = viewport ? viewport.clientHeight || 1 : 1;
+      const x1 = layout.left || 0;
+      const y1 = layout.focusTop || 0;
+      const x2 = Math.max(x1 + 1, (layout.width || 900) - (layout.left || 0));
+      const y2 = Math.max(y1 + 1, (layout.height || 720) - (layout.bottom || 0));
+      const contentWidth = x2 - x1;
+      const contentHeight = y2 - y1;
+      const zoom = Math.max(
+        state.cy.minZoom(),
+        Math.min(
+          state.cy.maxZoom(),
+          Math.min(
+            Math.max(0.01, (viewportWidth - pad * 2) / contentWidth),
+            Math.max(0.01, (viewportHeight - pad * 2) / contentHeight)
+          )
+        )
+      );
+      state.cy.zoom(zoom);
+      state.cy.pan({
+        x: (viewportWidth - contentWidth * zoom) / 2 - x1 * zoom,
+        y: (viewportHeight - contentHeight * zoom) / 2 - y1 * zoom
+      });
+      return;
+    }
+    state.cy.fit(undefined, pad);
   }
 
   function syncGraphViewport(state) {
+    updateGraphCanvasHeight(state && state.browser);
     if (!state.cy) return;
     state.cy.resize();
+  }
+
+  function scrollRelationshipToGraph(browser) {
+    if (!browser) return;
+    requestAnimationFrame(() => {
+      const explorer = browser.querySelector(".relationship-explorer-main");
+      const canvas = browser.querySelector(".relationship-canvas-wrap");
+      if (!canvas) return;
+      if (window.matchMedia && window.matchMedia("(max-width: 880px)").matches) {
+        canvas.scrollIntoView({block: "start", inline: "nearest"});
+      } else if (explorer) {
+        explorer.scrollTop = 0;
+      }
+      const state = browser.__relationshipState;
+      if (state) syncGraphViewport(state);
+    });
   }
 
   function setGraphInteractive(browser, state, interactive) {
@@ -2354,20 +2841,17 @@ def _relationship_graph_script() -> str:
       }
       if (count) {
         const rendered = page.rendered == null ? page.total || 0 : page.rendered;
+        const start = page.start || 0;
+        const end = page.end || start + Math.max(rendered - 1, 0);
+        const nodeLabel = `${rendered} ${rendered === 1 ? "node" : "nodes"}`;
+        const elementLabel = `Element ${start}-${page.end || end}/${page.total}`;
         count.textContent = page.enabled
-          ? `${page.start}-${page.end} of ${page.total}`
-          : `${rendered} ${rendered === 1 ? "node" : "nodes"}`;
+          ? `Page ${page.page + 1}/${page.pageCount} | ${elementLabel} | ${nodeLabel}`
+          : (page.total !== rendered ? `${nodeLabel} | ${elementLabel}` : nodeLabel);
       }
     });
     if (page.enabled && state.graphPage !== page.page) {
       state.graphPage = page.page;
-    }
-    const focusCount = browser.querySelector("[data-relationship-node-count]");
-    if (focusCount) {
-      const focusChoices = Number(state.focusChoiceCount || 0);
-      focusCount.textContent = page.enabled
-        ? `(${page.total} graph, ${focusChoices} focus choices)`
-        : `(${page.total || 0} graph, ${focusChoices} focus choices)`;
     }
   }
 
@@ -2398,31 +2882,70 @@ def _relationship_graph_script() -> str:
     const nodes = (graph.nodes || []).map((node) => node.id).join("\u0001");
     const edges = (graph.edges || []).map((edge) => `${edge.source}\u0002${edge.target}\u0002${edge.relation || ""}`).join("\u0001");
     const layout = graph.listLayout
-      ? `${graph.listLayout.cols}:${graph.listLayout.rows}:${graph.listLayout.width}:${graph.listLayout.height}`
+      ? `${graph.listLayout.cols}:${graph.listLayout.rows}:${graph.listLayout.itemCount || 0}:${graph.listLayout.fitRows || 0}:${graph.listLayout.positionRows || 0}:${graph.listLayout.width}:${graph.listLayout.height}`
       : "";
     const page = graph.pagination
       ? `${graph.pagination.page}:${graph.pagination.start}:${graph.pagination.end}:${graph.pagination.total}`
       : "";
-    return `${graph.selectedId || ""}\u0003${graph.listMode ? "1" : "0"}\u0003${page}\u0003${layout}\u0004${nodes}\u0005${edges}`;
+    return `${graph.selectedId || ""}\u0003${graph.visualStatusField || ""}\u0003${graph.listMode ? "1" : "0"}\u0003${page}\u0003${layout}\u0004${nodes}\u0005${edges}`;
   }
 
-  function renderGraph(browser, state) {
-    const canvas = browser.querySelector("[data-relationship-canvas]");
-    if (!canvas || !state.selectedId) return;
-    browser.classList.add("is-graph-ready");
-    browser.setAttribute("data-relationship-graph-ready", "true");
-    refreshGraphActivityState(browser, state);
-    if (typeof cytoscape !== "function") {
-      canvas.textContent = "Cytoscape.js is not available.";
-      return;
+  function graphSourceSignature(state) {
+    const setSignature = (items) => Array.from(items || []).map(String).sort().join("\u0001");
+    const subfilterSignature = JSON.stringify(serializeSubfilters(state));
+    const statusSignature = JSON.stringify(serializeStatusFilter(state).map(String).sort());
+    const projectionSignature = JSON.stringify(projectionSelectionsSnapshot(state));
+    return [
+      state.selectedId || "",
+      state.isolatedRootId || "",
+      state.plainListMode ? "1" : "0",
+      state.showSecondaryLinks ? "1" : "0",
+      setSignature(state.activeViewNodeIds),
+      state.projectionMode || "auto",
+      setSignature(state.enabledTypes),
+      statusSignature,
+      subfilterSignature,
+      projectionSignature
+    ].join("\u0003");
+  }
+
+  function statusScopeSignature(state) {
+    const setSignature = (items) => Array.from(items || []).map(String).sort().join("\u0001");
+    const subfilters = serializeSubfilters(state);
+    for (const typeFilters of Object.values(subfilters)) {
+      if (typeFilters && typeof typeFilters === "object" && Object.prototype.hasOwnProperty.call(typeFilters, "status")) {
+        typeFilters.status = [];
+      }
     }
-    const hasSearch = String(state.searchQuery || "").trim();
-    updateSecondaryLinkControl(browser, state);
-    const nodeVisible = (node) => isNodeVisible(node, state);
-    const contextNodeVisible = (node) => nodeInScope(state, node);
-    const graphEdges = stateGraphEdges(state);
-    const graphAdjacency = stateGraphAdjacency(state);
-    const baseGraph = buildTypeListGraph(state) || buildNeighborhood(
+    return [
+      state.selectedId || "",
+      state.isolatedRootId || "",
+      state.plainListMode ? "1" : "0",
+      state.showSecondaryLinks ? "1" : "0",
+      setSignature(state.activeViewNodeIds),
+      state.projectionMode || "auto",
+      setSignature(state.enabledTypes),
+      JSON.stringify(subfilters),
+      JSON.stringify(projectionSelectionsSnapshot(state))
+    ].join("\u0003");
+  }
+
+  function statusChipScopeGraphForState(state) {
+    const signature = statusScopeSignature(state);
+    if (state.statusChipScopeCache && state.statusChipScopeCache.signature === signature) {
+      return state.statusChipScopeCache.graph;
+    }
+    const graph = buildStatusChipScopeGraph(state);
+    state.statusChipScopeCache = {signature, graph};
+    return graph;
+  }
+
+  function focusGraphForState(state, nodeVisible, contextNodeVisible, graphEdges, graphAdjacency) {
+    const sourceSignature = graphSourceSignature(state);
+    if (state.focusGraphCache && state.focusGraphCache.signature === sourceSignature) {
+      return state.focusGraphCache.graph;
+    }
+    const graph = buildPlainListGraph(state) || buildTypeListGraph(state) || buildFocusedTypeListGraph(state) || buildNeighborhood(
       state.selectedId,
       state.nodesById,
       graphEdges,
@@ -2432,10 +2955,30 @@ def _relationship_graph_script() -> str:
       activeTraversal(state),
       state.showSecondaryLinks
     );
-    const focusGraph = graphMatchesSearch(baseGraph, state.searchQuery, state);
+    state.focusGraphCache = {signature: sourceSignature, graph};
+    return graph;
+  }
+
+  function renderGraph(browser, state) {
+    updateGraphCanvasHeight(browser);
+    const canvas = browser.querySelector("[data-relationship-canvas]");
+    if (!canvas || !state.selectedId) return;
+    browser.classList.add("is-graph-ready");
+    browser.setAttribute("data-relationship-graph-ready", "true");
+    refreshGraphActivityState(browser, state);
+    if (typeof cytoscape !== "function") {
+      canvas.textContent = "Cytoscape.js is not available.";
+      return;
+    }
+    updateSecondaryLinkControl(browser, state);
+    const nodeVisible = (node) => isNodeVisible(node, state);
+    const contextNodeVisible = (node) => nodeInScope(state, node);
+    const graphEdges = stateGraphEdges(state);
+    const graphAdjacency = stateGraphAdjacency(state);
+    const focusGraph = focusGraphForState(state, nodeVisible, contextNodeVisible, graphEdges, graphAdjacency);
     state.focusGraph = focusGraph;
     state.focusContent = focusContent(state);
-    const graph = capGraph(focusGraph, state.selectedId, hasSearch ? 0 : 50, state.graphPage);
+    const graph = capGraph(focusGraph, state, 25, state.graphPage);
     updateGraphPageControls(browser, state, graph.pagination);
     if (!graph.nodes.some((node) => node.id === state.activeId)) {
       state.activeId = graph.nodes.some((node) => node.id === state.selectedId)
@@ -2444,25 +2987,41 @@ def _relationship_graph_script() -> str:
     }
     graph.selectedId = state.selectedId;
     graph.activeId = state.activeId;
+    graph.visualStatusField = state.visualStatusField || "";
     state.visibleGraph = graph;
     state.visibleNodeIds = new Set(graph.nodes.map((node) => node.id));
     syncActiveSubfilterType(state);
     const typeContainer = browser.querySelector("[data-relationship-projection-controls]");
     if (typeContainer) refreshTypeFilterState(typeContainer, state, stateGraphTypes(state));
+    renderStatusFilter(browser, state);
     const listColumnWidth = 220;
     const listRowHeight = 150;
     canvas.style.height = "";
     if (graph.listMode) {
       const boxWidth = canvas.clientWidth || 900;
-      const listColumns = Math.max(1, Math.min(6, Math.floor(boxWidth / listColumnWidth)));
-      const listRows = Math.max(1, Math.ceil(Math.max(graph.nodes.length, 1) / listColumns));
+      const pageSize = graph.pagination && graph.pagination.pageSize || 25;
+      const listItemCount = graph.stickyContext ? Math.max(graph.nodes.length - 1, 1) : Math.max(graph.nodes.length, 1);
+      const pageItemCount = graph.pagination && graph.pagination.enabled ? Math.min(pageSize, listItemCount) : listItemCount;
+      const columnBasis = graph.pagination && graph.pagination.enabled ? pageSize : pageItemCount;
+      const listColumns = Math.max(1, Math.min(6, Math.ceil(Math.sqrt(Math.max(1, columnBasis)))));
+      const listRows = Math.max(1, Math.ceil(listItemCount / listColumns));
+      const fitRows = graph.stickyContext ? Math.max(listRows, Math.ceil(pageSize / listColumns)) : listRows;
+      const stablePageFit = graph.stickyContext && graph.pagination && graph.pagination.total >= pageSize;
+      const positionRows = listRows;
+      const layoutWidth = Math.max(boxWidth, 240 + Math.max(0, listColumns - 1) * listColumnWidth);
+      const stickyOffset = graph.stickyContext ? 150 : 0;
       graph.listLayout = {
         cols: listColumns,
         rows: listRows,
-        width: boxWidth,
-        height: Math.max(canvas.clientHeight || 520, listRows * listRowHeight),
+        itemCount: listItemCount,
+        fitRows,
+        positionRows,
+        width: layoutWidth,
+        height: Math.max(canvas.clientHeight || 520, stickyOffset + (stablePageFit ? fitRows : listRows) * listRowHeight),
         left: 120,
-        top: 92
+        top: 92 + stickyOffset,
+        focusTop: 92,
+        bottom: 92
       };
       graph.hierarchyLayout = null;
     } else {
@@ -2472,7 +3031,8 @@ def _relationship_graph_script() -> str:
         canvas.clientWidth || 900,
         canvas.clientHeight || 520,
         state.selectedId,
-        activeTraversal(state)
+        activeTraversal(state),
+        graphOrderComparator(state, statusOrderMap(state))
       );
     }
     const renderSignature = graphRenderSignature(graph);
@@ -2514,7 +3074,7 @@ def _relationship_graph_script() -> str:
     });
     if (!graph.nodes.length) {
       canvas.setAttribute("data-empty-graph", "true");
-      canvas.setAttribute("data-graph-message", hasSearch ? "No matching nodes in the current neighborhood." : "No entity types selected.");
+      canvas.setAttribute("data-graph-message", "No entity types selected.");
       renderSelectionTable(browser, state);
       return;
     }
@@ -2525,10 +3085,10 @@ def _relationship_graph_script() -> str:
         "data-graph-message",
         `Only the focus is drawn: ${hiddenByFilters} nodes of the enabled layers are hidden by the status filter or the filter values.`
       );
-      canvas.setAttribute("data-graph-hint", "filtered");
+      canvas.removeAttribute("data-graph-hint");
     } else if (graph.omitted) {
       canvas.removeAttribute("data-graph-hint");
-      canvas.setAttribute("data-graph-message", `${graph.omitted} more nodes hidden. Use search or entity filters to narrow the graph.`);
+      canvas.removeAttribute("data-graph-message");
     } else {
       canvas.removeAttribute("data-graph-hint");
       canvas.removeAttribute("data-graph-message");
@@ -2536,19 +3096,19 @@ def _relationship_graph_script() -> str:
     const presetPositions = (graph.listMode || graph.hierarchyLayout)
       ? new Map(graph.nodes.map((node, index) => [
         node.id,
-        graph.listMode ? listNodePosition(index, graph) : hierarchyNodePosition(node, graph)
+        graph.listMode ? listNodePosition(index, graph, node) : hierarchyNodePosition(node, graph)
       ]))
       : null;
     const layoutOptions = presetPositions ? {
       name: "preset",
       positions: (node) => presetPositions.get(node.id()) || {x: 0, y: 0},
       animate: false,
-      fit: true,
+      fit: false,
       padding: 54
     } : {
       name: "cose",
       animate: false,
-      fit: true,
+      fit: false,
       padding: 80,
       nodeRepulsion: 9000,
       idealEdgeLength: 150,
@@ -2816,7 +3376,11 @@ def _relationship_graph_script() -> str:
   }
 
   function applyProjectionSelections(browser, state) {
+    const wasEmpty = state.enabledTypes && state.enabledTypes.size === 0;
     state.enabledTypes = projectionTypesFromSelections(state);
+    if (wasEmpty && state.enabledTypes.size > 0 && state.statusFilter) {
+      state.statusFilter.enabled = new Set(state.statusFilter.values || []);
+    }
     refreshGraphControlState(browser, state);
   }
 
@@ -2895,6 +3459,9 @@ def _relationship_graph_script() -> str:
     state.activeSubfilterType = "";
     state.activeSubfilterTypes = [];
     state.typeSearchType = "";
+    state.visualStatusField = "";
+    state.activeViewNodeIds = null;
+    state.plainListMode = false;
     refreshGraphControlState(browser, state);
   }
 
@@ -2904,10 +3471,13 @@ def _relationship_graph_script() -> str:
     state.projectionMode = "auto";
     state.projectionSelections = defaultProjectionSelections(state);
     state.subfilters = createSubfilters(nodes, {});
-    state.statusFilter = createStatusFilter(nodes, {});
+    state.statusFilter = createStatusFilter(nodes, {}, state.statusOrder);
     state.activeSubfilterType = "";
     state.activeSubfilterTypes = [];
     state.typeSearchType = "";
+    state.visualStatusField = "";
+    state.activeViewNodeIds = null;
+    state.plainListMode = false;
     state.graphPage = 0;
     refreshGraphControlState(browser, state);
   }
@@ -2962,6 +3532,7 @@ def _relationship_graph_script() -> str:
   function graphViewIsActive(state) {
     return Boolean(
       state.activeViewPinned ||
+      state.plainListMode ||
       state.selectedId !== state.rootId ||
       state.activeId !== state.selectedId ||
       state.isolatedRootId ||
@@ -3004,8 +3575,12 @@ def _relationship_graph_script() -> str:
       subfilters: serializeSubfilters(state),
       statusFilter: serializeStatusFilter(state),
       graphPage: state.graphPage,
+      plainListMode: Boolean(state.plainListMode),
+      visualStatusField: state.visualStatusField || "",
+      activeViewNodeIds: state.activeViewNodeIds ? Array.from(state.activeViewNodeIds) : null,
       showSecondaryLinks: state.showSecondaryLinks,
       searchQuery: state.searchQuery,
+      searchRegex: Boolean(state.searchRegex),
       typeSearchType: state.typeSearchType,
       isolatedRootId: state.isolatedRootId || "",
       activeViewPinned: Boolean(state.activeViewPinned)
@@ -3037,8 +3612,15 @@ def _relationship_graph_script() -> str:
     restoreSubfilters(state, snapshot.subfilters);
     restoreStatusFilter(state, snapshot.statusFilter);
     state.graphPage = Number(snapshot.graphPage) || 0;
+    state.plainListMode = Boolean(snapshot.plainListMode);
+    state.visualStatusField = snapshot.visualStatusField || "";
+    state.activeViewNodeIds = Array.isArray(snapshot.activeViewNodeIds)
+      ? new Set(snapshot.activeViewNodeIds.map(String).filter((id) => state.nodesById.has(id)))
+      : null;
     state.showSecondaryLinks = Boolean(snapshot.showSecondaryLinks);
     state.searchQuery = snapshot.searchQuery || "";
+    state.searchRegex = Boolean(snapshot.searchRegex);
+    state.searchRegexError = "";
     state.typeSearchType = snapshot.typeSearchType || "";
     state.activeViewPinned = Boolean(snapshot.activeViewPinned);
     refreshGraphControlState(browser, state);
@@ -3133,10 +3715,6 @@ def _relationship_graph_script() -> str:
       detail.innerHTML = "<p>No entity types selected. Enable at least one type or use All.</p>";
       return;
     }
-    if (state.searchQuery && !searchableTextForState(state, node).includes(String(state.searchQuery).trim().toLowerCase())) {
-      detail.innerHTML = "<p>The selected node is outside the current search filter. Pick a matching Focus item or clear the search.</p>";
-      return;
-    }
     const details = node.details && typeof node.details === "object" ? node.details : {};
     const groups = relatedGroups(node.id, state);
     const detailRows = orderedDetailRows(node, details);
@@ -3172,9 +3750,17 @@ def _relationship_graph_script() -> str:
 
   function renderRelationshipState(browser, state) {
     const startedAt = performance.now();
+    const search = browser.querySelector("[data-relationship-search]");
+    if (search && document.activeElement !== search) search.value = state.searchQuery || "";
+    const regex = browser.querySelector("[data-relationship-search-regex]");
+    if (regex) regex.checked = Boolean(state.searchRegex);
     refreshGraphActivityState(browser, state);
     renderGraph(browser, state);
-    renderNodeSelect(browser, state);
+    if (state.deferNodeSelectOnce) {
+      state.deferNodeSelectOnce = false;
+    } else {
+      renderNodeSelect(browser, state);
+    }
     renderDetail(browser, state);
     const durationMs = performance.now() - startedAt;
     state.renderVersion = Number(state.renderVersion || 0) + 1;
@@ -3196,6 +3782,7 @@ def _relationship_graph_script() -> str:
     if (!state.nodesById.has(nodeId)) return;
     if (state.isolatedNodeIds && !state.isolatedNodeIds.has(nodeId)) return;
     const resetTypes = Boolean(options && options.resetTypes);
+    const preservePlainList = Boolean(options && options.preservePlainList);
     const preserveFilters = Boolean(options && options.preserveFilters);
     const entityChanged = Boolean(state.selectedId && state.selectedId !== nodeId);
     const resetFiltersToAll = entityChanged && !preserveFilters;
@@ -3211,6 +3798,7 @@ def _relationship_graph_script() -> str:
     } else if (resetTypes) {
       enableAllEntityTypes(browser, state);
     }
+    if (!preservePlainList) state.plainListMode = false;
     state.selectedId = nodeId;
     state.activeId = nodeId;
     syncActiveSubfilterType(state);
@@ -3283,32 +3871,94 @@ def _relationship_graph_script() -> str:
     );
   }
 
-  function searchableText(node) {
-    const details = node.details && typeof node.details === "object" ? Object.values(node.details).join(" ") : "";
-    return `${node.id} ${nodeTypeLabel(node)} ${node.type || ""} ${node.label || ""} ${node.summary || ""} ${details}`.toLowerCase();
+  function escapeHtmlText(value) {
+    return String(value == null ? "" : value)
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;")
+      .replace(/'/g, "&#39;");
   }
 
-  function searchableTextForState(state, node) {
-    if (!node) return "";
-    if (!state.searchTextById) state.searchTextById = new Map();
-    if (!state.searchTextById.has(node.id)) {
-      state.searchTextById.set(node.id, searchableText(node));
-    }
-    return state.searchTextById.get(node.id) || "";
+  function focusCandidateLabel(node, state, degrees) {
+    const degree = degrees ? degrees.get(node.id) || 0 : visibleNodeDegree(node, state);
+    const title = node.label || node.id;
+    const suffix = degree ? `${degree} visible link${degree === 1 ? "" : "s"}` : "no visible links";
+    return `${nodeTypeLabel(node)} ${title} · ${suffix}`;
   }
 
-  function searchRank(node, query) {
-    const normalized = String(query || "").trim().toLowerCase();
-    if (!normalized) return 0;
-    const type = String(node.type || "entity").toLowerCase();
+  function nodeSummaryText(node) {
+    const details = node && node.details && typeof node.details === "object" ? node.details : {};
+    return String(node.summary || details.summary || details.requirement_text || details.current_status || "").trim();
+  }
+
+  function nodeSearchText(node, state, degrees) {
+    const title = String(node && (node.label || node.id) || "");
+    if (!state.searchRegex) return nodePlainSearchText(node);
+    return [
+      fieldValue(node, "status"),
+      nodeTypeLabel(node),
+      title,
+      nodeSummaryText(node)
+    ].filter((value) => String(value || "").trim()).join(" · ");
+  }
+
+  function labelStartsWithType(node, title) {
     const typeLabel = nodeTypeLabel(node).toLowerCase();
-    const id = String(node.id || "").toLowerCase();
-    const label = String(node.label || "").toLowerCase();
-    if (type === normalized || typeLabel === normalized) return 0;
-    if (id === normalized || label === normalized) return 1;
-    if (id.startsWith(normalized) || label.startsWith(normalized)) return 2;
-    if (id.includes(normalized) || label.includes(normalized)) return 3;
-    return 4;
+    const normalizedTitle = String(title || "").trim().toLowerCase();
+    return Boolean(typeLabel && (normalizedTitle === typeLabel || normalizedTitle.startsWith(`${typeLabel} `)));
+  }
+
+  function nodePlainSearchText(node) {
+    const title = String(node && (node.label || node.id) || "");
+    const type = labelStartsWithType(node, title) ? "" : nodeTypeLabel(node);
+    return [type, title, nodeSummaryText(node)]
+      .filter((value) => String(value || "").trim())
+      .join(" ")
+      .replace(/\s*[·:|]\s*/g, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+  }
+
+  function nodeResultText(node, state, degrees) {
+    const degree = degrees ? degrees.get(node.id) || 0 : visibleNodeDegree(node, state);
+    const title = node.label || node.id;
+    const summary = nodeSummaryText(node);
+    const suffix = degree ? `${degree} visible link${degree === 1 ? "" : "s"}` : "no visible links";
+    const type = labelStartsWithType(node, title) ? "" : nodeTypeLabel(node);
+    return [type, title, summary, suffix].filter((value) => String(value || "").trim()).join(" · ");
+  }
+
+  function searchMatcher(state) {
+    const raw = String(state.searchQuery || "").trim();
+    state.searchRegexError = "";
+    if (!raw) return null;
+    if (state.searchRegex) {
+      try {
+        const expression = new RegExp(raw, "i");
+        return (text) => {
+          expression.lastIndex = 0;
+          const match = expression.exec(text);
+          return match && match[0] ? {index: match.index, length: match[0].length} : null;
+        };
+      } catch (error) {
+        state.searchRegexError = error && error.message ? error.message : "Invalid regular expression";
+        return () => null;
+      }
+    }
+    const normalized = raw.toLowerCase();
+    return (text) => {
+      const index = String(text || "").toLowerCase().indexOf(normalized);
+      return index >= 0 ? {index, length: normalized.length} : null;
+    };
+  }
+
+  function highlightSearchMatch(text, match) {
+    const value = String(text || "");
+    if (!match || match.index < 0 || match.length <= 0) return escapeHtmlText(value);
+    const start = Math.min(match.index, value.length);
+    const end = Math.min(start + match.length, value.length);
+    return `${escapeHtmlText(value.slice(0, start))}<mark>${escapeHtmlText(value.slice(start, end))}</mark>${escapeHtmlText(value.slice(end))}`;
   }
 
   function focusChoiceRank(node, state) {
@@ -3397,129 +4047,145 @@ def _relationship_graph_script() -> str:
     return rootId;
   }
 
-  function focusAncestorIds(state) {
-    const ids = new Set();
-    let currentId = state.selectedId || "";
-    const seen = new Set();
-    while (currentId && !seen.has(currentId)) {
-      seen.add(currentId);
-      const current = state.nodesById.get(currentId);
-      if (!current) break;
-      const currentRank = traversalRank(state, current);
-      let parentId = "";
-      let parentRank = 99;
-      for (const item of stateGraphAdjacency(state).get(currentId) || []) {
-        if (item.edge.target !== currentId || item.edge.source !== item.id) continue;
-        if (isSecondaryEdge(item.edge) && !state.showSecondaryLinks) continue;
-        const node = state.nodesById.get(item.id);
-        if (!node || seen.has(item.id)) continue;
-        const rank = traversalRank(state, node);
-        if (rank >= currentRank) continue;
-        if (!parentId || rank < parentRank) {
-          parentId = item.id;
-          parentRank = rank;
-        }
-      }
-      if (!parentId) break;
-      ids.add(parentId);
-      currentId = parentId;
-    }
-    return ids;
-  }
-
-  function focusScopeIds(state) {
-    if (!state.focusInGraphOnly) return null;
-    const graph = state.visibleGraph;
-    if (!graph || !Array.isArray(graph.nodes)) return null;
-    const scope = new Set(graph.nodes.map((node) => node.id));
-    if (state.selectedId) scope.add(state.selectedId);
-    for (const id of focusAncestorIds(state)) scope.add(id);
-    return scope;
-  }
-
   function selectableNodes(state, includeSelected, degrees) {
-    const query = String(state.searchQuery || "").trim().toLowerCase();
-    const scopeIds = focusScopeIds(state);
     const degreeMap = degrees || visibleNodeDegreeMap(state);
-    return stateGraphNodes(state)
-      .filter((node) => !scopeIds || node.id === state.selectedId || scopeIds.has(node.id))
-      .filter((node) => {
-        if (includeSelected && node.id === state.selectedId) return isNodeVisible(node, state);
-        return isNodeVisible(node, state);
-      })
-      .filter((node) => isPinnedFocusChoice(node, state, query) || !query || searchableTextForState(state, node).includes(query))
+    const query = String(state.searchQuery || "").trim();
+    const matcher = searchMatcher(state);
+    const ranked = stateGraphNodes(state).map((node) => {
+      const label = focusCandidateLabel(node, state, degreeMap);
+      const searchText = nodeSearchText(node, state, degreeMap);
+      const match = matcher ? matcher(searchText) : null;
+      return {node, label, searchText, match};
+    });
+    return ranked
+      .filter((item) => includeSelected && item.node.id === state.selectedId || !query || item.match)
       .sort((left, right) => {
-        const leftGroup = focusChoiceGroupKey(left, state, degreeMap);
-        const rightGroup = focusChoiceGroupKey(right, state, degreeMap);
+        if (query) {
+          return (left.match ? left.match.index : Infinity) - (right.match ? right.match.index : Infinity) ||
+            typeRank(left.node) - typeRank(right.node) ||
+            String(left.node.label || left.node.id).localeCompare(String(right.node.label || right.node.id));
+        }
+        const leftGroup = focusChoiceGroupKey(left.node, state, degreeMap);
+        const rightGroup = focusChoiceGroupKey(right.node, state, degreeMap);
         return leftGroup.localeCompare(rightGroup) ||
-          searchRank(left, query) - searchRank(right, query) ||
-          String(left.label || left.id).localeCompare(String(right.label || right.id));
-      });
+          typeRank(left.node) - typeRank(right.node) ||
+          String(left.node.label || left.node.id).localeCompare(String(right.node.label || right.node.id));
+      })
+      .map((item) => item.node);
+  }
+
+  function searchResultItems(state, degrees) {
+    const query = String(state.searchQuery || "").trim();
+    if (!query) return [];
+    const degreeMap = degrees || visibleNodeDegreeMap(state);
+    const matcher = searchMatcher(state);
+    if (!matcher) return [];
+    return stateGraphNodes(state)
+      .map((node) => {
+        const label = nodeResultText(node, state, degreeMap);
+        const searchText = nodeSearchText(node, state, degreeMap);
+        const match = matcher(searchText);
+        const displayMatch = state.searchRegex ? matcher(label) : match;
+        return {node, label, searchText, match, displayMatch};
+      })
+      .filter((item) => item.match)
+      .sort((left, right) =>
+        left.match.index - right.match.index ||
+        typeRank(left.node) - typeRank(right.node) ||
+        String(left.node.label || left.node.id).localeCompare(String(right.node.label || right.node.id))
+      );
+  }
+
+  function renderSearchResults(browser, state, degrees) {
+    const container = browser.querySelector("[data-relationship-search-results]");
+    if (!container) return [];
+    const query = String(state.searchQuery || "").trim();
+    if (!query) {
+      container.replaceChildren();
+      container.hidden = true;
+      return [];
+    }
+    if (!state.searchResultsOpen) {
+      container.hidden = true;
+      state.searchAnchorScrollPending = false;
+      return [];
+    }
+    const items = searchResultItems(state, degrees);
+    let anchorIndex = -1;
+    if (state.searchAnchorResultId) {
+      anchorIndex = items.findIndex((item) => item.node.id === state.searchAnchorResultId);
+      if (anchorIndex < 0) {
+        state.searchAnchorResultId = "";
+        state.searchAnchorScrollPending = false;
+        state.searchResetScrollPending = true;
+      }
+    }
+    const renderStart = anchorIndex >= MAX_FOCUS_OPTIONS
+      ? Math.max(0, anchorIndex - Math.floor(MAX_FOCUS_OPTIONS / 2))
+      : 0;
+    const renderedItems = items.slice(renderStart, renderStart + MAX_FOCUS_OPTIONS);
+    container.replaceChildren();
+    container.hidden = false;
+    if (state.searchRegexError) {
+      const message = document.createElement("div");
+      message.className = "relationship-search-message is-error";
+      message.textContent = `Invalid regex: ${state.searchRegexError}`;
+      container.appendChild(message);
+      return [];
+    }
+    if (!items.length) {
+      const message = document.createElement("div");
+      message.className = "relationship-search-message";
+      message.textContent = "No matching nodes";
+      container.appendChild(message);
+      return [];
+    }
+    if (renderStart > 0) {
+      const message = document.createElement("div");
+      message.className = "relationship-search-message";
+      message.textContent = `${renderStart} earlier matches`;
+      container.appendChild(message);
+    }
+    for (const item of renderedItems) {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = `relationship-search-result ${cssStatus(item.node.status)} ${item.node.id === state.searchAnchorResultId ? "is-selected" : ""}`;
+      button.setAttribute("data-relationship-search-result", item.node.id);
+      button.setAttribute("role", "option");
+      if (item.node.id === state.searchAnchorResultId) button.setAttribute("aria-selected", "true");
+      button.title = item.searchText;
+      const status = document.createElement("span");
+      status.className = `relationship-search-status report-status-badge ${cssStatus(item.node.status)}`;
+      status.textContent = fieldValue(item.node, "status") || "unknown";
+      const text = document.createElement("span");
+      text.className = "relationship-search-result-text";
+      text.innerHTML = highlightSearchMatch(item.label, item.displayMatch);
+      button.append(status, text);
+      container.appendChild(button);
+    }
+    const remaining = items.length - renderStart - renderedItems.length;
+    if (remaining > 0) {
+      const message = document.createElement("div");
+      message.className = "relationship-search-message";
+      message.textContent = `${remaining} more matches; narrow search`;
+      container.appendChild(message);
+    }
+    if (state.searchAnchorScrollPending && state.searchAnchorResultId) {
+      const selected = container.querySelector(`[data-relationship-search-result="${CSS.escape(state.searchAnchorResultId)}"]`);
+      if (selected) selected.scrollIntoView({block: "nearest"});
+      state.searchAnchorScrollPending = false;
+    } else if (state.searchResetScrollPending) {
+      container.scrollTop = 0;
+      state.searchResetScrollPending = false;
+    }
+    return items.map((item) => item.node);
   }
 
   function renderNodeSelect(browser, state) {
-    const select = browser.querySelector("[data-relationship-node-select]");
-    if (!select) return [];
     const includeSelected = !String(state.searchQuery || "").trim();
     const degrees = visibleNodeDegreeMap(state);
     const nodes = selectableNodes(state, includeSelected, degrees);
-    state.focusChoiceCount = nodes.length;
-    const count = browser.querySelector("[data-relationship-node-count]");
-    const linkedCount = nodes.filter((node) => degrees.get(node.id)).length;
-    const isolatedCount = nodes.length - linkedCount;
-    if (count) {
-      count.textContent = nodes.length ? `(${linkedCount} linked, ${isolatedCount} isolated, ${nodes.length} shown)` : "(0 shown)";
-    }
-    select.replaceChildren();
-    if (!nodes.length) {
-      const option = document.createElement("option");
-      option.value = "";
-      option.textContent = "No matching nodes";
-      option.disabled = true;
-      select.appendChild(option);
-      return nodes;
-    }
-    const renderedNodes = nodes.slice(0, MAX_FOCUS_OPTIONS);
-    const selectedNode = includeSelected ? state.nodesById.get(state.selectedId || "") : null;
-    if (selectedNode && !renderedNodes.some((node) => node.id === selectedNode.id)) {
-      renderedNodes.push(selectedNode);
-    }
-    const groupCounts = new Map();
-    for (const node of renderedNodes) {
-      const key = focusChoiceGroupKey(node, state, degrees);
-      groupCounts.set(key, (groupCounts.get(key) || 0) + 1);
-    }
-    const groups = new Map();
-    for (const node of renderedNodes) {
-      const degree = degrees.get(node.id) || 0;
-      const key = focusChoiceGroupKey(node, state, degrees);
-      const label = focusChoiceGroupLabel(node, state, degrees, groupCounts.get(key) || 0);
-      if (!groups.has(label)) {
-        const group = document.createElement("optgroup");
-        group.label = label;
-        groups.set(label, group);
-        select.appendChild(group);
-      }
-      const option = document.createElement("option");
-      option.value = node.id;
-      const optionLabel = shortText(node.label || node.id, 90);
-      option.textContent = degree ? optionLabel : `${optionLabel} · no visible links`;
-      option.title = node.label || node.id;
-      option.className = degree ? "" : "relationship-option-isolated";
-      option.setAttribute("data-relationship-visible-links", String(degree));
-      if (node.id === state.selectedId) option.selected = true;
-      groups.get(label).appendChild(option);
-    }
-    if (nodes.length > renderedNodes.length) {
-      const option = document.createElement("option");
-      option.value = "";
-      option.disabled = true;
-      option.textContent = `${nodes.length - renderedNodes.length} more matches; narrow search`;
-      select.appendChild(option);
-    }
-    if (selectedNode && Array.from(select.options).some((option) => option.value === state.selectedId)) {
-      select.value = state.selectedId;
-    }
+    renderSearchResults(browser, state, degrees);
     return nodes;
   }
 
@@ -3530,7 +4196,6 @@ def _relationship_graph_script() -> str:
 
   function applySearchUpdate(browser, state, selectFirstMatch) {
     state.searchUpdateTimer = 0;
-    renderGraph(browser, state);
     const matches = renderNodeSelect(browser, state);
     const normalized = String(state.searchQuery || "").trim();
     if (selectFirstMatch && normalized && matches.length && matches[0].id !== state.selectedId) {
@@ -3551,6 +4216,18 @@ def _relationship_graph_script() -> str:
     state.searchUpdateTimer = 0;
   }
 
+  function clearSearch(browser, state) {
+    state.searchQuery = "";
+    state.searchRegexError = "";
+    const search = browser.querySelector("[data-relationship-search]");
+    if (search) search.value = "";
+    const results = browser.querySelector("[data-relationship-search-results]");
+    if (results) {
+      results.replaceChildren();
+      results.hidden = true;
+    }
+  }
+
   function ensureSelectableFocus(state) {
     const selected = state.nodesById.get(state.selectedId);
     const active = state.nodesById.get(state.activeId || "");
@@ -3568,9 +4245,6 @@ def _relationship_graph_script() -> str:
   }
 
   function refreshTypeFilterState(container, state, types) {
-    const auto = container.querySelector("[data-relationship-projection-auto]");
-    const projectionAuto = (state.projectionMode || "auto") === "auto";
-    if (auto) auto.checked = projectionAuto;
     const groupsById = new Map(projectionRankGroups(state).map((group) => [group.id, group]));
     container.querySelectorAll("[data-relationship-projection-level]").forEach((control) => {
       const level = control.getAttribute("data-relationship-projection-level") || "";
@@ -3596,7 +4270,6 @@ def _relationship_graph_script() -> str:
     });
     const browser = container.closest && container.closest("[data-relationship-browser]") || container;
     renderStatusFilter(browser, state);
-    renderFocusTypeSelect(browser, state);
     renderSubfilterPopover(container, state);
   }
 
@@ -3616,8 +4289,60 @@ def _relationship_graph_script() -> str:
     }
   }
 
+  function nearestGraphDescendants(graph, state) {
+    const contextIds = graph && graph.contextIds || new Set();
+    const nodes = graph && Array.isArray(graph.nodes) ? graph.nodes : [];
+    const candidates = nodes.filter((node) => {
+      if (!node || node.id === state.selectedId || contextIds.has(node.id)) return false;
+      const distance = graph.distances && graph.distances.get(node.id);
+      return Number.isFinite(distance) && distance > 0;
+    });
+    if (!candidates.length) return [];
+    const nearestDistance = Math.min(...candidates.map((node) => graph.distances.get(node.id)));
+    return candidates.filter((node) => graph.distances.get(node.id) === nearestDistance);
+  }
+
+  function statusCountNodes(graph, state) {
+    if (!graph || !Array.isArray(graph.nodes)) return [];
+    if (!graph.listMode) return nearestGraphDescendants(graph, state);
+    const contextIds = graph.contextIds || new Set();
+    const selected = state && state.nodesById ? state.nodesById.get(state.selectedId || "") : null;
+    const selectedType = selected && (selected.type || "entity") || "";
+    const selectedIsContext = Boolean(
+      state &&
+      state.selectedId &&
+      (
+        contextIds.has(state.selectedId) ||
+        !state.enabledTypes.has(selectedType) ||
+        Array.from(state.enabledTypes || []).some((type) => type && type !== selectedType)
+      )
+    );
+    const nodes = graph.nodes.filter((node) => node && !contextIds.has(node.id) && !(selectedIsContext && node.id === state.selectedId));
+    return nodes.length ? nodes : graph.nodes;
+  }
+
+  function countStatusValues(nodes, order) {
+    const counts = new Map();
+    for (const node of nodes || []) {
+      const value = fieldValue(node, "status");
+      if (!value || !order.includes(value)) continue;
+      counts.set(value, (counts.get(value) || 0) + 1);
+    }
+    return counts;
+  }
+
+  function sortedStatusCounts(counts, order) {
+    return Array.from(counts.entries()).sort((left, right) => order.indexOf(left[0]) - order.indexOf(right[0]));
+  }
+
   function statusFilterValues(state) {
     const counts = new Map();
+    const order = (state.statusFilter && state.statusFilter.values) || [];
+    const chipScopeGraph = statusChipScopeGraphForState(state);
+    if (chipScopeGraph && Array.isArray(chipScopeGraph.nodes)) {
+      const nodes = statusCountNodes(chipScopeGraph, state);
+      return sortedStatusCounts(countStatusValues(nodes, order), order);
+    }
     const add = (node) => {
       if (!node) return;
       if (node.id !== state.selectedId && !state.enabledTypes.has(node.type || "entity")) return;
@@ -3646,7 +4371,6 @@ def _relationship_graph_script() -> str:
         add(node);
       }
     }
-    const order = (state.statusFilter && state.statusFilter.values) || [];
     return Array.from(counts.entries()).sort((left, right) => order.indexOf(left[0]) - order.indexOf(right[0]));
   }
 
@@ -3666,9 +4390,8 @@ def _relationship_graph_script() -> str:
   function renderStatusFilter(browser, state) {
     const container = browser.querySelector("[data-relationship-status-filter]");
     if (!container) return;
-    container.querySelectorAll("[data-relationship-status-value], .relationship-status-all").forEach((item) => item.remove());
+    container.querySelectorAll("[data-relationship-status-value], .relationship-status-all, .relationship-plain-list").forEach((item) => item.remove());
     const values = statusFilterValues(state);
-    if (!values.length) return;
     const rerender = () => {
       state.graphPage = 0;
       ensureSelectableFocus(state);
@@ -3677,24 +4400,44 @@ def _relationship_graph_script() -> str:
       renderNodeSelect(browser, state);
       renderDetail(browser, state);
     };
-    const enabledCount = values.filter(([value]) => isStatusValueEnabled(state, value)).length;
-    const allLabel = document.createElement("label");
-    allLabel.className = "relationship-status-all";
-    const allCheckbox = document.createElement("input");
-    allCheckbox.type = "checkbox";
-    allCheckbox.setAttribute("data-relationship-status-all", "");
-    allCheckbox.checked = enabledCount === values.length;
-    allCheckbox.indeterminate = enabledCount > 0 && enabledCount < values.length;
-    allCheckbox.title = "Check to show every status, uncheck to hide all of them and then pick the ones you need";
-    allCheckbox.addEventListener("change", () => {
+    if (values.length) {
+      const enabledCount = values.filter(([value]) => isStatusValueEnabled(state, value)).length;
+      const allLabel = document.createElement("label");
+      allLabel.className = "relationship-status-all";
+      const allCheckbox = document.createElement("input");
+      allCheckbox.type = "checkbox";
+      allCheckbox.setAttribute("data-relationship-status-all", "");
+      allCheckbox.checked = enabledCount === values.length;
+      allCheckbox.indeterminate = enabledCount > 0 && enabledCount < values.length;
+      allCheckbox.title = "Check to show every status, uncheck to hide all of them and then pick the ones you need";
+      allCheckbox.addEventListener("change", () => {
+        pushNavigationSnapshot(state);
+        for (const [value] of values) setStatusValueEnabled(state, value, allCheckbox.checked);
+        rerender();
+      });
+      const allText = document.createElement("span");
+      allText.textContent = "All";
+      allLabel.append(allCheckbox, allText);
+      container.appendChild(allLabel);
+    }
+    const plainLabel = document.createElement("label");
+    plainLabel.className = "relationship-plain-list";
+    const plainCheckbox = document.createElement("input");
+    plainCheckbox.type = "checkbox";
+    plainCheckbox.setAttribute("data-relationship-plain-list", "");
+    plainCheckbox.checked = Boolean(state.plainListMode);
+    plainCheckbox.title = "Show the current filtered objects as a plain list without graph links";
+    plainCheckbox.addEventListener("change", () => {
       pushNavigationSnapshot(state);
-      for (const [value] of values) setStatusValueEnabled(state, value, allCheckbox.checked);
-      rerender();
+      state.plainListMode = plainCheckbox.checked;
+      applyProjectionSelections(browser, state);
+      state.graphPage = 0;
+      renderRelationshipState(browser, state);
     });
-    const allText = document.createElement("span");
-    allText.textContent = "All";
-    allLabel.append(allCheckbox, allText);
-    container.appendChild(allLabel);
+    const plainText = document.createElement("span");
+    plainText.textContent = "Plain list";
+    plainLabel.append(plainCheckbox, plainText);
+    container.appendChild(plainLabel);
     for (const [value, count] of values) {
       const enabled = isStatusValueEnabled(state, value);
       const chip = document.createElement("button");
@@ -3715,24 +4458,6 @@ def _relationship_graph_script() -> str:
       });
       container.appendChild(chip);
     }
-  }
-
-  function renderFocusTypeSelect(browser, state) {
-    const select = browser.querySelector("[data-relationship-focus-type]");
-    if (!select) return;
-    const types = stateGraphTypes(state);
-    select.replaceChildren();
-    const any = document.createElement("option");
-    any.value = "";
-    any.textContent = "Any type";
-    select.appendChild(any);
-    for (const type of types) {
-      const option = document.createElement("option");
-      option.value = type;
-      option.textContent = TYPE_LABELS[type] || type;
-      select.appendChild(option);
-    }
-    select.value = types.includes(state.typeSearchType) ? state.typeSearchType : "";
   }
 
   function traversalRank(state, node) {
@@ -3941,6 +4666,7 @@ def _relationship_graph_script() -> str:
   }
 
   function requiredProjectionTypeForRank(state, rank) {
+    if (state && state.plainListMode) return "";
     const selected = state.nodesById && state.nodesById.get(state.selectedId || "");
     if (!selected) return "";
     const selectedRank = typeRankValue(state, selected.type || "entity");
@@ -3951,26 +4677,8 @@ def _relationship_graph_script() -> str:
   function renderTypeFilters(browser, state) {
     const container = browser.querySelector("[data-relationship-projection-controls]");
     if (!container) return;
-    const auto = container.querySelector("[data-relationship-projection-auto]");
     const levels = container.querySelector("[data-relationship-projection-levels]");
     if (!levels) return;
-    if (auto) {
-      auto.checked = (state.projectionMode || "auto") === "auto";
-      auto.addEventListener("change", () => {
-        pushNavigationSnapshot(state);
-        state.projectionMode = auto.checked ? "auto" : "custom";
-        if (state.projectionMode === "auto") {
-          resetEntityTypesToFocusView(browser, state, state.selectedId);
-        } else {
-          applyProjectionSelections(browser, state);
-        }
-        state.graphPage = 0;
-        ensureSelectableFocus(state);
-        renderGraph(browser, state);
-        renderNodeSelect(browser, state);
-        renderDetail(browser, state);
-      });
-    }
     levels.replaceChildren();
     const closeProjectionMenus = (except) => {
       levels.querySelectorAll(".relationship-projection-menu").forEach((menu) => {
@@ -4058,7 +4766,7 @@ def _relationship_graph_script() -> str:
     refreshTypeFilterState(container, state, stateGraphTypes(state));
   }
 
-  function initBrowser(browser) {
+  function initBrowser(browser, options) {
     const graph = parseGraph(browser);
     const nodesById = new Map(graph.nodes.map((node) => [node.id, node]));
     if (!nodesById.size) return;
@@ -4077,7 +4785,9 @@ def _relationship_graph_script() -> str:
       nodesById,
       adjacency: buildAdjacency(graph.edges),
       outgoingAdjacency: buildOutgoingAdjacency(graph.edges),
+      browser,
       filterDefaults: graph.filterDefaults || {},
+      statusOrder: Array.isArray(graph.statusOrder) ? graph.statusOrder : [],
       subfilters: {},
       statusFilter: {values: [], enabled: new Set()},
       activeSubfilterType: "",
@@ -4088,7 +4798,12 @@ def _relationship_graph_script() -> str:
       backStack: [],
       forwardStack: [],
       searchQuery: "",
-      searchTextById: new Map(),
+      searchRegex: true,
+      searchRegexError: "",
+      searchResultsOpen: true,
+      searchAnchorResultId: "",
+      searchAnchorScrollPending: false,
+      searchResetScrollPending: false,
       searchUpdateTimer: 0,
       typeSearchType: "",
       graphInteractive: false,
@@ -4096,7 +4811,6 @@ def _relationship_graph_script() -> str:
       graphRenderSignature: "",
       focusGraph: null,
       focusContent: null,
-      focusInGraphOnly: false,
       isolatedRootId: "",
       isolatedNodeIds: null,
       scopedEdgesCache: null,
@@ -4104,6 +4818,9 @@ def _relationship_graph_script() -> str:
       canvasViewportListenersAttached: false,
       showSecondaryLinks: false,
       activeViewPinned: false,
+      activeViewNodeIds: null,
+      visualStatusField: "",
+      plainListMode: false,
       graphPage: 0,
       traversal: traversalConfig(graph.traversal),
       projectionMode: "auto",
@@ -4130,53 +4847,91 @@ def _relationship_graph_script() -> str:
     browser.querySelectorAll("[data-relationship-page-prev]").forEach((pagePrev) => {
       pagePrev.addEventListener("click", () => {
         activateGraphFocus(browser, state);
+        const previousActiveId = state.activeId;
         state.graphPage = Math.max(0, state.graphPage - 1);
         renderGraph(browser, state);
-        renderNodeSelect(browser, state);
-        renderDetail(browser, state);
+        if (state.activeId !== previousActiveId) renderDetail(browser, state);
       });
     });
     browser.querySelectorAll("[data-relationship-page-next]").forEach((pageNext) => {
       pageNext.addEventListener("click", () => {
         activateGraphFocus(browser, state);
+        const previousActiveId = state.activeId;
         state.graphPage += 1;
         renderGraph(browser, state);
-        renderNodeSelect(browser, state);
-        renderDetail(browser, state);
+        if (state.activeId !== previousActiveId) renderDetail(browser, state);
       });
     });
-    const focusType = browser.querySelector("[data-relationship-focus-type]");
-    if (focusType) {
-      focusType.addEventListener("change", () => {
-        state.typeSearchType = focusType.value || "";
-        state.graphPage = 0;
-        renderNodeSelect(browser, state);
-        refreshGraphControlState(browser, state);
-      });
-    }
-    const focusScope = browser.querySelector("[data-relationship-focus-scope]");
-    if (focusScope) {
-      focusScope.checked = state.focusInGraphOnly;
-      focusScope.title = "When checked, the focus list offers only the nodes drawn on the current graph instead of every node";
-      focusScope.addEventListener("change", () => {
-        state.focusInGraphOnly = focusScope.checked;
-        renderNodeSelect(browser, state);
-      });
-    }
-    const select = browser.querySelector("[data-relationship-node-select]");
-    if (select) {
-      select.addEventListener("change", () => {
-        cancelSearchUpdate(state);
-        if (select.value) selectNode(browser, state, select.value, true);
-      });
-      renderNodeSelect(browser, state);
-    }
     const search = browser.querySelector("[data-relationship-search]");
-    if (search && select) {
+    const regex = browser.querySelector("[data-relationship-search-regex]");
+    const searchHelp = browser.querySelector("[data-relationship-search-help]");
+    const searchHelpPopover = browser.querySelector("[data-relationship-search-help-popover]");
+    const setSearchHelpOpen = (open) => {
+      if (!searchHelp || !searchHelpPopover) return;
+      searchHelpPopover.hidden = !open;
+      searchHelp.setAttribute("aria-expanded", open ? "true" : "false");
+    };
+    if (searchHelp) {
+      searchHelp.addEventListener("click", (event) => {
+        event.stopPropagation();
+        const open = searchHelp.getAttribute("aria-expanded") !== "true";
+        setSearchHelpOpen(open);
+      });
+    }
+    if (regex) {
+      regex.checked = state.searchRegex;
+      regex.addEventListener("change", () => {
+        state.searchRegex = regex.checked;
+        state.searchResultsOpen = true;
+        state.searchAnchorResultId = state.selectedId || "";
+        state.searchAnchorScrollPending = Boolean(state.searchAnchorResultId);
+        state.searchResetScrollPending = false;
+        state.graphPage = 0;
+        applySearchUpdate(browser, state, false);
+      });
+    }
+    const results = browser.querySelector("[data-relationship-search-results]");
+    if (results) {
+      results.addEventListener("click", (event) => {
+        const target = event.target instanceof Element ? event.target.closest("[data-relationship-search-result]") : null;
+        if (!target) return;
+        event.stopPropagation();
+        const nodeId = target.getAttribute("data-relationship-search-result") || "";
+        if (!nodeId) return;
+        cancelSearchUpdate(state);
+        state.searchAnchorResultId = nodeId;
+        state.searchAnchorScrollPending = false;
+        state.searchResultsOpen = false;
+        selectNode(browser, state, nodeId, true);
+      });
+    }
+    if (search) {
       search.addEventListener("input", () => {
         state.searchQuery = search.value;
+        state.searchResultsOpen = true;
+        state.searchAnchorResultId = state.selectedId || "";
+        state.searchAnchorScrollPending = Boolean(state.searchAnchorResultId);
+        state.searchResetScrollPending = false;
         state.graphPage = 0;
         scheduleSearchUpdate(browser, state, false);
+      });
+      search.addEventListener("focus", () => {
+        if (!String(search.value || "").trim()) return;
+        const results = browser.querySelector("[data-relationship-search-results]");
+        if (state.searchResultsOpen && results && !results.hidden) return;
+        state.searchQuery = search.value;
+        state.searchResultsOpen = true;
+        state.searchAnchorScrollPending = Boolean(state.searchAnchorResultId);
+        renderNodeSelect(browser, state);
+      });
+      search.addEventListener("click", () => {
+        if (!String(search.value || "").trim()) return;
+        const results = browser.querySelector("[data-relationship-search-results]");
+        if (state.searchResultsOpen && results && !results.hidden) return;
+        state.searchQuery = search.value;
+        state.searchResultsOpen = true;
+        state.searchAnchorScrollPending = Boolean(state.searchAnchorResultId);
+        renderNodeSelect(browser, state);
       });
       search.addEventListener("keydown", (event) => {
         if (event.key !== "Enter") return;
@@ -4187,10 +4942,22 @@ def _relationship_graph_script() -> str:
         const match = selectableNodes(state, false)[0];
         if (match) {
           event.preventDefault();
+          state.searchAnchorResultId = match.id;
+          state.searchAnchorScrollPending = false;
+          state.searchResultsOpen = false;
           selectNode(browser, state, match.id, true);
         }
       });
     }
+    document.addEventListener("click", (event) => {
+      const target = event.target instanceof Element ? event.target : null;
+      if (target && target.closest(".relationship-search-controls")) return;
+      setSearchHelpOpen(false);
+      if (!state.searchResultsOpen) return;
+      state.searchResultsOpen = false;
+      const results = browser.querySelector("[data-relationship-search-results]");
+      if (results) results.hidden = true;
+    });
     const back = browser.querySelector("[data-relationship-back]");
     const forward = browser.querySelector("[data-relationship-forward]");
     const fit = browser.querySelector("[data-relationship-fit]");
@@ -4304,20 +5071,31 @@ def _relationship_graph_script() -> str:
       selectNode(browser, state, nodeElement.getAttribute("data-node-id"), true);
     });
     window.addEventListener("resize", () => fitGraph(state, 40), {passive: true});
-    selectNode(browser, state, state.selectedId, false);
     browser.__relationshipState = state;
+    browser.__relationshipSelectNode = (nodeId, recordHistory, options) => selectNode(browser, state, nodeId, recordHistory, options);
+    browser.__relationshipRenderSearch = () => renderNodeSelect(browser, state);
+    browser.__relationshipSearchChoices = () => selectableNodes(state, false).map((node) => ({
+      id: node.id,
+      type: node.type || "entity",
+      status: fieldValue(node, "status"),
+      label: node.label || node.id,
+      searchText: nodeSearchText(node, state, visibleNodeDegreeMap(state))
+    }));
+    if (!(options && options.deferRender)) {
+      selectNode(browser, state, state.selectedId, false);
+    }
   }
 
-  function openRelationshipModal(modal) {
+  function openRelationshipModal(modal, options) {
     if (!modal) return;
     modal.hidden = false;
     document.body.classList.add("relationship-modal-open");
     const browser = modal.querySelector("[data-relationship-browser]");
     if (browser && !browser.dataset.relationshipInitialized) {
-      initBrowser(browser);
+      initBrowser(browser, options);
       browser.dataset.relationshipInitialized = "true";
-    } else if (browser && browser.__relationshipState) {
-      fitGraph(browser.__relationshipState, 88);
+    } else if (browser && browser.__relationshipState && !(options && options.deferRender)) {
+      fitGraph(browser.__relationshipState, 40);
     }
     const close = modal.querySelector("[data-relationship-close]");
     if (close) close.focus({preventScroll: true});
@@ -4327,11 +5105,13 @@ def _relationship_graph_script() -> str:
     const section = trigger && trigger.closest ? trigger.closest(".report-root, body") : document;
     const modal = (section || document).querySelector("[data-relationship-modal]");
     if (!modal || !nodeId) return;
-    openRelationshipModal(modal);
+    openRelationshipModal(modal, {deferRender: true});
     const browser = modal.querySelector("[data-relationship-browser]");
     const state = browser && browser.__relationshipState;
     if (state && state.nodesById.has(nodeId)) {
       selectTableNode(browser, state, nodeId);
+      fitGraph(state, 40);
+      scrollRelationshipToGraph(browser);
     }
   }
 
@@ -4369,6 +5149,9 @@ def _relationship_graph_script() -> str:
     setIsolatedRoot(state, isolateRoot);
     resetGraphFilters(browser, state);
     state.activeViewPinned = true;
+    state.activeViewNodeIds = Array.isArray(view.node_ids)
+      ? new Set(view.node_ids.map(String).filter((id) => state.nodesById.has(id)))
+      : null;
     const types = stateGraphTypes(state);
     const requested = Array.isArray(view.types) ? view.types.filter((type) => types.includes(type)) : [];
     if (requested.length) {
@@ -4380,10 +5163,13 @@ def _relationship_graph_script() -> str:
     applyRelationshipViewFilters(state, view.filters);
     state.graphPage = 0;
     state.searchQuery = "";
+    state.deferNodeSelectOnce = true;
     cancelSearchUpdate(state);
     const search = browser.querySelector("[data-relationship-search]");
     if (search) search.value = "";
-    updateSelectedNodeState(browser, state, focusId, false, {preserveTypes: true, preserveFilters: true});
+    state.plainListMode = Boolean(view.plain_list);
+    state.visualStatusField = typeof view.color_by === "string" ? view.color_by : "";
+    updateSelectedNodeState(browser, state, focusId, false, {preserveTypes: true, preserveFilters: true, preservePlainList: Boolean(view.plain_list)});
     const targetType = view.target_type || "";
     if (targetType && state.enabledTypes.has(targetType)) {
       state.activeSubfilterType = targetType;
@@ -4392,13 +5178,15 @@ def _relationship_graph_script() -> str:
     }
     refreshGraphControlState(browser, state, types);
     renderRelationshipState(browser, state);
+    fitGraph(state, 40);
+    scrollRelationshipToGraph(browser);
   }
 
   function openRelationshipView(trigger, view) {
     const section = trigger && trigger.closest ? trigger.closest(".report-root, body") : document;
     const modal = (section || document).querySelector("[data-relationship-modal]");
     if (!modal || !view || !view.focus) return;
-    openRelationshipModal(modal);
+    openRelationshipModal(modal, {deferRender: true});
     const browser = modal.querySelector("[data-relationship-browser]");
     const state = browser && browser.__relationshipState;
     if (state) applyRelationshipView(browser, state, view);
@@ -4425,6 +5213,8 @@ def _relationship_graph_script() -> str:
         renderGraph(browser, state);
         renderNodeSelect(browser, state);
         renderDetail(browser, state);
+        fitGraph(state, 40);
+        scrollRelationshipToGraph(browser);
       }
     });
   });
@@ -4454,6 +5244,19 @@ def _relationship_graph_script() -> str:
   });
   document.addEventListener("keydown", (event) => {
     if (event.key !== "Escape") return;
+    const active = document.activeElement;
+    const search = active && active.closest ? active.closest("[data-relationship-search]") : null;
+    if (search && search.value) {
+      const browser = search.closest("[data-relationship-browser]");
+      const state = browser && browser.__relationshipState;
+      if (state) {
+        event.preventDefault();
+        clearSearch(browser, state);
+        renderNodeSelect(browser, state);
+        renderDetail(browser, state);
+        return;
+      }
+    }
     document.querySelectorAll("[data-relationship-modal]:not([hidden])").forEach(closeRelationshipModal);
   });
   document.querySelectorAll("[data-relationship-browser]:not([data-relationship-defer])").forEach(initBrowser);
@@ -4503,6 +5306,7 @@ def _report_self_test_script() -> str:
       enabledTypes: state ? Array.from(state.enabledTypes || []).sort() : [],
       projectionMode: state && state.projectionMode || "",
       projectionSelections: state && state.projectionSelections ? Object.assign({}, state.projectionSelections) : {},
+      plainListMode: Boolean(state && state.plainListMode),
       activeSubfilterType: state && state.activeSubfilterType || "",
       graphReady: browser ? browser.getAttribute("data-relationship-graph-ready") === "true" : false,
       activeView: browser ? browser.getAttribute("data-relationship-active-view") === "true" : false,
@@ -4649,7 +5453,7 @@ def _report_self_test_script() -> str:
     if (!state.activeView) {
       errors.push("graph active view indicator is not enabled after metric click");
     }
-    if (expectedCount && state.nodes > 1 && state.edges <= 0) {
+    if (expectedCount && state.nodes > 1 && state.edges <= 0 && !item.view.plain_list) {
       errors.push(`no graph links rendered for ${targetType}`);
     }
     return {
@@ -4783,12 +5587,7 @@ def _report_self_test_script() -> str:
     if (!browser || !state || !targetNode) {
       return {name: "entity switch resets filters", pass: false, durationMs: Math.round(performance.now() - startedAt), errors: ["target node not visible after metric click"]};
     }
-    const focusSelect = browser.querySelector("[data-relationship-node-select]");
-    if (!focusSelect) {
-      return {name: "entity switch resets filters", pass: false, durationMs: Math.round(performance.now() - startedAt), errors: ["focus select not found"]};
-    }
-    focusSelect.value = targetNode.id;
-    focusSelect.dispatchEvent(new Event("change", {bubbles: true}));
+    browser.__relationshipSelectNode(targetNode.id, true);
     await delay(SELF_TEST_SETTLE_MS);
     const next = dumpState();
     if (!arraysEqual(next.enabledTypes, next.allTypes)) {
@@ -4823,13 +5622,14 @@ def _report_self_test_script() -> str:
     const state = browser && browser.__relationshipState;
     const graph = state && state.visibleGraph;
     const canvasWrap = browser && browser.querySelector(".relationship-canvas-wrap");
+    const controlBar = browser && browser.querySelector(".relationship-control-bar");
     const badge = browser && browser.querySelector("[data-relationship-focus-badge]");
+    const pageControls = browser && browser.querySelector("[data-relationship-page-controls]");
     const statusFilter = browser && browser.querySelector("[data-relationship-status-filter]");
     const selectionPanel = browser && browser.querySelector(".relationship-selection-panel");
     const explorer = browser && browser.querySelector(".relationship-explorer-main");
-    const focusSelect = browser && browser.querySelector("[data-relationship-node-select]");
     const targetNode = visibleTargetNode(graph, item);
-    if (!browser || !state || !canvasWrap || !badge || !statusFilter || !selectionPanel || !explorer || !focusSelect || !targetNode) {
+    if (!browser || !state || !canvasWrap || !controlBar || !badge || !pageControls || !statusFilter || !selectionPanel || !explorer || !targetNode) {
       return {name: "graph focus badge release", pass: false, durationMs: Math.round(performance.now() - startedAt), errors: ["graph controls or target node not visible after metric click"]};
     }
     const initial = dumpState();
@@ -4888,6 +5688,16 @@ def _report_self_test_script() -> str:
         errors.push(`graph focus badge moved horizontally: ${beforeX} -> ${afterX}`);
       }
     }
+    const controlBarRect = rectSummary(controlBar);
+    const focusedBadgeRect = rectSummary(badge);
+    if (window.innerWidth > 600 && controlBarRect && focusedBadgeRect) {
+      const barCenter = Math.round(controlBarRect.left + controlBarRect.width / 2);
+      const badgeCenter = Math.round(focusedBadgeRect.left + focusedBadgeRect.width / 2);
+      if (Math.abs(barCenter - badgeCenter) > 1) {
+        errors.push(`graph focus badge is not centered in control bar: ${badgeCenter} vs ${barCenter}`);
+      }
+    }
+    const pageControlsFocused = rectSummary(pageControls);
     const pageNext = browser.querySelector("[data-relationship-page-next]");
     if (pageNext && !pageNext.disabled && !pageNext.hidden) {
       pointerDown(pageNext);
@@ -4950,8 +5760,15 @@ def _report_self_test_script() -> str:
     if (released.selectedId !== selectedBeforeRelease) {
       errors.push("badge release changed selected node");
     }
-    focusSelect.value = targetNode.id;
-    focusSelect.dispatchEvent(new Event("change", {bubbles: true}));
+    const pageControlsReleased = rectSummary(pageControls);
+    if (pageControlsFocused && pageControlsReleased) {
+      const focusedRight = Math.round(pageControlsFocused.left + pageControlsFocused.width);
+      const releasedRight = Math.round(pageControlsReleased.left + pageControlsReleased.width);
+      if (Math.abs(focusedRight - releasedRight) > 1) {
+        errors.push(`page controls moved after graph deactivation: ${focusedRight} -> ${releasedRight}`);
+      }
+    }
+    browser.__relationshipSelectNode(targetNode.id, true);
     await delay(SELF_TEST_SETTLE_MS);
     const after = dumpState();
     if (!after.activeView) {
@@ -4973,12 +5790,166 @@ def _report_self_test_script() -> str:
     };
   }
 
+  async function runRelationshipSearch() {
+    const startedAt = performance.now();
+    const errors = [];
+    const item = preferredGraphMetric();
+    if (!item) {
+      return {name: "relationship search", pass: false, durationMs: Math.round(performance.now() - startedAt), errors: ["graph metric button not found"]};
+    }
+    item.button.click();
+    await delay(SELF_TEST_SETTLE_MS);
+    const browser = activeBrowser();
+    const state = browser && browser.__relationshipState;
+    const search = browser && browser.querySelector("[data-relationship-search]");
+    const regex = browser && browser.querySelector("[data-relationship-search-regex]");
+    const searchHelp = browser && browser.querySelector("[data-relationship-search-help]");
+    const searchHelpPopover = browser && browser.querySelector("[data-relationship-search-help-popover]");
+    const results = browser && browser.querySelector("[data-relationship-search-results]");
+    const legacySelect = browser && browser.querySelector("[data-relationship-node-select]");
+    const legacyType = browser && browser.querySelector("[data-relationship-focus-type]");
+    const legacyScope = browser && browser.querySelector("[data-relationship-focus-scope]");
+    if (!browser || !state || !search || !regex || !results) {
+      return {name: "relationship search", pass: false, durationMs: Math.round(performance.now() - startedAt), errors: ["search controls not found"]};
+    }
+    if (legacySelect || legacyType || legacyScope) {
+      errors.push("legacy focus selector controls are still rendered");
+    }
+    if (!regex.checked) {
+      errors.push("regex search is not enabled by default");
+    }
+    if (!searchHelp || !searchHelpPopover) {
+      errors.push("search help controls are not rendered");
+    } else {
+      searchHelp.click();
+      await delay(SELF_TEST_SETTLE_MS);
+      if (searchHelpPopover.hidden) {
+        errors.push("search help popup does not open");
+      }
+      document.body.click();
+      await delay(SELF_TEST_SETTLE_MS);
+      if (!searchHelpPopover.hidden) {
+        errors.push("search help popup does not close after outside click");
+      }
+    }
+    const searchChoices = browser.__relationshipSearchChoices ? browser.__relationshipSearchChoices() : [];
+    const target = searchChoices.find((item) => item.id !== state.selectedId && item.type !== "product");
+    if (!target) {
+      return {name: "relationship search", pass: false, durationMs: Math.round(performance.now() - startedAt), errors: ["search target node not found"]};
+    }
+    const renderedBefore = state.visibleGraph && state.visibleGraph.nodes ? state.visibleGraph.nodes.length : 0;
+    regex.checked = false;
+    state.searchRegex = false;
+    regex.dispatchEvent(new Event("change", {bubbles: true}));
+    const targetText = String(target.label || target.id || target.type || "entity");
+    const searchToken = (targetText.match(/[A-Za-z0-9_.:/-]{3,}/) || [targetText])[0];
+    search.focus();
+    search.value = String(searchToken).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    state.searchQuery = search.value;
+    search.dispatchEvent(new InputEvent("input", {bubbles: true, inputType: "insertText", data: search.value}));
+    const directTextMatches = browser.__relationshipRenderSearch ? browser.__relationshipRenderSearch() : [];
+    await delay(SELF_TEST_SETTLE_MS);
+    const textResults = Array.from(results.querySelectorAll("[data-relationship-search-result]"));
+    const renderedAfterTextSearch = state.visibleGraph && state.visibleGraph.nodes ? state.visibleGraph.nodes.length : 0;
+    if (!textResults.length) {
+      errors.push("type search produced no result rows");
+    }
+    if (textResults.length && !Array.from(textResults[0].classList).some((name) => name.startsWith("status-"))) {
+      errors.push("search result row does not carry a status class");
+    }
+    const statusChip = textResults[0] && textResults[0].querySelector(".relationship-search-status");
+    const resultStatusColor = statusChip ? getComputedStyle(statusChip).borderColor : "";
+    if (!statusChip) {
+      errors.push("search result row does not start with a status chip");
+    } else if (!resultStatusColor || resultStatusColor === "rgba(0, 0, 0, 0)") {
+      errors.push("search result status chip does not render a status color");
+    }
+    if (!results.querySelector("mark")) {
+      errors.push("search results do not highlight matches");
+    }
+    if (renderedAfterTextSearch !== renderedBefore) {
+      errors.push("typing in search changed the drawn graph");
+    }
+    search.blur();
+    document.body.click();
+    await delay(SELF_TEST_SETTLE_MS);
+    if (!results.hidden) {
+      errors.push("search results stay open after clicking outside search controls");
+    }
+    search.focus();
+    search.click();
+    await delay(SELF_TEST_SETTLE_MS);
+    if (results.hidden) {
+      errors.push("search results do not reopen when focusing a non-empty search input");
+    }
+    const plainStatusQuery = String(target.status || "not_failed");
+    search.value = plainStatusQuery;
+    state.searchQuery = search.value;
+    search.dispatchEvent(new Event("input", {bubbles: true}));
+    const plainStatusMatches = browser.__relationshipRenderSearch ? browser.__relationshipRenderSearch() : [];
+    await delay(SELF_TEST_SETTLE_MS);
+    if (plainStatusMatches.length) {
+      errors.push("plain search matched status text");
+    }
+    const firstLabel = textResults[0] ? String(textResults[0].textContent || "") : "";
+    const escaped = plainStatusQuery.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    regex.checked = true;
+    state.searchRegex = true;
+    regex.dispatchEvent(new Event("change", {bubbles: true}));
+    search.value = `^${escaped}`;
+    state.searchQuery = search.value;
+    search.dispatchEvent(new Event("input", {bubbles: true}));
+    const directRegexMatches = browser.__relationshipRenderSearch ? browser.__relationshipRenderSearch() : [];
+    await delay(SELF_TEST_SETTLE_MS);
+    const regexResults = Array.from(results.querySelectorAll("[data-relationship-search-result]"));
+    if (!regexResults.length) {
+      errors.push("regex search produced no result rows");
+    } else {
+      const queryBeforeSelection = search.value;
+      const selectedResultId = regexResults[0].getAttribute("data-relationship-search-result") || "";
+      regexResults[0].click();
+      await delay(SELF_TEST_SETTLE_MS);
+      if (!results.hidden || search.value !== queryBeforeSelection) {
+        errors.push("search result selection did not close results while preserving the query");
+      }
+      search.focus();
+      search.click();
+      await delay(SELF_TEST_SETTLE_MS);
+      const anchored = selectedResultId
+        ? results.querySelector(`[data-relationship-search-result="${CSS.escape(selectedResultId)}"]`)
+        : null;
+      if (results.hidden || !anchored || !anchored.classList.contains("is-selected")) {
+        errors.push("search results did not reopen at the selected result");
+      }
+      search.value = `${search.value}x`;
+      state.searchQuery = search.value;
+      search.dispatchEvent(new Event("input", {bubbles: true}));
+      await delay(SELF_TEST_SETTLE_MS);
+      if (state.searchAnchorResultId || results.scrollTop !== 0) {
+        errors.push("editing search text did not reset selected-result anchoring");
+      }
+    }
+    return {
+      name: "relationship search",
+      pass: errors.length === 0,
+      durationMs: Math.round(performance.now() - startedAt),
+      renderedBefore,
+      renderedAfterTextSearch,
+      searchToken,
+      directTextMatches: directTextMatches.length,
+      directRegexMatches: directRegexMatches.length,
+      firstLabel,
+      plainStatusMatches: plainStatusMatches.length,
+      selectedId: state.selectedId,
+      errors
+    };
+  }
+
   async function runNodeTransitionBenchmark() {
     const startedAt = performance.now();
     const errors = [];
     const browser = activeBrowser();
-    const focusSelect = browser && browser.querySelector("[data-relationship-node-select]");
-    if (!browser || !focusSelect) {
+    if (!browser) {
       return {name: "node transition benchmark", pass: false, durationMs: Math.round(performance.now() - startedAt), errors: ["graph controls not found"]};
     }
     let item = null;
@@ -5006,8 +5977,7 @@ def _report_self_test_script() -> str:
     for (const node of candidates) {
       const beforeVersion = Number(state.renderVersion || 0);
       const transitionStartedAt = performance.now();
-      focusSelect.value = node.id;
-      focusSelect.dispatchEvent(new Event("change", {bubbles: true}));
+      browser.__relationshipSelectNode(node.id, true);
       const elapsedMs = performance.now() - transitionStartedAt;
       const afterVersion = Number(state.renderVersion || 0);
       if (afterVersion < beforeVersion) {
@@ -5027,8 +5997,7 @@ def _report_self_test_script() -> str:
     const batchStartedAt = performance.now();
     for (let index = 0; index < batchIterations; index += 1) {
       const node = candidates[index % candidates.length];
-      focusSelect.value = node.id;
-      focusSelect.dispatchEvent(new Event("change", {bubbles: true}));
+      browser.__relationshipSelectNode(node.id, true);
     }
     const batchElapsedMs = performance.now() - batchStartedAt;
     const batchRenderCount = Number(state.renderVersion || 0) - beforeBatchVersion;
@@ -5064,6 +6033,7 @@ def _report_self_test_script() -> str:
       results.push(await runMetricButton(item));
     }
     results.push(await runGraphFocusBadgeRelease());
+    results.push(await runRelationshipSearch());
     results.push(await runEntitySwitchReset());
     results.push(await runNodeTransitionBenchmark());
     return {

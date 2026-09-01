@@ -44,7 +44,9 @@ def test_agent_workspace_service_returns_headless_task_snapshot(tmp_path: Path) 
     assert snapshot["task"]["name"] == "sample-task"
     assert "Headless service" in snapshot["description"]
     assert "Agent Workspace service returns task data" in snapshot["context"]["markdown"]
-    assert snapshot["actions"]["actions"][0]["id"] == "smoke"
+    action_ids = [action["id"] for action in snapshot["actions"]["actions"]]
+    assert action_ids[:2] == ["workspace:validate", "workspace:task-check"]
+    assert "smoke" in action_ids
     assert snapshot["ai_debug"][0]["session_id"] == "s1"
     assert snapshot["ai_debug"][0]["tool_detail"] == "python3 -c 'print(42)'"
     assert snapshot["artifacts"][0]["label"] == "report/runtime.log"

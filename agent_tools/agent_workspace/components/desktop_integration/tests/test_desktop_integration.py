@@ -1,12 +1,15 @@
 from __future__ import annotations
 
 import argparse
+import os
 
 import pytest
 
 from agent_tools.agent_workspace.components.desktop_integration.api import agent_tools_package_root
 from agent_tools.agent_workspace.components.desktop_integration.api import agent_workspace_icon_source
 from agent_tools.agent_workspace.components.desktop_integration.api import workspace_root
+from agent_tools.agent_workspace.components.desktop_integration.api.gtk_bootstrap import gtk_cursor_size
+from agent_tools.agent_workspace.components.desktop_integration.api.gtk_bootstrap import sync_gtk_environment
 from agent_tools.agent_workspace.components.test_support.src.helpers import *
 
 
@@ -20,6 +23,44 @@ def test_agent_workspace_desktop_uses_icon_name() -> None:
 
     assert "Icon=agent-workspace\n" in content
     assert "StartupWMClass=agent-workspace\n" in content
+
+
+def test_gtk_bootstrap_prefers_wayland_backend_on_wayland(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("GDK_BACKEND", raising=False)
+    monkeypatch.delenv("AGENT_WORKSPACE_GTK_BACKEND", raising=False)
+    monkeypatch.setenv("WAYLAND_DISPLAY", "wayland-0")
+    monkeypatch.setenv("XCURSOR_SIZE", "24")
+
+    sync_gtk_environment()
+
+    assert os.environ["GDK_BACKEND"] == "wayland,x11"
+    assert gtk_cursor_size() == 24
+
+
+def test_gtk_bootstrap_backend_override_wins(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("GDK_BACKEND", "x11")
+    monkeypatch.setenv("WAYLAND_DISPLAY", "wayland-0")
+    monkeypatch.setenv("AGENT_WORKSPACE_GTK_BACKEND", "x11")
+
+    sync_gtk_environment()
+
+    assert os.environ["GDK_BACKEND"] == "x11"
+
+
+def test_gtk_bootstrap_syncs_cursor_for_explicit_x11(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("GDK_BACKEND", "x11")
+    monkeypatch.setenv("WAYLAND_DISPLAY", "wayland-0")
+    monkeypatch.setenv("AGENT_WORKSPACE_GTK_BACKEND", "x11")
+    monkeypatch.setenv("AGENT_WORKSPACE_GTK_CURSOR_SIZE", "24")
+    monkeypatch.setenv("AGENT_WORKSPACE_GTK_CURSOR_THEME", "Yaru")
+    monkeypatch.delenv("XCURSOR_SIZE", raising=False)
+    monkeypatch.delenv("XCURSOR_THEME", raising=False)
+
+    sync_gtk_environment()
+
+    assert os.environ["GDK_BACKEND"] == "x11"
+    assert os.environ["XCURSOR_SIZE"] == "24"
+    assert os.environ["XCURSOR_THEME"] == "Yaru"
 
 
 def test_agent_workspace_web_launcher_uses_web_backend() -> None:

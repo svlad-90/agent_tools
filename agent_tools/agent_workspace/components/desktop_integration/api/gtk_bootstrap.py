@@ -34,8 +34,6 @@ def gtk_cursor_size() -> int | None:
         size = int(raw_size)
     except (TypeError, ValueError):
         return None
-    if os.environ.get("WAYLAND_DISPLAY") and size > 16:
-        return max(12, size // 2)
     return size
 
 
@@ -47,8 +45,13 @@ def gtk_cursor_theme() -> str:
 
 
 def sync_gtk_environment() -> None:
-    os.environ.setdefault("GDK_BACKEND", "x11")
-    if os.environ.get("GDK_BACKEND") != "x11":
+    requested_backend = os.environ.get("AGENT_WORKSPACE_GTK_BACKEND")
+    if requested_backend:
+        os.environ["GDK_BACKEND"] = requested_backend
+    elif os.environ.get("WAYLAND_DISPLAY"):
+        os.environ["GDK_BACKEND"] = "wayland,x11"
+    gdk_backends = [backend.strip() for backend in os.environ.get("GDK_BACKEND", "").split(",")]
+    if "x11" not in gdk_backends:
         return
     cursor_size = gtk_cursor_size()
     if cursor_size is not None:
