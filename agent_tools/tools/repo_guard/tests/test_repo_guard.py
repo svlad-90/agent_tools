@@ -7,6 +7,7 @@ from pathlib import Path
 
 import yaml
 
+from agent_tools.tools.repo_guard import main
 from agent_tools.tools.repo_guard.git_context import head_commit
 from agent_tools.tools.repo_guard.git_context import pre_push_dry_run_stdin
 from agent_tools.tools.repo_guard.policy import load_policy
@@ -15,6 +16,7 @@ from agent_tools.tools.repo_guard.runner import compact_report
 from agent_tools.tools.repo_guard.runner import pre_push
 from agent_tools.tools.repo_guard.runner import pre_push_dry_run
 from agent_tools.tools.repo_guard.runner import validate
+from agent_tools.tools.task_context import set_slot
 
 
 def _git(repo: Path, *args: str) -> str:
@@ -230,6 +232,34 @@ def test_pre_push_dry_run_treats_missing_upstream_as_new_branch(tmp_path: Path) 
     assert " " + ("0" * 40) + "\n" in stdin_text
     assert result.context.mode == "pre-push"
     assert result.context.commits == (commit,)
+
+
+def test_pre_push_dry_run_command_installs_registered_hooks(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    task_dir = workspace / "tasks" / "sample"
+    repo = task_dir / "dev" / "repo"
+    _init_repo(workspace)
+    (workspace / "README.md").write_text("workspace\n", encoding="utf-8")
+    _commit(workspace)
+    repo.parent.mkdir(parents=True)
+    _init_repo(repo)
+    (repo / "tracked.txt").write_text("ok\n", encoding="utf-8")
+    _commit(repo)
+    set_slot(task_dir, "repo-registry", "repositories:\n  - path: tasks/sample/dev/repo\n")
+
+    result = main(
+        [
+            "pre-push-dry-run",
+            "--repo",
+            str(workspace),
+            "--task-dir",
+            str(task_dir),
+        ]
+    )
+
+    assert result == 0
+    assert (repo / ".git" / "hooks" / "pre-push").is_file()
+    assert (repo / ".git" / "hooks" / "pre-commit").is_file()
 
 
 def test_command_backend_reports_compact_failure(tmp_path: Path) -> None:
