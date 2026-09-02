@@ -16,13 +16,18 @@ def main(argv: list[str] | None = None) -> int:
 
     task_check_parser = subparsers.add_parser("task-check", help="Run compact task_check output.")
     _add_task_arguments(task_check_parser)
+    task_check_parser.add_argument(
+        "--issues-only",
+        action="store_true",
+        help="Render only warnings and failures.",
+    )
 
     args = parser.parse_args(sys.argv[1:] if argv is None else argv)
     workspace = Path(args.workspace).resolve()
     task = _task_summary(Path(args.task).resolve())
 
     if args.action == "task-check":
-        print(run_task_check(task, workspace))
+        print(run_task_check(task, workspace, issues_only=args.issues_only))
         return 0
     parser.error(f"unknown action {args.action!r}")
     return 2

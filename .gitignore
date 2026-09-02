@@ -25,6 +25,7 @@
 !.github/workflows/agent-workspace-tests.yml
 !agent_tools/
 !agent_tools/**
+agent_tools/tasks/
 agent_tools/.venv/
 !.claude/
 !.claude/**

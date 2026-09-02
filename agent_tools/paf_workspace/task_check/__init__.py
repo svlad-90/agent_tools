@@ -75,6 +75,11 @@ def main(argv: list[str] | None = None) -> int:
         help="Render only failing checks and the summary in text output.",
     )
     parser.add_argument(
+        "--issues-only",
+        action="store_true",
+        help="Render only warnings, failing checks, and the summary in text output.",
+    )
+    parser.add_argument(
         "--runtime-product",
         action="store_true",
         help="Require a product artifact manifest even if the task context has no runtime hints.",
@@ -134,7 +139,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.json:
         print(json.dumps(render_json(task_dir, checks), indent=2, sort_keys=True))
     else:
-        print(render_text(task_dir, checks, errors_only=args.errors_only))
+        print(render_text(task_dir, checks, errors_only=args.errors_only, issues_only=args.issues_only))
 
     failure_checks = init_checks if args.init_layout and not args.init_runtime_product else checks
     has_failures = any(check.status == "FAIL" for check in failure_checks)
@@ -370,12 +375,20 @@ def render_json(task_dir: Path, checks: list[Check]) -> dict[str, Any]:
     }
 
 
-def render_text(task_dir: Path, checks: list[Check], *, errors_only: bool = False) -> str:
+def render_text(
+    task_dir: Path,
+    checks: list[Check],
+    *,
+    errors_only: bool = False,
+    issues_only: bool = False,
+) -> str:
     lines = [f"Task check: {task_dir}"]
     counts = _counts(checks)
     lines.append(f"Summary: {counts['PASS']} pass, {counts['WARN']} warn, {counts['FAIL']} fail")
     for check in checks:
         if errors_only and check.status != "FAIL":
+            continue
+        if issues_only and check.status not in {"WARN", "FAIL"}:
             continue
         suffix = f" ({check.path})" if check.path else ""
         lines.append(f"{check.status} {check.code}: {check.message}{suffix}")

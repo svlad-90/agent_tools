@@ -722,6 +722,38 @@ def test_gtk_task_action_reflow_skips_unchanged_layout(monkeypatch: pytest.Monke
     assert gui.task_actions_box.show_count == 2
 
 
+def test_gtk_task_action_order_separates_workspace_actions() -> None:
+    gui = WorkspaceGtkGui.__new__(WorkspaceGtkGui)
+    gui.task_base_actions = [
+        TaskAction(
+            action_id="workspace:validate",
+            label="Validate",
+            command=("true",),
+            cwd=Path("."),
+            env={},
+            source="workspace",
+        ),
+        TaskAction(
+            action_id="workspace:task-check",
+            label="Task check",
+            command=("true",),
+            cwd=Path("."),
+            env={},
+            source="workspace",
+        ),
+        TaskAction(
+            action_id="build",
+            label="Build",
+            command=("true",),
+            cwd=Path("."),
+            env={},
+        ),
+    ]
+
+    assert gui._workspace_action_order() == ["workspace:validate", "workspace:task-check"]
+    assert gui._task_action_order() == ["build"]
+
+
 def test_gtk_task_action_size_allocate_skips_unchanged_width(monkeypatch: pytest.MonkeyPatch) -> None:
     class FakeActionsBox:
         def get_border_width(self) -> int:

@@ -253,5 +253,20 @@ def test_render_text_errors_only_keeps_summary_and_failures(tmp_path: Path) -> N
     assert "WARN task-context-slot-recommended" not in report
 
 
+def test_render_text_issues_only_keeps_warnings_and_failures(tmp_path: Path) -> None:
+    checks = [
+        Check("PASS", "layout-dir", "required directory exists"),
+        Check("WARN", "task-context-slot-recommended", "recommended context slot is empty: env"),
+        Check("FAIL", "task-dir", "task directory is missing"),
+    ]
+
+    report = render_text(tmp_path / "tasks" / "missing-task", checks, issues_only=True)
+
+    assert "Summary: 1 pass, 1 warn, 1 fail" in report
+    assert "WARN task-context-slot-recommended" in report
+    assert "FAIL task-dir" in report
+    assert "PASS layout-dir" not in report
+
+
 def _has_check(checks: list[Check], status: str, code: str) -> bool:
     return any(check.status == status and check.code == code for check in checks)

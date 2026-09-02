@@ -772,4 +772,15 @@ def test_workspace_standard_task_actions_are_injected_without_task_file(tmp_path
         "agent_tools.tools.repo_guard",
         "validate",
     )
+    assert actions[1].command == (
+        "python3",
+        "-m",
+        "agent_tools.agent_workspace.actions",
+        "task-check",
+        "--workspace",
+        str(tmp_path),
+        "--task",
+        str(task),
+        "--issues-only",
+    )
     assert actions[0].cwd == tmp_path

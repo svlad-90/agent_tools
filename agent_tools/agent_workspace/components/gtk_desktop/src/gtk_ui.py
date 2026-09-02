@@ -392,6 +392,7 @@ class WorkspaceGtkGui:
         self.ai_debug_last_signature: tuple[object, ...] = ()
         self.ai_debug_refresh_source_id: int | None = None
         self.actions_controls_box: Gtk.Box | None = None
+        self.workspace_actions_box: Gtk.Box | None = None
         self.task_reorder_group: str | None = None
         self.task_action_drag_source_id: str | None = None
         self.task_action_drag_pointer_offset_x: float | None = None
@@ -663,6 +664,9 @@ class WorkspaceGtkGui:
         top_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=3)
         top_row.set_border_width(0)
         controls_box.pack_start(top_row, False, False, 0)
+
+        self.workspace_actions_box = self._add_framed_action_group(top_row, self._s("actions.workspace_group"), expand=False)
+        self._profile_widget("workspace-actions-box", self.workspace_actions_box)
 
         self.task_actions_box = self._add_framed_action_group(top_row, self._s("actions.group"), expand=True)
         self.task_actions_box.connect("size-allocate", self._on_task_actions_box_size_allocate)
@@ -2966,6 +2970,10 @@ class WorkspaceGtkGui:
 
     def _clear_task_action_buttons(self) -> None:
         self.task_action_reflow_layout = None
+        workspace_actions_box = getattr(self, "workspace_actions_box", None)
+        if workspace_actions_box is not None:
+            for child in workspace_actions_box.get_children():
+                workspace_actions_box.remove(child)
         for child in self.task_actions_box.get_children():
             self.task_actions_box.remove(child)
         self.task_action_item_widgets = {}
@@ -3005,6 +3013,7 @@ class WorkspaceGtkGui:
         self._update_actions_message()
         for action in self.task_base_actions:
             self.task_action_item_widgets[action.action_id] = self._task_action_button(action, shortcut=False)
+        self._render_workspace_action_buttons()
         self._schedule_task_action_reflow()
         self._render_global_task_parameters()
         selected_action = next(
@@ -3028,6 +3037,8 @@ class WorkspaceGtkGui:
             self.selected_task_action = None
             self.selected_task_action_bindings = {}
         self.task_actions_box.show_all()
+        if self.workspace_actions_box is not None:
+            self.workspace_actions_box.show_all()
         if self.global_task_parameter_box is not None:
             self.global_task_parameter_box.show_all()
         self.task_shortcuts_box.show_all()
@@ -3096,6 +3107,19 @@ class WorkspaceGtkGui:
         self.task_actions_box.show_all()
         self._update_task_action_button_selection()
         return False
+
+    def _render_workspace_action_buttons(self) -> None:
+        workspace_actions_box = getattr(self, "workspace_actions_box", None)
+        if workspace_actions_box is None:
+            return
+        for action_id in self._workspace_action_order():
+            widget = self.task_action_item_widgets.get(action_id)
+            if widget is None:
+                continue
+            parent = widget.get_parent()
+            if isinstance(parent, Gtk.Container):
+                parent.remove(widget)
+            workspace_actions_box.pack_start(widget, False, False, 0)
 
     def _task_action_reorder_children(self) -> list[Gtk.Widget]:
         order = self.task_action_reorder_preview if self.task_reorder_group == "action" else None
@@ -3183,7 +3207,10 @@ class WorkspaceGtkGui:
         return index.get(item_a, len(index)) - index.get(item_b, len(index))
 
     def _task_action_order(self) -> list[str]:
-        return [action.action_id for action in self.task_base_actions]
+        return [action.action_id for action in self.task_base_actions if action.source != "workspace"]
+
+    def _workspace_action_order(self) -> list[str]:
+        return [action.action_id for action in self.task_base_actions if action.source == "workspace"]
 
     def _task_parameter_order(self) -> list[str]:
         action = self.selected_task_action
