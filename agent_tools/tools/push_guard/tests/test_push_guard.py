@@ -13,9 +13,13 @@ from agent_tools.tools.push_guard import _guarded_staged_file_findings
 from agent_tools.tools.push_guard import _head_commit
 from agent_tools.tools.push_guard import _print_guarded_findings
 from agent_tools.tools.push_guard import _pushed_commits
+from agent_tools.tools.push_guard import _record_success
+from agent_tools.tools.push_guard import _repo_guard_enabled
+from agent_tools.tools.push_guard import _set_repo_guard_enabled
 from agent_tools.tools.push_guard import _task_check_report_for_repo
 from agent_tools.tools.push_guard import _validated_receipt_source
 from agent_tools.tools.push_guard import check
+from agent_tools.tools.push_guard import main
 from agent_tools.tools.push_guard import PushedFileFinding
 
 
@@ -206,6 +210,109 @@ def test_pre_push_check_blocks_repositories_inside_tasks_when_task_check_fails(
 
     assert result == 1
     assert "push blocked by task_check" in capsys.readouterr().err
+
+
+def test_repo_guard_integration_is_disabled_by_default(
+    tmp_path: Path,
+    monkeypatch: object,
+    capsys: object,
+) -> None:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _init_repo(repo)
+    (repo / "README.md").write_text("repo\n", encoding="utf-8")
+    _git(repo, "add", "README.md")
+    _git(repo, "commit", "-m", "Initial")
+    commit = _head_commit(repo, "HEAD")
+    _record_success(repo, commit, "unit test")
+    monkeypatch.chdir(repo)
+    monkeypatch.setattr(
+        sys,
+        "stdin",
+        io.StringIO(f"refs/heads/main {commit} refs/heads/main {'0' * 40}\n"),
+    )
+
+    result = check(SimpleNamespace(allow_override=False, remote_name="origin", remote_url=None))
+
+    assert result == 0
+    assert not _repo_guard_enabled(repo)
+    assert "repo_guard" not in capsys.readouterr().err
+
+
+def test_repo_guard_enable_disable_commands_update_repo_config(
+    tmp_path: Path,
+    capsys: object,
+) -> None:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _init_repo(repo)
+    (repo / "README.md").write_text("repo\n", encoding="utf-8")
+    _git(repo, "add", "README.md")
+    _git(repo, "commit", "-m", "Initial")
+
+    assert main(["enable-repo-guard", "--repo", str(repo)]) == 0
+    assert _repo_guard_enabled(repo)
+    assert main(["status", "--repo", str(repo)]) == 1
+    assert "repo_guard_enabled: true" in capsys.readouterr().out
+
+    assert main(["disable-repo-guard", "--repo", str(repo)]) == 0
+    assert not _repo_guard_enabled(repo)
+
+
+def test_repo_guard_integration_blocks_push_when_enabled(
+    tmp_path: Path,
+    monkeypatch: object,
+    capsys: object,
+) -> None:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _init_repo(repo)
+    (repo / "README.md").write_text("repo\n", encoding="utf-8")
+    _git(repo, "add", "README.md")
+    _git(repo, "commit", "-m", "Initial")
+    commit = _head_commit(repo, "HEAD")
+    _record_success(repo, commit, "unit test")
+    _set_repo_guard_enabled(SimpleNamespace(repo=str(repo)), enabled=True)
+    monkeypatch.chdir(repo)
+    monkeypatch.setattr(
+        sys,
+        "stdin",
+        io.StringIO(f"refs/heads/main {commit} refs/heads/main {'0' * 40}\n"),
+    )
+
+    result = check(SimpleNamespace(allow_override=False, remote_name="origin", remote_url=None))
+
+    assert result == 1
+    err = capsys.readouterr().err
+    assert "push blocked by repo_guard" in err
+    assert "missing Signed-off-by trailer" in err
+
+
+def test_repo_guard_integration_allows_push_when_enabled_and_passing(
+    tmp_path: Path,
+    monkeypatch: object,
+    capsys: object,
+) -> None:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _init_repo(repo)
+    (repo / "README.md").write_text("repo\n", encoding="utf-8")
+    _git(repo, "add", "README.md")
+    _git(repo, "commit", "-m", "Initial", "-m", "Signed-off-by: Test User <test@example.com>")
+    commit = _head_commit(repo, "HEAD")
+    _record_success(repo, commit, "unit test")
+    _set_repo_guard_enabled(SimpleNamespace(repo=str(repo)), enabled=True)
+    monkeypatch.chdir(repo)
+    monkeypatch.setattr(
+        sys,
+        "stdin",
+        io.StringIO(f"refs/heads/main {commit} refs/heads/main {'0' * 40}\n"),
+    )
+
+    result = check(SimpleNamespace(allow_override=False, remote_name="origin", remote_url=None))
+
+    assert result == 0
+    assert "repo_guard" not in capsys.readouterr().err
 
 
 def test_task_check_report_still_detects_legacy_task_markers(

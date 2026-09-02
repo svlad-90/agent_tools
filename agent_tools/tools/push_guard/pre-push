@@ -36,10 +36,10 @@ stdin_text="$(cat)"
 
 if [ "${CODEX_PUSH_GUARD_OVERRIDE:-0}" = "1" ]; then
   printf '%s\n' "${stdin_text}" |
-    "${python_cmd}" -m agent_tools.tools.push_guard check --allow-override
+    "${python_cmd}" -m agent_tools.tools.push_guard check "${1:-}" "${2:-}" --allow-override
 else
   printf '%s\n' "${stdin_text}" |
-    "${python_cmd}" -m agent_tools.tools.push_guard check
+    "${python_cmd}" -m agent_tools.tools.push_guard check "${1:-}" "${2:-}"
 fi
 
 printf '%s\n' "${stdin_text}" |

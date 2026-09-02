@@ -83,6 +83,10 @@ def _stamp_path(repo: Path, commit: str) -> Path:
     return _stamp_dir(repo) / f"{commit}.json"
 
 
+def _config_path(repo: Path) -> Path:
+    return _git_path(repo, "agent_tools/push_guard/config.json")
+
+
 def _head_commit(repo: Path, ref: str) -> str:
     return _run_git(["rev-parse", "--verify", ref], cwd=repo)
 
@@ -107,6 +111,36 @@ def _record_success(repo: Path, commit: str, source: str) -> None:
     )
 
 
+def _load_config(repo: Path) -> dict[str, object]:
+    path = _config_path(repo)
+    if not path.is_file():
+        return {}
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(payload, dict):
+        raise SystemExit(f"push_guard: config must be a JSON object: {path}")
+    return payload
+
+
+def _write_config(repo: Path, config: dict[str, object]) -> None:
+    path = _config_path(repo)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(config, sort_keys=True, indent=2) + "\n", encoding="utf-8")
+
+
+def _repo_guard_enabled(repo: Path) -> bool:
+    return bool(_load_config(repo).get("repo_guard_enabled", False))
+
+
+def _set_repo_guard_enabled(args: argparse.Namespace, *, enabled: bool) -> int:
+    repo = _target_repo(args)
+    config = _load_config(repo)
+    config["repo_guard_enabled"] = enabled
+    _write_config(repo, config)
+    print(f"push_guard: repo_guard_enabled: {str(enabled).lower()}")
+    print(f"push_guard: config: {_config_path(repo)}")
+    return 0
+
+
 def mark_success(args: argparse.Namespace) -> int:
     repo = _target_repo(args)
     commit = _head_commit(repo, args.ref)
@@ -121,6 +155,14 @@ def mark_success(args: argparse.Namespace) -> int:
     return 0
 
 
+def enable_repo_guard(args: argparse.Namespace) -> int:
+    return _set_repo_guard_enabled(args, enabled=True)
+
+
+def disable_repo_guard(args: argparse.Namespace) -> int:
+    return _set_repo_guard_enabled(args, enabled=False)
+
+
 def status(args: argparse.Namespace) -> int:
     repo = _target_repo(args)
     commit = _head_commit(repo, args.ref)
@@ -129,6 +171,7 @@ def status(args: argparse.Namespace) -> int:
     print(f"push_guard: repo: {repo}")
     print(f"push_guard: commit: {commit}")
     print(f"push_guard: stamp: {stamp_path}")
+    print(f"push_guard: repo_guard_enabled: {str(_repo_guard_enabled(repo)).lower()}")
     if not stamp_path.is_file():
         print("push_guard: status: missing")
         return 1
@@ -362,6 +405,29 @@ def _print_guarded_findings(findings: Sequence[PushedFileFinding], *, action: st
         )
 
 
+def _repo_guard_report(
+    repo: Path,
+    *,
+    remote_name: str | None,
+    remote_url: str | None,
+    stdin_text: str,
+) -> str | None:
+    if not _repo_guard_enabled(repo):
+        return None
+    from agent_tools.tools.repo_guard.runner import compact_report
+    from agent_tools.tools.repo_guard.runner import pre_push
+
+    result = pre_push(
+        repo,
+        remote_name=remote_name,
+        remote_url=remote_url,
+        stdin_text=stdin_text,
+    )
+    if result.status == "pass":
+        return None
+    return compact_report(result)
+
+
 def check(args: argparse.Namespace) -> int:
     repo = _repo_root(Path.cwd())
     stdin_text = sys.stdin.read()
@@ -369,12 +435,21 @@ def check(args: argparse.Namespace) -> int:
     ref_tips = _pushed_ref_tips(stdin_text, repo)
     findings = _guarded_pushed_file_findings(repo, commits)
     task_check_report = _task_check_report_for_repo(repo)
+    repo_guard_report = _repo_guard_report(
+        repo,
+        remote_name=getattr(args, "remote_name", None),
+        remote_url=getattr(args, "remote_url", None),
+        stdin_text=stdin_text,
+    )
     if findings:
         _print_guarded_findings(findings, action="push")
     if task_check_report:
         print("push_guard: push blocked by task_check:", file=sys.stderr)
         print(task_check_report, file=sys.stderr)
-    if findings or task_check_report:
+    if repo_guard_report:
+        print("push_guard: push blocked by repo_guard:", file=sys.stderr)
+        print(repo_guard_report, file=sys.stderr)
+    if findings or task_check_report or repo_guard_report:
         if args.allow_override:
             print("push_guard: override enabled; allowing push", file=sys.stderr)
             return 0
@@ -473,6 +548,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     status_parser.set_defaults(func=status)
 
     check_parser = subparsers.add_parser("check")
+    check_parser.add_argument("remote_name", nargs="?")
+    check_parser.add_argument("remote_url", nargs="?")
     check_parser.add_argument(
         "--allow-override",
         action="store_true",
@@ -493,6 +570,14 @@ def main(argv: Sequence[str] | None = None) -> int:
     install_parser = subparsers.add_parser("install-hook")
     install_parser.add_argument("--repo")
     install_parser.set_defaults(func=install)
+
+    enable_repo_guard_parser = subparsers.add_parser("enable-repo-guard")
+    enable_repo_guard_parser.add_argument("--repo")
+    enable_repo_guard_parser.set_defaults(func=enable_repo_guard)
+
+    disable_repo_guard_parser = subparsers.add_parser("disable-repo-guard")
+    disable_repo_guard_parser.add_argument("--repo")
+    disable_repo_guard_parser.set_defaults(func=disable_repo_guard)
 
     args = parser.parse_args(argv)
     return int(args.func(args))
