@@ -223,6 +223,7 @@ def test_command_backend_reports_compact_failure(tmp_path: Path) -> None:
 
     assert result.status == "fail"
     assert "bad detail" in compact_report(result)
+    assert "suggested command:" in compact_report(result)
     assert result.checks[0].returncode == 7
 
 
@@ -272,6 +273,22 @@ def test_validate_parse_check_skips_deleted_python_paths(tmp_path: Path) -> None
 
     assert result.status == "pass"
     assert result.checks[0].summary == "no changed Python files"
+
+
+def test_compact_report_omits_passed_checks(tmp_path: Path) -> None:
+    repo = tmp_path / "repo"
+    _init_repo(repo)
+    (repo / "tracked.txt").write_text("ok\n", encoding="utf-8")
+    _commit(repo)
+    root = _policy_root(tmp_path)
+
+    result = validate(repo, policy_root=root)
+    report = compact_report(result)
+
+    assert "repo_guard: pass" in report
+    assert "repo_guard: 1 passed check(s) omitted" in report
+    assert "repo_guard: all checks passed" in report
+    assert "pass\tworkspace-file-hygiene" not in report
 
 
 def test_policy_summary_is_json_serializable_for_agent_surface(tmp_path: Path) -> None:

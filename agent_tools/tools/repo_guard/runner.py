@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import replace
+import shlex
 from pathlib import Path
 from typing import Sequence
 
@@ -175,18 +176,40 @@ def _receipt_required_result(
 
 
 def compact_report(result: GuardRunResult) -> str:
+    actionable_checks = [check for check in result.checks if check.status != "pass"]
+    passed_count = len(result.checks) - len(actionable_checks)
     lines = [
         f"repo_guard: {result.status}",
         f"repo_guard: repo: {result.context.repo}",
         f"repo_guard: repo_id: {result.repo_id or '<unmatched>'}",
         f"repo_guard: receipt: {result.receipt_path}",
     ]
-    for check in result.checks:
-        lines.append(f"{check.status}\t{check.check_id}\t{check.summary}")
+    if passed_count:
+        lines.append(f"repo_guard: {passed_count} passed check(s) omitted")
+    if not actionable_checks:
+        lines.append("repo_guard: all checks passed")
+        return "\n".join(lines)
+    for check in actionable_checks:
+        lines.append(
+            "{status}\t{check_id}\t{level}/{backend}/{cost}\t{summary}".format(
+                status=check.status,
+                check_id=check.check_id,
+                level=check.level,
+                backend=check.backend,
+                cost=check.cost,
+                summary=check.summary,
+            )
+        )
         detail = check.stderr_tail.strip() or check.stdout_tail.strip()
-        if check.status != "pass" and detail:
+        if detail:
             lines.extend(f"  {line}" for line in detail.splitlines()[:8])
+        if check.command:
+            lines.append(f"  suggested command: {_shell_command(check.command)}")
     return "\n".join(lines)
+
+
+def _shell_command(command: Sequence[str]) -> str:
+    return " ".join(shlex.quote(part) for part in command)
 
 
 def check_ids(result: GuardRunResult) -> Sequence[str]:
