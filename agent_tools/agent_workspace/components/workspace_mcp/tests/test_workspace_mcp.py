@@ -81,6 +81,10 @@ def test_workspace_mcp_lists_agent_search_tools(tmp_path: Path) -> None:
         "push_guard_install_hook",
         "push_guard_mark_success",
         "push_guard_status",
+        "repo_registry_add",
+        "repo_registry_list",
+        "repo_registry_remove",
+        "repo_registry_validate",
         "rules_sync_apply",
         "rules_sync_check",
         "task_actions_add",
@@ -464,6 +468,10 @@ with tempfile.TemporaryDirectory() as workspace_text:
         "push_guard_install_hook",
         "push_guard_mark_success",
         "push_guard_status",
+        "repo_registry_add",
+        "repo_registry_list",
+        "repo_registry_remove",
+        "repo_registry_validate",
         "rules_sync_apply",
         "rules_sync_check",
         "task_actions_add",
@@ -798,7 +806,12 @@ def test_workspace_mcp_task_actions_lists_shows_and_runs(tmp_path: Path) -> None
 
     assert listed["result"]["isError"] is False
     action_ids = [action["id"] for action in listed["result"]["structuredContent"]["actions"]]
-    assert action_ids[:2] == ["workspace:validate", "workspace:task-check"]
+    assert action_ids[:4] == [
+        "workspace:validate",
+        "workspace:validate-push",
+        "workspace:task-check",
+        "workspace:install-repo-hooks",
+    ]
     assert "echo" in action_ids
     assert shown["result"]["structuredContent"]["action"]["parameters"][0]["name"] == "profile"
     assert run["result"]["isError"] is False
@@ -1549,6 +1562,51 @@ def test_workspace_mcp_repo_guard_policy_and_validate(tmp_path: Path) -> None:
     assert validate_response["result"]["isError"] is False
     assert validate_response["result"]["structuredContent"]["status"] == "pass"
     assert "repo_guard: pass" in validate_response["result"]["content"][0]["text"]
+
+
+def test_workspace_mcp_repo_registry_adds_validates_and_removes(tmp_path: Path) -> None:
+    task_dir = tmp_path / "tasks" / "sample"
+    repo = task_dir / "dev" / "repo"
+    repo.mkdir(parents=True)
+    _git(repo, "init")
+    server = build_workspace_mcp_server(tmp_path)
+
+    add_response = _mcp_call(
+        server,
+        "repo_registry_add",
+        {
+            "task": "tasks/sample",
+            "repo": "tasks/sample/dev/repo",
+            "role": "task-dev",
+        },
+    )
+    list_response = _mcp_call(server, "repo_registry_list", {"task": "tasks/sample"})
+    validate_response = _mcp_call(server, "repo_registry_validate", {"task": "tasks/sample"})
+    rename_target = task_dir / "dev" / "repo-removed"
+    repo.rename(rename_target)
+    remove_response = _mcp_call(
+        server,
+        "repo_registry_remove",
+        {"task": "tasks/sample", "repo": "tasks/sample/dev/repo"},
+    )
+
+    assert add_response["result"]["isError"] is False
+    repositories = add_response["result"]["structuredContent"]["repositories"]
+    assert repositories == [{"path": "tasks/sample/dev/repo", "role": "task-dev"}]
+    assert list_response["result"]["structuredContent"]["repositories"] == repositories
+    assert validate_response["result"]["isError"] is False
+    assert "PASS" in validate_response["result"]["content"][0]["text"]
+    assert remove_response["result"]["structuredContent"]["repositories"] == []
+    assert remove_response["result"]["content"][0]["text"].strip() == "repositories: []"
+
+
+def test_workspace_mcp_repo_registry_rejects_non_task_path(tmp_path: Path) -> None:
+    server = build_workspace_mcp_server(tmp_path)
+
+    response = _mcp_call(server, "repo_registry_list", {"task": "."})
+
+    assert response["result"]["isError"] is True
+    assert "workspace tasks/" in response["result"]["content"][0]["text"]
 
 
 def test_workspace_mcp_calls_task_context_query(tmp_path: Path) -> None:

@@ -139,6 +139,7 @@ class WorkspaceMcpServer:
         from .diff_report_tools import diff_report_tools
         from .knowledge_tools import knowledge_tools
         from .push_guard_tools import push_guard_tools
+        from .repo_registry_tools import repo_registry_tools
         from .repo_guard_tools import repo_guard_tools
         from .rules_sync_tools import rules_sync_tools
         from .task_actualize_tools import task_actualize_tools
@@ -161,6 +162,8 @@ class WorkspaceMcpServer:
         for tool in knowledge_tools():
             self.registry.register(tool)
         for tool in push_guard_tools():
+            self.registry.register(tool)
+        for tool in repo_registry_tools():
             self.registry.register(tool)
         for tool in repo_guard_tools():
             self.registry.register(tool)

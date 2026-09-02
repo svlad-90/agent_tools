@@ -209,7 +209,12 @@ These rules apply to every task directory under the workspace root.
      Workspace tooling uses this slot to install and maintain repository hooks.
      Every listed path must be a git repository root. Do not rely on recursive
      discovery through large `dev/` trees.
-     Prefer the guarded CLI when updating the registry:
+     When an agent identifies a git repository root from inspected files,
+     `git rev-parse --show-toplevel`, or user input, the agent updates this
+     registry itself. Prefer the MCP `repo_registry_add`,
+     `repo_registry_remove`, `repo_registry_list`, and
+     `repo_registry_validate` tools when available. Use the guarded CLI as the
+     fallback:
 
      ```sh
      python3 -m agent_tools.tools.repo_registry add \
@@ -218,6 +223,8 @@ These rules apply to every task directory under the workspace root.
      python3 -m agent_tools.tools.repo_registry remove \
        --task <task-dir> --workspace <workspace> --repo <repo-root>
      ```
+     Use `remove` to delete stale entries for repositories that are no longer
+     used by the task or whose paths disappeared.
    - Durable slot content must use terse factual engineering prose. Prefer
      commands, facts, paths, statuses, risks, and next actions. Avoid praise,
      motivational phrasing, narrative recap, hedging, and decorative adjectives.
