@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import subprocess
 from pathlib import Path
 
 from paf_workspace.task_check import Check
@@ -153,6 +154,40 @@ def test_required_task_context_slots_are_checked(tmp_path: Path) -> None:
 
     assert _has_check(checks, "PASS", "task-context-slot-required")
     assert not _has_check(checks, "FAIL", "task-context-slot-required")
+
+
+def test_repo_registry_slot_is_warned_when_empty(tmp_path: Path) -> None:
+    task_dir = tmp_path / "tasks" / "sample-task"
+    initialize_task_layout(task_dir, workspace=tmp_path)
+    set_slot(task_dir, "goal", "Goal.")
+    set_slot(task_dir, "operational-memory", "Current: ready.")
+
+    checks = check_task(task_dir, workspace=tmp_path)
+
+    assert _has_check(checks, "WARN", "task-context-repo-registry-missing")
+
+    repo = task_dir / "dev" / "repo"
+    repo.mkdir()
+    subprocess.run(["git", "init"], cwd=repo, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    set_slot(task_dir, "repo-registry", "repositories:\n  - path: tasks/sample-task/dev/repo\n")
+
+    checks = check_task(task_dir, workspace=tmp_path)
+
+    assert _has_check(checks, "PASS", "task-context-repo-registry")
+    assert not _has_check(checks, "WARN", "task-context-repo-registry-missing")
+
+
+def test_repo_registry_slot_fails_for_non_repo_path(tmp_path: Path) -> None:
+    task_dir = tmp_path / "tasks" / "sample-task"
+    initialize_task_layout(task_dir, workspace=tmp_path)
+    set_slot(task_dir, "goal", "Goal.")
+    set_slot(task_dir, "operational-memory", "Current: ready.")
+    set_slot(task_dir, "repo-registry", "repositories:\n  - path: tasks/sample-task/dev/plain\n")
+    (task_dir / "dev" / "plain").mkdir()
+
+    checks = check_task(task_dir, workspace=tmp_path)
+
+    assert _has_check(checks, "FAIL", "task-context-repo-registry-invalid")
 
 
 def test_legacy_task_context_markdown_is_non_strict_warning(tmp_path: Path) -> None:

@@ -217,6 +217,23 @@ def workspace_standard_task_actions(task: TaskSummary) -> list[TaskAction]:
             env={},
             source="workspace",
         ),
+        TaskAction(
+            action_id="workspace:install-repo-hooks",
+            label="Install repo hooks",
+            command=(
+                "python3",
+                "-m",
+                "agent_tools.tools.push_guard",
+                "install-registered-hooks",
+                "--workspace",
+                str(workspace),
+                "--task-dir",
+                str(task.path),
+            ),
+            cwd=workspace,
+            env={},
+            source="workspace",
+        ),
     ]
 
 

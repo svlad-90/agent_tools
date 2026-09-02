@@ -438,6 +438,7 @@ def test_load_task_actions_resolves_parameter_sets_and_shortcuts(tmp_path: Path)
         "workspace:validate",
         "workspace:validate-push",
         "workspace:task-check",
+        "workspace:install-repo-hooks",
         "copy",
     ]
     copy_action = next(action for action in config.base_actions if action.action_id == "copy")
@@ -751,6 +752,7 @@ def test_load_task_actions_rejects_escaping_cwd(tmp_path: Path) -> None:
         "workspace:validate",
         "workspace:validate-push",
         "workspace:task-check",
+        "workspace:install-repo-hooks",
     ]
     assert "cwd escapes task" in errors[0]
 
@@ -767,6 +769,7 @@ def test_workspace_standard_task_actions_are_injected_without_task_file(tmp_path
         "workspace:validate",
         "workspace:validate-push",
         "workspace:task-check",
+        "workspace:install-repo-hooks",
     ]
     assert all(action.source == "workspace" for action in actions)
     assert actions[0].command[:4] == (
@@ -797,6 +800,16 @@ def test_workspace_standard_task_actions_are_injected_without_task_file(tmp_path
         "--task",
         str(task),
         "--issues-only",
+    )
+    assert actions[3].command == (
+        "python3",
+        "-m",
+        "agent_tools.tools.push_guard",
+        "install-registered-hooks",
+        "--workspace",
+        str(tmp_path),
+        "--task-dir",
+        str(task),
     )
     assert actions[0].cwd == tmp_path
     assert actions[1].cwd == tmp_path

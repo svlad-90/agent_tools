@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 import shlex
 import sqlite3
+import subprocess
 import threading
 import time
 
@@ -124,7 +125,48 @@ def test_harness_adapter_allows_codex_stop_after_journal_update(tmp_path: Path) 
     result = _codex(registry, task_dir, CodexHookEvent.STOP)
 
     assert result.exit_code == 0
+    output = json.loads(result.stdout)
+    assert "repo-registry is empty" in output["systemMessage"]
+    events = load_harness_debug_events(task_dir, session_id="s1")
+    assert events[-2].status_event is HarnessStatusEvent.REPO_REGISTRY_MISSING
+    assert events[-1].status_event is HarnessStatusEvent.STOP_ALLOWED
+
+
+def test_harness_adapter_allows_codex_stop_silently_after_repo_registry_update(tmp_path: Path) -> None:
+    task_dir = _task(tmp_path)
+    repo = task_dir / "dev" / "repo"
+    repo.mkdir()
+    subprocess.run(["git", "init"], cwd=repo, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    registry = CodexHookRegistry()
+    register_codex_adapter(registry)
+
+    _codex(registry, task_dir, CodexHookEvent.USER_PROMPT_SUBMIT)
+    _codex(registry, task_dir, CodexHookEvent.POST_TOOL_USE)
+    set_slot(task_dir, "operational-memory", "Updated after prompt.", updated_at="2999-01-01T00:00:00+00:00")
+    set_slot(task_dir, "repo-registry", "repositories:\n  - path: tasks/sample/dev/repo\n")
+    result = _codex(registry, task_dir, CodexHookEvent.STOP)
+
+    assert result.exit_code == 0
     assert result.stdout == ""
+
+
+def test_harness_adapter_blocks_codex_stop_with_invalid_repo_registry(tmp_path: Path) -> None:
+    task_dir = _task(tmp_path)
+    registry = CodexHookRegistry()
+    register_codex_adapter(registry)
+
+    _codex(registry, task_dir, CodexHookEvent.USER_PROMPT_SUBMIT)
+    _codex(registry, task_dir, CodexHookEvent.POST_TOOL_USE)
+    set_slot(task_dir, "operational-memory", "Updated after prompt.", updated_at="2999-01-01T00:00:00+00:00")
+    set_slot(task_dir, "repo-registry", "repositories:\n  - path: dev/not-a-repo\n")
+    result = _codex(registry, task_dir, CodexHookEvent.STOP)
+
+    assert result.exit_code == 0
+    output = json.loads(result.stdout)
+    assert output["decision"] == "block"
+    assert "task-context-repo-registry-invalid" in output["reason"]
+    events = load_harness_debug_events(task_dir, session_id="s1")
+    assert events[-1].status_event is HarnessStatusEvent.TASK_CHECK_FAILED
 
 
 def test_harness_adapter_precompact_is_silent_when_current(tmp_path: Path) -> None:

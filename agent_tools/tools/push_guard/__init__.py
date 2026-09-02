@@ -511,6 +511,10 @@ def _pythonpath_prefix() -> str:
 
 def install(args: argparse.Namespace) -> int:
     repo = _target_repo(args)
+    return _install_repo_hooks(repo)
+
+
+def _install_repo_hooks(repo: Path) -> int:
     hook_dir = Path(__file__).resolve().parent
     workspace_root = Path(__file__).resolve().parents[3]
     hooks_dir = _git_path(repo, "hooks")
@@ -525,6 +529,36 @@ def install(args: argparse.Namespace) -> int:
         hook_target.write_text(hook_text, encoding="utf-8")
         hook_target.chmod(0o755)
         print(f"push_guard: installed {hook_target}")
+    return 0
+
+
+def install_registered_hooks(args: argparse.Namespace) -> int:
+    from agent_tools.tools.repo_registry import validate_repo_registry
+
+    workspace = Path(args.workspace).expanduser().resolve()
+    task_dir = Path(args.task_dir).expanduser().resolve()
+    try:
+        validation = validate_repo_registry(task_dir, workspace=workspace)
+    except ValueError as error:
+        print(f"push_guard: {error}", file=sys.stderr)
+        return 1
+    if validation.errors:
+        for error in validation.errors:
+            print(f"push_guard: invalid repo-registry entry: {error}", file=sys.stderr)
+        return 1
+    if not validation.repositories:
+        print(
+            "push_guard: repo-registry is empty; no hooks installed. "
+            "Record repositories in the task context repo-registry slot.",
+            file=sys.stderr,
+        )
+        return 1
+
+    installed = 0
+    for repo in validation.repositories:
+        _install_repo_hooks(repo)
+        installed += 1
+    print(f"push_guard: installed hooks for {installed} registered repo(s)")
     return 0
 
 
@@ -570,6 +604,11 @@ def main(argv: Sequence[str] | None = None) -> int:
     install_parser = subparsers.add_parser("install-hook")
     install_parser.add_argument("--repo")
     install_parser.set_defaults(func=install)
+
+    install_registered_parser = subparsers.add_parser("install-registered-hooks")
+    install_registered_parser.add_argument("--workspace", required=True)
+    install_registered_parser.add_argument("--task-dir", required=True)
+    install_registered_parser.set_defaults(func=install_registered_hooks)
 
     enable_repo_guard_parser = subparsers.add_parser("enable-repo-guard")
     enable_repo_guard_parser.add_argument("--repo")

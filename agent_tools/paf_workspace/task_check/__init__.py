@@ -20,6 +20,7 @@ from agent_tools.tools.task_context import TaskContextSlot
 from agent_tools.tools.task_context import ensure_database as ensure_task_context_database
 from agent_tools.tools.task_context import load_slots as load_task_context_slots
 from agent_tools.tools.task_actualize import actualize_task
+from agent_tools.tools.repo_registry import validate_repo_registry
 from agent_tools.validation.policy import load_validation_policy
 
 
@@ -37,6 +38,7 @@ TASK_CONTEXT_TOTAL_CONTEXT_BUDGET = 256_000
 TASK_CONTEXT_ACTIVE_BUDGET_FRACTION = 0.10
 TASK_CONTEXT_ACTIVE_TOKEN_BUDGET = int(TASK_CONTEXT_TOTAL_CONTEXT_BUDGET * TASK_CONTEXT_ACTIVE_BUDGET_FRACTION)
 TASK_CONTEXT_ACTIVE_SEVERITIES = ("mid", "high", "critical")
+REPO_REGISTRY_SLOT_CATEGORY = "repo-registry"
 
 
 @dataclass(frozen=True)
@@ -221,7 +223,7 @@ def check_task(
     checks.extend(_check_legacy_task_context_markdown(task_dir))
     slots, context_text = _load_task_context(task_dir, checks)
     if any(check.status == "PASS" and check.code == "task-context-database-valid" for check in checks):
-        checks.extend(_check_task_context_quality(task_dir, slots))
+        checks.extend(_check_task_context_quality(task_dir, slots, workspace=workspace))
 
     manifests = _find_artifact_manifests(task_dir)
     harness_profiles = _find_xen_zephyr_harness_profiles(task_dir)
@@ -532,7 +534,12 @@ def _task_context_search_text(slots: list[TaskContextSlot]) -> str:
     return "\n".join(slot.content for slot in slots if slot.content)
 
 
-def _check_task_context_quality(task_dir: Path, slots: list[TaskContextSlot]) -> list[Check]:
+def _check_task_context_quality(
+    task_dir: Path,
+    slots: list[TaskContextSlot],
+    *,
+    workspace: Path,
+) -> list[Check]:
     checks: list[Check] = []
     by_category = {slot.category: slot for slot in slots}
     unknown = sorted(category for category in by_category if category not in SLOT_CATEGORIES)
@@ -582,6 +589,37 @@ def _check_task_context_quality(task_dir: Path, slots: list[TaskContextSlot]) ->
                     "PASS",
                     "task-context-slot-recommended",
                     f"recommended task context slot is present: {category}",
+                    str(task_dir / TASK_CONTEXT_DATABASE_FILE),
+                )
+            )
+    registry = by_category.get(REPO_REGISTRY_SLOT_CATEGORY)
+    if registry is None or not registry.content.strip():
+        checks.append(
+            Check(
+                "WARN",
+                "task-context-repo-registry-missing",
+                "repo-registry slot is empty; record task repositories so hooks can be installed explicitly",
+                str(task_dir / TASK_CONTEXT_DATABASE_FILE),
+            )
+        )
+    else:
+        registry_validation = validate_repo_registry(task_dir, workspace=workspace)
+        if registry_validation.errors:
+            checks.extend(
+                Check(
+                    "FAIL",
+                    "task-context-repo-registry-invalid",
+                    error,
+                    str(task_dir / TASK_CONTEXT_DATABASE_FILE),
+                )
+                for error in registry_validation.errors
+            )
+        else:
+            checks.append(
+                Check(
+                    "PASS",
+                    "task-context-repo-registry",
+                    f"repo-registry has {len(registry_validation.repositories)} valid repo(s)",
                     str(task_dir / TASK_CONTEXT_DATABASE_FILE),
                 )
             )

@@ -87,6 +87,15 @@ def test_migration_rejects_invalid_timestamp(tmp_path: Path) -> None:
         raise AssertionError("invalid timestamp was accepted")
 
 
+def test_repo_registry_slot_is_supported(tmp_path: Path) -> None:
+    set_slot(tmp_path, "repo-registry", "repositories:\n  - path: .\n")
+
+    slots = load_slots(tmp_path, ("repo-registry",))
+
+    assert slots[0].category == "repo-registry"
+    assert "repositories:" in slots[0].content
+
+
 def test_query_filters_by_date_severity_label_and_status(tmp_path: Path) -> None:
     add_entry(
         tmp_path,

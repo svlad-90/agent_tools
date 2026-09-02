@@ -19,8 +19,12 @@ from agent_tools.tools.push_guard import _set_repo_guard_enabled
 from agent_tools.tools.push_guard import _task_check_report_for_repo
 from agent_tools.tools.push_guard import _validated_receipt_source
 from agent_tools.tools.push_guard import check
+from agent_tools.tools.push_guard import install_registered_hooks
 from agent_tools.tools.push_guard import main
 from agent_tools.tools.push_guard import PushedFileFinding
+from agent_tools.tools.repo_registry import repo_registry_paths
+from agent_tools.tools.task_context import ensure_database
+from agent_tools.tools.task_context import set_slot
 
 
 def _git(repo: Path, *args: str) -> str:
@@ -257,6 +261,92 @@ def test_repo_guard_enable_disable_commands_update_repo_config(
 
     assert main(["disable-repo-guard", "--repo", str(repo)]) == 0
     assert not _repo_guard_enabled(repo)
+
+
+def test_repo_registry_paths_reads_task_context_slot(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    task_dir = workspace / "tasks" / "sample-task"
+    repo = workspace / "tasks" / "sample-task" / "dev" / "repo"
+    repo.mkdir(parents=True)
+    ensure_database(task_dir)
+    set_slot(
+        task_dir,
+        "repo-registry",
+        "repositories:\n  - path: tasks/sample-task/dev/repo\n  - path: tasks/sample-task/dev/repo\n",
+    )
+
+    assert repo_registry_paths(task_dir, workspace=workspace) == [repo.resolve()]
+
+
+def test_install_registered_hooks_installs_only_registered_repos(
+    tmp_path: Path,
+    capsys: object,
+) -> None:
+    workspace = tmp_path / "workspace"
+    task_dir = workspace / "tasks" / "sample-task"
+    repo = workspace / "tasks" / "sample-task" / "dev" / "repo"
+    repo.mkdir(parents=True)
+    _init_repo(repo)
+    ensure_database(task_dir)
+    set_slot(task_dir, "repo-registry", "repositories:\n  - path: tasks/sample-task/dev/repo\n")
+
+    result = install_registered_hooks(SimpleNamespace(workspace=str(workspace), task_dir=str(task_dir)))
+
+    assert result == 0
+    assert (repo / ".git" / "hooks" / "pre-push").is_file()
+    assert (repo / ".git" / "hooks" / "pre-commit").is_file()
+    assert "installed hooks for 1 registered repo" in capsys.readouterr().out
+
+
+def test_install_registered_hooks_reports_empty_registry(
+    tmp_path: Path,
+    capsys: object,
+) -> None:
+    workspace = tmp_path / "workspace"
+    task_dir = workspace / "tasks" / "sample-task"
+    task_dir.mkdir(parents=True)
+    ensure_database(task_dir)
+
+    result = install_registered_hooks(SimpleNamespace(workspace=str(workspace), task_dir=str(task_dir)))
+
+    assert result == 1
+    assert "repo-registry is empty" in capsys.readouterr().err
+
+
+def test_install_registered_hooks_rejects_non_repo_registry_path(
+    tmp_path: Path,
+    capsys: object,
+) -> None:
+    workspace = tmp_path / "workspace"
+    task_dir = workspace / "tasks" / "sample-task"
+    plain_dir = workspace / "tasks" / "sample-task" / "dev" / "plain"
+    plain_dir.mkdir(parents=True)
+    ensure_database(task_dir)
+    set_slot(task_dir, "repo-registry", "repositories:\n  - path: tasks/sample-task/dev/plain\n")
+
+    result = install_registered_hooks(SimpleNamespace(workspace=str(workspace), task_dir=str(task_dir)))
+
+    assert result == 1
+    assert "invalid repo-registry entry" in capsys.readouterr().err
+
+
+def test_install_registered_hooks_rejects_path_inside_repo(
+    tmp_path: Path,
+    capsys: object,
+) -> None:
+    workspace = tmp_path / "workspace"
+    task_dir = workspace / "tasks" / "sample-task"
+    repo = workspace / "tasks" / "sample-task" / "dev" / "repo"
+    nested = repo / "subdir"
+    nested.mkdir(parents=True)
+    _init_repo(repo)
+    ensure_database(task_dir)
+    set_slot(task_dir, "repo-registry", "repositories:\n  - path: tasks/sample-task/dev/repo/subdir\n")
+
+    result = install_registered_hooks(SimpleNamespace(workspace=str(workspace), task_dir=str(task_dir)))
+
+    assert result == 1
+    assert "is not the repo root" in capsys.readouterr().err
 
 
 def test_repo_guard_integration_blocks_push_when_enabled(

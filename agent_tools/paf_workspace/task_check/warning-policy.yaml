@@ -35,3 +35,11 @@ non_strict_warnings:
       tasks remain valid without task-specific checks; use --init-guard when a
       task needs its own local guard skeleton.
     strict_when_flags: []
+
+  task-context-repo-registry-missing:
+    reason: >
+      repo-registry is a task context reminder for explicitly tracked
+      repositories and hook installation. Empty registries should be surfaced to
+      agents and users, but old tasks remain valid until a task chooses to
+      manage repository hooks through the registry.
+    strict_when_flags: []

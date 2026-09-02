@@ -43,10 +43,27 @@ These rules apply to every task directory under the workspace root.
      <task-dir> --category <slot> --content <text>`.
    - Slot categories are `goal`, `env`, `decisions`, `findings`,
      `validation`, `blocker-risk`, `operational-memory`, `user-preference`,
-     and `legacy`.
+     `repo-registry`, and `legacy`.
    - `goal` and `operational-memory` are required. `env` and `validation` are
      recommended. `legacy` is temporary migration material; move still-current
      facts into typed slots and then clear or shrink it.
+   - Keep `repo-registry` as an explicit whitelist of repositories used by the
+     task. Leave it empty until the repository path is known from inspected
+     files, commands, or user input; do not guess or invent repository paths.
+     Use YAML with `repositories` entries and workspace-relative or absolute
+     `path` values, for example:
+
+     ```yaml
+     repositories:
+       - path: .
+         role: workspace
+       - path: tasks/example/dev/product-repo
+         role: task-dev
+     ```
+
+     Workspace tooling uses this slot to install and maintain repository hooks.
+     Every listed path must be a git repository root. Do not rely on recursive
+     discovery through large `dev/` trees.
    - Durable slot content must use terse factual engineering prose. Prefer
      commands, facts, paths, statuses, risks, and next actions. Avoid praise,
      motivational phrasing, narrative recap, hedging, and decorative adjectives.
