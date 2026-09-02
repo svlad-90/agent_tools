@@ -754,6 +754,55 @@ def test_gtk_task_action_order_separates_workspace_actions() -> None:
     assert gui._task_action_order() == ["build"]
 
 
+def test_gtk_workspace_action_renderer_keeps_task_actions_out(monkeypatch: pytest.MonkeyPatch) -> None:
+    class FakeActionWidget:
+        def __init__(self) -> None:
+            self.parent: object | None = None
+
+        def get_parent(self) -> object | None:
+            return self.parent
+
+    class FakeRow:
+        def __init__(self, *args: object, **kwargs: object) -> None:
+            self.children: list[FakeActionWidget] = []
+
+        def set_halign(self, _align: object) -> None:
+            return
+
+        def pack_start(self, widget: FakeActionWidget, *_args: object) -> None:
+            widget.parent = self
+            self.children.append(widget)
+
+        def get_children(self) -> list[FakeActionWidget]:
+            return list(self.children)
+
+    class FakeActionsBox:
+        def __init__(self) -> None:
+            self.children: list[FakeRow] = []
+
+        def pack_start(self, row: FakeRow, *_args: object) -> None:
+            self.children.append(row)
+
+    gui = WorkspaceGtkGui.__new__(WorkspaceGtkGui)
+    workspace_validate = FakeActionWidget()
+    workspace_task_check = FakeActionWidget()
+    build = FakeActionWidget()
+    gui.workspace_actions_box = FakeActionsBox()
+    gui.task_action_item_widgets = {
+        "workspace:validate": workspace_validate,
+        "workspace:task-check": workspace_task_check,
+        "build": build,
+    }
+    gui._workspace_action_order = lambda: ["workspace:validate", "workspace:task-check"]  # type: ignore[method-assign]
+    monkeypatch.setattr(gtk_ui_module.Gtk, "Box", FakeRow)
+
+    gui._render_workspace_action_buttons()
+
+    assert len(gui.workspace_actions_box.children) == 1
+    assert gui.workspace_actions_box.children[0].children == [workspace_validate, workspace_task_check]
+    assert build.parent is None
+
+
 def test_gtk_task_action_size_allocate_skips_unchanged_width(monkeypatch: pytest.MonkeyPatch) -> None:
     class FakeActionsBox:
         def get_border_width(self) -> int:

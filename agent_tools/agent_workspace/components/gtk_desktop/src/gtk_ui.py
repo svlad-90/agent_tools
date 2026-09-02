@@ -661,14 +661,14 @@ class WorkspaceGtkGui:
         self._profile_widget("actions-controls-scroll", controls_scrolled)
         self._profile_widget("actions-controls", controls_box)
 
-        top_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=3)
-        top_row.set_border_width(0)
-        controls_box.pack_start(top_row, False, False, 0)
-
-        self.workspace_actions_box = self._add_framed_action_group(top_row, self._s("actions.workspace_group"), expand=False)
+        self.workspace_actions_box = self._add_framed_action_group(
+            controls_box,
+            self._s("actions.workspace_group"),
+            expand=False,
+        )
         self._profile_widget("workspace-actions-box", self.workspace_actions_box)
 
-        self.task_actions_box = self._add_framed_action_group(top_row, self._s("actions.group"), expand=True)
+        self.task_actions_box = self._add_framed_action_group(controls_box, self._s("actions.group"), expand=False)
         self.task_actions_box.connect("size-allocate", self._on_task_actions_box_size_allocate)
         self._connect_task_reorder_box(self.task_actions_box, "action")
         self._profile_widget("task-actions-box", self.task_actions_box)
@@ -3085,7 +3085,10 @@ class WorkspaceGtkGui:
         if layout == self.task_action_reflow_layout:
             return False
         self.task_action_reflow_layout = layout
-        for widget in self.task_action_item_widgets.values():
+        for action_id in self._task_action_order():
+            widget = self.task_action_item_widgets.get(action_id)
+            if widget is None:
+                continue
             parent = widget.get_parent()
             if isinstance(parent, Gtk.Container):
                 parent.remove(widget)
@@ -3112,6 +3115,8 @@ class WorkspaceGtkGui:
         workspace_actions_box = getattr(self, "workspace_actions_box", None)
         if workspace_actions_box is None:
             return
+        row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=3)
+        row.set_halign(Gtk.Align.START)
         for action_id in self._workspace_action_order():
             widget = self.task_action_item_widgets.get(action_id)
             if widget is None:
@@ -3119,7 +3124,9 @@ class WorkspaceGtkGui:
             parent = widget.get_parent()
             if isinstance(parent, Gtk.Container):
                 parent.remove(widget)
-            workspace_actions_box.pack_start(widget, False, False, 0)
+            row.pack_start(widget, False, False, 0)
+        if row.get_children():
+            workspace_actions_box.pack_start(row, False, False, 0)
 
     def _task_action_reorder_children(self) -> list[Gtk.Widget]:
         order = self.task_action_reorder_preview if self.task_reorder_group == "action" else None
