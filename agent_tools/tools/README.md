@@ -1,7 +1,13 @@
 # Workspace Tools
 
-This directory owns standalone workspace CLI tools. Run them from the workspace
-root through their module entry points:
+This directory owns reusable workspace tool implementations. Agent-facing
+workflows should use the Agent Workspace MCP server first when an equivalent
+`mcp__agent_tools_workspace` tool is available; MCP gives the agent typed
+arguments, structured results, guarded path handling, and compact output. The
+CLI entry points below remain the implementation layer and fallback path for
+older MCP clients, shell composition, build commands, PAF scenarios, and direct
+human use. Run CLI fallback commands from the workspace root through their
+module entry points:
 
 ```sh
 python -m agent_tools.tools.code_map
@@ -16,6 +22,29 @@ python -m agent_tools.tools.push_guard
 python -m agent_tools.agent_workspace
 python -m agent_tools.tools.rules_sync
 ```
+
+MCP coverage currently maps to these tool groups:
+
+- `agent_search_*`: compact text/file search and focused file display.
+- `code_map_*`: Python structure maps, guarded edits, parse checks, and
+  architecture audits.
+- `cpp_light_*` and `cpp_code_map_*`: C/C++ structural maps, build-backed
+  maps, guarded edits, and parse checks.
+- `yaml_map_*`: YAML structure maps and guarded path edits.
+- `diff_report_*`: report initialization, rendering, refresh, and finding
+  composition.
+- `task_context_*` and `repo_registry_*`: durable task slots, dictionary terms,
+  journal flow, and task repository registry.
+- `task_actualize` and `task_actions_*`: task infrastructure actualization plus
+  task action inspection and editing.
+- `commit_msg_format`: commit message validation and shell-safe `git commit`
+  command generation.
+- `push_guard_*`, `workspace_validate`, `validate_changed`, `validate_task`,
+  `workspace_validation_policy`, and `workspace_validation_status`: push guard
+  hooks, stamps, and validation policy checks.
+- `rules_sync_*`, `knowledge_list_topics`, `knowledge_get_topic`,
+  `knowledge_search_topics`, `knowledge_set_topic`, and `yocto_diag_*`:
+  mirrored agent rules, recurring knowledge lookup, and Yocto diagnostics.
 
 Keep PAF orchestration under `agent_tools/paf_workspace/`; this directory is
 for reusable tool implementations that are not PAF domains.

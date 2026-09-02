@@ -6,18 +6,29 @@ rule: agent_tools/rules/python-code.md
 
 # Python Code Map
 
-Use the workspace implementation at `agent_tools/tools/code_map`. Do not depend on a
-globally installed Codex skill for this workflow.
+Prefer the Agent Workspace MCP `code_map_*` tools when they are available in
+the active agent client. Use `tool_search` to discover them if they are not
+already visible. The CLI implementation at `agent_tools/tools/code_map` is the
+fallback path when MCP tools are unavailable or when a workflow needs shell
+composition. Do not depend on a globally installed Codex skill for this
+workflow.
 
 Also follow `agent_tools/rules/python-code.md`; that rule is authoritative for
 workspace Python work.
 
 ## Core Workflow
 
-Run commands from the workspace root or another directory where `agent_tools`
-is importable. Target file paths are resolved relative to the `agent_tools`
-package root, not the current shell directory. For repository files under
-`agent_tools/`, omit the leading `agent_tools/` prefix:
+With MCP, use workspace-relative target paths through `code_map_map`,
+`code_map_symbol_get`, `code_map_parse_check`, `code_map_imports_add`,
+`code_map_replace_symbol`, `code_map_replace_symbol_body`,
+`code_map_insert_before_symbol`, `code_map_insert_after_symbol`,
+`code_map_batch`, `code_map_class_diagram`, `code_map_facade_audit`, and
+`code_map_protocol_audit`.
+
+For CLI fallback, run commands from the workspace root or another directory
+where `agent_tools` is importable. Target file paths are resolved relative to
+the `agent_tools` package root, not the current shell directory. For repository
+files under `agent_tools/`, omit the leading `agent_tools/` prefix:
 
 ```sh
 python -m agent_tools.tools.code_map <command> ...

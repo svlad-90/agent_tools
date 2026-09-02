@@ -6,8 +6,12 @@ rule: agent_tools/rules/diff-reports.md
 
 # Diff Review Report
 
-Use the workspace implementation at `agent_tools/tools/diff_report`. Do not depend
-on a globally installed Codex skill for this workflow.
+Prefer the Agent Workspace MCP `diff_report_*` tools when they are available
+in the active agent client. Use `tool_search` to discover them if they are not
+already visible. The CLI implementation at `agent_tools/tools/diff_report` is
+the fallback path when MCP tools are unavailable or when a workflow needs
+shell composition. Do not depend on a globally installed Codex skill for this
+workflow.
 
 Before generating or updating a report, read and follow
 `agent_tools/rules/diff-reports.md`; it contains the workspace-specific report
@@ -24,7 +28,10 @@ story blocks, and reviewer prose.
    under the task's `report/diff/` directory.
 3. Create or update one canonical comments JSON with the same basename as the
    HTML report.
-4. Run `python -m agent_tools.tools.diff_report` from the workspace root.
+4. Render with MCP `diff_report_render`, `diff_report_render_json`,
+   `diff_report_init_comments`, or `diff_report_compose_findings` when
+   available. Otherwise run `python -m agent_tools.tools.diff_report` from the
+   workspace root.
 5. Verify the generated HTML contains the expected title, files, and comment
    count with `rg`.
 6. When the source diff changes, regenerate with the existing comments JSON

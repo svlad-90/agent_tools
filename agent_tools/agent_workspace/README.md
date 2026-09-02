@@ -94,13 +94,29 @@ line preview and guidance to the agent while saving the complete stdout,
 stderr, and metadata under the task's `report/logs/limited-bash/` directory.
 Agent Workspace also provides a single workspace MCP server for agent-facing
 tools. It runs over newline-delimited stdio JSON-RPC and exports tools from a
-central registry instead of requiring one MCP server per CLI. The initial MCP
-tool set wraps `agent_search` as `agent_search_text`, `agent_search_files`,
-and `agent_search_show`:
+central registry instead of requiring one MCP server per CLI:
 
 ```sh
 python -m agent_tools.agent_workspace.components.workspace_mcp --workspace /path/to/workspace
 ```
+
+Agents should treat this server as the first-choice interface for workspace
+utilities when an equivalent MCP tool is available. The CLI modules remain the
+implementation layer and fallback path for older clients, shell composition,
+build commands, PAF scenarios, and direct human use. Current MCP tool groups
+include compact search (`agent_search_*`), Python maps and guarded edits
+(`code_map_*`), C/C++ structural and build-backed maps (`cpp_light_*` and
+`cpp_code_map_*`), YAML maps and edits (`yaml_map_*`), diff reports
+(`diff_report_*`), task context and repo registry (`task_context_*` and
+`repo_registry_*`), task actualization (`task_actualize`), task action editing
+(`task_actions_*`), commit message formatting (`commit_msg_format`), push
+validation (`push_guard_*`), workspace validation (`workspace_validate`,
+`validate_changed`, `validate_task`, `workspace_validation_policy`, and
+`workspace_validation_status`), rules sync (`rules_sync_*`), knowledge lookup
+(`knowledge_list_topics`, `knowledge_get_topic`, `knowledge_search_topics`,
+and `knowledge_set_topic`), and Yocto diagnostics (`yocto_diag_*`). Active MCP
+clients may need to be restarted after an Agent Workspace upgrade so they
+reload the updated tool schema.
 
 The reset-session button forgets only the selected task's selected AI-agent
 session in `.agent-workspace-state.json`; it does not delete the underlying

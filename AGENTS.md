@@ -68,10 +68,18 @@ policy is enforced by harness hooks when the active agent harness supports
 them. Legacy `front_door_bell.py` scripts may remain in old local tasks as
 manual fallback only; do not create or require them for new tasks.
 
+Prefer Agent Workspace MCP tools over Bash/CLI wrappers when an equivalent
+`mcp__agent_tools_workspace` tool is available. Use `tool_search` to discover
+workspace MCP tools that are not already visible in the current session. Fall
+back to Bash/CLI for unavailable MCP tools, operations with no MCP wrapper, and
+intentional shell/build/PAF/git commands. Do not call the Agent Workspace
+`limited_bash` wrapper directly; harness hooks apply that output guard
+automatically when needed.
+
 When task context is needed, query current task context slots from
-`TASK_CONTEXT.sqlite3` with
+`TASK_CONTEXT.sqlite3` with MCP `task_context_query` when available, or with
 `python3 -m agent_tools.tools.task_context query --task <task-dir> --format
-agent`. Use `--category`/`--cats` for targeted slot reads. Legacy
+agent` as CLI fallback. Use `--category`/`--cats` for targeted slot reads. Legacy
 `TASK_DESCRIPTION.md` and `TASK_CONTEXT.md` files are imported into the
 `legacy` slot when a new slot database is created; they are not current context
 sources.

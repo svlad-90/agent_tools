@@ -11,9 +11,10 @@ environments, and recurring workflows.
    required `SKILL.md`. Do not rely on a matching skill installed in
    `~/.codex/skills` for workspace workflows.
 2. A workspace skill is an agent-facing workflow wrapper, not the home for
-   reusable implementation. It should reference the checked-in workspace
-   implementation, such as `python -m agent_tools...` or scripts under
-   `agent_tools/`, instead of assuming external installation.
+   reusable implementation. It should name the relevant Agent Workspace MCP
+   tools first when the workflow has MCP coverage, and list
+   `python -m agent_tools...` commands or scripts under `agent_tools/` as the
+   fallback path. Do not assume external installation.
 3. Keep reusable executable code in normal workspace tool or environment
    locations, for example `agent_tools/<tool_name>/` or
    `agent_tools/paf_workspace/domains/environments/`. Do not put executable
@@ -105,11 +106,31 @@ Multi-stage validation orchestration -> PAF plus xen-qemu-harness
 Moulin CI or local workflow validation -> moulin-local-validation
 Diff or patch review reports -> diff-review-report
 Commit message formatting -> commit-message-format
-Task layout and workflow metadata checks -> python -m agent_tools.paf_workspace.task_check
+Task layout and workflow metadata checks -> validate_task or task action
 Task context, handoff notes, decisions, blockers, validation notes, or context
 compaction -> task-context-journal
 Mirroring rules/skills into another coding agent's native conventions ->
 rules-sync
+```
+
+For Agent Workspace tool workflows, the skill should prefer these MCP names
+when available:
+
+```text
+Python source maps/edits -> code_map_*
+C/C++ source maps/edits -> cpp_light_* or cpp_code_map_*
+YAML maps/edits -> yaml_map_*
+Diff reports -> diff_report_*
+Commit message formatting -> commit_msg_format
+Task actions -> task_actions_*
+Task context -> task_context_*
+Task repo registry -> repo_registry_*
+Knowledge topics -> knowledge_*
+Push validation stamps/hooks -> push_guard_* and workspace_validate
+Repository validation policy -> workspace_validate, validate_changed,
+validate_task, workspace_validation_policy, workspace_validation_status
+Rules mirror checks -> rules_sync_check and rules_sync_apply
+Compact workspace search -> agent_search_*
 ```
 
 When more than one row applies, read the rules first, then the minimal matching
