@@ -28,3 +28,10 @@ non_strict_warnings:
       TASK_CONTEXT.md is legacy compatibility noise. It should be removed, but
       its presence does not block a task when TASK_CONTEXT.sqlite3 is valid.
     strict_when_flags: []
+
+  task-guard-missing:
+    reason: >
+      TASK_GUARD.yaml is optional task-local validation policy. Old and simple
+      tasks remain valid without task-specific checks; use --init-guard when a
+      task needs its own local guard skeleton.
+    strict_when_flags: []

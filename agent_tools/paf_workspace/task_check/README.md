@@ -20,6 +20,15 @@ is reported as a warning until current facts are moved into typed slots.
 For a task that still has the legacy `TASK_CONTEXT_LOG.jsonl`, run
 `python -m agent_tools.tools.task_context migrate --task tasks/task-name`.
 
+Task-local validation policy is optional. If `TASK_GUARD.yaml` is absent,
+`task_check` reports a warning rather than a failure so old and simple tasks
+continue to work. Create an empty task-local guard skeleton when the task needs
+its own checks:
+
+```sh
+python -m agent_tools.paf_workspace.task_check task-name --init-guard
+```
+
 Create a missing task layout without overwriting an existing context database:
 
 ```sh

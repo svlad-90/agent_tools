@@ -20,10 +20,12 @@ from agent_tools.tools.task_context import TaskContextSlot
 from agent_tools.tools.task_context import ensure_database as ensure_task_context_database
 from agent_tools.tools.task_context import load_slots as load_task_context_slots
 from agent_tools.tools.task_actualize import actualize_task
+from agent_tools.validation.policy import load_validation_policy
 
 
 REQUIRED_DIRS = ("dev", "Dockerfile", "scripts", "report", "report/diff", "report/puml")
 TASK_METADATA_FILE = "TASK_METADATA.json"
+TASK_GUARD_FILE = "TASK_GUARD.yaml"
 RUNTIME_HINTS = ("xen", "qemu", "moulin", "dom0", "domu", "hypervisor")
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
 PAF_WORKSPACE_ROOT = PROJECT_ROOT / "agent_tools" / "paf_workspace"
@@ -97,6 +99,11 @@ def main(argv: list[str] | None = None) -> int:
         ),
     )
     parser.add_argument(
+        "--init-guard",
+        action="store_true",
+        help=f"Create a minimal {TASK_GUARD_FILE} without overwriting an existing file.",
+    )
+    parser.add_argument(
         "--privacy",
         choices=("public", "private"),
         default="public",
@@ -124,6 +131,8 @@ def main(argv: list[str] | None = None) -> int:
     init_checks: list[Check] = []
     if args.init_layout or args.init_runtime_product:
         init_checks = initialize_task_layout(task_dir, workspace=workspace, privacy=args.privacy)
+    if args.init_guard:
+        init_checks.extend(initialize_task_guard(task_dir, workspace=workspace))
     if args.init_runtime_product:
         init_checks.extend(initialize_runtime_product(task_dir, workspace=workspace))
     checks = check_task(
@@ -141,7 +150,8 @@ def main(argv: list[str] | None = None) -> int:
     else:
         print(render_text(task_dir, checks, errors_only=args.errors_only, issues_only=args.issues_only))
 
-    failure_checks = init_checks if args.init_layout and not args.init_runtime_product else checks
+    init_only = (args.init_layout or args.init_guard) and not args.init_runtime_product
+    failure_checks = init_checks if init_only else checks
     has_failures = any(check.status == "FAIL" for check in failure_checks)
     strict_warning_checks = []
     if args.strict_warnings:
@@ -207,6 +217,7 @@ def check_task(
         return checks
 
     checks.extend(_check_layout(task_dir))
+    checks.extend(_check_task_guard(task_dir, workspace))
     checks.extend(_check_legacy_task_context_markdown(task_dir))
     slots, context_text = _load_task_context(task_dir, checks)
     if any(check.status == "PASS" and check.code == "task-context-database-valid" for check in checks):
@@ -243,6 +254,19 @@ def check_task(
         )
 
     return checks
+
+
+def initialize_task_guard(task_dir: Path, *, workspace: Path) -> list[Check]:
+    try:
+        task_dir.relative_to(workspace)
+    except ValueError:
+        return [Check("FAIL", "init-guard-outside-workspace", "refusing to initialize task guard outside workspace", str(task_dir))]
+    task_dir.mkdir(parents=True, exist_ok=True)
+    guard_path = task_dir / TASK_GUARD_FILE
+    if guard_path.exists():
+        return [Check("PASS", "init-task-guard-existing", f"{TASK_GUARD_FILE} already exists", str(guard_path))]
+    guard_path.write_text("version: 1\nchecks: []\n", encoding="utf-8")
+    return [Check("PASS", "init-task-guard", f"created {TASK_GUARD_FILE}", str(guard_path))]
 
 
 def initialize_task_layout(task_dir: Path, *, workspace: Path, privacy: str = "public") -> list[Check]:
@@ -432,6 +456,34 @@ def _check_layout(task_dir: Path) -> list[Check]:
         else:
             checks.append(Check("FAIL", "layout-dir-missing", f"required directory is missing: {rel_path}", str(path)))
     return checks
+
+
+def _check_task_guard(task_dir: Path, workspace: Path) -> list[Check]:
+    path = task_dir / TASK_GUARD_FILE
+    if not path.exists():
+        return [
+            Check(
+                "WARN",
+                "task-guard-missing",
+                f"{TASK_GUARD_FILE} is missing; run task_check --init-guard to create a skeleton",
+                str(path),
+            )
+        ]
+    if not path.is_file():
+        return [Check("FAIL", "task-guard-not-file", f"{TASK_GUARD_FILE} path is not a file", str(path))]
+    try:
+        policy = load_validation_policy(workspace, task_dir=task_dir)
+    except ValueError as error:
+        return [Check("FAIL", "task-guard-invalid", str(error), str(path))]
+    guard_checks = [check for check in policy.checks if check.policy_path == path]
+    return [
+        Check(
+            "PASS",
+            "task-guard",
+            f"{TASK_GUARD_FILE} is valid with {len(guard_checks)} task-local check(s)",
+            str(path),
+        )
+    ]
 
 
 def _check_legacy_task_context_markdown(task_dir: Path) -> list[Check]:
