@@ -12,6 +12,7 @@ from typing import Sequence
 from .policy import policy_summary
 from .runner import compact_report
 from .runner import pre_push
+from .runner import pre_push_dry_run
 from .runner import validate
 
 
@@ -37,6 +38,14 @@ def main(argv: Sequence[str] | None = None) -> int:
     pre_push_parser.add_argument("remote_name", nargs="?")
     pre_push_parser.add_argument("remote_url", nargs="?")
     pre_push_parser.set_defaults(func=_pre_push_command)
+
+    dry_run_parser = subparsers.add_parser(
+        "pre-push-dry-run",
+        help="Run the pre-push guard pipeline without installing or invoking a git hook.",
+    )
+    _add_common_args(dry_run_parser)
+    dry_run_parser.add_argument("--remote", default="origin", help="Remote name to compare against.")
+    dry_run_parser.set_defaults(func=_pre_push_dry_run_command)
 
     args = parser.parse_args(argv)
     return int(args.func(args))
@@ -96,6 +105,17 @@ def _pre_push_command(args: argparse.Namespace) -> int:
     return 0 if result.status == "pass" else 1
 
 
+def _pre_push_dry_run_command(args: argparse.Namespace) -> int:
+    result = pre_push_dry_run(
+        Path(args.repo).expanduser().resolve(),
+        remote_name=args.remote,
+        task_dir=_task_dir(args),
+        policy_root=_policy_root(args),
+    )
+    print(compact_report(result), file=sys.stderr if result.status != "pass" else sys.stdout)
+    return 0 if result.status == "pass" else 1
+
+
 def _task_dir(args: argparse.Namespace) -> Path | None:
     if not args.task_dir:
         return None
@@ -108,4 +128,4 @@ def _policy_root(args: argparse.Namespace) -> Path | None:
     return Path(args.policy_root).expanduser().resolve()
 
 
-__all__ = ["main", "pre_push", "validate"]
+__all__ = ["main", "pre_push", "pre_push_dry_run", "validate"]

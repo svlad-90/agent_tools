@@ -8,10 +8,12 @@ from pathlib import Path
 import yaml
 
 from agent_tools.tools.repo_guard.git_context import head_commit
+from agent_tools.tools.repo_guard.git_context import pre_push_dry_run_stdin
 from agent_tools.tools.repo_guard.policy import load_policy
 from agent_tools.tools.repo_guard.policy import policy_summary
 from agent_tools.tools.repo_guard.runner import compact_report
 from agent_tools.tools.repo_guard.runner import pre_push
+from agent_tools.tools.repo_guard.runner import pre_push_dry_run
 from agent_tools.tools.repo_guard.runner import validate
 
 
@@ -189,6 +191,45 @@ def test_validate_include_heavy_records_receipt_used_by_pre_push(tmp_path: Path)
     assert validate_result.status == "pass"
     assert pre_push_result.status == "pass"
     assert pre_push_result.checks[0].receipt_path is not None
+
+
+def test_pre_push_dry_run_uses_current_branch_upstream_range(tmp_path: Path) -> None:
+    repo = tmp_path / "repo"
+    _init_repo(repo)
+    (repo / "tracked.txt").write_text("ok\n", encoding="utf-8")
+    upstream_commit = _commit(repo)
+    current_branch = _git(repo, "branch", "--show-current")
+    _git(repo, "update-ref", f"refs/remotes/origin/{current_branch}", upstream_commit)
+    _git(repo, "branch", "--set-upstream-to", f"origin/{current_branch}")
+    (repo / "debug.zip").write_text("artifact\n", encoding="utf-8")
+    local_commit = _commit(repo, "Add artifact")
+    root = _policy_root(tmp_path)
+
+    result = pre_push_dry_run(repo, policy_root=root)
+    stdin_text = pre_push_dry_run_stdin(repo)
+
+    assert local_commit in stdin_text
+    assert upstream_commit in stdin_text
+    assert result.context.mode == "pre-push"
+    assert result.context.commits == (local_commit,)
+    assert result.status == "fail"
+    assert "debug.zip" in compact_report(result)
+
+
+def test_pre_push_dry_run_treats_missing_upstream_as_new_branch(tmp_path: Path) -> None:
+    repo = tmp_path / "repo"
+    _init_repo(repo)
+    (repo / "tracked.txt").write_text("ok\n", encoding="utf-8")
+    commit = _commit(repo)
+    root = _policy_root(tmp_path)
+
+    result = pre_push_dry_run(repo, policy_root=root)
+    stdin_text = pre_push_dry_run_stdin(repo)
+
+    assert commit in stdin_text
+    assert " " + ("0" * 40) + "\n" in stdin_text
+    assert result.context.mode == "pre-push"
+    assert result.context.commits == (commit,)
 
 
 def test_command_backend_reports_compact_failure(tmp_path: Path) -> None:

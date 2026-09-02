@@ -10,8 +10,10 @@ from typing import Sequence
 from .checks import run_check
 from .git_context import changed_paths
 from .git_context import head_commit
+from .git_context import pre_push_dry_run_stdin
 from .git_context import pushed_commits
 from .git_context import pushed_ref_tips
+from .git_context import remote_urls
 from .git_context import repo_root
 from .git_context import validation_commits
 from .models import CheckConfig
@@ -76,6 +78,25 @@ def pre_push(
         task_dir=task_dir,
     )
     return _run_context(context, include_heavy=False, policy_root=policy_root)
+
+
+def pre_push_dry_run(
+    repo_path: Path,
+    *,
+    remote_name: str = "origin",
+    task_dir: Path | None = None,
+    policy_root: Path | None = None,
+) -> GuardRunResult:
+    repo = repo_root(repo_path)
+    remote_url = remote_urls(repo).get(remote_name)
+    return pre_push(
+        repo,
+        remote_name=remote_name,
+        remote_url=remote_url,
+        stdin_text=pre_push_dry_run_stdin(repo, remote_name=remote_name),
+        task_dir=task_dir,
+        policy_root=policy_root,
+    )
 
 
 def _run_context(
