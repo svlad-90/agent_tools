@@ -7,6 +7,8 @@ import sqlite3
 import sys
 from types import SimpleNamespace
 
+import pytest
+
 from agent_tools.tools.task_context import DATABASE_FILENAME
 from agent_tools.tools.task_context import DICTIONARY_CODEC_VERSION
 from agent_tools.tools.task_context import DICTIONARY_PREVIEW_TEXT
@@ -30,6 +32,11 @@ from agent_tools.tools.task_context import set_slot
 from agent_tools.tools.task_context import token_count
 import agent_tools.tools.task_context as task_context_module
 from agent_tools.tools.task_context import _candidate_net_saving
+
+
+@pytest.fixture(autouse=True)
+def _isolate_agent_workspace_config(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
 
 
 def test_add_entry_writes_sqlite_with_metadata(tmp_path: Path) -> None:
