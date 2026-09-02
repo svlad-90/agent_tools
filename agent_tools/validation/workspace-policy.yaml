@@ -1,17 +1,34 @@
 version: 1
 checks:
   - id: workspace-file-hygiene
+    description: Block workspace-private files, generated artifacts, large files, and secret-like content.
     level: workspace
     backend: builtin
     cost: cheap
     required: true
+    suggested_command:
+      - git
+      - status
+      - --short
   - id: shell-syntax-changed
+    description: Run Bash syntax checks for changed shell scripts.
     level: workspace
     backend: builtin
     cost: cheap
     required: true
+    suggested_command:
+      - bash
+      - -n
+      - path/to/script.sh
   - id: commit-message
+    description: Validate commit message wrapping and required trailers.
     level: workspace
     backend: builtin
     cost: medium
     required: true
+    suggested_command:
+      - python3
+      - -m
+      - agent_tools.tools.commit_msg
+      - --check
+      - path/to/message.txt

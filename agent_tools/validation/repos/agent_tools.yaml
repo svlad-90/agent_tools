@@ -11,7 +11,14 @@ repo:
     - install-agent-tools.py
 checks:
   - id: python-parse-check-changed
+    description: Parse-check changed Python sources with code_map.
     level: repo
     backend: builtin
     cost: medium
     required: true
+    suggested_command:
+      - python3
+      - -m
+      - agent_tools.tools.code_map
+      - parse-check
+      - path/to/module.py

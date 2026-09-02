@@ -42,11 +42,13 @@ class RepoIdentity:
 @dataclass(frozen=True)
 class CheckConfig:
     check_id: str
+    description: str | None
     level: str
     backend: str
     cost: str
     required: bool
     command: tuple[str, ...]
+    suggested_command: tuple[str, ...]
     cwd: str | None
     scenario: str | None
     profile: str | None
@@ -132,10 +134,12 @@ def policy_summary(
         "checks": [
             {
                 "id": check.check_id,
+                "description": check.description,
                 "level": check.level,
                 "backend": check.backend,
                 "cost": check.cost,
                 "required": check.required,
+                "suggested_command": list(check.suggested_command),
             }
             for check in policy.checks
         ],
@@ -275,12 +279,21 @@ def _checks_from_data(
         checks.append(
             CheckConfig(
                 check_id=check_id,
+                description=_optional_str(raw_check.get("description")),
                 level=level,
                 backend=backend,
                 cost=cost,
                 required=bool(raw_check.get("required", True)),
                 command=tuple(
                     str(part) for part in _list_value(raw_check.get("command"), path=path, key="command")
+                ),
+                suggested_command=tuple(
+                    str(part)
+                    for part in _list_value(
+                        raw_check.get("suggested_command"),
+                        path=path,
+                        key="suggested_command",
+                    )
                 ),
                 cwd=_optional_str(raw_check.get("cwd")),
                 scenario=_optional_str(raw_check.get("scenario")),
@@ -351,10 +364,12 @@ def _policy_hash(
         "checks": [
             {
                 "id": check.check_id,
+                "description": check.description,
                 "level": check.level,
                 "backend": check.backend,
                 "cost": check.cost,
                 "required": check.required,
+                "suggested_command": list(check.suggested_command),
                 "config": check.config,
             }
             for check in checks

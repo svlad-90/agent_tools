@@ -290,6 +290,7 @@ def _result(
         stderr_tail=stderr,
         duration_sec=duration,
         returncode=returncode,
+        suggested_command=check.suggested_command,
     )
 
 

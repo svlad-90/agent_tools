@@ -39,6 +39,7 @@ class CheckResult:
     duration_sec: float
     returncode: int
     receipt_path: Path | None = None
+    suggested_command: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)

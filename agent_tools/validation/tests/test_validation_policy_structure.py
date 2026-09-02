@@ -66,6 +66,7 @@ def test_validation_policy_files_are_mappings_with_unique_check_ids() -> None:
         for check in data.get("checks", []):
             assert isinstance(check, dict), path
             assert isinstance(check.get("id"), str) and check["id"], path
+            assert isinstance(check.get("description"), str) and check["description"], path
             assert check.get("backend") in {
                 "builtin",
                 "command",
@@ -74,6 +75,10 @@ def test_validation_policy_files_are_mappings_with_unique_check_ids() -> None:
                 "task_command",
             }, path
             assert check.get("cost") in {"cheap", "medium", "heavy"}, path
+            if "command" in check:
+                assert isinstance(check["command"], list), path
+            if "suggested_command" in check:
+                assert isinstance(check["suggested_command"], list) and check["suggested_command"], path
             check_ids.append(check["id"])
         assert len(check_ids) == len(set(check_ids)), path
 
@@ -149,8 +154,24 @@ def test_validation_policy_loads_workspace_repo_and_task_layers(tmp_path: Path) 
         "python-parse-check-changed",
         "task-smoke",
     ]
+    assert policy.checks[0].description is None
+    assert policy.checks[1].description is None
+    assert policy.checks[2].suggested_command == ()
     assert [check.level for check in policy.checks] == ["workspace", "repo", "task"]
     assert policy.policy_hash.startswith("sha256:")
+
+
+def test_validation_policy_summary_exports_check_metadata() -> None:
+    summary = policy_summary(VALIDATION_ROOT.parents[1], policy_root=VALIDATION_ROOT)
+
+    checks = {check["id"]: check for check in summary["checks"]}
+
+    assert checks["workspace-file-hygiene"]["description"]
+    assert checks["workspace-file-hygiene"]["suggested_command"] == [
+        "git",
+        "status",
+        "--short",
+    ]
 
 
 def test_validation_policy_requires_characteristic_files_for_fork_match(tmp_path: Path) -> None:

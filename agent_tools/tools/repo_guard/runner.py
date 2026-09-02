@@ -203,8 +203,9 @@ def compact_report(result: GuardRunResult) -> str:
         detail = check.stderr_tail.strip() or check.stdout_tail.strip()
         if detail:
             lines.extend(f"  {line}" for line in detail.splitlines()[:8])
-        if check.command:
-            lines.append(f"  suggested command: {_shell_command(check.command)}")
+        suggested_command = check.command or check.suggested_command
+        if suggested_command:
+            lines.append(f"  suggested command: {_shell_command(suggested_command)}")
     return "\n".join(lines)
 
 

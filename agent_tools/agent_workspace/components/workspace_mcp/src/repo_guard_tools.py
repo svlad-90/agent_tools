@@ -105,6 +105,7 @@ def _run_payload(result: Any) -> JsonObject:
                 "required": check.required,
                 "summary": check.summary,
                 "receipt_path": str(check.receipt_path) if check.receipt_path else None,
+                "suggested_command": list(check.suggested_command),
             }
             for check in result.checks
         ],
