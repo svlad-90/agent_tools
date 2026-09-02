@@ -734,6 +734,14 @@ def test_gtk_task_action_order_separates_workspace_actions() -> None:
             source="workspace",
         ),
         TaskAction(
+            action_id="workspace:validate-push",
+            label="Validate push",
+            command=("true",),
+            cwd=Path("."),
+            env={},
+            source="workspace",
+        ),
+        TaskAction(
             action_id="workspace:task-check",
             label="Task check",
             command=("true",),
@@ -750,7 +758,11 @@ def test_gtk_task_action_order_separates_workspace_actions() -> None:
         ),
     ]
 
-    assert gui._workspace_action_order() == ["workspace:validate", "workspace:task-check"]
+    assert gui._workspace_action_order() == [
+        "workspace:validate",
+        "workspace:validate-push",
+        "workspace:task-check",
+    ]
     assert gui._task_action_order() == ["build"]
 
 

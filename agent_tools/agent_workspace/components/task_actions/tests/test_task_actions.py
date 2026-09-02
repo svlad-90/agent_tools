@@ -436,6 +436,7 @@ def test_load_task_actions_resolves_parameter_sets_and_shortcuts(tmp_path: Path)
     assert config.global_parameter_bindings == {"board": "rpi6"}
     assert [action.action_id for action in config.base_actions] == [
         "workspace:validate",
+        "workspace:validate-push",
         "workspace:task-check",
         "copy",
     ]
@@ -748,6 +749,7 @@ def test_load_task_actions_rejects_escaping_cwd(tmp_path: Path) -> None:
 
     assert [action.action_id for action in actions] == [
         "workspace:validate",
+        "workspace:validate-push",
         "workspace:task-check",
     ]
     assert "cwd escapes task" in errors[0]
@@ -763,6 +765,7 @@ def test_workspace_standard_task_actions_are_injected_without_task_file(tmp_path
     assert errors == []
     assert [action.action_id for action in actions] == [
         "workspace:validate",
+        "workspace:validate-push",
         "workspace:task-check",
     ]
     assert all(action.source == "workspace" for action in actions)
@@ -775,6 +778,18 @@ def test_workspace_standard_task_actions_are_injected_without_task_file(tmp_path
     assert actions[1].command == (
         "python3",
         "-m",
+        "agent_tools.tools.repo_guard",
+        "pre-push-dry-run",
+        "--repo",
+        str(tmp_path),
+        "--remote",
+        "origin",
+        "--task-dir",
+        str(task),
+    )
+    assert actions[2].command == (
+        "python3",
+        "-m",
         "agent_tools.agent_workspace.actions",
         "task-check",
         "--workspace",
@@ -784,3 +799,4 @@ def test_workspace_standard_task_actions_are_injected_without_task_file(tmp_path
         "--issues-only",
     )
     assert actions[0].cwd == tmp_path
+    assert actions[1].cwd == tmp_path

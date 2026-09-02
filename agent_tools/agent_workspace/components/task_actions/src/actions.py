@@ -181,6 +181,25 @@ def workspace_standard_task_actions(task: TaskSummary) -> list[TaskAction]:
             source="workspace",
         ),
         TaskAction(
+            action_id="workspace:validate-push",
+            label="Validate push",
+            command=(
+                "python3",
+                "-m",
+                "agent_tools.tools.repo_guard",
+                "pre-push-dry-run",
+                "--repo",
+                str(workspace),
+                "--remote",
+                "origin",
+                "--task-dir",
+                str(task.path),
+            ),
+            cwd=workspace,
+            env={},
+            source="workspace",
+        ),
+        TaskAction(
             action_id="workspace:task-check",
             label="Task check",
             command=(
