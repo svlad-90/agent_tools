@@ -12,8 +12,16 @@ a stable hash for receipt validation.
 checks and identity evidence for specific repositories. Task-local policy may
 be added as `tasks/<task>/TASK_GUARD.yaml`.
 
-The current push guard does not call `repo_guard` yet. Wire that integration
-only after the policy runner and receipts are proven stable.
+Installing push guard hooks enables `repo_guard` for that repository. The
+installed pre-push hook then runs `repo_guard` by default. Use
+`python3 -m agent_tools.tools.push_guard disable-repo-guard --repo <repo>` only
+as a repository-local escape hatch when the policy runner itself is blocking
+unrelated work.
+
+Task UI actions install or update hooks only for repositories listed in the
+task context `repo-registry` slot. They do not recursively scan `dev/` trees;
+agents should add or remove registry entries when they identify the repository
+roots used by the task.
 
 Policy is layered in this order:
 

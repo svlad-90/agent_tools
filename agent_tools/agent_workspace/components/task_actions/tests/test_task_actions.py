@@ -441,6 +441,8 @@ def test_load_task_actions_resolves_parameter_sets_and_shortcuts(tmp_path: Path)
         "workspace:install-repo-hooks",
         "copy",
     ]
+    install_hooks = next(action for action in config.base_actions if action.action_id == "workspace:install-repo-hooks")
+    assert install_hooks.label == "Install/update repo hooks"
     copy_action = next(action for action in config.base_actions if action.action_id == "copy")
     assert copy_action.parameters[0].global_name == "board"
     assert shortcut.is_shortcut

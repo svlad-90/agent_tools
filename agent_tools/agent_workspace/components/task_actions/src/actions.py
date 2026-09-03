@@ -219,7 +219,7 @@ def workspace_standard_task_actions(task: TaskSummary) -> list[TaskAction]:
         ),
         TaskAction(
             action_id="workspace:install-repo-hooks",
-            label="Install repo hooks",
+            label="Install/update repo hooks",
             command=(
                 "python3",
                 "-m",

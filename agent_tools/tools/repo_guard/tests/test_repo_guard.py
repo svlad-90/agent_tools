@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import argparse
 import json
 import subprocess
 import sys
@@ -16,6 +17,8 @@ from agent_tools.tools.repo_guard.runner import compact_report
 from agent_tools.tools.repo_guard.runner import pre_push
 from agent_tools.tools.repo_guard.runner import pre_push_dry_run
 from agent_tools.tools.repo_guard.runner import validate
+from agent_tools.tools.push_guard import _repo_guard_enabled
+from agent_tools.tools.push_guard import _set_repo_guard_enabled
 from agent_tools.tools.task_context import set_slot
 
 
@@ -245,6 +248,7 @@ def test_pre_push_dry_run_command_installs_registered_hooks(tmp_path: Path) -> N
     _init_repo(repo)
     (repo / "tracked.txt").write_text("ok\n", encoding="utf-8")
     _commit(repo)
+    _set_repo_guard_enabled(argparse.Namespace(repo=str(repo)), enabled=False)
     set_slot(task_dir, "repo-registry", "repositories:\n  - path: tasks/sample/dev/repo\n")
 
     result = main(
@@ -258,6 +262,7 @@ def test_pre_push_dry_run_command_installs_registered_hooks(tmp_path: Path) -> N
     )
 
     assert result == 0
+    assert _repo_guard_enabled(repo)
     assert (repo / ".git" / "hooks" / "pre-push").is_file()
     assert (repo / ".git" / "hooks" / "pre-commit").is_file()
 

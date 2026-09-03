@@ -216,7 +216,7 @@ def test_pre_push_check_blocks_repositories_inside_tasks_when_task_check_fails(
     assert "push blocked by task_check" in capsys.readouterr().err
 
 
-def test_repo_guard_integration_is_disabled_by_default(
+def test_repo_guard_integration_is_enabled_by_default(
     tmp_path: Path,
     monkeypatch: object,
     capsys: object,
@@ -238,9 +238,11 @@ def test_repo_guard_integration_is_disabled_by_default(
 
     result = check(SimpleNamespace(allow_override=False, remote_name="origin", remote_url=None))
 
-    assert result == 0
-    assert not _repo_guard_enabled(repo)
-    assert "repo_guard" not in capsys.readouterr().err
+    assert result == 1
+    assert _repo_guard_enabled(repo)
+    err = capsys.readouterr().err
+    assert "push blocked by repo_guard" in err
+    assert "missing Signed-off-by trailer" in err
 
 
 def test_repo_guard_enable_disable_commands_update_repo_config(
@@ -261,6 +263,33 @@ def test_repo_guard_enable_disable_commands_update_repo_config(
 
     assert main(["disable-repo-guard", "--repo", str(repo)]) == 0
     assert not _repo_guard_enabled(repo)
+
+
+def test_repo_guard_disable_command_suppresses_hook_time_policy(
+    tmp_path: Path,
+    monkeypatch: object,
+    capsys: object,
+) -> None:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _init_repo(repo)
+    (repo / "README.md").write_text("repo\n", encoding="utf-8")
+    _git(repo, "add", "README.md")
+    _git(repo, "commit", "-m", "Initial")
+    commit = _head_commit(repo, "HEAD")
+    _record_success(repo, commit, "unit test")
+    _set_repo_guard_enabled(SimpleNamespace(repo=str(repo)), enabled=False)
+    monkeypatch.chdir(repo)
+    monkeypatch.setattr(
+        sys,
+        "stdin",
+        io.StringIO(f"refs/heads/main {commit} refs/heads/main {'0' * 40}\n"),
+    )
+
+    result = check(SimpleNamespace(allow_override=False, remote_name="origin", remote_url=None))
+
+    assert result == 0
+    assert "repo_guard" not in capsys.readouterr().err
 
 
 def test_repo_registry_paths_reads_task_context_slot(tmp_path: Path) -> None:
@@ -287,12 +316,14 @@ def test_install_registered_hooks_installs_only_registered_repos(
     repo = workspace / "tasks" / "sample-task" / "dev" / "repo"
     repo.mkdir(parents=True)
     _init_repo(repo)
+    _set_repo_guard_enabled(SimpleNamespace(repo=str(repo)), enabled=False)
     ensure_database(task_dir)
     set_slot(task_dir, "repo-registry", "repositories:\n  - path: tasks/sample-task/dev/repo\n")
 
     result = install_registered_hooks(SimpleNamespace(workspace=str(workspace), task_dir=str(task_dir)))
 
     assert result == 0
+    assert _repo_guard_enabled(repo)
     assert (repo / ".git" / "hooks" / "pre-push").is_file()
     assert (repo / ".git" / "hooks" / "pre-commit").is_file()
     assert "installed hooks for 1 registered repo" in capsys.readouterr().out
@@ -349,7 +380,7 @@ def test_install_registered_hooks_rejects_path_inside_repo(
     assert "is not the repo root" in capsys.readouterr().err
 
 
-def test_repo_guard_integration_blocks_push_when_enabled(
+def test_repo_guard_integration_blocks_push_by_default(
     tmp_path: Path,
     monkeypatch: object,
     capsys: object,
@@ -362,7 +393,6 @@ def test_repo_guard_integration_blocks_push_when_enabled(
     _git(repo, "commit", "-m", "Initial")
     commit = _head_commit(repo, "HEAD")
     _record_success(repo, commit, "unit test")
-    _set_repo_guard_enabled(SimpleNamespace(repo=str(repo)), enabled=True)
     monkeypatch.chdir(repo)
     monkeypatch.setattr(
         sys,
@@ -378,7 +408,7 @@ def test_repo_guard_integration_blocks_push_when_enabled(
     assert "missing Signed-off-by trailer" in err
 
 
-def test_repo_guard_integration_allows_push_when_enabled_and_passing(
+def test_repo_guard_integration_allows_push_by_default_when_passing(
     tmp_path: Path,
     monkeypatch: object,
     capsys: object,
@@ -391,7 +421,6 @@ def test_repo_guard_integration_allows_push_when_enabled_and_passing(
     _git(repo, "commit", "-m", "Initial", "-m", "Signed-off-by: Test User <test@example.com>")
     commit = _head_commit(repo, "HEAD")
     _record_success(repo, commit, "unit test")
-    _set_repo_guard_enabled(SimpleNamespace(repo=str(repo)), enabled=True)
     monkeypatch.chdir(repo)
     monkeypatch.setattr(
         sys,
