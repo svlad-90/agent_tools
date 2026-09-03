@@ -722,6 +722,99 @@ def test_gtk_task_action_reflow_skips_unchanged_layout(monkeypatch: pytest.Monke
     assert gui.task_actions_box.show_count == 2
 
 
+def test_gtk_task_action_order_separates_workspace_actions() -> None:
+    gui = WorkspaceGtkGui.__new__(WorkspaceGtkGui)
+    gui.task_base_actions = [
+        TaskAction(
+            action_id="workspace:validate",
+            label="Validate",
+            command=("true",),
+            cwd=Path("."),
+            env={},
+            source="workspace",
+        ),
+        TaskAction(
+            action_id="workspace:validate-push",
+            label="Validate push",
+            command=("true",),
+            cwd=Path("."),
+            env={},
+            source="workspace",
+        ),
+        TaskAction(
+            action_id="workspace:task-check",
+            label="Task check",
+            command=("true",),
+            cwd=Path("."),
+            env={},
+            source="workspace",
+        ),
+        TaskAction(
+            action_id="build",
+            label="Build",
+            command=("true",),
+            cwd=Path("."),
+            env={},
+        ),
+    ]
+
+    assert gui._workspace_action_order() == [
+        "workspace:validate",
+        "workspace:validate-push",
+        "workspace:task-check",
+    ]
+    assert gui._task_action_order() == ["build"]
+
+
+def test_gtk_workspace_action_renderer_keeps_task_actions_out(monkeypatch: pytest.MonkeyPatch) -> None:
+    class FakeActionWidget:
+        def __init__(self) -> None:
+            self.parent: object | None = None
+
+        def get_parent(self) -> object | None:
+            return self.parent
+
+    class FakeRow:
+        def __init__(self, *args: object, **kwargs: object) -> None:
+            self.children: list[FakeActionWidget] = []
+
+        def set_halign(self, _align: object) -> None:
+            return
+
+        def pack_start(self, widget: FakeActionWidget, *_args: object) -> None:
+            widget.parent = self
+            self.children.append(widget)
+
+        def get_children(self) -> list[FakeActionWidget]:
+            return list(self.children)
+
+    class FakeActionsBox:
+        def __init__(self) -> None:
+            self.children: list[FakeRow] = []
+
+        def pack_start(self, row: FakeRow, *_args: object) -> None:
+            self.children.append(row)
+
+    gui = WorkspaceGtkGui.__new__(WorkspaceGtkGui)
+    workspace_validate = FakeActionWidget()
+    workspace_task_check = FakeActionWidget()
+    build = FakeActionWidget()
+    gui.workspace_actions_box = FakeActionsBox()
+    gui.task_action_item_widgets = {
+        "workspace:validate": workspace_validate,
+        "workspace:task-check": workspace_task_check,
+        "build": build,
+    }
+    gui._workspace_action_order = lambda: ["workspace:validate", "workspace:task-check"]  # type: ignore[method-assign]
+    monkeypatch.setattr(gtk_ui_module.Gtk, "Box", FakeRow)
+
+    gui._render_workspace_action_buttons()
+
+    assert len(gui.workspace_actions_box.children) == 1
+    assert gui.workspace_actions_box.children[0].children == [workspace_validate, workspace_task_check]
+    assert build.parent is None
+
+
 def test_gtk_task_action_size_allocate_skips_unchanged_width(monkeypatch: pytest.MonkeyPatch) -> None:
     class FakeActionsBox:
         def get_border_width(self) -> int:
@@ -2067,6 +2160,56 @@ def test_gtk_close_disposes_terminal_sessions_before_quit(monkeypatch: object, t
     assert main_quit_called == [True]
 
 
+def test_gtk_save_settings_persists_mcp_options(monkeypatch: object, tmp_path: Path) -> None:
+    saved: list[dict[str, object]] = []
+    monkeypatch.setattr(gtk_ui_module, "save_agent_workspace_settings", lambda settings: saved.append(settings))
+    gui = WorkspaceGtkGui.__new__(WorkspaceGtkGui)
+    gui.text_font_size = 13
+    gui.button_font_size = 12
+    gui.theme = "dark"
+    gui.language = "en"
+    gui.default_agent = "codex"
+    gui.default_codex_model = "gpt-5.5"
+    gui.default_codex_reasoning = "medium"
+    gui.default_claude_model = "sonnet"
+    gui.default_claude_effort = "medium"
+    gui.codex_animations_enabled = False
+    gui.claude_animations_enabled = False
+    gui.limited_bash_output_tokens = 2000
+    gui.system_prompt = "Use workspace policy."
+    gui.inject_task_context_prompt = True
+    gui.mcp_enabled_groups = ("search", "python")
+    gui.mcp_trusted = True
+    gui.task_dictionary_auto_discovery = True
+    gui.task_dictionary_min_occurrences = 2
+    gui.task_dictionary_min_saving = 12
+    gui.task_dictionary_min_term_length = 5
+    gui.task_dictionary_max_term_words = 3
+    gui.task_dictionary_strip_articles = True
+    gui.task_dictionary_preview_text = "Agent Workspace"
+    gui.last_window_width = 1200
+    gui.last_window_height = 800
+    gui.last_window_x = 10
+    gui.last_window_y = 20
+    gui.main_split_ratio = 0.4
+    gui.details_split_ratio = 0.6
+    gui.actions_split_ratio = 0.3
+    gui.workspace = tmp_path
+    gui.recent_workspaces = [str(tmp_path)]
+
+    gui._save_settings()
+
+    assert saved[0]["mcp_enabled_groups"] == [
+        "search",
+        "python",
+        "task_context",
+        "task_actions",
+        "commit_messages",
+        "validation",
+    ]
+    assert saved[0]["mcp_trusted"] is True
+
+
 def test_gtk_console_notebook_switch_remembers_active_task_terminal(tmp_path: Path) -> None:
     task = tmp_path / "tasks" / "sample-task"
     task.mkdir(parents=True)
@@ -2750,6 +2893,9 @@ def test_gtk_translates_agent_and_manual_labels() -> None:
     assert GTK_TRANSLATIONS["ru"]["settings_update_running"] == "Обновление Agent Workspace..."
     assert GTK_TRANSLATIONS["ru"]["settings_update_confirm_title"] == "Обновить Agent Workspace?"
     assert "закроется" in GTK_TRANSLATIONS["ru"]["settings_update_confirm_body"]
+    assert GTK_TRANSLATIONS["ru"]["settings_mcp_trust_confirm_title"] == "Доверять MCP-утилитам Agent Workspace?"
+    assert "перезапустите" in GTK_TRANSLATIONS["ru"]["settings_mcp_trust_confirm_body"]
+    assert GTK_TRANSLATIONS["ru"]["settings_mcp_trust_confirm_button"] == "Доверять MCP"
     assert GTK_TRANSLATIONS["ru"]["codex_animations_enabled"] == "Анимации Codex"
     assert GTK_TRANSLATIONS["ru"]["claude_animations_enabled"] == "Анимации Claude"
     assert GTK_TRANSLATIONS["ru"]["limited_bash_output_tokens"] == "Лимит вывода Bash, токены"

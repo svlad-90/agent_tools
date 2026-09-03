@@ -3,14 +3,17 @@
 from __future__ import annotations
 
 from dataclasses import replace
+import shlex
 from pathlib import Path
 from typing import Sequence
 
 from .checks import run_check
 from .git_context import changed_paths
 from .git_context import head_commit
+from .git_context import pre_push_dry_run_stdin
 from .git_context import pushed_commits
 from .git_context import pushed_ref_tips
+from .git_context import remote_urls
 from .git_context import repo_root
 from .git_context import validation_commits
 from .models import CheckConfig
@@ -75,6 +78,25 @@ def pre_push(
         task_dir=task_dir,
     )
     return _run_context(context, include_heavy=False, policy_root=policy_root)
+
+
+def pre_push_dry_run(
+    repo_path: Path,
+    *,
+    remote_name: str = "origin",
+    task_dir: Path | None = None,
+    policy_root: Path | None = None,
+) -> GuardRunResult:
+    repo = repo_root(repo_path)
+    remote_url = remote_urls(repo).get(remote_name)
+    return pre_push(
+        repo,
+        remote_name=remote_name,
+        remote_url=remote_url,
+        stdin_text=pre_push_dry_run_stdin(repo, remote_name=remote_name),
+        task_dir=task_dir,
+        policy_root=policy_root,
+    )
 
 
 def _run_context(
@@ -175,18 +197,41 @@ def _receipt_required_result(
 
 
 def compact_report(result: GuardRunResult) -> str:
+    actionable_checks = [check for check in result.checks if check.status != "pass"]
+    passed_count = len(result.checks) - len(actionable_checks)
     lines = [
         f"repo_guard: {result.status}",
         f"repo_guard: repo: {result.context.repo}",
         f"repo_guard: repo_id: {result.repo_id or '<unmatched>'}",
         f"repo_guard: receipt: {result.receipt_path}",
     ]
-    for check in result.checks:
-        lines.append(f"{check.status}\t{check.check_id}\t{check.summary}")
+    if passed_count:
+        lines.append(f"repo_guard: {passed_count} passed check(s) omitted")
+    if not actionable_checks:
+        lines.append("repo_guard: all checks passed")
+        return "\n".join(lines)
+    for check in actionable_checks:
+        lines.append(
+            "{status}\t{check_id}\t{level}/{backend}/{cost}\t{summary}".format(
+                status=check.status,
+                check_id=check.check_id,
+                level=check.level,
+                backend=check.backend,
+                cost=check.cost,
+                summary=check.summary,
+            )
+        )
         detail = check.stderr_tail.strip() or check.stdout_tail.strip()
-        if check.status != "pass" and detail:
+        if detail:
             lines.extend(f"  {line}" for line in detail.splitlines()[:8])
+        suggested_command = check.command or check.suggested_command
+        if suggested_command:
+            lines.append(f"  suggested command: {_shell_command(suggested_command)}")
     return "\n".join(lines)
+
+
+def _shell_command(command: Sequence[str]) -> str:
+    return " ".join(shlex.quote(part) for part in command)
 
 
 def check_ids(result: GuardRunResult) -> Sequence[str]:

@@ -149,6 +149,11 @@
     "ru": "Actions",
     "uk": "Actions"
   },
+  "actions.workspace_group": {
+    "en": "Workspace",
+    "ru": "Workspace",
+    "uk": "Workspace"
+  },
   "console.ai_agent": {
     "en": "AI agent",
     "ru": "ИИ агент",

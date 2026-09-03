@@ -30,49 +30,77 @@ def yaml_map_tools() -> list[McpTool]:
         McpTool(
             name="yaml_map_file",
             title="YAML Map File",
-            description="Print a compact merged structure map for one YAML file.",
+            description=(
+                "Use instead of cat/sed for YAML inspection when structure matters. "
+                "Returns a compact workspace-relative map with paths and value_hash "
+                "guards for safe follow-up reads or edits."
+            ),
             input_schema=_file_input_schema(),
             handler=_yaml_map_file,
         ),
         McpTool(
             name="yaml_map_project",
             title="YAML Map Project",
-            description="List YAML files under a path with compact summaries.",
+            description=(
+                "Use instead of find plus ad-hoc parsing when locating YAML config. "
+                "Lists YAML files under a workspace path with compact summaries, "
+                "optionally scanning deeper trees."
+            ),
             input_schema=_project_input_schema(),
             handler=_yaml_map_project,
         ),
         McpTool(
             name="yaml_map_path_get",
             title="YAML Map Path Get",
-            description="Resolve one YAML path and return its hash and value.",
+            description=(
+                "Use instead of one-off Python snippets to read a YAML subtree. "
+                "Resolves one YAML path, returns the value and value_hash needed "
+                "for stale-edit guarded mutations."
+            ),
             input_schema=_path_get_input_schema(),
             handler=_yaml_map_path_get,
         ),
         McpTool(
             name="yaml_map_path_set",
             title="YAML Map Path Set",
-            description="Replace one YAML path when the expected subtree hash still matches.",
+            description=(
+                "Use instead of manual YAML edits when replacing a nested value. "
+                "Validates the workspace file, checks expect_hash, preserves YAML "
+                "syntax, and supports check_only previews."
+            ),
             input_schema=_path_set_input_schema(),
             handler=_yaml_map_path_set,
         ),
         McpTool(
             name="yaml_map_item_insert",
             title="YAML Map Item Insert",
-            description="Insert one YAML mapping entry or list item with hash guard.",
+            description=(
+                "Use instead of indentation-sensitive manual inserts into YAML. "
+                "Adds a mapping entry or list item at a YAML path with expect_hash "
+                "protection and optional check_only preview."
+            ),
             input_schema=_item_insert_input_schema(),
             handler=_yaml_map_item_insert,
         ),
         McpTool(
             name="yaml_map_path_delete",
             title="YAML Map Path Delete",
-            description="Delete one YAML path when the expected subtree hash still matches.",
+            description=(
+                "Use instead of manually deleting YAML blocks. Removes one YAML path "
+                "only when the current subtree hash matches, avoiding stale or "
+                "mis-indented edits."
+            ),
             input_schema=_path_delete_input_schema(),
             handler=_yaml_map_path_delete,
         ),
         McpTool(
             name="yaml_map_parse_check",
             title="YAML Map Parse Check",
-            description="Parse one YAML file and report validity.",
+            description=(
+                "Use after YAML edits instead of running a custom parser command. "
+                "Parses one workspace-relative YAML file and returns compact validity "
+                "or diagnostic output."
+            ),
             input_schema=_parse_check_input_schema(),
             handler=_yaml_map_parse_check,
         ),
@@ -197,14 +225,22 @@ def _optional_int(arguments: JsonObject, name: str) -> int | None:
 
 
 def _output_format_property() -> JsonObject:
-    return {"type": "string", "enum": ["text", "json"], "default": "text"}
+    return {
+        "type": "string",
+        "enum": ["text", "json"],
+        "description": "Use text for compact agent output or json for structured consumers.",
+        "default": "text",
+    }
 
 
 def _file_input_schema() -> JsonObject:
     return {
         "type": "object",
         "properties": {
-            "path": {"type": "string", "description": "Workspace-relative YAML file path."},
+            "path": {
+                "type": "string",
+                "description": "Workspace-relative YAML file path.",
+            },
             "output_format": _output_format_property(),
         },
         "required": ["path"],
@@ -216,8 +252,16 @@ def _project_input_schema() -> JsonObject:
     return {
         "type": "object",
         "properties": {
-            "path": {"type": "string", "description": "Workspace-relative directory or YAML file path.", "default": "."},
-            "deep": {"type": "boolean", "default": False},
+            "path": {
+                "type": "string",
+                "description": "Workspace-relative directory or YAML file path to scan.",
+                "default": ".",
+            },
+            "deep": {
+                "type": "boolean",
+                "description": "Scan recursively instead of only the immediate directory.",
+                "default": False,
+            },
             "output_format": _output_format_property(),
         },
         "additionalProperties": False,
@@ -226,24 +270,42 @@ def _project_input_schema() -> JsonObject:
 
 def _path_get_input_schema() -> JsonObject:
     schema = _file_input_schema()
-    schema["properties"]["yaml_path"] = {"type": "string"}
+    schema["properties"]["yaml_path"] = {
+        "type": "string",
+        "description": "Dot/bracket YAML path to read, as printed by yaml_map_file.",
+    }
     schema["required"] = ["path", "yaml_path"]
     return schema
 
 
 def _guarded_edit_properties() -> JsonObject:
     return {
-        "path": {"type": "string", "description": "Workspace-relative YAML file path."},
-        "yaml_path": {"type": "string"},
-        "expect_hash": {"type": "string"},
-        "check_only": {"type": "boolean", "default": False},
+        "path": {
+            "type": "string",
+            "description": "Workspace-relative YAML file path.",
+        },
+        "yaml_path": {
+            "type": "string",
+            "description": "Dot/bracket YAML path to edit, as printed by yaml_map_file or yaml_map_path_get.",
+        },
+        "expect_hash": {
+            "type": "string",
+            "description": "Current value_hash from yaml_map_file or yaml_map_path_get; stale hashes block the edit.",
+        },
+        "check_only": {
+            "type": "boolean",
+            "description": "Preview validation and resulting operation without writing the file.",
+            "default": False,
+        },
         "output_format": _output_format_property(),
     }
 
 
 def _path_set_input_schema() -> JsonObject:
     properties = _guarded_edit_properties()
-    properties["value"] = {}
+    properties["value"] = {
+        "description": "JSON-compatible value to write at yaml_path.",
+    }
     return {
         "type": "object",
         "properties": properties,
@@ -254,9 +316,17 @@ def _path_set_input_schema() -> JsonObject:
 
 def _item_insert_input_schema() -> JsonObject:
     properties = _guarded_edit_properties()
-    properties["value"] = {}
-    properties["key"] = {"type": "string"}
-    properties["index"] = {"type": "integer"}
+    properties["value"] = {
+        "description": "JSON-compatible mapping entry value or list item value to insert.",
+    }
+    properties["key"] = {
+        "type": "string",
+        "description": "Mapping key to insert when yaml_path points to a mapping.",
+    }
+    properties["index"] = {
+        "type": "integer",
+        "description": "List index to insert at when yaml_path points to a sequence.",
+    }
     return {
         "type": "object",
         "properties": properties,

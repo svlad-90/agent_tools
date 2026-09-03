@@ -78,12 +78,19 @@ def append_ai_agent_hook_options(
     animations_enabled: bool = False,
     workspace: Path | None = None,
     workspace_mcp_enabled: bool = True,
+    workspace_mcp_enabled_groups: tuple[str, ...] | None = None,
+    workspace_mcp_trusted: bool = False,
 ) -> None:
     agent = normalize_agent(agent)
     if agent == "claude":
         settings = claude_harness_settings("python3 -m agent_tools.agent_workspace.components.harness_adapter.claude")
         if workspace_mcp_enabled and workspace is not None:
-            settings = merge_claude_workspace_mcp_settings(settings, workspace)
+            settings = merge_claude_workspace_mcp_settings(
+                settings,
+                workspace,
+                enabled_tool_groups=workspace_mcp_enabled_groups,
+                trusted=workspace_mcp_trusted,
+            )
         settings["prefersReducedMotion"] = not animations_enabled
         command.extend(["--settings", json.dumps(settings, ensure_ascii=False)])
         return
@@ -99,7 +106,11 @@ def append_ai_agent_hook_options(
             ]
         )
     if workspace_mcp_enabled and workspace is not None:
-        for option in codex_workspace_mcp_config_options(workspace):
+        for option in codex_workspace_mcp_config_options(
+            workspace,
+            enabled_tool_groups=workspace_mcp_enabled_groups,
+            trusted=workspace_mcp_trusted,
+        ):
             command.extend(["-c", option])
 
 
@@ -123,6 +134,8 @@ def build_ai_agent_console_command(
     codex_animations_enabled: bool = False,
     claude_animations_enabled: bool = False,
     workspace_mcp_enabled: bool = True,
+    workspace_mcp_enabled_groups: tuple[str, ...] | None = None,
+    workspace_mcp_trusted: bool = False,
 ) -> list[str]:
     agent = normalize_agent(agent)
     if agent == "claude":
@@ -135,6 +148,8 @@ def build_ai_agent_console_command(
             animations_enabled=claude_animations_enabled,
             workspace=workspace,
             workspace_mcp_enabled=workspace_mcp_enabled,
+            workspace_mcp_enabled_groups=workspace_mcp_enabled_groups,
+            workspace_mcp_trusted=workspace_mcp_trusted,
         )
         if resume and resume_session_id:
             command.extend(["--resume", resume_session_id])
@@ -146,7 +161,14 @@ def build_ai_agent_console_command(
 
     command = [codex_executable]
     append_ai_agent_model_options(command, agent, model=model, reasoning_effort=reasoning_effort)
-    append_ai_agent_hook_options(command, agent, workspace=workspace, workspace_mcp_enabled=workspace_mcp_enabled)
+    append_ai_agent_hook_options(
+        command,
+        agent,
+        workspace=workspace,
+        workspace_mcp_enabled=workspace_mcp_enabled,
+        workspace_mcp_enabled_groups=workspace_mcp_enabled_groups,
+        workspace_mcp_trusted=workspace_mcp_trusted,
+    )
     append_codex_low_redraw_tui_options(command, animations_enabled=codex_animations_enabled)
     if resume and resume_session_id:
         command.extend(["resume", "--cd", str(workspace), "--no-alt-screen"])
@@ -230,6 +252,8 @@ def prepare_ai_agent_launch_command(
     system_prompt: str = "",
     codex_animations_enabled: bool = False,
     claude_animations_enabled: bool = False,
+    workspace_mcp_enabled_groups: tuple[str, ...] | None = None,
+    workspace_mcp_trusted: bool = False,
 ) -> AgentLaunchCommand:
     agent = normalize_agent(agent)
     session_state = prepare_task_agent_session(task, workspace, agent)
@@ -261,6 +285,8 @@ def prepare_ai_agent_launch_command(
             reasoning_effort=model_settings.reasoning_effort,
             codex_animations_enabled=codex_animations_enabled,
             claude_animations_enabled=claude_animations_enabled,
+            workspace_mcp_enabled_groups=workspace_mcp_enabled_groups,
+            workspace_mcp_trusted=workspace_mcp_trusted,
         ),
         session_state=session_state,
         model_settings=model_settings,

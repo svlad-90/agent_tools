@@ -4,39 +4,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
-from typing import Mapping
 
-
-JsonObject = dict[str, Any]
-
-
-@dataclass(frozen=True)
-class RepoIdentity:
-    repo_id: str
-    names: tuple[str, ...]
-    github_repos: tuple[str, ...]
-    allow_forks: bool
-    characteristic_files: tuple[str, ...]
-    verify_command: tuple[str, ...] | None
-    policy_path: Path | None
-
-
-@dataclass(frozen=True)
-class CheckConfig:
-    check_id: str
-    level: str
-    backend: str
-    cost: str
-    required: bool
-    command: tuple[str, ...]
-    cwd: str | None
-    scenario: str | None
-    profile: str | None
-    task: str | None
-    strict_warnings: bool
-    config: Mapping[str, Any]
-    policy_path: Path | None
+from agent_tools.validation.policy import CheckConfig
+from agent_tools.validation.policy import JsonObject
+from agent_tools.validation.policy import RepoIdentity
 
 
 @dataclass(frozen=True)
@@ -68,6 +39,7 @@ class CheckResult:
     duration_sec: float
     returncode: int
     receipt_path: Path | None = None
+    suggested_command: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)

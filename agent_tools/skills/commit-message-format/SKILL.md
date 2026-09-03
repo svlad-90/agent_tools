@@ -5,17 +5,26 @@ description: Format, rewrite, amend, or prepare git commit messages with the wor
 
 # Commit Message Format
 
-Use the workspace workflow tool instead of hand-wrapping or manually checking
-commit-message bodies. The tool calls the workspace formatter, reads the
-target repository's `git config user.name` and `user.email`, wraps body
-paragraphs to 72 columns, keeps trailers in a final trailer block, adds the
-matching `Signed-off-by` line, and checks rewritten series.
+Prefer the Agent Workspace MCP `commit_msg_format` tool when it is available
+in the active agent client. Use `tool_search` to discover it if it is not
+already visible. The CLI workflow under `agent_tools/tools/commit_msg` remains
+the fallback for history rewrites, amend flows, or when MCP is unavailable.
+
+Use the workspace formatter instead of hand-wrapping or manually checking
+commit-message bodies. It reads the target repository's `git config
+user.name` and `user.email`, wraps body paragraphs to 72 columns, keeps
+trailers in a final trailer block, adds the matching `Signed-off-by` line, and
+checks rewritten series.
 
 ## Workflow
 
 1. Write the intended message as normal prose in a draft file. Keep the first
    line as the commit subject.
-2. Format and commit through the script from the workspace root:
+2. For a single new commit message, call `commit_msg_format` with separate
+   `title` and `message` arguments. Use the returned `shell_command` or
+   `command_args` for the final `git commit`.
+3. For CLI fallback, format and commit through the script from the workspace
+   root:
 
    ```sh
    python -m agent_tools.tools.commit_msg.workflow \
@@ -24,7 +33,7 @@ matching `Signed-off-by` line, and checks rewritten series.
      --commit
    ```
 
-3. For amend:
+4. For amend:
 
    ```sh
    python -m agent_tools.tools.commit_msg.workflow \
@@ -33,7 +42,7 @@ matching `Signed-off-by` line, and checks rewritten series.
      --amend
    ```
 
-4. For history rewrites, prefer `cherry-pick --no-commit` followed by
+5. For history rewrites, prefer `cherry-pick --no-commit` followed by
    `--commit` through this script so each replayed commit receives the checked
    message.
 

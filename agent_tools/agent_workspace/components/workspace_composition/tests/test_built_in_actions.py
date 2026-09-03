@@ -17,3 +17,22 @@ def test_agent_workspace_actions_task_check_uses_compact_output(tmp_path: Path, 
     assert "Summary:" in captured.out
     assert "PASS task-description" not in captured.out
 
+
+def test_agent_workspace_actions_task_check_issues_only_keeps_warnings(
+    tmp_path: Path,
+    capsys: object,
+) -> None:
+    task = tmp_path / "tasks" / "sample-task"
+    for rel_path in ("dev", "Dockerfile", "scripts", "report/diff", "report/puml"):
+        (task / rel_path).mkdir(parents=True, exist_ok=True)
+    ensure_task_context_database(task)
+
+    exit_code = actions_main(
+        ["task-check", "--workspace", str(tmp_path), "--task", str(task), "--issues-only"]
+    )
+
+    captured = capsys.readouterr()
+    assert exit_code == 0
+    assert "Summary:" in captured.out
+    assert "WARN " in captured.out
+    assert "PASS " not in captured.out

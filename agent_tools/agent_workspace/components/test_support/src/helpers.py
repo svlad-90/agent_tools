@@ -87,6 +87,7 @@ from agent_tools.agent_workspace.components.settings.api import AGENT_WORKSPACE_
 from agent_tools.agent_workspace.components.settings.api import AGENT_WORKSPACE_RELEASES_API
 from agent_tools.agent_workspace.components.settings.api import AGENT_WORKSPACE_RELEASES_LATEST_URL
 from agent_tools.agent_workspace.components.settings.api import ai_agent_model_settings
+from agent_tools.agent_workspace.components.settings.api import apply_agent_workspace_mcp_trust
 from agent_tools.agent_workspace.components.settings.api import claude_model_choices_info
 from agent_tools.agent_workspace.components.settings.api import codex_model_choices
 from agent_tools.agent_workspace.components.settings.api import codex_model_choices_info
@@ -100,6 +101,11 @@ from agent_tools.agent_workspace.components.settings.api import run_agent_worksp
 from agent_tools.agent_workspace.components.settings.api import save_agent_workspace_settings
 from agent_tools.agent_workspace.components.settings.api import remember_agent_workspace
 from agent_tools.agent_workspace.components.settings.api import task_dictionary_policy_from_runtime_settings
+from agent_tools.agent_workspace.components.settings.api import workspace_mcp_configurable_tool_groups
+from agent_tools.agent_workspace.components.settings.api import workspace_mcp_enabled_groups_for_runtime
+from agent_tools.agent_workspace.components.settings.api import workspace_mcp_required_tool_groups
+from agent_tools.agent_workspace.components.settings.api import workspace_mcp_tool_group_tooltip
+from agent_tools.agent_workspace.components.settings.api import workspace_mcp_tool_groups
 from agent_tools.agent_workspace.components.workspace_config.api import AGENT_WORKSPACE_SCHEMA_VERSION
 from agent_tools.agent_workspace.components.workspace_config.api import create_agent_workspace
 from agent_tools.agent_workspace.components.workspace_config.api import load_agent_workspace_manifest

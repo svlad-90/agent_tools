@@ -16,12 +16,20 @@ These rules apply to every task directory under the workspace root.
    task_check gates, durable slot freshness before Stop, and compact
    checkpoints. Legacy `front_door_bell.py` scripts may remain in old local
    tasks as manual fallback only; do not create or require them for new tasks.
-3. Use normal Bash commands in agent tool calls. Do not call the Agent
-   Workspace `limited_bash` wrapper directly; harness hooks apply that output
-   guard automatically when needed.
+3. Prefer Agent Workspace MCP tools over Bash/CLI wrappers when an equivalent
+   `mcp__agent_tools_workspace` tool is available. MCP tools are the
+   agent-facing interface for workspace utilities because they expose typed
+   arguments, structured results, path validation, and compact output. Use
+   `tool_search` to discover relevant workspace MCP tools when they are not
+   already visible in the current session. Fall back to Bash/CLI only when the
+   MCP tool is unavailable in the active client, the operation has no MCP
+   wrapper yet, or the task is intentionally running a shell/build/PAF/git
+   command. Do not call the Agent Workspace `limited_bash` wrapper directly;
+   harness hooks apply that output guard automatically when needed.
 4. Before working inside an existing task directory, query current task context
    slots from `TASK_CONTEXT.sqlite3` after the directory is selected when task
-   state is needed. Use
+   state is needed. Prefer MCP `task_context_query` when available. Otherwise
+   use
    `python3 -m agent_tools.tools.task_context query --task <task-dir>
    --format agent` for agent work, or `--format markdown` when rendering for a
    human. Filter with `--category <slot>` or `--cats env,validation` when only
@@ -38,20 +46,55 @@ These rules apply to every task directory under the workspace root.
 7. Maintain task context through singleton SQLite slots:
 
    - `TASK_CONTEXT.sqlite3` is the only task context source.
-   - Slots are current state, not an append-only changelog. Update the relevant
-     slot in place with `python3 -m agent_tools.tools.task_context slot --task
+   - Slots are current state, not an append-only changelog. Update the
+     relevant slot in place with MCP `task_context_set_slot` when available,
+     or with `python3 -m agent_tools.tools.task_context slot --task
      <task-dir> --category <slot> --content <text>`.
    - Slot categories are `goal`, `env`, `decisions`, `findings`,
      `validation`, `blocker-risk`, `operational-memory`, `user-preference`,
-     and `legacy`.
+     `repo-registry`, and `legacy`.
    - `goal` and `operational-memory` are required. `env` and `validation` are
      recommended. `legacy` is temporary migration material; move still-current
      facts into typed slots and then clear or shrink it.
+   - Keep `repo-registry` as an explicit whitelist of repositories used by the
+     task. Leave it empty until the repository path is known from inspected
+     files, commands, or user input; do not guess or invent repository paths.
+     Use YAML with `repositories` entries and workspace-relative or absolute
+     `path` values, for example:
+
+     ```yaml
+     repositories:
+       - path: .
+         role: workspace
+       - path: tasks/example/dev/product-repo
+         role: task-dev
+     ```
+
+     Workspace tooling uses this slot to install and maintain repository hooks.
+     Every listed path must be a git repository root. Do not rely on recursive
+     discovery through large `dev/` trees.
+     When an agent identifies a git repository root from inspected files,
+     `git rev-parse --show-toplevel`, or user input, the agent updates this
+     registry itself. Prefer the MCP `repo_registry_add`,
+     `repo_registry_remove`, `repo_registry_list`, and
+     `repo_registry_validate` tools when available. Use the guarded CLI as the
+     fallback:
+
+     ```sh
+     python3 -m agent_tools.tools.repo_registry add \
+       --task <task-dir> --workspace <workspace> --repo <repo-root> \
+       --role task-dev
+     python3 -m agent_tools.tools.repo_registry remove \
+       --task <task-dir> --workspace <workspace> --repo <repo-root>
+     ```
+     Use `remove` to delete stale entries for repositories that are no longer
+     used by the task or whose paths disappeared.
    - Durable slot content must use terse factual engineering prose. Prefer
      commands, facts, paths, statuses, risks, and next actions. Avoid praise,
      motivational phrasing, narrative recap, hedging, and decorative adjectives.
    - When an agent identifies stable domain terminology that should keep one
-     identity across sessions, add it through
+     identity across sessions, add it through MCP `task_context_dictionary`
+     when available, or through
      `python3 -m agent_tools.tools.task_context dictionary --task <task-dir>
      --add <term>`. Do not encode terms by hand in slot text; use dictionary
      aliases returned by `--format agent`.

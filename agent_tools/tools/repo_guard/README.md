@@ -11,13 +11,17 @@ python3 -m agent_tools.tools.repo_guard policy --repo .
 python3 -m agent_tools.tools.repo_guard status --repo .
 python3 -m agent_tools.tools.repo_guard validate --repo .
 python3 -m agent_tools.tools.repo_guard validate --repo . --include-heavy
+python3 -m agent_tools.tools.repo_guard pre-push-dry-run --repo . --remote origin
 python3 -m agent_tools.tools.repo_guard pre-push --repo . origin <url>
 ```
 
 `policy` and `status` print the resolved policy without running checks.
 `validate` runs policy checks and writes receipts under the repository Git
-metadata. `pre-push` accepts normal Git pre-push stdin, runs non-heavy checks,
-and requires current receipts for heavy checks.
+metadata. `pre-push-dry-run` builds a pre-push-like commit range from the
+current branch and its upstream, then runs the same non-heavy checks and heavy
+receipt checks without installing or invoking a Git hook. `pre-push` accepts
+normal Git pre-push stdin, runs non-heavy checks, and requires current receipts
+for heavy checks.
 
 ## Policy
 

@@ -6,9 +6,13 @@ rule: agent_tools/rules/cpp-code.md
 
 # C++ Code Map
 
-Use the workspace implementations at `agent_tools/tools/cpp_light_code_map` and
-`agent_tools/tools/cpp_code_map`. Do not depend on a globally installed Codex
-skill for this workflow.
+Prefer the Agent Workspace MCP `cpp_light_*` and `cpp_code_map_*` tools when
+they are available in the active agent client. Use `tool_search` to discover
+them if they are not already visible. The CLI implementations at
+`agent_tools/tools/cpp_light_code_map` and `agent_tools/tools/cpp_code_map`
+are the fallback path when MCP tools are unavailable, a command must run inside
+a specific build container, or a workflow needs shell composition. Do not
+depend on a globally installed Codex skill for this workflow.
 
 Also follow `agent_tools/rules/cpp-code.md`; that rule is stricter than this
 skill for workspace C/C++ work, especially for Docker, Zephyr, generated
@@ -19,7 +23,10 @@ headers, and real build environments.
 Use `cpp_light_code_map` first when the build environment is not yet
 formalized: the checkout, generated headers, container, toolchain, or compile
 database are still being discovered. It is the normal first-pass tool for
-orientation and quick structural edits:
+orientation and quick structural edits. Through MCP, prefer `cpp_light_map`,
+`cpp_light_symbols`, `cpp_light_refs`, `cpp_light_calls`,
+`cpp_light_call_graph`, `cpp_light_parse_check`, and guarded
+`cpp_light_*` edit tools. CLI fallback examples:
 
 ```sh
 python -m agent_tools.tools.cpp_light_code_map diagnose path/to/file.c --json
@@ -28,10 +35,12 @@ python -m agent_tools.tools.cpp_light_code_map symbols path/to/file.c --kind fun
 ```
 
 Use `cpp_code_map` once the build context is stable enough for exact source
-analysis:
+analysis. Through MCP, prefer `cpp_code_map_map`, `cpp_code_map_doctor`,
+`cpp_code_map_symbol_get`, `cpp_code_map_parse_check`, and guarded
+`cpp_code_map_*` edit tools.
 
-Run commands from the repository or workspace root where `agent_tools` is
-importable:
+For CLI fallback, run commands from the repository or workspace root where
+`agent_tools` is importable:
 
 ```sh
 python -m agent_tools.tools.cpp_code_map <command> ...

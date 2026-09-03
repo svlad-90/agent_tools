@@ -7,12 +7,16 @@ from pathlib import Path
 
 import yaml
 
+from agent_tools.tools.repo_guard import main
 from agent_tools.tools.repo_guard.git_context import head_commit
+from agent_tools.tools.repo_guard.git_context import pre_push_dry_run_stdin
 from agent_tools.tools.repo_guard.policy import load_policy
 from agent_tools.tools.repo_guard.policy import policy_summary
 from agent_tools.tools.repo_guard.runner import compact_report
 from agent_tools.tools.repo_guard.runner import pre_push
+from agent_tools.tools.repo_guard.runner import pre_push_dry_run
 from agent_tools.tools.repo_guard.runner import validate
+from agent_tools.tools.task_context import set_slot
 
 
 def _git(repo: Path, *args: str) -> str:
@@ -191,6 +195,73 @@ def test_validate_include_heavy_records_receipt_used_by_pre_push(tmp_path: Path)
     assert pre_push_result.checks[0].receipt_path is not None
 
 
+def test_pre_push_dry_run_uses_current_branch_upstream_range(tmp_path: Path) -> None:
+    repo = tmp_path / "repo"
+    _init_repo(repo)
+    (repo / "tracked.txt").write_text("ok\n", encoding="utf-8")
+    upstream_commit = _commit(repo)
+    current_branch = _git(repo, "branch", "--show-current")
+    _git(repo, "update-ref", f"refs/remotes/origin/{current_branch}", upstream_commit)
+    _git(repo, "branch", "--set-upstream-to", f"origin/{current_branch}")
+    (repo / "debug.zip").write_text("artifact\n", encoding="utf-8")
+    local_commit = _commit(repo, "Add artifact")
+    root = _policy_root(tmp_path)
+
+    result = pre_push_dry_run(repo, policy_root=root)
+    stdin_text = pre_push_dry_run_stdin(repo)
+
+    assert local_commit in stdin_text
+    assert upstream_commit in stdin_text
+    assert result.context.mode == "pre-push"
+    assert result.context.commits == (local_commit,)
+    assert result.status == "fail"
+    assert "debug.zip" in compact_report(result)
+
+
+def test_pre_push_dry_run_treats_missing_upstream_as_new_branch(tmp_path: Path) -> None:
+    repo = tmp_path / "repo"
+    _init_repo(repo)
+    (repo / "tracked.txt").write_text("ok\n", encoding="utf-8")
+    commit = _commit(repo)
+    root = _policy_root(tmp_path)
+
+    result = pre_push_dry_run(repo, policy_root=root)
+    stdin_text = pre_push_dry_run_stdin(repo)
+
+    assert commit in stdin_text
+    assert " " + ("0" * 40) + "\n" in stdin_text
+    assert result.context.mode == "pre-push"
+    assert result.context.commits == (commit,)
+
+
+def test_pre_push_dry_run_command_installs_registered_hooks(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    task_dir = workspace / "tasks" / "sample"
+    repo = task_dir / "dev" / "repo"
+    _init_repo(workspace)
+    (workspace / "README.md").write_text("workspace\n", encoding="utf-8")
+    _commit(workspace)
+    repo.parent.mkdir(parents=True)
+    _init_repo(repo)
+    (repo / "tracked.txt").write_text("ok\n", encoding="utf-8")
+    _commit(repo)
+    set_slot(task_dir, "repo-registry", "repositories:\n  - path: tasks/sample/dev/repo\n")
+
+    result = main(
+        [
+            "pre-push-dry-run",
+            "--repo",
+            str(workspace),
+            "--task-dir",
+            str(task_dir),
+        ]
+    )
+
+    assert result == 0
+    assert (repo / ".git" / "hooks" / "pre-push").is_file()
+    assert (repo / ".git" / "hooks" / "pre-commit").is_file()
+
+
 def test_command_backend_reports_compact_failure(tmp_path: Path) -> None:
     repo = tmp_path / "repo"
     _init_repo(repo)
@@ -223,6 +294,7 @@ def test_command_backend_reports_compact_failure(tmp_path: Path) -> None:
 
     assert result.status == "fail"
     assert "bad detail" in compact_report(result)
+    assert "suggested command:" in compact_report(result)
     assert result.checks[0].returncode == 7
 
 
@@ -272,6 +344,22 @@ def test_validate_parse_check_skips_deleted_python_paths(tmp_path: Path) -> None
 
     assert result.status == "pass"
     assert result.checks[0].summary == "no changed Python files"
+
+
+def test_compact_report_omits_passed_checks(tmp_path: Path) -> None:
+    repo = tmp_path / "repo"
+    _init_repo(repo)
+    (repo / "tracked.txt").write_text("ok\n", encoding="utf-8")
+    _commit(repo)
+    root = _policy_root(tmp_path)
+
+    result = validate(repo, policy_root=root)
+    report = compact_report(result)
+
+    assert "repo_guard: pass" in report
+    assert "repo_guard: 1 passed check(s) omitted" in report
+    assert "repo_guard: all checks passed" in report
+    assert "pass\tworkspace-file-hygiene" not in report
 
 
 def test_policy_summary_is_json_serializable_for_agent_surface(tmp_path: Path) -> None:

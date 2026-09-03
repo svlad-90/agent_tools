@@ -10,8 +10,12 @@ description: Maintain compact workspace task context using TASK_CONTEXT.sqlite3 
 
 # Task Context Journal
 
-Use `agent_tools/tools/task_context`. Do not recreate `TASK_CONTEXT.md`.
-`TASK_CONTEXT.sqlite3` is the only current task context source.
+Prefer the Agent Workspace MCP `task_context_*` tools when they are available
+in the active agent client. Use `tool_search` to discover them if they are not
+already visible. The CLI implementation at `agent_tools/tools/task_context` is
+the fallback path when MCP tools are unavailable or when a workflow needs shell
+composition. Do not recreate `TASK_CONTEXT.md`; `TASK_CONTEXT.sqlite3` is the
+only current task context source.
 
 Also follow `agent_tools/rules/task-workflow.md`; that rule is authoritative
 for task context policy.
@@ -31,12 +35,26 @@ Categories:
 - `blocker-risk` - optional. Current blockers and risks.
 - `operational-memory` - required. Current state, next steps, handoff.
 - `user-preference` - optional. Durable user preferences for this task.
+- `repo-registry` - optional. Explicit git repositories used by this task.
 - `legacy` - temporary migration material from old context files/entries.
 
 If `legacy` is non-empty, move still-current facts into typed slots and then
 clear or shrink `legacy`.
 
-## Commands
+## MCP Tools
+
+- `task_context_query` reads slots.
+- `task_context_set_slot` replaces one singleton slot.
+- `task_context_add_entry` appends one structured journal entry.
+- `task_context_edit_entries` edits or deletes entries.
+- `task_context_dictionary` reads or appends dictionary aliases.
+- `task_context_compile_dictionary` refreshes auto-discovered aliases.
+- `task_context_compact` renders compact context.
+- `task_context_migrate_legacy` imports old JSONL context.
+- `repo_registry_add`, `repo_registry_remove`, `repo_registry_list`, and
+  `repo_registry_validate` maintain the `repo-registry` slot.
+
+## CLI Fallback
 
 Read all slots:
 

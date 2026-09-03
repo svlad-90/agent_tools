@@ -42,6 +42,28 @@ class CppCodeMapTests(unittest.TestCase):
         self.assertNotIn("{{", result.diff or "")
         self.assertIn("    return left - right;", result.diff or "")
 
+    def test_replace_symbol_body_accepts_body_only_text(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            source = _write_sample_project(Path(temp_dir))
+            snapshot = json.loads(
+                render_symbol_snapshot(source, "add", source.parent, json_output=True)
+            )
+
+            result = replace_symbol_body(
+                source,
+                "add",
+                snapshot["body_hash"],
+                "    return left - right;\n",
+                source.parent,
+                check_only=True,
+            )
+
+        self.assertTrue(result.changed)
+        self.assertIn("+    return left - right;", result.diff or "")
+        self.assertIn(" {\n", result.diff or "")
+        self.assertIn("\n }", result.diff or "")
+        self.assertNotIn("{    return", result.diff or "")
+
     def test_batch_replace_symbol_body_unwraps_enclosing_braces(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             source = _write_sample_project(Path(temp_dir))

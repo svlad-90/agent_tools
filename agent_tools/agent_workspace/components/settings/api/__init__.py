@@ -4,7 +4,10 @@ from ..src.settings import AGENT_WORKSPACE_AGENTS
 from ..src.settings import AGENT_WORKSPACE_AGENT_COMMANDS
 from ..src.settings import AGENT_WORKSPACE_AGENT_INSTALL_COMMANDS
 from ..src.settings import AGENT_WORKSPACE_AGENT_LABELS
+from ..src.settings import AGENT_WORKSPACE_CLAUDE_MCP_ALLOW_RULE
+from ..src.settings import AGENT_WORKSPACE_CLAUDE_MCP_SERVER_ID
 from ..src.settings import AGENT_WORKSPACE_CLAUDE_MODELS
+from ..src.settings import AGENT_WORKSPACE_CODEX_MCP_SERVER_ID
 from ..src.settings import AGENT_WORKSPACE_CODEX_MODEL_FALLBACKS
 from ..src.settings import AGENT_WORKSPACE_DEFAULT_AGENT
 from ..src.settings import AGENT_WORKSPACE_DEFAULT_CLAUDE_EFFORT
@@ -15,6 +18,7 @@ from ..src.settings import AGENT_WORKSPACE_DEFAULT_CODEX_ANIMATIONS_ENABLED
 from ..src.settings import AGENT_WORKSPACE_DEFAULT_CODEX_MODEL
 from ..src.settings import AGENT_WORKSPACE_DEFAULT_CODEX_REASONING
 from ..src.settings import AGENT_WORKSPACE_DEFAULT_LIMITED_BASH_OUTPUT_TOKENS
+from ..src.settings import AGENT_WORKSPACE_DEFAULT_MCP_TRUSTED
 from ..src.settings import AGENT_WORKSPACE_GEOMETRY_RE
 from ..src.settings import AGENT_WORKSPACE_LANGUAGES
 from ..src.settings import AGENT_WORKSPACE_RELEASES_API
@@ -29,6 +33,7 @@ from ..src.settings import AgentWorkspaceSettingValue
 from ..src.settings import AgentWorkspaceUpdateCheckResult
 from ..src.settings import AgentWorkspaceUpdateResult
 from ..src.settings import AgentWorkspaceRuntimeSettings
+from ..src.settings import apply_agent_workspace_mcp_trust
 from ..src.settings import agent_command_name
 from ..src.settings import agent_executable
 from ..src.settings import agent_install_command
@@ -42,6 +47,8 @@ from ..src.settings import agent_workspace_update_commands
 from ..src.settings import ai_agent_model_settings
 from ..src.settings import claude_model_choices
 from ..src.settings import claude_model_choices_info
+from ..src.settings import claude_settings_path
+from ..src.settings import codex_config_path
 from ..src.settings import codex_model_choices
 from ..src.settings import codex_model_choices_info
 from ..src.settings import load_agent_workspace_settings
@@ -52,13 +59,21 @@ from ..src.settings import run_agent_workspace_update
 from ..src.settings import save_agent_workspace_settings
 from ..src.settings import remember_agent_workspace
 from ..src.settings import task_dictionary_policy_from_runtime_settings
+from ..src.settings import workspace_mcp_enabled_groups_for_runtime
+from ..src.settings import workspace_mcp_configurable_tool_groups
+from ..src.settings import workspace_mcp_required_tool_groups
+from ..src.settings import workspace_mcp_tool_group_tooltip
+from ..src.settings import workspace_mcp_tool_groups
 
 __all__ = [
     "AGENT_WORKSPACE_AGENTS",
     "AGENT_WORKSPACE_AGENT_COMMANDS",
     "AGENT_WORKSPACE_AGENT_INSTALL_COMMANDS",
     "AGENT_WORKSPACE_AGENT_LABELS",
+    "AGENT_WORKSPACE_CLAUDE_MCP_ALLOW_RULE",
+    "AGENT_WORKSPACE_CLAUDE_MCP_SERVER_ID",
     "AGENT_WORKSPACE_CLAUDE_MODELS",
+    "AGENT_WORKSPACE_CODEX_MCP_SERVER_ID",
     "AGENT_WORKSPACE_CODEX_MODEL_FALLBACKS",
     "AGENT_WORKSPACE_DEFAULT_AGENT",
     "AGENT_WORKSPACE_DEFAULT_CLAUDE_EFFORT",
@@ -69,6 +84,7 @@ __all__ = [
     "AGENT_WORKSPACE_DEFAULT_CODEX_MODEL",
     "AGENT_WORKSPACE_DEFAULT_CODEX_REASONING",
     "AGENT_WORKSPACE_DEFAULT_LIMITED_BASH_OUTPUT_TOKENS",
+    "AGENT_WORKSPACE_DEFAULT_MCP_TRUSTED",
     "AGENT_WORKSPACE_GEOMETRY_RE",
     "AGENT_WORKSPACE_LANGUAGES",
     "AGENT_WORKSPACE_RELEASES_API",
@@ -83,6 +99,7 @@ __all__ = [
     "AgentWorkspaceUpdateCheckResult",
     "AgentWorkspaceRuntimeSettings",
     "AgentWorkspaceUpdateResult",
+    "apply_agent_workspace_mcp_trust",
     "agent_command_name",
     "agent_executable",
     "agent_install_command",
@@ -96,6 +113,8 @@ __all__ = [
     "ai_agent_model_settings",
     "claude_model_choices",
     "claude_model_choices_info",
+    "claude_settings_path",
+    "codex_config_path",
     "codex_model_choices",
     "codex_model_choices_info",
     "load_agent_workspace_settings",
@@ -106,4 +125,9 @@ __all__ = [
     "save_agent_workspace_settings",
     "remember_agent_workspace",
     "task_dictionary_policy_from_runtime_settings",
+    "workspace_mcp_enabled_groups_for_runtime",
+    "workspace_mcp_configurable_tool_groups",
+    "workspace_mcp_required_tool_groups",
+    "workspace_mcp_tool_group_tooltip",
+    "workspace_mcp_tool_groups",
 ]

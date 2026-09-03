@@ -12,6 +12,7 @@ from typing import Sequence
 from .policy import policy_summary
 from .runner import compact_report
 from .runner import pre_push
+from .runner import pre_push_dry_run
 from .runner import validate
 
 
@@ -37,6 +38,14 @@ def main(argv: Sequence[str] | None = None) -> int:
     pre_push_parser.add_argument("remote_name", nargs="?")
     pre_push_parser.add_argument("remote_url", nargs="?")
     pre_push_parser.set_defaults(func=_pre_push_command)
+
+    dry_run_parser = subparsers.add_parser(
+        "pre-push-dry-run",
+        help="Run the pre-push guard pipeline without installing or invoking a git hook.",
+    )
+    _add_common_args(dry_run_parser)
+    dry_run_parser.add_argument("--remote", default="origin", help="Remote name to compare against.")
+    dry_run_parser.set_defaults(func=_pre_push_dry_run_command)
 
     args = parser.parse_args(argv)
     return int(args.func(args))
@@ -96,6 +105,24 @@ def _pre_push_command(args: argparse.Namespace) -> int:
     return 0 if result.status == "pass" else 1
 
 
+def _pre_push_dry_run_command(args: argparse.Namespace) -> int:
+    task_dir = _task_dir(args)
+    hook_status = _install_registered_hooks_for_task(
+        Path(args.repo).expanduser().resolve(),
+        task_dir=task_dir,
+    )
+    if hook_status != 0:
+        return hook_status
+    result = pre_push_dry_run(
+        Path(args.repo).expanduser().resolve(),
+        remote_name=args.remote,
+        task_dir=task_dir,
+        policy_root=_policy_root(args),
+    )
+    print(compact_report(result), file=sys.stderr if result.status != "pass" else sys.stdout)
+    return 0 if result.status == "pass" else 1
+
+
 def _task_dir(args: argparse.Namespace) -> Path | None:
     if not args.task_dir:
         return None
@@ -108,4 +135,38 @@ def _policy_root(args: argparse.Namespace) -> Path | None:
     return Path(args.policy_root).expanduser().resolve()
 
 
-__all__ = ["main", "pre_push", "validate"]
+def _install_registered_hooks_for_task(repo: Path, *, task_dir: Path | None) -> int:
+    if task_dir is None:
+        return 0
+
+    from agent_tools.tools.push_guard import _install_repo_hooks
+    from agent_tools.tools.repo_registry import validate_repo_registry
+
+    workspace = _workspace_for_task(task_dir) or repo
+    validation = validate_repo_registry(task_dir, workspace=workspace)
+    if validation.errors:
+        for error in validation.errors:
+            print(f"repo_guard: invalid repo-registry entry: {error}", file=sys.stderr)
+        return 1
+    if not validation.repositories:
+        print("repo_guard: repo-registry is empty; no hooks installed", file=sys.stderr)
+        return 0
+
+    for registered_repo in validation.repositories:
+        _install_repo_hooks(registered_repo)
+    print(f"repo_guard: installed hooks for {len(validation.repositories)} registered repo(s)")
+    return 0
+
+
+def _workspace_for_task(task_dir: Path) -> Path | None:
+    resolved = task_dir.resolve()
+    parts = resolved.parts
+    if "tasks" not in parts:
+        return None
+    tasks_index = len(parts) - 1 - list(reversed(parts)).index("tasks")
+    if tasks_index == 0:
+        return None
+    return Path(*parts[:tasks_index])
+
+
+__all__ = ["main", "pre_push", "pre_push_dry_run", "validate"]

@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import subprocess
 from pathlib import Path
 
 from paf_workspace.task_check import Check
 from paf_workspace.task_check import check_task
+from paf_workspace.task_check import initialize_task_guard
 from paf_workspace.task_check import initialize_task_layout
 from paf_workspace.task_check import main
 from paf_workspace.task_check import render_text
@@ -29,6 +31,7 @@ def test_initialize_task_layout_creates_context_database_without_description_fil
     assert _has_check(initialize_checks, "PASS", "actualize-harness-adapter-ready")
     assert _has_check(checks, "PASS", "task-context-database")
     assert _has_check(checks, "FAIL", "task-context-slot-required")
+    assert _has_check(checks, "WARN", "task-guard-missing")
 
 
 def test_init_layout_command_succeeds_before_context_is_filled(tmp_path: Path) -> None:
@@ -47,6 +50,65 @@ def test_initialize_task_layout_records_task_privacy(tmp_path: Path) -> None:
     initialize_task_layout(task_dir, workspace=tmp_path, privacy="private")
 
     assert '"privacy": "private"' in (task_dir / "TASK_METADATA.json").read_text(encoding="utf-8")
+
+
+def test_initialize_task_guard_creates_skeleton_without_overwriting(tmp_path: Path) -> None:
+    task_dir = tmp_path / "tasks" / "sample-task"
+
+    checks = initialize_task_guard(task_dir, workspace=tmp_path)
+    guard_path = task_dir / "TASK_GUARD.yaml"
+    guard_path.write_text("version: 1\nchecks:\n  - id: local\n", encoding="utf-8")
+    second_checks = initialize_task_guard(task_dir, workspace=tmp_path)
+
+    assert _has_check(checks, "PASS", "init-task-guard")
+    assert guard_path.read_text(encoding="utf-8") == "version: 1\nchecks:\n  - id: local\n"
+    assert _has_check(second_checks, "PASS", "init-task-guard-existing")
+
+
+def test_init_guard_command_succeeds_before_context_is_filled(tmp_path: Path) -> None:
+    task_dir = tmp_path / "tasks" / "sample-task"
+
+    result = main([str(task_dir), "--workspace", str(tmp_path), "--init-guard"])
+
+    assert result == 0
+    assert (task_dir / "TASK_GUARD.yaml").read_text(encoding="utf-8") == "version: 1\nchecks: []\n"
+
+
+def test_task_check_validates_task_guard_schema(tmp_path: Path) -> None:
+    task_dir = tmp_path / "tasks" / "sample-task"
+    initialize_task_layout(task_dir, workspace=tmp_path)
+    set_slot(task_dir, "goal", "Goal.")
+    set_slot(task_dir, "operational-memory", "Current: ready.")
+    (task_dir / "TASK_GUARD.yaml").write_text(
+        "version: 1\nchecks:\n  - id: bad\n    backend: mystery\n",
+        encoding="utf-8",
+    )
+
+    checks = check_task(task_dir, workspace=tmp_path)
+
+    assert _has_check(checks, "FAIL", "task-guard-invalid")
+
+
+def test_task_check_accepts_valid_task_guard(tmp_path: Path) -> None:
+    task_dir = tmp_path / "tasks" / "sample-task"
+    initialize_task_layout(task_dir, workspace=tmp_path)
+    set_slot(task_dir, "goal", "Goal.")
+    set_slot(task_dir, "operational-memory", "Current: ready.")
+    (task_dir / "TASK_GUARD.yaml").write_text(
+        "version: 1\n"
+        "checks:\n"
+        "  - id: local-smoke\n"
+        "    backend: command\n"
+        "    cost: cheap\n"
+        "    command: [python3, -c, 'print(\"ok\")']\n",
+        encoding="utf-8",
+    )
+
+    checks = check_task(task_dir, workspace=tmp_path)
+
+    assert _has_check(checks, "PASS", "task-guard")
+    assert not _has_check(checks, "WARN", "task-guard-missing")
+    assert not _has_check(checks, "FAIL", "task-guard-invalid")
 
 
 def test_nested_worktree_manifests_do_not_make_task_runtime_product(tmp_path: Path) -> None:
@@ -97,6 +159,40 @@ def test_required_task_context_slots_are_checked(tmp_path: Path) -> None:
 
     assert _has_check(checks, "PASS", "task-context-slot-required")
     assert not _has_check(checks, "FAIL", "task-context-slot-required")
+
+
+def test_repo_registry_slot_is_warned_when_empty(tmp_path: Path) -> None:
+    task_dir = tmp_path / "tasks" / "sample-task"
+    initialize_task_layout(task_dir, workspace=tmp_path)
+    set_slot(task_dir, "goal", "Goal.")
+    set_slot(task_dir, "operational-memory", "Current: ready.")
+
+    checks = check_task(task_dir, workspace=tmp_path)
+
+    assert _has_check(checks, "WARN", "task-context-repo-registry-missing")
+
+    repo = task_dir / "dev" / "repo"
+    repo.mkdir()
+    subprocess.run(["git", "init"], cwd=repo, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    set_slot(task_dir, "repo-registry", "repositories:\n  - path: tasks/sample-task/dev/repo\n")
+
+    checks = check_task(task_dir, workspace=tmp_path)
+
+    assert _has_check(checks, "PASS", "task-context-repo-registry")
+    assert not _has_check(checks, "WARN", "task-context-repo-registry-missing")
+
+
+def test_repo_registry_slot_fails_for_non_repo_path(tmp_path: Path) -> None:
+    task_dir = tmp_path / "tasks" / "sample-task"
+    initialize_task_layout(task_dir, workspace=tmp_path)
+    set_slot(task_dir, "goal", "Goal.")
+    set_slot(task_dir, "operational-memory", "Current: ready.")
+    set_slot(task_dir, "repo-registry", "repositories:\n  - path: tasks/sample-task/dev/plain\n")
+    (task_dir / "dev" / "plain").mkdir()
+
+    checks = check_task(task_dir, workspace=tmp_path)
+
+    assert _has_check(checks, "FAIL", "task-context-repo-registry-invalid")
 
 
 def test_legacy_task_context_markdown_is_non_strict_warning(tmp_path: Path) -> None:
@@ -251,6 +347,21 @@ def test_render_text_errors_only_keeps_summary_and_failures(tmp_path: Path) -> N
     assert "FAIL task-dir" in report
     assert "PASS layout-dir" not in report
     assert "WARN task-context-slot-recommended" not in report
+
+
+def test_render_text_issues_only_keeps_warnings_and_failures(tmp_path: Path) -> None:
+    checks = [
+        Check("PASS", "layout-dir", "required directory exists"),
+        Check("WARN", "task-context-slot-recommended", "recommended context slot is empty: env"),
+        Check("FAIL", "task-dir", "task directory is missing"),
+    ]
+
+    report = render_text(tmp_path / "tasks" / "missing-task", checks, issues_only=True)
+
+    assert "Summary: 1 pass, 1 warn, 1 fail" in report
+    assert "WARN task-context-slot-recommended" in report
+    assert "FAIL task-dir" in report
+    assert "PASS layout-dir" not in report
 
 
 def _has_check(checks: list[Check], status: str, code: str) -> bool:

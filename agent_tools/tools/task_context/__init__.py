@@ -69,6 +69,7 @@ SLOT_CATEGORIES = (
     "blocker-risk",
     "operational-memory",
     "user-preference",
+    "repo-registry",
     "legacy",
 )
 REQUIRED_SLOT_CATEGORIES = ("goal", "operational-memory")

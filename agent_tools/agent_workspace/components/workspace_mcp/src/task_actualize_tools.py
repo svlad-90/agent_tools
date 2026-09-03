@@ -12,7 +12,11 @@ def task_actualize_tools() -> list[McpTool]:
         McpTool(
             name="task_actualize",
             title="Task Actualize",
-            description="Actualize an existing workspace task for current Agent Workspace tools.",
+            description=(
+                "Use instead of manually adding current workspace task infrastructure "
+                "to an old task. Actualizes slots, guard skeletons, and supported "
+                "metadata with compact pass/warn/fail output."
+            ),
             input_schema=_actualize_input_schema(),
             handler=_task_actualize,
         ),

@@ -7,9 +7,10 @@ sync: skill
 These rules apply to diff/review reports generated under task `report/diff/`
 directories.
 
-1. Generate review reports with `python -m agent_tools.tools.diff_report`. Put the
-   generated HTML, canonical comments JSON, and source diff or patch under the
-   task's `report/diff/` directory.
+1. Generate review reports with Agent Workspace MCP `diff_report_*` tools when
+   available, or with `python -m agent_tools.tools.diff_report` as CLI
+   fallback. Put the generated HTML, canonical comments JSON, and source diff
+   or patch under the task's `report/diff/` directory.
 2. Use stable commit indexes instead of commit hashes in human-facing report
    names, report titles, reviewer summaries, and explanatory comments.
    Number commits by their order in the reviewed series, starting from `01`,

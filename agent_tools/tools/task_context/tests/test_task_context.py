@@ -7,6 +7,8 @@ import sqlite3
 import sys
 from types import SimpleNamespace
 
+import pytest
+
 from agent_tools.tools.task_context import DATABASE_FILENAME
 from agent_tools.tools.task_context import DICTIONARY_CODEC_VERSION
 from agent_tools.tools.task_context import DICTIONARY_PREVIEW_TEXT
@@ -30,6 +32,11 @@ from agent_tools.tools.task_context import set_slot
 from agent_tools.tools.task_context import token_count
 import agent_tools.tools.task_context as task_context_module
 from agent_tools.tools.task_context import _candidate_net_saving
+
+
+@pytest.fixture(autouse=True)
+def _isolate_agent_workspace_config(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
 
 
 def test_add_entry_writes_sqlite_with_metadata(tmp_path: Path) -> None:
@@ -85,6 +92,15 @@ def test_migration_rejects_invalid_timestamp(tmp_path: Path) -> None:
         assert "timestamp must be an ISO-8601 date-time" in str(exc)
     else:
         raise AssertionError("invalid timestamp was accepted")
+
+
+def test_repo_registry_slot_is_supported(tmp_path: Path) -> None:
+    set_slot(tmp_path, "repo-registry", "repositories:\n  - path: .\n")
+
+    slots = load_slots(tmp_path, ("repo-registry",))
+
+    assert slots[0].category == "repo-registry"
+    assert "repositories:" in slots[0].content
 
 
 def test_query_filters_by_date_severity_label_and_status(tmp_path: Path) -> None:

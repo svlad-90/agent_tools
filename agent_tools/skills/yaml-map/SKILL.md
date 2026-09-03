@@ -5,16 +5,25 @@ description: Inspect, query, safely edit, and validate YAML files with the works
 
 # YAML Map
 
-Use the workspace implementation at `agent_tools/tools/yaml_map`. Do not depend on a
-globally installed Codex skill for this workflow.
+Prefer the Agent Workspace MCP `yaml_map_*` tools when they are available in
+the active agent client. Use `tool_search` to discover them if they are not
+already visible. The CLI implementation at `agent_tools/tools/yaml_map` is the
+fallback path when MCP tools are unavailable or when a workflow needs shell
+composition. Do not depend on a globally installed Codex skill for this
+workflow.
 
 Use this skill for structured YAML work where preserving valid YAML and editing
 the intended path matters more than raw text replacement.
 
 ## Core Workflow
 
-Run commands from the workspace root or another directory where `agent_tools`
-is importable:
+With MCP, use workspace-relative file paths through `yaml_map_file`,
+`yaml_map_project`, `yaml_map_path_get`, `yaml_map_path_set`,
+`yaml_map_item_insert`, `yaml_map_path_delete`, and
+`yaml_map_parse_check`.
+
+For CLI fallback, run commands from the workspace root or another directory
+where `agent_tools` is importable:
 
 ```sh
 python -m agent_tools.tools.yaml_map <command> ...

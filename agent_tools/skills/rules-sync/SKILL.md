@@ -5,9 +5,13 @@ description: Mirror agent_tools/rules/*.md and agent_tools/skills/*/SKILL.md int
 
 # Rules Sync
 
-Use the workspace implementation at `agent_tools/tools/rules_sync`. Do not
-hand-edit generated files under `.claude/skills/` or the generated block in
-`CLAUDE.md` — they are regenerated from `agent_tools/rules/*.md` and
+Prefer the Agent Workspace MCP `rules_sync_check` and `rules_sync_apply` tools
+when they are available in the active agent client. Use `tool_search` to
+discover them if they are not already visible. The CLI implementation at
+`agent_tools/tools/rules_sync` is the fallback path when MCP tools are
+unavailable or a workflow needs shell composition. Do not hand-edit generated
+files under `.claude/skills/` or the generated block in `CLAUDE.md` - they are
+regenerated from `agent_tools/rules/*.md` and
 `agent_tools/skills/*/SKILL.md`, which remain the single source of truth.
 
 Also follow `agent_tools/rules/workspace-skills.md`; it documents the
@@ -17,14 +21,16 @@ Also follow `agent_tools/rules/workspace-skills.md`; it documents the
 ## Workflow
 
 1. After adding or editing any file under `agent_tools/rules/` or
-   `agent_tools/skills/*/SKILL.md`, regenerate the mirrors from the workspace
-   root:
+   `agent_tools/skills/*/SKILL.md`, regenerate the mirrors with MCP
+   `rules_sync_apply` when available, or from the workspace root with CLI
+   fallback:
 
    ```sh
    python -m agent_tools.tools.rules_sync sync
    ```
 
-2. Before treating that change as complete, verify there is no drift:
+2. Before treating that change as complete, verify there is no drift with MCP
+   `rules_sync_check` when available, or with CLI fallback:
 
    ```sh
    python -m agent_tools.tools.rules_sync sync --check

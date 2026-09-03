@@ -19,28 +19,44 @@ def diff_report_tools() -> list[McpTool]:
         McpTool(
             name="diff_report_render",
             title="Diff Report Render",
-            description="Render a GitHub-style HTML diff report from a git range or unified diff file.",
+            description=(
+                "Use instead of manually assembling review HTML for a git range or "
+                "unified diff. Reads workspace paths, applies optional comments JSON, "
+                "and writes the standard GitHub-style diff report artifact."
+            ),
             input_schema=_render_input_schema(),
             handler=_diff_report_render,
         ),
         McpTool(
             name="diff_report_render_json",
             title="Diff Report Render JSON",
-            description="Render a generic non-diff HTML report from diff_report report JSON.",
+            description=(
+                "Use instead of custom report rendering when a diff_report JSON "
+                "payload already exists. Produces the standard HTML dashboard/report "
+                "artifact from a workspace-relative JSON file."
+            ),
             input_schema=_render_json_input_schema(),
             handler=_diff_report_render_json,
         ),
         McpTool(
             name="diff_report_init_comments",
             title="Diff Report Init Comments",
-            description="Write a starter comments JSON template for a git range or unified diff file.",
+            description=(
+                "Use before writing review findings instead of hand-building comments "
+                "JSON. Extracts diff targets from a git range or diff file and writes "
+                "a valid starter template."
+            ),
             input_schema=_init_comments_input_schema(),
             handler=_diff_report_init_comments,
         ),
         McpTool(
             name="diff_report_compose_findings",
             title="Diff Report Compose Findings",
-            description="Compose canonical comments JSON from draft findings and optionally render HTML.",
+            description=(
+                "Use instead of manually mapping draft findings to diff comments. "
+                "Composes canonical comments JSON, reports diagnostics compactly, "
+                "and can render the final HTML report in one guarded workflow."
+            ),
             input_schema=_compose_findings_input_schema(),
             handler=_diff_report_compose_findings,
         ),
@@ -181,11 +197,28 @@ def _error_result(error: Exception) -> ToolResult:
 
 def _diff_source_properties() -> JsonObject:
     return {
-        "repo": {"type": "string", "description": "Workspace-relative git repository path."},
-        "rev_range": {"type": "string", "default": "HEAD^..HEAD"},
-        "diff_file": {"type": "string", "description": "Workspace-relative unified git diff file path."},
-        "context_lines": {"type": "integer", "default": 80},
-        "display_label": {"type": "string"},
+        "repo": {
+            "type": "string",
+            "description": "Workspace-relative git repository path used when reading rev_range.",
+        },
+        "rev_range": {
+            "type": "string",
+            "description": "Git revision range to render when diff_file is not provided.",
+            "default": "HEAD^..HEAD",
+        },
+        "diff_file": {
+            "type": "string",
+            "description": "Workspace-relative unified git diff file path; overrides repo/rev_range input.",
+        },
+        "context_lines": {
+            "type": "integer",
+            "description": "Number of unchanged context lines around diff hunks.",
+            "default": 80,
+        },
+        "display_label": {
+            "type": "string",
+            "description": "Optional human-readable source label shown in the report.",
+        },
     }
 
 
@@ -193,10 +226,24 @@ def _render_input_schema() -> JsonObject:
     properties = _diff_source_properties()
     properties.update(
         {
-            "comments": {"type": "string", "description": "Workspace-relative comments JSON path."},
-            "output": {"type": "string", "description": "Workspace-relative HTML output path."},
-            "title": {"type": "string", "default": "PR Diff Review"},
-            "refresh_targets": {"type": "boolean", "default": False},
+            "comments": {
+                "type": "string",
+                "description": "Workspace-relative comments JSON path to overlay review findings.",
+            },
+            "output": {
+                "type": "string",
+                "description": "Workspace-relative HTML output path, usually under task report/diff/.",
+            },
+            "title": {
+                "type": "string",
+                "description": "HTML report title.",
+                "default": "PR Diff Review",
+            },
+            "refresh_targets": {
+                "type": "boolean",
+                "description": "Refresh comment target metadata beside the rendered report.",
+                "default": False,
+            },
         }
     )
     return {
@@ -211,9 +258,18 @@ def _render_json_input_schema() -> JsonObject:
     return {
         "type": "object",
         "properties": {
-            "report_json": {"type": "string", "description": "Workspace-relative report JSON path."},
-            "output": {"type": "string", "description": "Workspace-relative HTML output path."},
-            "title": {"type": "string"},
+            "report_json": {
+                "type": "string",
+                "description": "Workspace-relative diff_report JSON dashboard/report payload.",
+            },
+            "output": {
+                "type": "string",
+                "description": "Workspace-relative HTML output path.",
+            },
+            "title": {
+                "type": "string",
+                "description": "Optional HTML report title override.",
+            },
         },
         "required": ["report_json", "output"],
         "additionalProperties": False,
@@ -224,7 +280,7 @@ def _init_comments_input_schema() -> JsonObject:
     properties = _diff_source_properties()
     properties["output_comments"] = {
         "type": "string",
-        "description": "Workspace-relative comments JSON output path.",
+        "description": "Workspace-relative comments JSON output path, usually under task report/diff/.",
     }
     return {
         "type": "object",
@@ -238,12 +294,32 @@ def _compose_findings_input_schema() -> JsonObject:
     properties = _diff_source_properties()
     properties.update(
         {
-            "findings": {"type": "string", "description": "Workspace-relative draft findings JSON path."},
-            "output_comments": {"type": "string", "description": "Workspace-relative comments JSON output path."},
-            "compose_report": {"type": "string", "description": "Workspace-relative diagnostics JSON output path."},
-            "output": {"type": "string", "description": "Workspace-relative optional HTML output path."},
-            "title": {"type": "string", "default": "PR Diff Review"},
-            "refresh_targets": {"type": "boolean", "default": False},
+            "findings": {
+                "type": "string",
+                "description": "Workspace-relative draft findings JSON path to compose into comments.",
+            },
+            "output_comments": {
+                "type": "string",
+                "description": "Workspace-relative canonical comments JSON output path.",
+            },
+            "compose_report": {
+                "type": "string",
+                "description": "Workspace-relative diagnostics JSON output path for unmapped findings.",
+            },
+            "output": {
+                "type": "string",
+                "description": "Workspace-relative optional HTML output path to render after composing.",
+            },
+            "title": {
+                "type": "string",
+                "description": "HTML report title when output is requested.",
+                "default": "PR Diff Review",
+            },
+            "refresh_targets": {
+                "type": "boolean",
+                "description": "Refresh comment target metadata beside the rendered report.",
+                "default": False,
+            },
         }
     )
     return {

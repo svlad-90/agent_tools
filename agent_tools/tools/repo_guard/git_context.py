@@ -55,6 +55,25 @@ def remote_urls(repo: Path) -> dict[str, str]:
     return result
 
 
+def current_branch(repo: Path) -> str:
+    return run_git(["symbolic-ref", "--quiet", "--short", "HEAD"], cwd=repo)
+
+
+def pre_push_dry_run_stdin(repo: Path, *, remote_name: str = "origin") -> str:
+    branch = current_branch(repo)
+    local_sha = head_commit(repo)
+    local_ref = f"refs/heads/{branch}"
+    remote_ref = f"refs/heads/{branch}"
+    remote_sha = ZERO_SHA
+    upstream = _upstream_ref(repo)
+    if upstream is not None:
+        upstream_remote, upstream_branch = _split_upstream(upstream)
+        if upstream_remote == remote_name:
+            remote_ref = f"refs/heads/{upstream_branch}"
+            remote_sha = head_commit(repo, upstream)
+    return f"{local_ref} {local_sha} {remote_ref} {remote_sha}\n"
+
+
 def normalize_remote_url(url: str) -> str:
     value = url.strip()
     value = value.removeprefix("git@")
@@ -70,6 +89,20 @@ def github_slug(url: str) -> tuple[str, str] | None:
     if not match:
         return None
     return match.group("owner"), match.group("name")
+
+
+def _upstream_ref(repo: Path) -> str | None:
+    try:
+        return run_git(["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{upstream}"], cwd=repo)
+    except subprocess.CalledProcessError:
+        return None
+
+
+def _split_upstream(upstream: str) -> tuple[str, str]:
+    remote, _, branch = upstream.partition("/")
+    if not branch:
+        return remote, remote
+    return remote, branch
 
 
 def pushed_ref_tips(stdin_text: str, repo: Path) -> tuple[str, ...]:

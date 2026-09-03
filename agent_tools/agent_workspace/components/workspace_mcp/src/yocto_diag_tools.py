@@ -19,14 +19,21 @@ def yocto_diag_tools() -> list[McpTool]:
         McpTool(
             name="yocto_diag_command",
             title="Yocto Diag Command",
-            description="Build a BitBake diagnostic shell command with optional graph artifact copying.",
+            description=(
+                "Use in Yocto tasks instead of hand-writing fragile source/build "
+                "commands. Returns a shell-ready BitBake diagnostic command with "
+                "quoted arguments and optional graph artifact copying."
+            ),
             input_schema=_command_input_schema(),
             handler=_yocto_diag_command,
         ),
         McpTool(
             name="yocto_diag_analyze_graph",
             title="Yocto Diag Analyze Graph",
-            description="Summarize BitBake graph files by copied graph prefix.",
+            description=(
+                "Use instead of grepping large BitBake graph files. Reads copied "
+                "graph artifacts by prefix and returns a compact dependency summary."
+            ),
             input_schema=_analyze_graph_input_schema(),
             handler=_yocto_diag_analyze_graph,
         ),
@@ -102,18 +109,37 @@ def _command_input_schema() -> JsonObject:
     return {
         "type": "object",
         "properties": {
-            "yocto_dir": {"type": "string", "description": "Workspace-relative Yocto checkout path."},
-            "build_dir": {"type": "string", "default": "build-xen-qemu-421"},
-            "init_script": {"type": "string", "default": "poky/oe-init-build-env"},
-            "bitbake_args": {"type": "string", "description": "BitBake command arguments to quote as shell words."},
+            "yocto_dir": {
+                "type": "string",
+                "description": "Workspace-relative Yocto checkout path.",
+            },
+            "build_dir": {
+                "type": "string",
+                "description": "Yocto build directory passed to the init script.",
+                "default": "build-xen-qemu-421",
+            },
+            "init_script": {
+                "type": "string",
+                "description": "Init script path relative to yocto_dir.",
+                "default": "poky/oe-init-build-env",
+            },
+            "bitbake_args": {
+                "type": "string",
+                "description": "BitBake command arguments to quote as shell words.",
+            },
             "graph_output_dir": {
                 "type": "string",
                 "description": "Workspace-relative directory where graph files should be copied on success.",
             },
-            "graph_label": {"type": "string", "default": "bitbake-graph"},
+            "graph_label": {
+                "type": "string",
+                "description": "Filename prefix for copied graph artifacts.",
+                "default": "bitbake-graph",
+            },
             "graph_files": {
                 "type": "array",
                 "items": {"type": "string"},
+                "description": "Graph file basenames to copy from the Yocto build directory.",
                 "default": list(DEFAULT_GRAPH_FILES),
             },
         },

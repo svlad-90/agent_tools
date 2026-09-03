@@ -71,8 +71,10 @@ def read_task_file(task: TaskSummary, filename: str) -> str:
     return path.read_text(encoding="utf-8", errors="replace")
 
 
-def run_task_check(task: TaskSummary, workspace: Path) -> str:
+def run_task_check(task: TaskSummary, workspace: Path, *, issues_only: bool = False) -> str:
     checks = check_task(task.path, workspace=workspace.resolve())
+    if issues_only:
+        return render_text(task.path, checks, issues_only=True)
     return render_text(task.path, checks, errors_only=True)
 
 

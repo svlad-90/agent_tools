@@ -17,14 +17,23 @@ def validate_tools() -> list[McpTool]:
         McpTool(
             name="validate_changed",
             title="Validate Changed",
-            description="Validate changed files in a workspace git repository.",
+            description=(
+                "Use instead of manually composing git diff, parse checks, pytest, "
+                "task_check, and repo policy commands before a push. Validates "
+                "changed files, writes a receipt, and returns compact pass/fail "
+                "rows with actionable failure tails."
+            ),
             input_schema=_changed_input_schema(),
             handler=_validate_changed,
         ),
         McpTool(
             name="validate_task",
             title="Validate Task",
-            description="Validate changed files and one workspace task directory.",
+            description=(
+                "Use instead of ad-hoc task validation command bundles. Validates "
+                "changed files plus one workspace task directory, applies repo/task "
+                "policy, writes a task-local receipt, and returns compact failures."
+            ),
             input_schema=_task_input_schema(),
             handler=_validate_task,
         ),
@@ -132,7 +141,7 @@ def _receipt_path(
     if value is None:
         return default.resolve()
     path = Path(value)
-    resolved = path.resolve() if path.is_absolute() else (repo / path).resolve()
+    resolved = path.resolve() if path.is_absolute() else (context.workspace / path).resolve()
     try:
         resolved.relative_to(context.workspace)
     except ValueError as error:
@@ -161,16 +170,16 @@ def _changed_input_schema() -> JsonObject:
             "repo": {
                 "type": "string",
                 "default": ".",
-                "description": "Workspace-relative or absolute git repository path.",
+                "description": "Workspace-relative or absolute path inside the git repository to validate.",
             },
             "receipt": {
                 "type": "string",
-                "description": "Workspace-local receipt output path.",
+                "description": "Workspace-local receipt output path. Default is report/validation/latest.json or task report/validation/latest.json.",
             },
             "mark_push_guard": {
                 "type": "boolean",
                 "default": False,
-                "description": "Record push_guard success when validation passes.",
+                "description": "Record a push_guard success stamp for HEAD when validation passes.",
             },
         },
         "additionalProperties": False,
@@ -181,7 +190,7 @@ def _task_input_schema() -> JsonObject:
     schema = _changed_input_schema()
     schema["properties"]["task_dir"] = {
         "type": "string",
-        "description": "Workspace-relative, repo-relative, or absolute task directory.",
+        "description": "Workspace-relative, repo-relative, or absolute task directory under workspace tasks/.",
     }
     schema["required"] = ["task_dir"]
     return schema

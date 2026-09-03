@@ -14,11 +14,13 @@ When explaining C/C++ or assembly changes, follow the workspace guidance in
 `AGENTS.md` for introducing low-level systems concepts in plain language before
 naming exact symbols or APIs.
 
-1. Use `agent_tools/tools/cpp_light_code_map` as the first C/C++ orientation
-   tool when the build environment, compile database, generated headers, or
-   container setup is not yet established. This includes early task scoping,
-   first-pass file reading, rough symbol discovery, quick local fixes, and
-   guarded structural edits that do not require type information.
+1. Use Agent Workspace MCP `cpp_light_*` tools as the first C/C++ orientation
+   path when the build environment, compile database, generated headers, or
+   container setup is not yet established and those tools are available in the
+   active agent client. This includes early task scoping, first-pass file
+   reading, rough symbol discovery, quick local fixes, and guarded structural
+   edits that do not require type information. Use the CLI implementation at
+   `agent_tools/tools/cpp_light_code_map` only as fallback:
 
    ```sh
    python -m agent_tools.tools.cpp_light_code_map diagnose path/to/file.c --json
@@ -32,14 +34,15 @@ naming exact symbols or APIs.
    headers, compiler macros, ABI details, or compilation. Treat its spans,
    hashes, calls, refs, locals, complexity, and rename/body edit support as a
    fast working map, not as proof that the program is correct.
-2. Move to `agent_tools/tools/cpp_code_map` once the build environment is
-   selected and reasonably stable: the source checkout is known, the container
-   or toolchain is chosen, generated headers exist, and the translation unit has
-   or should have a valid `compile_commands.json` entry. From that point,
-   `cpp_code_map` is the required precision tool for exact symbol maps,
-   symbol-level analysis, guarded C/C++ edits, review comments, and
-   diagram/audit work.
-3. Run commands from the workspace root with:
+2. Move to Agent Workspace MCP `cpp_code_map_*` tools once the build
+   environment is selected and reasonably stable: the source checkout is known,
+   the container or toolchain is chosen, generated headers exist, and the
+   translation unit has or should have a valid `compile_commands.json` entry.
+   From that point, `cpp_code_map` is the required precision tool for exact
+   symbol maps, symbol-level analysis, guarded C/C++ edits, review comments,
+   and diagram/audit work. Use the CLI implementation at
+   `agent_tools/tools/cpp_code_map` only as fallback.
+3. For CLI fallback, run commands from the workspace root with:
 
    ```sh
    python -m agent_tools.tools.cpp_light_code_map <command> ...
@@ -73,14 +76,16 @@ naming exact symbols or APIs.
 
 7. Before reading or changing an existing C or C++ source file during early
    orientation or an unsettled environment phase, inspect its structure with
-   `cpp_light_code_map`:
+   MCP `cpp_light_map`/`cpp_light_symbols` when available, or with CLI
+   fallback:
 
    ```sh
    python -m agent_tools.tools.cpp_light_code_map diagnose path/to/file.cpp --json
    python -m agent_tools.tools.cpp_light_code_map outline path/to/file.cpp --compact
    ```
 
-   Once the build context is stable, inspect the same file with `cpp_code_map`:
+   Once the build context is stable, inspect the same file with MCP
+   `cpp_code_map_map` when available, or with CLI fallback:
 
    ```sh
    python -m agent_tools.tools.cpp_code_map map path/to/file.cpp \
@@ -88,23 +93,24 @@ naming exact symbols or APIs.
    ```
 
 8. Before changing an existing class, function, method, or C function in the
-   stable build phase, resolve its exact span and current hash with
-   `cpp_code_map`:
+   stable build phase, resolve its exact span and current hash with MCP
+   `cpp_code_map_symbol_get` when available, or with CLI fallback:
 
    ```sh
    python -m agent_tools.tools.cpp_code_map symbol-get path/to/file.cpp \
      --symbol Qualified::Name --compile-db path/to/build
    ```
 
-   For quick structural edits before the build context is established, use
-   `cpp_light_code_map symbol-get` plus `--check-only` edit commands first, and
-   record that the edit has only structural validation until the normal build or
-   `cpp_code_map` path runs.
+   For quick structural edits before the build context is established, use MCP
+   `cpp_light_symbol_get` plus check-only edit operations when available, or
+   the corresponding CLI commands first, and record that the edit has only
+   structural validation until the normal build or `cpp_code_map` path runs.
 
 9. After C or C++ edits, use the project's normal build, test, or runtime
-   validation path as the authoritative check. Use `cpp_code_map parse-check`
-   when it gives useful fast feedback in the same build environment, but do
-   not treat it as a substitute for the build.
+   validation path as the authoritative check. Use MCP
+   `cpp_code_map_parse_check` when available, or CLI `cpp_code_map parse-check`
+   when it gives useful fast feedback in the same build environment, but do not
+   treat it as a substitute for the build.
 
    ```sh
    python -m agent_tools.tools.cpp_code_map parse-check path/to/file.cpp \

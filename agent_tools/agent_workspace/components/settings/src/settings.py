@@ -22,6 +22,10 @@ from agent_tools.tools.task_context import DICTIONARY_PREVIEW_TEXT
 from agent_tools.tools.task_context import DICTIONARY_STRIP_ARTICLES_DEFAULT
 from agent_tools.tools.task_context import LEGACY_DICTIONARY_PREVIEW_TEXT
 from agent_tools.tools.task_context import TaskDictionaryPolicy
+from agent_tools.agent_workspace.components.workspace_mcp.api import WORKSPACE_MCP_TOOL_GROUP_IDS
+from agent_tools.agent_workspace.components.workspace_mcp.api import WORKSPACE_MCP_TOOL_GROUPS
+from agent_tools.agent_workspace.components.workspace_mcp.api import WORKSPACE_MCP_REQUIRED_TOOL_GROUP_IDS
+from agent_tools.agent_workspace.components.workspace_mcp.api import workspace_mcp_tool_group_description
 
 
 AGENT_WORKSPACE_SETTINGS_FILE = "settings.json"
@@ -67,6 +71,10 @@ AgentWorkspaceSettingValue = int | float | str | bool | list[str]
 AGENT_WORKSPACE_RELEASES_API = "https://api.github.com/repos/svlad-90/agent_tools/releases/latest"
 AGENT_WORKSPACE_RELEASES_LATEST_URL = "https://github.com/svlad-90/agent_tools/releases/latest"
 AGENT_WORKSPACE_TARBALL_URL_TEMPLATE = "https://github.com/svlad-90/agent_tools/archive/refs/tags/{tag}.tar.gz"
+AGENT_WORKSPACE_DEFAULT_MCP_TRUSTED = False
+AGENT_WORKSPACE_CODEX_MCP_SERVER_ID = "agent_tools_workspace"
+AGENT_WORKSPACE_CLAUDE_MCP_SERVER_ID = "agent-tools"
+AGENT_WORKSPACE_CLAUDE_MCP_ALLOW_RULE = f"mcp__{AGENT_WORKSPACE_CLAUDE_MCP_SERVER_ID}__*"
 
 
 @dataclass(frozen=True)
@@ -85,6 +93,8 @@ class AgentWorkspaceRuntimeSettings:
     limited_bash_output_tokens: int
     system_prompt: str
     inject_task_context_prompt: bool
+    mcp_enabled_groups: tuple[str, ...]
+    mcp_trusted: bool
     task_dictionary_auto_discovery: bool
     task_dictionary_min_occurrences: int
     task_dictionary_min_saving: int
@@ -145,6 +155,17 @@ def agent_workspace_settings_path() -> Path:
     if config_root:
         return Path(config_root) / "agent_tools" / "agent_workspace" / AGENT_WORKSPACE_SETTINGS_FILE
     return Path.home() / ".config" / "agent_tools" / "agent_workspace" / AGENT_WORKSPACE_SETTINGS_FILE
+
+
+def codex_config_path() -> Path:
+    return Path.home() / ".codex" / "config.toml"
+
+
+def claude_settings_path() -> Path:
+    config_root = os.environ.get("CLAUDE_CONFIG_DIR")
+    if config_root:
+        return Path(config_root) / "settings.json"
+    return Path.home() / ".claude" / "settings.json"
 
 
 def agent_workspace_root(start: Path | None = None) -> Path:
@@ -456,7 +477,7 @@ def model_choices_with_current(choices: tuple[str, ...], current: str) -> tuple[
     return choices
 
 
-def agent_workspace_setting_or_default(settings: dict[str, int | float | str | bool], key: str, default: str) -> str:
+def agent_workspace_setting_or_default(settings: dict[str, AgentWorkspaceSettingValue], key: str, default: str) -> str:
     value = settings.get(key)
     if not isinstance(value, str):
         return default
@@ -465,7 +486,7 @@ def agent_workspace_setting_or_default(settings: dict[str, int | float | str | b
 
 
 def agent_workspace_runtime_settings(
-    settings: dict[str, int | float | str | bool],
+    settings: dict[str, AgentWorkspaceSettingValue],
     *,
     default_font_size: int,
     default_language: str = "ru",
@@ -512,6 +533,8 @@ def agent_workspace_runtime_settings(
             "inject_task_context_prompt",
             TASK_CONTEXT_PROMPT_INJECTION_DEFAULT,
         ),
+        mcp_enabled_groups=_mcp_enabled_groups_setting(settings, "mcp_enabled_groups"),
+        mcp_trusted=_bool_setting(settings, "mcp_trusted", AGENT_WORKSPACE_DEFAULT_MCP_TRUSTED),
         task_dictionary_auto_discovery=_bool_setting(
             settings,
             "task_dictionary_auto_discovery",
@@ -622,6 +645,8 @@ def load_agent_workspace_settings(path: Path | None = None) -> dict[str, AgentWo
             limited_bash_output_tokens = (legacy_chars + 3) // 4
     inject_task_context_prompt = data.get("inject_task_context_prompt")
     task_dictionary_auto_discovery = data.get("task_dictionary_auto_discovery")
+    mcp_enabled_groups = data.get("mcp_enabled_groups")
+    mcp_trusted = data.get("mcp_trusted")
     task_dictionary_min_occurrences = data.get("task_dictionary_min_occurrences")
     task_dictionary_min_saving = data.get("task_dictionary_min_saving")
     task_dictionary_min_term_length = data.get("task_dictionary_min_term_length")
@@ -661,6 +686,10 @@ def load_agent_workspace_settings(path: Path | None = None) -> dict[str, AgentWo
         settings["system_prompt"] = system_prompt
     if isinstance(inject_task_context_prompt, bool):
         settings["inject_task_context_prompt"] = inject_task_context_prompt
+    if isinstance(mcp_enabled_groups, list) and all(isinstance(item, str) for item in mcp_enabled_groups):
+        settings["mcp_enabled_groups"] = _valid_mcp_enabled_groups(tuple(mcp_enabled_groups))
+    if isinstance(mcp_trusted, bool):
+        settings["mcp_trusted"] = mcp_trusted
     if isinstance(task_dictionary_auto_discovery, bool):
         settings["task_dictionary_auto_discovery"] = task_dictionary_auto_discovery
     for key, value, minimum, maximum in (
@@ -695,6 +724,44 @@ def load_agent_workspace_settings(path: Path | None = None) -> dict[str, AgentWo
         if normalized_recent:
             settings["recent_workspaces"] = normalized_recent[:10]
     return settings
+
+
+def workspace_mcp_tool_groups() -> tuple[tuple[str, str], ...]:
+    return tuple((group_id, label) for group_id, label, _description, _prefixes in WORKSPACE_MCP_TOOL_GROUPS)
+
+
+def workspace_mcp_configurable_tool_groups() -> tuple[tuple[str, str], ...]:
+    required = set(WORKSPACE_MCP_REQUIRED_TOOL_GROUP_IDS)
+    return tuple((group_id, label) for group_id, label in workspace_mcp_tool_groups() if group_id not in required)
+
+
+def workspace_mcp_required_tool_groups() -> tuple[tuple[str, str], ...]:
+    required = set(WORKSPACE_MCP_REQUIRED_TOOL_GROUP_IDS)
+    return tuple((group_id, label) for group_id, label in workspace_mcp_tool_groups() if group_id in required)
+
+
+def workspace_mcp_tool_group_tooltip(group_id: str) -> str:
+    return workspace_mcp_tool_group_description(group_id)
+
+
+def workspace_mcp_enabled_groups_for_runtime(groups: tuple[str, ...]) -> tuple[str, ...] | None:
+    normalized = _valid_mcp_enabled_groups(groups)
+    if normalized == WORKSPACE_MCP_TOOL_GROUP_IDS:
+        return None
+    return normalized
+
+
+def apply_agent_workspace_mcp_trust(
+    *,
+    trusted: bool,
+    codex_path: Path | None = None,
+    claude_path: Path | None = None,
+) -> tuple[Path, Path]:
+    codex_target = codex_path or codex_config_path()
+    claude_target = claude_path or claude_settings_path()
+    _write_codex_mcp_trust(codex_target, trusted=trusted)
+    _write_claude_mcp_trust(claude_target, trusted=trusted)
+    return codex_target, claude_target
 
 
 def save_agent_workspace_settings(settings: dict[str, AgentWorkspaceSettingValue], path: Path | None = None) -> None:
@@ -816,7 +883,90 @@ def _unique_model_choices(values: tuple[str, ...]) -> tuple[str, ...]:
     return tuple(choices)
 
 
-def _task_dictionary_preview_text_setting(settings: dict[str, int | float | str | bool], key: str) -> str:
+def _mcp_enabled_groups_setting(settings: dict[str, AgentWorkspaceSettingValue], key: str) -> tuple[str, ...]:
+    value = settings.get(key)
+    if isinstance(value, list) and all(isinstance(item, str) for item in value):
+        return _valid_mcp_enabled_groups(tuple(value))
+    return WORKSPACE_MCP_TOOL_GROUP_IDS
+
+
+def _valid_mcp_enabled_groups(groups: tuple[str, ...]) -> tuple[str, ...]:
+    selected = set(groups) | set(WORKSPACE_MCP_REQUIRED_TOOL_GROUP_IDS)
+    return tuple(group_id for group_id in WORKSPACE_MCP_TOOL_GROUP_IDS if group_id in selected)
+
+
+def _write_codex_mcp_trust(path: Path, *, trusted: bool) -> None:
+    mode = "approve" if trusted else "prompt"
+    section = f"[mcp_servers.{AGENT_WORKSPACE_CODEX_MCP_SERVER_ID}]"
+    key = "default_tools_approval_mode"
+    lines = _read_text_lines(path)
+    if not lines:
+        lines = [section, f'{key} = "{mode}"']
+    else:
+        lines = _set_toml_section_value(lines, section, key, f'"{mode}"')
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("\n".join(lines).rstrip() + "\n", encoding="utf-8")
+
+
+def _set_toml_section_value(lines: list[str], section: str, key: str, value: str) -> list[str]:
+    result = list(lines)
+    section_index = next((index for index, line in enumerate(result) if line.strip() == section), None)
+    if section_index is None:
+        if result and result[-1].strip():
+            result.append("")
+        result.extend([section, f"{key} = {value}"])
+        return result
+    next_section_index = next(
+        (
+            index
+            for index in range(section_index + 1, len(result))
+            if result[index].lstrip().startswith("[") and result[index].rstrip().endswith("]")
+        ),
+        len(result),
+    )
+    pattern = re.compile(rf"^(\s*){re.escape(key)}\s*=")
+    for index in range(section_index + 1, next_section_index):
+        if pattern.match(result[index]):
+            indent = pattern.match(result[index]).group(1) if pattern.match(result[index]) else ""
+            result[index] = f"{indent}{key} = {value}"
+            return result
+    result.insert(next_section_index, f"{key} = {value}")
+    return result
+
+
+def _write_claude_mcp_trust(path: Path, *, trusted: bool) -> None:
+    data = _read_json_object(path)
+    permissions = data.get("permissions")
+    if not isinstance(permissions, dict):
+        permissions = {}
+    allow = permissions.get("allow")
+    allow_list = [item for item in allow if isinstance(item, str)] if isinstance(allow, list) else []
+    if trusted and AGENT_WORKSPACE_CLAUDE_MCP_ALLOW_RULE not in allow_list:
+        allow_list.append(AGENT_WORKSPACE_CLAUDE_MCP_ALLOW_RULE)
+    if not trusted:
+        allow_list = [item for item in allow_list if item != AGENT_WORKSPACE_CLAUDE_MCP_ALLOW_RULE]
+    permissions["allow"] = allow_list
+    data["permissions"] = permissions
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(data, ensure_ascii=False, indent=2, sort_keys=True).rstrip() + "\n", encoding="utf-8")
+
+
+def _read_json_object(path: Path) -> dict[str, object]:
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def _read_text_lines(path: Path) -> list[str]:
+    try:
+        return path.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return []
+
+
+def _task_dictionary_preview_text_setting(settings: dict[str, AgentWorkspaceSettingValue], key: str) -> str:
     value = settings.get(key)
     if not isinstance(value, str):
         return DICTIONARY_PREVIEW_TEXT
@@ -834,7 +984,7 @@ def _is_legacy_dictionary_preview_text(value: str) -> bool:
     ) or value == LEGACY_DICTIONARY_PREVIEW_TEXT
 
 
-def _int_setting(settings: dict[str, int | float | str | bool], key: str, default: int) -> int:
+def _int_setting(settings: dict[str, AgentWorkspaceSettingValue], key: str, default: int) -> int:
     value = settings.get(key)
     if isinstance(value, int):
         return value
@@ -842,7 +992,7 @@ def _int_setting(settings: dict[str, int | float | str | bool], key: str, defaul
 
 
 def _int_range_setting(
-    settings: dict[str, int | float | str | bool],
+    settings: dict[str, AgentWorkspaceSettingValue],
     key: str,
     default: int,
     minimum: int,
@@ -852,7 +1002,7 @@ def _int_range_setting(
     return max(minimum, min(maximum, value))
 
 
-def _float_setting(settings: dict[str, int | float | str | bool], key: str, default: float) -> float:
+def _float_setting(settings: dict[str, AgentWorkspaceSettingValue], key: str, default: float) -> float:
     value = settings.get(key)
     if isinstance(value, int | float):
         ratio = float(value)
@@ -869,7 +1019,7 @@ def _float_setting(settings: dict[str, int | float | str | bool], key: str, defa
 
 
 def _choice_setting(
-    settings: dict[str, int | float | str | bool],
+    settings: dict[str, AgentWorkspaceSettingValue],
     key: str,
     choices: tuple[str, ...],
     default: str,
@@ -880,13 +1030,13 @@ def _choice_setting(
     return default
 
 
-def _str_setting(settings: dict[str, int | float | str | bool], key: str, default: str) -> str:
+def _str_setting(settings: dict[str, AgentWorkspaceSettingValue], key: str, default: str) -> str:
     value = settings.get(key)
     if isinstance(value, str):
         return value
     return default
 
 
-def _bool_setting(settings: dict[str, int | float | str | bool], key: str, default: bool) -> bool:
+def _bool_setting(settings: dict[str, AgentWorkspaceSettingValue], key: str, default: bool) -> bool:
     value = settings.get(key)
     return value if isinstance(value, bool) else default

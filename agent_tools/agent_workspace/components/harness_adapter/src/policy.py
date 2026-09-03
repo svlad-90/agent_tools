@@ -16,6 +16,7 @@ from agent_tools.agent_workspace.components.agent_status.api import AGENT_TOOL_M
 from agent_tools.agent_workspace.components.settings.api import load_agent_workspace_settings
 from agent_tools.paf_workspace.task_check import check_task
 from agent_tools.paf_workspace.task_check import render_text
+from agent_tools.tools.repo_registry import validate_repo_registry
 from agent_tools.tools.task_context import agent_visible_slots
 from agent_tools.tools.task_context import database_path
 from agent_tools.tools.task_context import ensure_database
@@ -52,6 +53,8 @@ class HarnessStatusEvent(StrEnum):
     STOP_ALLOWED = "stop_allowed"
     STOP_BLOCKED = "stop_blocked"
     JOURNAL_REQUIRED = "journal_required"
+    REPO_REGISTRY_INVALID = "repo_registry_invalid"
+    REPO_REGISTRY_MISSING = "repo_registry_missing"
     TASK_CHECK_FAILED = "task_check_failed"
     TASK_UNRESOLVED = "task_unresolved"
 
@@ -135,6 +138,11 @@ class _HookRequest(Protocol):
 _STATUS_CALLBACKS: dict[str, StatusCallback] = {}
 
 _JOURNAL_SLOT_CATEGORIES = ("operational-memory", "findings", "validation", "decisions", "blocker-risk")
+_REPO_REGISTRY_WARNING = (
+    "Warning: repo-registry is empty. Record the repositories you are working "
+    "with in TASK_CONTEXT.sqlite3 only after you have identified them, so "
+    "workspace validation can install and maintain repository hooks explicitly."
+)
 _DEBUG_EVENT_FILE = ".agent-workspace-harness-debug.jsonl"
 _DEBUG_EVENT_LIMIT = 1000
 _DEBUG_EVENT_TAIL_BLOCK_SIZE = 64 * 1024
@@ -362,7 +370,59 @@ def _handle_stop(
             "or blocker-risk as appropriate, then try to stop again."
         )
 
-    _emit(task_dir, agent_type, session_id, HarnessStatusEvent.STOP_ALLOWED, "●", "Stop allowed.", hook_event=AgentHookEvent.STOP, outcome="allowed")
+    registry_validation = validate_repo_registry(task_dir, workspace=_workspace_for_task(task_dir))
+    if registry_validation.errors:
+        reason = (
+            "Stop blocked. repo-registry must be empty or contain only valid "
+            "git repository roots. Fix the repo-registry slot before ending "
+            "the response:\n\n"
+            + "\n".join(f"- {error}" for error in registry_validation.errors)
+        )
+        _emit(
+            task_dir,
+            agent_type,
+            session_id,
+            HarnessStatusEvent.REPO_REGISTRY_INVALID,
+            "⛔",
+            "repo-registry slot is invalid.",
+            hook_event=AgentHookEvent.STOP,
+            outcome="blocked",
+        )
+        return format_stop_block(reason)
+
+    if not registry_validation.repositories:
+        _emit(
+            task_dir,
+            agent_type,
+            session_id,
+            HarnessStatusEvent.REPO_REGISTRY_MISSING,
+            "!",
+            "repo-registry slot is empty.",
+            hook_event=AgentHookEvent.STOP,
+            outcome="warning",
+        )
+        _emit(
+            task_dir,
+            agent_type,
+            session_id,
+            HarnessStatusEvent.STOP_ALLOWED,
+            "●",
+            "Stop allowed.",
+            hook_event=AgentHookEvent.STOP,
+            outcome="allowed",
+        )
+        return _REPO_REGISTRY_WARNING
+
+    _emit(
+        task_dir,
+        agent_type,
+        session_id,
+        HarnessStatusEvent.STOP_ALLOWED,
+        "●",
+        "Stop allowed.",
+        hook_event=AgentHookEvent.STOP,
+        outcome="allowed",
+    )
     return None
 
 
