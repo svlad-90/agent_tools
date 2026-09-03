@@ -8,7 +8,16 @@ from xml.etree import ElementTree
 
 REQUIRED_DOMAIN_FILES = ("README.md", "__init__.py", "domain.yaml", "schema.yaml")
 REQUIRED_DOMAIN_DIRS = ("lib", "scenarios", "profiles")
-REQUIRED_AGENT_TOOLS_DIRS = ("agent_workspace", "knowledge", "lib", "paf_workspace", "rules", "skills", "tools")
+REQUIRED_AGENT_TOOLS_DIRS = (
+    "agent_workspace",
+    "knowledge",
+    "lib",
+    "paf_workspace",
+    "rules",
+    "skills",
+    "tools",
+    "validation",
+)
 ALLOWED_AGENT_TOOLS_DIRS = {
     *REQUIRED_AGENT_TOOLS_DIRS,
     ".cache",

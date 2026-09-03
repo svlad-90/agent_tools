@@ -95,7 +95,12 @@ def test_task_check_accepts_valid_task_guard(tmp_path: Path) -> None:
     set_slot(task_dir, "goal", "Goal.")
     set_slot(task_dir, "operational-memory", "Current: ready.")
     (task_dir / "TASK_GUARD.yaml").write_text(
-        "version: 1\nchecks:\n  - id: local-smoke\n    backend: command\n    cost: cheap\n",
+        "version: 1\n"
+        "checks:\n"
+        "  - id: local-smoke\n"
+        "    backend: command\n"
+        "    cost: cheap\n"
+        "    command: [python3, -c, 'print(\"ok\")']\n",
         encoding="utf-8",
     )
 
