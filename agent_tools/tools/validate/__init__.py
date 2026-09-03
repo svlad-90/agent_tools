@@ -15,6 +15,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Sequence
 
+from agent_tools.validation.policy import CheckConfig
+from agent_tools.validation.policy import load_validation_policy
 from agent_tools.tools.push_guard import FORBIDDEN_ARTIFACT_SUFFIXES
 from agent_tools.tools.push_guard import FORBIDDEN_PUSH_PATH_PREFIXES
 from agent_tools.tools.push_guard import LARGE_FILE_LIMIT_BYTES
@@ -135,6 +137,8 @@ def _run_validation(
 def _validation_commands(repo: Path, changed: list[Path], task_dir: Path | None) -> list[ValidationCommand]:
     commands: list[ValidationCommand] = []
     for path in changed:
+        if not (repo / path).exists():
+            continue
         if path.suffix == ".py" and path.parts[:1] == ("agent_tools",):
             commands.append(
                 ValidationCommand(
@@ -172,7 +176,40 @@ def _validation_commands(repo: Path, changed: list[Path], task_dir: Path | None)
                 repo,
             )
         )
+    commands.extend(_policy_validation_commands(repo, task_dir))
     return _dedupe_commands(commands)
+
+
+def _policy_validation_commands(repo: Path, task_dir: Path | None) -> list[ValidationCommand]:
+    commands: list[ValidationCommand] = []
+    policy = load_validation_policy(repo, task_dir=task_dir)
+    for check in policy.checks:
+        if check.backend != "command" or check.cost == "heavy":
+            continue
+        commands.append(_policy_command(repo, task_dir, check))
+    return commands
+
+
+def _policy_command(repo: Path, task_dir: Path | None, check: CheckConfig) -> ValidationCommand:
+    cwd = _policy_command_cwd(repo, task_dir, check)
+    return ValidationCommand(
+        f"policy {check.check_id}",
+        list(check.command),
+        cwd,
+    )
+
+
+def _policy_command_cwd(repo: Path, task_dir: Path | None, check: CheckConfig) -> Path:
+    if check.cwd:
+        path = Path(check.cwd).expanduser()
+        if path.is_absolute():
+            return path
+        if check.level == "task" and task_dir is not None:
+            return task_dir / path
+        return repo / path
+    if check.level == "task" and task_dir is not None:
+        return task_dir
+    return repo
 
 
 def _dedupe_commands(commands: list[ValidationCommand]) -> list[ValidationCommand]:

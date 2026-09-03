@@ -20,8 +20,10 @@ def commit_msg_tools() -> list[McpTool]:
             name="commit_msg_format",
             title="Commit Message Format",
             description=(
-                "Format and validate a git commit message from a separate "
-                "title and body/trailer text."
+                "Use before running git commit instead of hand-wrapping -m "
+                "arguments. Formats a title plus body/trailers, validates line "
+                "width and Signed-off-by, and returns a shell-safe git commit "
+                "command."
             ),
             input_schema=_format_input_schema(),
             handler=_commit_msg_format,
@@ -160,7 +162,7 @@ def _format_input_schema() -> JsonObject:
             "repo": {
                 "type": "string",
                 "default": ".",
-                "description": "Workspace-relative or absolute git repository path.",
+                "description": "Workspace-relative or absolute path inside the git repository used for sign-off identity.",
             },
             "title": {
                 "type": "string",
@@ -175,6 +177,7 @@ def _format_input_schema() -> JsonObject:
                 "type": "integer",
                 "default": DEFAULT_WIDTH,
                 "minimum": 20,
+                "description": "Maximum non-trailer body line width after formatting.",
             },
             "add_signoff": {
                 "type": "boolean",
@@ -184,7 +187,7 @@ def _format_input_schema() -> JsonObject:
             "check": {
                 "type": "boolean",
                 "default": True,
-                "description": "Return isError=true if formatted body lines exceed width.",
+                "description": "Return isError=true if formatting or required trailers are invalid.",
             },
         },
         "required": ["title"],

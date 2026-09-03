@@ -125,11 +125,9 @@ Commit message formatting -> commit_msg_format
 Task actions -> task_actions_*
 Task context -> task_context_*
 Task repo registry -> repo_registry_*
-Knowledge topics -> knowledge_*
 Push validation stamps/hooks -> push_guard_* and workspace_validate
 Repository validation policy -> workspace_validate, validate_changed,
 validate_task, workspace_validation_policy, workspace_validation_status
-Rules mirror checks -> rules_sync_check and rules_sync_apply
 Compact workspace search -> agent_search_*
 ```
 

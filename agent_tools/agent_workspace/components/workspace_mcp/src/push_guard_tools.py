@@ -14,35 +14,53 @@ def push_guard_tools() -> list[McpTool]:
         McpTool(
             name="push_guard_status",
             title="Push Guard Status",
-            description="Report whether a repo commit has a push_guard validation stamp.",
+            description=(
+                "Use before pushing to check whether a commit already has a "
+                "workspace validation stamp. Avoids manually inspecting .git "
+                "metadata and returns compact recorded/not-recorded status."
+            ),
             input_schema=_repo_ref_input_schema(),
             handler=_push_guard_status,
         ),
         McpTool(
             name="push_guard_mark_success",
             title="Push Guard Mark Success",
-            description="Record a successful validation stamp for a repo commit.",
+            description=(
+                "Use after an explicit successful validation run to stamp a commit "
+                "for push_guard. Prefer validate_changed/validate_task with "
+                "mark_push_guard when running checks now."
+            ),
             input_schema=_mark_success_input_schema(),
             handler=_push_guard_mark_success,
         ),
         McpTool(
             name="push_guard_check_staged",
             title="Push Guard Check Staged",
-            description="Check staged files for pre-commit push_guard blockers.",
+            description=(
+                "Use instead of manual pre-commit scans. Checks staged files and "
+                "task_check blockers, returning compact actionable findings."
+            ),
             input_schema=_check_staged_input_schema(),
             handler=_push_guard_check_staged,
         ),
         McpTool(
             name="push_guard_check",
             title="Push Guard Check",
-            description="Check pushed refs for missing validation stamps and guarded files.",
+            description=(
+                "Use instead of manually parsing pre-push refs. Checks pushed commits "
+                "for missing validation stamps, guarded files, and task_check "
+                "blockers."
+            ),
             input_schema=_check_input_schema(),
             handler=_push_guard_check,
         ),
         McpTool(
             name="push_guard_install_hook",
             title="Push Guard Install Hook",
-            description="Install push_guard pre-commit and pre-push hooks into a repo.",
+            description=(
+                "Use to install or refresh Agent Workspace pre-commit and pre-push "
+                "hooks for one known repository root."
+            ),
             input_schema=_repo_input_schema(),
             handler=_push_guard_install_hook,
         ),
@@ -223,7 +241,7 @@ def _repo_input_schema() -> JsonObject:
             "repo": {
                 "type": "string",
                 "default": ".",
-                "description": "Workspace-relative or absolute git repository path.",
+                "description": "Workspace-relative or absolute path inside the git repository.",
             },
         },
         "additionalProperties": False,
@@ -232,7 +250,11 @@ def _repo_input_schema() -> JsonObject:
 
 def _repo_ref_input_schema() -> JsonObject:
     schema = _repo_input_schema()
-    schema["properties"]["ref"] = {"type": "string", "default": "HEAD"}
+    schema["properties"]["ref"] = {
+        "type": "string",
+        "description": "Git ref or commit to inspect or stamp.",
+        "default": "HEAD",
+    }
     return schema
 
 
@@ -243,11 +265,11 @@ def _mark_success_input_schema() -> JsonObject:
             "source": {
                 "type": "string",
                 "default": "external validation",
-                "description": "Description of the validation that succeeded.",
+                "description": "Human-readable validation source recorded in the stamp when no receipt is provided.",
             },
             "receipt": {
                 "type": "string",
-                "description": "Repo-relative or absolute validation receipt JSON.",
+                "description": "Repo-relative or absolute validation receipt JSON used as stamp evidence.",
             },
         }
     )
@@ -256,7 +278,11 @@ def _mark_success_input_schema() -> JsonObject:
 
 def _check_staged_input_schema() -> JsonObject:
     schema = _repo_input_schema()
-    schema["properties"]["allow_override"] = {"type": "boolean", "default": False}
+    schema["properties"]["allow_override"] = {
+        "type": "boolean",
+        "description": "Return success even when blockers exist; only use for explicit manual override flows.",
+        "default": False,
+    }
     return schema
 
 

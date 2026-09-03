@@ -276,6 +276,9 @@ def _checks_from_data(
             raise ValueError(f"{path}: check {check_id!r} has invalid backend {backend!r}")
         if cost not in CHECK_COSTS:
             raise ValueError(f"{path}: check {check_id!r} has invalid cost {cost!r}")
+        command = tuple(str(part) for part in _list_value(raw_check.get("command"), path=path, key="command"))
+        if backend == "command" and not command:
+            raise ValueError(f"{path}: check {check_id!r} with command backend must define command")
         checks.append(
             CheckConfig(
                 check_id=check_id,
@@ -284,9 +287,7 @@ def _checks_from_data(
                 backend=backend,
                 cost=cost,
                 required=bool(raw_check.get("required", True)),
-                command=tuple(
-                    str(part) for part in _list_value(raw_check.get("command"), path=path, key="command")
-                ),
+                command=command,
                 suggested_command=tuple(
                     str(part)
                     for part in _list_value(

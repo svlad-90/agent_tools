@@ -277,3 +277,34 @@ def test_validation_policy_rejects_invalid_check_schema(tmp_path: Path) -> None:
         assert "invalid backend" in str(exc)
     else:
         raise AssertionError("invalid check backend was accepted")
+
+
+def test_validation_policy_requires_command_for_command_backend(tmp_path: Path) -> None:
+    policy_root = tmp_path / "policy"
+    (policy_root / "repos").mkdir(parents=True)
+    (policy_root / "workspace-policy.yaml").write_text(
+        yaml.safe_dump(
+            {
+                "version": 1,
+                "checks": [
+                    {
+                        "id": "missing-command",
+                        "description": "Broken command check.",
+                        "backend": "command",
+                        "cost": "cheap",
+                    }
+                ],
+            },
+            sort_keys=False,
+        ),
+        encoding="utf-8",
+    )
+    repo = tmp_path / "repo"
+    _init_repo(repo)
+
+    try:
+        load_validation_policy(repo, policy_root=policy_root)
+    except ValueError as exc:
+        assert "must define command" in str(exc)
+    else:
+        raise AssertionError("command backend without command was accepted")

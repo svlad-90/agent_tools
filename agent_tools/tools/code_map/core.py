@@ -1317,6 +1317,20 @@ def _apply_symbol_edit_to_source(
     rendered = _render_replacement_at_offset(replacement_text, indent_text)
     new_source = source[: span.start_offset] + rendered + source[span.end_offset :]
     _validate_source_or_raise(new_source, file_path, symbol=snapshot.local_qualified_name)
+    if new_source == source:
+        return (
+            EditResult(
+                file_path=file_path,
+                operation=operation,
+                target=snapshot.local_qualified_name,
+                changed=False,
+                check_only=check_only,
+                old_hash=current_hash,
+                new_hash=current_hash,
+                snapshot=snapshot,
+            ),
+            source,
+        )
     new_snapshot = _build_symbol_snapshot_from_source(file_path, project_root, symbol, new_source)
     new_hash = new_snapshot.node_hash if scope == "node" else new_snapshot.body_hash
     if new_hash is None:
@@ -1388,7 +1402,13 @@ def _insert_relative_to_symbol_in_source(
         if source[insert_offset: insert_offset + 1] == "\n":
             insert_offset += 1
         insert_line = spec.node_span.end_line + 1
-    rendered = _render_indented_block(snippet_text, spec.node_indent_text, ensure_trailing_newline=True)
+    rendered = _render_symbol_insert_block(
+        source,
+        insert_offset,
+        snippet_text,
+        spec.node_indent_text,
+        position=position,
+    )
     new_source = source[:insert_offset] + rendered + source[insert_offset:]
     _validate_source_or_raise(new_source, file_path, symbol=snapshot.local_qualified_name)
     return (
@@ -2466,6 +2486,30 @@ def _render_indented_block(replacement_text: str, indent_text: str, *, ensure_tr
     )
     if ensure_trailing_newline:
         return rendered + "\n"
+    return rendered
+
+
+def _render_symbol_insert_block(
+    source: str,
+    insert_offset: int,
+    snippet_text: str,
+    indent_text: str,
+    *,
+    position: str,
+) -> str:
+    rendered = _render_indented_block(snippet_text, indent_text, ensure_trailing_newline=True)
+    if indent_text:
+        return rendered
+    previous_text = source[:insert_offset]
+    next_text = source[insert_offset:]
+    if position == "before" and previous_text and not previous_text.endswith("\n\n"):
+        rendered = "\n" + rendered
+    if position == "before" and next_text and not rendered.endswith("\n\n"):
+        rendered = rendered + "\n"
+    if position == "after" and previous_text and not previous_text.endswith("\n\n"):
+        rendered = "\n" + rendered
+    if position == "after" and next_text and not next_text.startswith("\n") and not rendered.endswith("\n\n"):
+        rendered = rendered + "\n"
     return rendered
 
 

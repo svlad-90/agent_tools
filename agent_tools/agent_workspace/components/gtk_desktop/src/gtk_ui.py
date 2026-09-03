@@ -140,6 +140,7 @@ from ...settings.api import agent_install_command
 from ...settings.api import agent_label
 from ...settings.api import ai_agent_model_settings
 from ...settings.api import agent_workspace_runtime_settings
+from ...settings.api import apply_agent_workspace_mcp_trust
 from ...process_runtime.api import install_agent_workspace_exception_logger
 from ...task_sessions.api import clear_task_agent_session
 from ...task_sessions.api import clear_task_active_agent_run
@@ -160,6 +161,11 @@ from ...settings.api import run_agent_workspace_update_check
 from ...settings.api import run_agent_workspace_update
 from ...settings.api import save_agent_workspace_settings
 from ...settings.api import remember_agent_workspace
+from ...settings.api import workspace_mcp_configurable_tool_groups
+from ...settings.api import workspace_mcp_enabled_groups_for_runtime
+from ...settings.api import workspace_mcp_required_tool_groups
+from ...settings.api import workspace_mcp_tool_group_tooltip
+from ...settings.api import workspace_mcp_tool_groups
 from ...workspace_config.api import ensure_agent_workspace
 from ...workspace_config.api import resolve_agent_workspace_startup
 from ...task_sessions.api import save_task_active_agent_run
@@ -341,6 +347,8 @@ class WorkspaceGtkGui:
         self.limited_bash_output_tokens = settings.limited_bash_output_tokens
         self.system_prompt = settings.system_prompt
         self.inject_task_context_prompt = settings.inject_task_context_prompt
+        self.mcp_enabled_groups = settings.mcp_enabled_groups
+        self.mcp_trusted = settings.mcp_trusted
         self.task_dictionary_auto_discovery = settings.task_dictionary_auto_discovery
         self.task_dictionary_min_occurrences = settings.task_dictionary_min_occurrences
         self.task_dictionary_min_saving = settings.task_dictionary_min_saving
@@ -1265,6 +1273,9 @@ class WorkspaceGtkGui:
             self.artifact_extension_filter_value = "all"
         label = current or self._tr("artifact_extension_all")
         extension_filter.set_label(label)
+        if not isinstance(extension_filter, Gtk.Widget):
+            self.artifact_extension_filter_menu = list(extensions)
+            return
         menu = Gtk.Menu()
         group: list[Gtk.RadioMenuItem] = []
         all_item = Gtk.RadioMenuItem.new_with_label(group, self._tr("artifact_extension_all"))
@@ -1912,6 +1923,21 @@ class WorkspaceGtkGui:
         dialog.run()
         dialog.destroy()
 
+    def _confirm_mcp_trust_enable(self) -> bool:
+        dialog = Gtk.MessageDialog(
+            transient_for=self.window,
+            flags=Gtk.DialogFlags.MODAL,
+            message_type=Gtk.MessageType.WARNING,
+            buttons=Gtk.ButtonsType.NONE,
+            text=self._tr("settings_mcp_trust_confirm_title"),
+        )
+        dialog.format_secondary_text(self._tr("settings_mcp_trust_confirm_body"))
+        dialog.add_button(self._tr("cancel"), Gtk.ResponseType.CANCEL)
+        dialog.add_button(self._tr("settings_mcp_trust_confirm_button"), Gtk.ResponseType.OK)
+        response = dialog.run()
+        dialog.destroy()
+        return response == Gtk.ResponseType.OK
+
     def _close_sessions_for_task(self, task: TaskSummary) -> None:
         for session_id, session in list(self.terminal_sessions.items()):
             if session.task_path != task.path:
@@ -2357,6 +2383,7 @@ class WorkspaceGtkGui:
 
     def open_settings(self, *_args: object) -> None:
         self._pause_profiling_for_settings()
+        old_mcp_trusted = self.mcp_trusted
         dialog = Gtk.Dialog(
             title=self._tr("settings_title"),
             transient_for=self.window,
@@ -2382,6 +2409,54 @@ class WorkspaceGtkGui:
         dictionary_scrolled.set_hexpand(True)
         dictionary_scrolled.set_vexpand(True)
         dictionary_grid = Gtk.Grid(column_spacing=10, row_spacing=8)
+        mcp_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
+        mcp_box.set_border_width(12)
+        mcp_scrolled = _scrolled(mcp_box)
+        mcp_scrolled.set_hexpand(True)
+        mcp_scrolled.set_vexpand(True)
+        mcp_trusted_check = Gtk.CheckButton(label=self._tr("settings_mcp_trusted"))
+        mcp_trusted_check.set_active(self.mcp_trusted)
+        mcp_trusted_note = Gtk.Label(label=self._tr("settings_mcp_trusted_note"))
+        mcp_trusted_note.set_xalign(0)
+        mcp_trusted_note.set_line_wrap(True)
+        mcp_group_checks: dict[str, Gtk.CheckButton] = {}
+        mcp_groups_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        mcp_groups_heading = Gtk.Label()
+        mcp_groups_heading.set_xalign(0)
+        mcp_groups_heading.set_markup(f"<b>{GLib.markup_escape_text(self._tr('settings_mcp_tools'))}</b>")
+        enabled_mcp_groups = set(self.mcp_enabled_groups)
+        for group_id, fallback_label in workspace_mcp_required_tool_groups():
+            label = TRANSLATIONS.get(self.language, TRANSLATIONS["en"]).get(
+                f"settings_mcp_group_{group_id}",
+                fallback_label,
+            )
+            tooltip = TRANSLATIONS.get(self.language, TRANSLATIONS["en"]).get(
+                f"settings_mcp_group_{group_id}_tooltip",
+                workspace_mcp_tool_group_tooltip(group_id),
+            )
+            check = Gtk.CheckButton(label=label)
+            check.set_active(True)
+            check.set_sensitive(False)
+            check.set_tooltip_text(tooltip)
+            mcp_groups_box.pack_start(check, False, False, 0)
+        for group_id, fallback_label in workspace_mcp_configurable_tool_groups():
+            label = TRANSLATIONS.get(self.language, TRANSLATIONS["en"]).get(
+                f"settings_mcp_group_{group_id}",
+                fallback_label,
+            )
+            tooltip = TRANSLATIONS.get(self.language, TRANSLATIONS["en"]).get(
+                f"settings_mcp_group_{group_id}_tooltip",
+                workspace_mcp_tool_group_tooltip(group_id),
+            )
+            check = Gtk.CheckButton(label=label)
+            check.set_active(group_id in enabled_mcp_groups)
+            check.set_tooltip_text(tooltip)
+            mcp_group_checks[group_id] = check
+            mcp_groups_box.pack_start(check, False, False, 0)
+        mcp_box.pack_start(mcp_trusted_check, False, False, 0)
+        mcp_box.pack_start(mcp_trusted_note, False, False, 0)
+        mcp_box.pack_start(mcp_groups_heading, False, False, 0)
+        mcp_box.pack_start(mcp_groups_box, False, False, 0)
         profiling_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
         profiling_box.set_border_width(12)
         profiling_controls = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
@@ -2441,6 +2516,7 @@ class WorkspaceGtkGui:
         settings_open = {"value": True}
         notebook.append_page(general_scrolled, Gtk.Label(label=self._tr("settings_dictionary_general")))
         notebook.append_page(dictionary_scrolled, Gtk.Label(label=self._tr("settings_dictionary_dictionary")))
+        notebook.append_page(mcp_scrolled, Gtk.Label(label=self._tr("settings_mcp")))
         notebook.append_page(settings_update_box, Gtk.Label(label=self._tr("settings_updates")))
         notebook.append_page(profiling_box, Gtk.Label(label=self._tr("settings_profiling")))
         active_text_view: dict[str, Gtk.TextView | None] = {"view": None}
@@ -2534,8 +2610,10 @@ class WorkspaceGtkGui:
 
         general_box.add_events(Gdk.EventMask.BUTTON_PRESS_MASK)
         dictionary_box.add_events(Gdk.EventMask.BUTTON_PRESS_MASK)
+        mcp_box.add_events(Gdk.EventMask.BUTTON_PRESS_MASK)
         general_box.connect("button-press-event", on_settings_dialog_button_press)
         dictionary_box.connect("button-press-event", on_settings_dialog_button_press)
+        mcp_box.connect("button-press-event", on_settings_dialog_button_press)
         register_passive_text_view(system_prompt_view, system_prompt_scrolled, general_scrolled)
         for widget in (
             text_size,
@@ -2920,6 +2998,21 @@ class WorkspaceGtkGui:
             self.claude_animations_enabled = claude_animations_check.get_active()
             self.limited_bash_output_tokens = int(limited_bash_output_tokens.get_value())
             self.system_prompt = _text_buffer_text(system_prompt_view.get_buffer())
+            self.mcp_enabled_groups = tuple(
+                group_id
+                for group_id, check in mcp_group_checks.items()
+                if check.get_active()
+            )
+            new_mcp_trusted = mcp_trusted_check.get_active()
+            if new_mcp_trusted and not old_mcp_trusted and not self._confirm_mcp_trust_enable():
+                dialog.destroy()
+                return
+            self.mcp_trusted = new_mcp_trusted
+            if self.mcp_trusted != old_mcp_trusted:
+                try:
+                    apply_agent_workspace_mcp_trust(trusted=self.mcp_trusted)
+                except OSError as error:
+                    self._show_error(f"{self._tr('settings_mcp_trust_failed')}: {error}")
             self.task_dictionary_auto_discovery = dictionary_auto.get_active()
             self.task_dictionary_min_occurrences = int(dictionary_min_occurrences.get_value())
             self.task_dictionary_min_saving = int(dictionary_min_saving.get_value())
@@ -4303,6 +4396,8 @@ class WorkspaceGtkGui:
             system_prompt=self.system_prompt,
             codex_animations_enabled=self.codex_animations_enabled,
             claude_animations_enabled=self.claude_animations_enabled,
+            workspace_mcp_enabled_groups=workspace_mcp_enabled_groups_for_runtime(self.mcp_enabled_groups),
+            workspace_mcp_trusted=self.mcp_trusted,
             include_task_check=True,
         )
         run_id = new_agent_session_id()
@@ -6127,6 +6222,10 @@ class WorkspaceGtkGui:
         Gtk.main_quit()
 
     def _save_settings(self) -> None:
+        mcp_enabled_groups = agent_workspace_runtime_settings(
+            {"mcp_enabled_groups": list(self.mcp_enabled_groups)},
+            default_font_size=self.text_font_size,
+        ).mcp_enabled_groups
         save_agent_workspace_settings(
             {
                 "text_font_size": self.text_font_size,
@@ -6143,6 +6242,8 @@ class WorkspaceGtkGui:
                 "limited_bash_output_tokens": self.limited_bash_output_tokens,
                 "system_prompt": self.system_prompt,
                 "inject_task_context_prompt": self.inject_task_context_prompt,
+                "mcp_enabled_groups": list(mcp_enabled_groups),
+                "mcp_trusted": self.mcp_trusted,
                 "task_dictionary_auto_discovery": self.task_dictionary_auto_discovery,
                 "task_dictionary_min_occurrences": self.task_dictionary_min_occurrences,
                 "task_dictionary_min_saving": self.task_dictionary_min_saving,
@@ -6472,6 +6573,7 @@ def ai_agent_console_command(
     codex_animations_enabled: bool = False,
     claude_animations_enabled: bool = False,
 ) -> list[str]:
+    settings = agent_workspace_runtime_settings(load_agent_workspace_settings(), default_font_size=13)
     return build_ai_agent_console_command(
         workspace,
         ai_agent_task_context_message(task, workspace, language),
@@ -6484,6 +6586,8 @@ def ai_agent_console_command(
         reasoning_effort=reasoning_effort,
         codex_animations_enabled=codex_animations_enabled,
         claude_animations_enabled=claude_animations_enabled,
+        workspace_mcp_enabled_groups=workspace_mcp_enabled_groups_for_runtime(settings.mcp_enabled_groups),
+        workspace_mcp_trusted=settings.mcp_trusted,
     )
 
 
@@ -6498,6 +6602,7 @@ def codex_console_command(
     reasoning_effort: str = "",
     codex_animations_enabled: bool = False,
 ) -> list[str]:
+    settings = agent_workspace_runtime_settings(load_agent_workspace_settings(), default_font_size=13)
     return build_ai_agent_console_command(
         workspace,
         ai_agent_task_context_message(task, workspace, language),
@@ -6509,6 +6614,8 @@ def codex_console_command(
         model=model,
         reasoning_effort=reasoning_effort,
         codex_animations_enabled=codex_animations_enabled,
+        workspace_mcp_enabled_groups=workspace_mcp_enabled_groups_for_runtime(settings.mcp_enabled_groups),
+        workspace_mcp_trusted=settings.mcp_trusted,
     )
 
 

@@ -38,147 +38,226 @@ def cpp_light_code_map_tools() -> list[McpTool]:
         McpTool(
             name="cpp_light_map",
             title="C++ Light Map",
-            description="Print a structural C/C++ symbol map without a build context.",
-            input_schema=_source_input_schema({"compact": {"type": "boolean", "default": False}}),
+            description=(
+                "Use instead of raw rg when C/C++ structure matters but no compile "
+                "database is available. Returns a tree-sitter symbol map from one "
+                "workspace-relative source file, with optional compact output."
+            ),
+            input_schema=_source_input_schema({"compact": _compact_property()}),
             handler=_cpp_light_map,
         ),
         McpTool(
             name="cpp_light_diagnose",
             title="C++ Light Diagnose",
-            description="Diagnose tree-sitter light-map coverage for one C/C++ source file.",
+            description=(
+                "Use when a lightweight C/C++ map looks incomplete. Reports "
+                "tree-sitter coverage and parser observations without requiring a "
+                "build context."
+            ),
             input_schema=_source_input_schema(),
             handler=_cpp_light_diagnose,
         ),
         McpTool(
             name="cpp_light_unmapped",
             title="C++ Light Unmapped",
-            description="List top-level tree-sitter nodes not mapped as symbols.",
+            description=(
+                "Use to debug lightweight C/C++ parser coverage instead of reading "
+                "raw syntax trees. Lists top-level tree-sitter nodes not mapped as "
+                "symbols."
+            ),
             input_schema=_source_input_schema(),
             handler=_cpp_light_unmapped,
         ),
         McpTool(
             name="cpp_light_symbols",
             title="C++ Light Symbols",
-            description="List flattened structural C/C++ symbols with optional filters.",
+            description=(
+                "Use instead of grep for C/C++ declaration discovery. Lists flattened "
+                "structural symbols with kind/name/line filters and compact output "
+                "without a compile database."
+            ),
             input_schema=_symbols_input_schema(),
             handler=_cpp_light_symbols,
         ),
         McpTool(
             name="cpp_light_symbol_get",
             title="C++ Light Symbol Get",
-            description="Print a structural C/C++ symbol snapshot and hash.",
+            description=(
+                "Use before lightweight C/C++ edits instead of guessing line ranges. "
+                "Returns a symbol snapshot, span, hash, and body_hash for guarded replace, "
+                "insert, or rename calls."
+            ),
             input_schema=_symbol_get_input_schema(),
             handler=_cpp_light_symbol_get,
         ),
         McpTool(
             name="cpp_light_includes",
             title="C++ Light Includes",
-            description="List C/C++ include directives.",
+            description=(
+                "Use instead of grep include patterns when include structure matters. "
+                "Lists C/C++ include directives from one workspace-relative file."
+            ),
             input_schema=_source_input_schema(),
             handler=_cpp_light_includes,
         ),
         McpTool(
             name="cpp_light_macros",
             title="C++ Light Macros",
-            description="List C/C++ preprocessor macro directives.",
+            description=(
+                "Use instead of grep macro patterns when preprocessing structure "
+                "matters. Lists C/C++ macro directives from one workspace-relative "
+                "file."
+            ),
             input_schema=_source_input_schema(),
             handler=_cpp_light_macros,
         ),
         McpTool(
             name="cpp_light_calls",
             title="C++ Light Calls",
-            description="List structural function calls, optionally scoped to a symbol.",
+            description=(
+                "Use instead of text search for C/C++ call discovery. Lists structural "
+                "function calls, optionally scoped to one symbol, without requiring "
+                "compile commands."
+            ),
             input_schema=_calls_input_schema(),
             handler=_cpp_light_calls,
         ),
         McpTool(
             name="cpp_light_call_graph",
             title="C++ Light Call Graph",
-            description="List structural C/C++ call graph edges.",
+            description=(
+                "Use instead of manually correlating call sites. Returns compact "
+                "structural C/C++ call graph edges for one file without compile "
+                "context."
+            ),
             input_schema=_source_input_schema(),
             handler=_cpp_light_call_graph,
         ),
         McpTool(
             name="cpp_light_refs",
             title="C++ Light Refs",
-            description="List structural identifier references by name.",
+            description=(
+                "Use instead of raw rg when looking for C/C++ identifier references "
+                "inside parsed source. Supports optional symbol scope to reduce "
+                "irrelevant textual matches."
+            ),
             input_schema=_refs_input_schema(),
             handler=_cpp_light_refs,
         ),
         McpTool(
             name="cpp_light_locals",
             title="C++ Light Locals",
-            description="List parameters, locals, and labels for a symbol.",
+            description=(
+                "Use instead of manually scanning a C/C++ function body. Lists "
+                "parameters, locals, and labels for one parsed symbol."
+            ),
             input_schema=_symbol_input_schema(),
             handler=_cpp_light_locals,
         ),
         McpTool(
             name="cpp_light_complexity",
             title="C++ Light Complexity",
-            description="Print simple structural complexity metrics.",
+            description=(
+                "Use for quick C/C++ risk triage instead of ad-hoc line counting. "
+                "Returns simple structural complexity metrics, optionally scoped to "
+                "one symbol."
+            ),
             input_schema=_calls_input_schema(),
             handler=_cpp_light_complexity,
         ),
         McpTool(
             name="cpp_light_parse_check",
             title="C++ Light Parse Check",
-            description="Check whether structural parsing found C/C++ symbols.",
+            description=(
+                "Use after lightweight C/C++ edits instead of only checking text. "
+                "Reports whether tree-sitter parsing still finds expected structural "
+                "symbols."
+            ),
             input_schema=_source_input_schema(),
             handler=_cpp_light_parse_check,
         ),
         McpTool(
             name="cpp_light_index",
             title="C++ Light Index",
-            description="Write cached structural symbol maps for C/C++ files.",
+            description=(
+                "Use before repeated C/C++ structural queries across files. Writes "
+                "cached lightweight symbol maps for workspace-relative source paths."
+            ),
             input_schema=_index_input_schema(),
             handler=_cpp_light_index,
         ),
         McpTool(
             name="cpp_light_index_dir",
             title="C++ Light Index Dir",
-            description="Index C/C++ files under a workspace directory.",
+            description=(
+                "Use instead of find plus repeated parser calls for a source tree. "
+                "Indexes C/C++ files under a workspace directory with include/exclude "
+                "patterns into a cache."
+            ),
             input_schema=_index_dir_input_schema(),
             handler=_cpp_light_index_dir,
         ),
         McpTool(
             name="cpp_light_query",
             title="C++ Light Query",
-            description="Search cached structural symbol maps.",
+            description=(
+                "Use instead of grepping previously indexed C/C++ files. Searches "
+                "cached structural symbol maps by name and returns compact matches."
+            ),
             input_schema=_query_input_schema(),
             handler=_cpp_light_query,
         ),
         McpTool(
             name="cpp_light_rename_symbol",
             title="C++ Light Rename Symbol",
-            description="Rename structural identifier references inside a safe scope.",
+            description=(
+                "Use instead of global search/replace for scoped C/C++ renames. "
+                "Renames structural references only when the anchor hash from cpp_light_symbol_get matches and "
+                "supports check_only previews."
+            ),
             input_schema=_rename_input_schema(),
             handler=_cpp_light_rename_symbol,
         ),
         McpTool(
             name="cpp_light_replace_symbol",
             title="C++ Light Replace Symbol",
-            description="Replace one whole C/C++ symbol by structural span.",
+            description=(
+                "Use instead of line-based edits for whole C/C++ symbols. Replaces "
+                "the parsed symbol span only when expect_hash still matches."
+            ),
             input_schema=_replace_input_schema("replacement"),
             handler=_cpp_light_replace_symbol,
         ),
         McpTool(
             name="cpp_light_replace_symbol_body",
             title="C++ Light Replace Symbol Body",
-            description="Replace one C/C++ function body by structural span.",
+            description=(
+                "Use instead of brace-counting manual edits for a C/C++ function body. "
+                "Replaces only the parsed body span and refuses stale expect_hash "
+                "values."
+            ),
             input_schema=_replace_input_schema("replacement"),
             handler=_cpp_light_replace_symbol_body,
         ),
         McpTool(
             name="cpp_light_insert_before_symbol",
             title="C++ Light Insert Before Symbol",
-            description="Insert sibling text before an anchor C/C++ symbol.",
+            description=(
+                "Use instead of line-number insertion when adding C/C++ code before "
+                "a parsed anchor symbol. The expect_hash guard prevents stale "
+                "placement."
+            ),
             input_schema=_replace_input_schema("snippet"),
             handler=_cpp_light_insert_before_symbol,
         ),
         McpTool(
             name="cpp_light_insert_after_symbol",
             title="C++ Light Insert After Symbol",
-            description="Insert sibling text after an anchor C/C++ symbol.",
+            description=(
+                "Use instead of line-number insertion when adding C/C++ code after "
+                "a parsed anchor symbol. The expect_hash guard prevents stale "
+                "placement."
+            ),
             input_schema=_replace_input_schema("snippet"),
             handler=_cpp_light_insert_after_symbol,
         ),
@@ -439,12 +518,28 @@ def _optional_int(arguments: JsonObject, name: str) -> int | None:
 
 
 def _output_format_property() -> JsonObject:
-    return {"type": "string", "enum": ["text", "json"], "default": "text"}
+    return {
+        "type": "string",
+        "enum": ["text", "json"],
+        "description": "Use text for compact agent output or json for structured consumers.",
+        "default": "text",
+    }
+
+
+def _compact_property() -> JsonObject:
+    return {
+        "type": "boolean",
+        "description": "Return shorter summaries instead of full symbol detail.",
+        "default": False,
+    }
 
 
 def _source_input_schema(extra: JsonObject | None = None) -> JsonObject:
     properties = {
-        "path": {"type": "string", "description": "Workspace-relative C/C++ source file path."},
+        "path": {
+            "type": "string",
+            "description": "Workspace-relative C/C++ source file path.",
+        },
         "output_format": _output_format_property(),
     }
     if extra:
@@ -460,33 +555,67 @@ def _source_input_schema(extra: JsonObject | None = None) -> JsonObject:
 def _symbols_input_schema() -> JsonObject:
     return _source_input_schema(
         {
-            "kind": {"type": "string"},
-            "name": {"type": "string"},
-            "contains_line": {"type": "integer"},
-            "compact": {"type": "boolean", "default": False},
+            "kind": {
+                "type": "string",
+                "description": "Optional symbol kind filter such as function, class, struct, enum, or macro.",
+            },
+            "name": {
+                "type": "string",
+                "description": "Optional exact or tool-supported symbol name filter.",
+            },
+            "contains_line": {
+                "type": "integer",
+                "description": "Only return symbols whose parsed span contains this 1-based line number.",
+            },
+            "compact": _compact_property(),
         }
     )
 
 
 def _symbol_input_schema() -> JsonObject:
     schema = _source_input_schema()
-    schema["properties"]["symbol"] = {"type": "string"}
+    schema["properties"]["symbol"] = {
+        "type": "string",
+        "description": "Qualified or visible C/C++ symbol name.",
+    }
     schema["required"] = ["path", "symbol"]
     return schema
 
 
 def _symbol_get_input_schema() -> JsonObject:
     schema = _symbol_input_schema()
-    schema["properties"]["with_doc"] = {"type": "boolean", "default": False}
+    schema["properties"]["with_doc"] = {
+        "type": "boolean",
+        "description": "Include adjacent documentation/comment text in the snapshot.",
+        "default": False,
+    }
     return schema
 
 
 def _calls_input_schema() -> JsonObject:
-    return _source_input_schema({"symbol": {"type": "string"}})
+    return _source_input_schema(
+        {
+            "symbol": {
+                "type": "string",
+                "description": "Optional C/C++ symbol scope for calls or complexity.",
+            }
+        }
+    )
 
 
 def _refs_input_schema() -> JsonObject:
-    schema = _source_input_schema({"name": {"type": "string"}, "scope": {"type": "string"}})
+    schema = _source_input_schema(
+        {
+            "name": {
+                "type": "string",
+                "description": "Identifier name to find as structural references.",
+            },
+            "scope": {
+                "type": "string",
+                "description": "Optional symbol scope that restricts reference matches.",
+            },
+        }
+    )
     schema["required"] = ["path", "name"]
     return schema
 
@@ -495,8 +624,16 @@ def _index_input_schema() -> JsonObject:
     return {
         "type": "object",
         "properties": {
-            "paths": {"type": "array", "items": {"type": "string"}},
-            "cache_dir": {"type": "string", "default": DEFAULT_CACHE_DIR},
+            "paths": {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": "Workspace-relative C/C++ source file paths to index.",
+            },
+            "cache_dir": {
+                "type": "string",
+                "description": "Workspace-relative directory where lightweight index files are written.",
+                "default": DEFAULT_CACHE_DIR,
+            },
             "output_format": _output_format_property(),
         },
         "required": ["paths"],
@@ -508,10 +645,27 @@ def _index_dir_input_schema() -> JsonObject:
     return {
         "type": "object",
         "properties": {
-            "root": {"type": "string", "description": "Workspace-relative source directory."},
-            "include": {"type": "array", "items": {"type": "string"}, "default": []},
-            "exclude": {"type": "array", "items": {"type": "string"}, "default": []},
-            "cache_dir": {"type": "string", "default": DEFAULT_CACHE_DIR},
+            "root": {
+                "type": "string",
+                "description": "Workspace-relative source directory to scan.",
+            },
+            "include": {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": "Glob patterns to include while scanning root.",
+                "default": [],
+            },
+            "exclude": {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": "Glob patterns to exclude while scanning root.",
+                "default": [],
+            },
+            "cache_dir": {
+                "type": "string",
+                "description": "Workspace-relative directory where lightweight index files are written.",
+                "default": DEFAULT_CACHE_DIR,
+            },
             "output_format": _output_format_property(),
         },
         "required": ["root"],
@@ -523,8 +677,15 @@ def _query_input_schema() -> JsonObject:
     return {
         "type": "object",
         "properties": {
-            "name": {"type": "string"},
-            "cache_dir": {"type": "string", "default": DEFAULT_CACHE_DIR},
+            "name": {
+                "type": "string",
+                "description": "Symbol name to search in cached lightweight indexes.",
+            },
+            "cache_dir": {
+                "type": "string",
+                "description": "Workspace-relative directory containing lightweight index files.",
+                "default": DEFAULT_CACHE_DIR,
+            },
             "output_format": _output_format_property(),
         },
         "required": ["name"],
@@ -534,14 +695,27 @@ def _query_input_schema() -> JsonObject:
 
 def _rename_input_schema() -> JsonObject:
     schema = _replace_input_schema("new_name")
-    schema["properties"]["scope"] = {"type": "string"}
+    schema["properties"]["scope"] = {
+        "type": "string",
+        "description": "Optional symbol scope that restricts rename targets.",
+    }
     return schema
 
 
 def _replace_input_schema(text_key: str) -> JsonObject:
     schema = _symbol_input_schema()
-    schema["properties"]["expect_hash"] = {"type": "string"}
-    schema["properties"][text_key] = {"type": "string"}
-    schema["properties"]["check_only"] = {"type": "boolean", "default": False}
+    schema["properties"]["expect_hash"] = {
+        "type": "string",
+        "description": "Current hash or body_hash from cpp_light_symbol_get; stale hashes block the edit.",
+    }
+    schema["properties"][text_key] = {
+        "type": "string",
+        "description": "Replacement, inserted snippet, or new symbol name depending on the operation.",
+    }
+    schema["properties"]["check_only"] = {
+        "type": "boolean",
+        "description": "Preview the edit without writing files.",
+        "default": False,
+    }
     schema["required"] = ["path", "symbol", "expect_hash", text_key]
     return schema

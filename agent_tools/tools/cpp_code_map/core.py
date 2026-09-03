@@ -2144,6 +2144,8 @@ def _normalize_replacement(text: str, *, scope: str, old_text: str) -> str:
         if old_text.endswith("\n") and not inner.endswith("\n"):
             inner += "\n"
         return _normalize_block(inner)
+    if old_text.startswith("\n") and not normalized.startswith("\n"):
+        normalized = f"\n{normalized}"
     return normalized
 
 

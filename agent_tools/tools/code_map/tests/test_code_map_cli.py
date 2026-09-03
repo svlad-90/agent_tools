@@ -159,3 +159,91 @@ def test_imports_add_json_wraps_multiple_files(tmp_path: Path, capsys: object) -
     assert [entry["file_path"] for entry in payload["results"]] == [str(first), str(second)]
     assert first.read_text(encoding="utf-8").startswith("import json\n")
     assert second.read_text(encoding="utf-8").startswith("import json\n")
+
+
+def test_replace_symbol_body_reports_unchanged_for_identical_body(
+    tmp_path: Path, capsys: object
+) -> None:
+    source = tmp_path / "source.py"
+    source.write_text("def target():\n    return 1\n", encoding="utf-8")
+    assert main(["symbol-get", str(source), "--symbol", "target", "--json"]) == 0
+    symbol = json.loads(capsys.readouterr().out)
+
+    exit_code = main(
+        [
+            "replace-symbol-body",
+            str(source),
+            "--symbol",
+            "target",
+            "--expect-hash",
+            symbol["body_hash"],
+            "--replacement-text",
+            "    return 1\n",
+            "--check-only",
+            "--json",
+        ]
+    )
+
+    assert exit_code == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["changed"] is False
+    assert "diff" not in payload
+    assert source.read_text(encoding="utf-8") == "def target():\n    return 1\n"
+
+
+def test_insert_before_symbol_keeps_top_level_separator(tmp_path: Path, capsys: object) -> None:
+    source = tmp_path / "source.py"
+    source.write_text("import json\n\ndef target():\n    return 1\n", encoding="utf-8")
+    assert main(["symbol-get", str(source), "--symbol", "target", "--json"]) == 0
+    symbol = json.loads(capsys.readouterr().out)
+
+    exit_code = main(
+        [
+            "insert-before-symbol",
+            str(source),
+            "--symbol",
+            "target",
+            "--expect-hash",
+            symbol["node_hash"],
+            "--snippet-text",
+            "def helper():\n    return 0\n",
+        ]
+    )
+
+    assert exit_code == 0
+    assert source.read_text(encoding="utf-8") == (
+        "import json\n\n"
+        "def helper():\n"
+        "    return 0\n\n"
+        "def target():\n"
+        "    return 1\n"
+    )
+
+
+def test_insert_after_symbol_keeps_top_level_separator(tmp_path: Path, capsys: object) -> None:
+    source = tmp_path / "source.py"
+    source.write_text("def target():\n    return 1\n\nvalue = 2\n", encoding="utf-8")
+    assert main(["symbol-get", str(source), "--symbol", "target", "--json"]) == 0
+    symbol = json.loads(capsys.readouterr().out)
+
+    exit_code = main(
+        [
+            "insert-after-symbol",
+            str(source),
+            "--symbol",
+            "target",
+            "--expect-hash",
+            symbol["node_hash"],
+            "--snippet-text",
+            "def helper():\n    return 0\n",
+        ]
+    )
+
+    assert exit_code == 0
+    assert source.read_text(encoding="utf-8") == (
+        "def target():\n"
+        "    return 1\n\n"
+        "def helper():\n"
+        "    return 0\n\n"
+        "value = 2\n"
+    )

@@ -17,28 +17,44 @@ def repo_registry_tools() -> list[McpTool]:
         McpTool(
             name="repo_registry_list",
             title="Repo Registry List",
-            description="List repositories recorded in a task repo-registry slot.",
+            description=(
+                "Use instead of reading repo-registry YAML by hand. Lists the "
+                "repositories a task has explicitly declared for hook installation "
+                "and validation."
+            ),
             input_schema=_task_input_schema(),
             handler=_repo_registry_list,
         ),
         McpTool(
             name="repo_registry_validate",
             title="Repo Registry Validate",
-            description="Validate git repository roots recorded in repo-registry.",
+            description=(
+                "Use before relying on repo-registry entries. Validates that every "
+                "recorded path is under the workspace and resolves to a git "
+                "repository root."
+            ),
             input_schema=_task_input_schema(),
             handler=_repo_registry_validate,
         ),
         McpTool(
             name="repo_registry_add",
             title="Repo Registry Add",
-            description="Add a verified git repository root to task repo-registry.",
+            description=(
+                "Use when an agent has identified a repository root. Verifies the "
+                "workspace path and git root before writing the task repo-registry "
+                "slot."
+            ),
             input_schema=_add_input_schema(),
             handler=_repo_registry_add,
         ),
         McpTool(
             name="repo_registry_remove",
             title="Repo Registry Remove",
-            description="Remove a repository path from task repo-registry.",
+            description=(
+                "Use when a task no longer works with a repository. Removes the "
+                "workspace-validated path from the repo-registry slot without "
+                "manual YAML editing."
+            ),
             input_schema=_remove_input_schema(),
             handler=_repo_registry_remove,
         ),
@@ -158,7 +174,7 @@ def _remove_input_schema() -> JsonObject:
             "task": _task_property(),
             "repo": {
                 "type": "string",
-                "description": "Workspace-relative or absolute repository path.",
+                "description": "Workspace-relative or absolute path that must resolve inside the workspace.",
             },
         },
         "required": ["task", "repo"],

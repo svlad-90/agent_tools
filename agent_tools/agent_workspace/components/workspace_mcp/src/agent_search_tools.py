@@ -17,21 +17,33 @@ def agent_search_tools() -> list[McpTool]:
         McpTool(
             name="agent_search_text",
             title="Agent Search Text",
-            description="Search file contents and return compact summary, aggregate tree, or line ranges.",
+            description=(
+                "Use instead of raw rg when search results may be large or need structure. "
+                "Searches workspace text with gitignore on by default, supports summary, "
+                "aggregate, and focused range modes, and caps model-facing output."
+            ),
             input_schema=_text_input_schema(),
             handler=_agent_search_text,
         ),
         McpTool(
             name="agent_search_files",
             title="Agent Search Files",
-            description="Search workspace file paths with compact grouped output.",
+            description=(
+                "Use instead of find when matching workspace file names or paths. "
+                "Returns bounded summary or aggregate output, supports extension/type "
+                "filters, and avoids dumping long path lists into the model."
+            ),
             input_schema=_files_input_schema(),
             handler=_agent_search_files,
         ),
         McpTool(
             name="agent_search_show",
             title="Agent Search Show",
-            description="Show one workspace file range with optional surrounding lines.",
+            description=(
+                "Use instead of sed/head/tail when showing a focused file excerpt. "
+                "Validates the workspace path, supports line/range plus surrounding "
+                "context, and truncates very long lines."
+            ),
             input_schema=_show_input_schema(),
             handler=_agent_search_show,
         ),
@@ -132,22 +144,22 @@ def optional_int_arg(arguments: JsonObject, name: str) -> int | None:
 
 def _common_search_properties() -> JsonObject:
     return {
-        "root": {"type": "string", "description": "Workspace-relative or absolute path under the workspace.", "default": "."},
-        "query": {"type": "string"},
-        "fixed": {"type": "boolean", "default": False},
-        "case_sensitive": {"type": "boolean", "default": False},
-        "ignore_case": {"type": "boolean", "default": False},
-        "include": {"type": "array", "items": {"type": "string"}, "default": []},
-        "exclude": {"type": "array", "items": {"type": "string"}, "default": []},
-        "hidden": {"type": "boolean", "default": False},
-        "use_gitignore": {"type": "boolean", "default": True},
-        "threads": {"type": "integer", "minimum": 1},
-        "type": {"type": "array", "items": {"type": "string", "enum": sorted(FILE_TYPES)}, "default": []},
-        "max_tokens": {"type": "integer", "minimum": 100, "default": 2000},
-        "max_output_lines": {"type": "integer", "minimum": 1, "default": 120},
-        "max_dirs": {"type": "integer", "minimum": 1, "default": 20},
-        "max_files": {"type": "integer", "minimum": 1, "default": 30},
-        "output_format": {"type": "string", "enum": ["text", "json"], "default": "text"},
+        "root": {"type": "string", "description": "Workspace-relative or absolute directory to search. Default searches the workspace root.", "default": "."},
+        "query": {"type": "string", "description": "Text, regex, file-name fragment, or path fragment to search for."},
+        "fixed": {"type": "boolean", "description": "Treat query as a literal string instead of a regular expression.", "default": False},
+        "case_sensitive": {"type": "boolean", "description": "Force case-sensitive matching.", "default": False},
+        "ignore_case": {"type": "boolean", "description": "Force case-insensitive matching.", "default": False},
+        "include": {"type": "array", "items": {"type": "string"}, "description": "Glob patterns to include, for example ['*.py']; combined with type/ext filters.", "default": []},
+        "exclude": {"type": "array", "items": {"type": "string"}, "description": "Glob patterns or path fragments to exclude before matching.", "default": []},
+        "hidden": {"type": "boolean", "description": "Include hidden files and directories.", "default": False},
+        "use_gitignore": {"type": "boolean", "description": "Respect .gitignore and common ignore rules. Keep true for compact agent searches.", "default": True},
+        "threads": {"type": "integer", "minimum": 1, "description": "Optional worker count. Omit to use the tool default."},
+        "type": {"type": "array", "items": {"type": "string", "enum": sorted(FILE_TYPES)}, "description": "Known file type shortcuts such as py, cpp, md, yaml, json, sh, text.", "default": []},
+        "max_tokens": {"type": "integer", "minimum": 100, "description": "Approximate output budget for text results. Default keeps output model-friendly.", "default": 2000},
+        "max_output_lines": {"type": "integer", "minimum": 1, "description": "Maximum rendered output lines for text mode.", "default": 120},
+        "max_dirs": {"type": "integer", "minimum": 1, "description": "Maximum directory groups to show in aggregate output.", "default": 20},
+        "max_files": {"type": "integer", "minimum": 1, "description": "Maximum matching files to render in summary/json output.", "default": 30},
+        "output_format": {"type": "string", "enum": ["text", "json"], "description": "Use text for model-readable summaries or json for structured consumers.", "default": "text"},
     }
 
 
@@ -155,16 +167,16 @@ def _text_input_schema() -> JsonObject:
     properties = _common_search_properties()
     properties.update(
         {
-            "mode": {"type": "string", "enum": ["summary", "aggregate", "ranges"], "default": "summary"},
-            "around": {"type": "integer", "minimum": 0, "default": 5},
-            "before": {"type": "integer", "minimum": 0},
-            "after": {"type": "integer", "minimum": 0},
-            "max_ranges": {"type": "integer", "minimum": 1, "default": 20},
-            "max_lines": {"type": "integer", "minimum": 1, "default": 300},
-            "max_matches_scanned": {"type": "integer", "minimum": 1, "default": 10000},
-            "max_file_bytes": {"type": "integer", "minimum": 1, "default": 2000000},
-            "samples": {"type": "integer", "minimum": 0, "default": 20},
-            "per_group_samples": {"type": "integer", "minimum": 0, "default": 3},
+            "mode": {"type": "string", "enum": ["summary", "aggregate", "ranges"], "description": "summary gives compact counts/samples, aggregate groups by capture/tree, ranges returns focused line windows.", "default": "summary"},
+            "around": {"type": "integer", "minimum": 0, "description": "Default number of context lines before and after each text match.", "default": 5},
+            "before": {"type": "integer", "minimum": 0, "description": "Override context lines before each match."},
+            "after": {"type": "integer", "minimum": 0, "description": "Override context lines after each match."},
+            "max_ranges": {"type": "integer", "minimum": 1, "description": "Maximum focused match ranges to render.", "default": 20},
+            "max_lines": {"type": "integer", "minimum": 1, "description": "Maximum total lines rendered for range output.", "default": 300},
+            "max_matches_scanned": {"type": "integer", "minimum": 1, "description": "Stop scanning after this many matches to avoid unbounded output.", "default": 10000},
+            "max_file_bytes": {"type": "integer", "minimum": 1, "description": "Skip files larger than this many bytes.", "default": 2000000},
+            "samples": {"type": "integer", "minimum": 0, "description": "Maximum sample matches in summary output.", "default": 20},
+            "per_group_samples": {"type": "integer", "minimum": 0, "description": "Maximum sample matches per aggregate group.", "default": 3},
         }
     )
     return {"type": "object", "properties": properties, "required": ["query"], "additionalProperties": False}
@@ -174,10 +186,10 @@ def _files_input_schema() -> JsonObject:
     properties = _common_search_properties()
     properties.update(
         {
-            "mode": {"type": "string", "enum": ["summary", "aggregate"], "default": "summary"},
-            "ext": {"type": "array", "items": {"type": "string"}, "default": []},
-            "scope": {"type": "string", "enum": ["path", "name"], "default": "path"},
-            "max_files_scanned": {"type": "integer", "minimum": 1, "default": 10000},
+            "mode": {"type": "string", "enum": ["summary", "aggregate"], "description": "summary lists bounded matches, aggregate groups matches by directory.", "default": "summary"},
+            "ext": {"type": "array", "items": {"type": "string"}, "description": "File suffix filters such as ['.py', '.md']; combined with type filters.", "default": []},
+            "scope": {"type": "string", "enum": ["path", "name"], "description": "Match the whole workspace-relative path or only the file name.", "default": "path"},
+            "max_files_scanned": {"type": "integer", "minimum": 1, "description": "Stop scanning after this many candidate files.", "default": 10000},
         }
     )
     return {"type": "object", "properties": properties, "required": ["query"], "additionalProperties": False}
@@ -188,10 +200,10 @@ def _show_input_schema() -> JsonObject:
         "type": "object",
         "properties": {
             "path": {"type": "string", "description": "Workspace-relative or absolute file path under the workspace."},
-            "line": {"type": "integer", "minimum": 1},
+            "line": {"type": "integer", "minimum": 1, "description": "1-based line number to center the excerpt on."},
             "range": {"type": "string", "description": "Line range formatted as A:B or A-B."},
-            "around": {"type": "integer", "minimum": 0, "default": 5},
-            "max_line_chars": {"type": "integer", "minimum": 20, "default": 240},
+            "around": {"type": "integer", "minimum": 0, "description": "Context lines to include around line/range.", "default": 5},
+            "max_line_chars": {"type": "integer", "minimum": 20, "description": "Maximum characters rendered per line before truncation.", "default": 240},
         },
         "required": ["path"],
         "additionalProperties": False,

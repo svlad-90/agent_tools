@@ -42,9 +42,10 @@ MCP coverage currently maps to these tool groups:
 - `push_guard_*`, `workspace_validate`, `validate_changed`, `validate_task`,
   `workspace_validation_policy`, and `workspace_validation_status`: push guard
   hooks, stamps, and validation policy checks.
-- `rules_sync_*`, `knowledge_list_topics`, `knowledge_get_topic`,
-  `knowledge_search_topics`, `knowledge_set_topic`, and `yocto_diag_*`:
-  mirrored agent rules, recurring knowledge lookup, and Yocto diagnostics.
+- `yocto_diag_*`: Yocto diagnostics.
+
+Rule mirror checks and recurring knowledge remain CLI/file infrastructure.
+They are not exposed as normal agent-facing MCP tools.
 
 Keep PAF orchestration under `agent_tools/paf_workspace/`; this directory is
 for reusable tool implementations that are not PAF domains.

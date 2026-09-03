@@ -32,84 +32,131 @@ def cpp_code_map_tools() -> list[McpTool]:
         McpTool(
             name="cpp_code_map_map",
             title="C++ Code Map",
-            description="Print libclang-backed C/C++ class/function maps.",
+            description=(
+                "Use instead of grep when C/C++ structure matters and compile context "
+                "is available. Returns compact libclang-backed class/function maps "
+                "for one workspace-relative source file."
+            ),
             input_schema=_source_input_schema(),
             handler=_cpp_code_map_map,
         ),
         McpTool(
             name="cpp_code_map_doctor",
             title="C++ Code Map Doctor",
-            description="Diagnose libclang compile database, compiler, and parse setup for one C/C++ source file.",
+            description=(
+                "Use before C/C++ code_map failures instead of guessing compiler flags. "
+                "Diagnoses compile database, compiler, fallback flags, and libclang "
+                "parse setup for one source file."
+            ),
             input_schema=_source_input_schema(),
             handler=_cpp_code_map_doctor,
         ),
         McpTool(
             name="cpp_code_map_index",
             title="C++ Code Map Index",
-            description="Write cached libclang-backed C/C++ symbol maps.",
+            description=(
+                "Use instead of repeated full C/C++ scans when several files will be "
+                "queried. Builds cached libclang-backed symbol maps under cache_dir "
+                "from workspace-relative source paths."
+            ),
             input_schema=_index_input_schema(),
             handler=_cpp_code_map_index,
         ),
         McpTool(
             name="cpp_code_map_symbol_get",
             title="C++ Code Map Symbol Get",
-            description="Print a libclang-backed C/C++ symbol snapshot and hash.",
+            description=(
+                "Use before C/C++ symbol edits instead of guessing line ranges. "
+                "Resolves a libclang-backed symbol snapshot, hash, and body_hash for guarded "
+                "replace or insert calls."
+            ),
             input_schema=_symbol_input_schema(),
             handler=_cpp_code_map_symbol_get,
         ),
         McpTool(
             name="cpp_code_map_parse_check",
             title="C++ Code Map Parse Check",
-            description="Parse one C/C++ source file through libclang and report diagnostics.",
+            description=(
+                "Use after C/C++ edits when compile context is available. Parses one "
+                "workspace-relative source through libclang and returns compact "
+                "diagnostics instead of dumping compiler output."
+            ),
             input_schema=_source_input_schema(),
             handler=_cpp_code_map_parse_check,
         ),
         McpTool(
             name="cpp_code_map_puml_audit",
             title="C++ Code Map PUML Audit",
-            description="Audit checked PlantUML class relations against libclang AST relations.",
+            description=(
+                "Use for C/C++ architecture diagrams instead of manual diagram review. "
+                "Compares checked PlantUML class relations against libclang AST "
+                "relations and reports mismatches."
+            ),
             input_schema=_source_input_schema(),
             handler=_cpp_code_map_puml_audit,
         ),
         McpTool(
             name="cpp_code_map_replace_symbol",
             title="C++ Code Map Replace Symbol",
-            description="Replace one C/C++ symbol through a libclang span and expected-hash guard.",
+            description=(
+                "Use instead of sed/apply_patch for whole C/C++ symbols when a current "
+                "symbol hash from cpp_code_map_symbol_get is known. Replaces the libclang span only if expect_hash "
+                "still matches."
+            ),
             input_schema=_edit_input_schema("replacement"),
             handler=_cpp_code_map_replace_symbol,
         ),
         McpTool(
             name="cpp_code_map_replace_symbol_body",
             title="C++ Code Map Replace Symbol Body",
-            description="Replace one C/C++ function body through a libclang span and expected-hash guard.",
+            description=(
+                "Use instead of brace-counting edits for C/C++ function bodies. "
+                "Replaces only the resolved body span and refuses stale edits via "
+                "expect_hash."
+            ),
             input_schema=_edit_input_schema("replacement"),
             handler=_cpp_code_map_replace_symbol_body,
         ),
         McpTool(
             name="cpp_code_map_insert_before_symbol",
             title="C++ Code Map Insert Before Symbol",
-            description="Insert C/C++ text before an anchor symbol through a libclang span guard.",
+            description=(
+                "Use instead of line-number insertion when adding C/C++ code before "
+                "an anchor symbol. Uses libclang span resolution and expect_hash to "
+                "avoid stale placement."
+            ),
             input_schema=_edit_input_schema("snippet"),
             handler=_cpp_code_map_insert_before_symbol,
         ),
         McpTool(
             name="cpp_code_map_insert_after_symbol",
             title="C++ Code Map Insert After Symbol",
-            description="Insert C/C++ text after an anchor symbol through a libclang span guard.",
+            description=(
+                "Use instead of line-number insertion when adding C/C++ code after "
+                "an anchor symbol. Uses libclang span resolution and expect_hash to "
+                "avoid stale placement."
+            ),
             input_schema=_edit_input_schema("snippet"),
             handler=_cpp_code_map_insert_after_symbol,
         ),
         McpTool(
             name="cpp_code_map_includes_add",
             title="C++ Code Map Includes Add",
-            description="Insert one C/C++ include statement unless it already exists.",
+            description=(
+                "Use instead of manually editing C/C++ include blocks. Inserts one "
+                "include statement only when absent and supports check_only preview."
+            ),
             input_schema=_include_input_schema(),
             handler=_cpp_code_map_includes_add,
         ),
         McpTool(
             name="cpp_code_map_batch",
             title="C++ Code Map Batch",
-            description="Apply a cpp_code_map JSON batch edit plan with optional check-only mode.",
+            description=(
+                "Use for multi-file C/C++ guarded edit plans instead of many manual "
+                "line edits. Validates workspace paths, supports check_only, and "
+                "applies one cpp_code_map JSON batch."
+            ),
             input_schema=_batch_input_schema(),
             handler=_cpp_code_map_batch,
         ),
@@ -316,7 +363,12 @@ def _guard_batch_operation(context: ToolContext, operation: object) -> dict[str,
 
 
 def _output_format_property() -> JsonObject:
-    return {"type": "string", "enum": ["text", "json"], "default": "text"}
+    return {
+        "type": "string",
+        "enum": ["text", "json"],
+        "description": "Use text for compact agent output or json for structured consumers.",
+        "default": "text",
+    }
 
 
 def _cpp_context_properties() -> JsonObject:
@@ -325,14 +377,28 @@ def _cpp_context_properties() -> JsonObject:
             "type": "string",
             "description": "Workspace-relative compile_commands.json file or build directory.",
         },
-        "clang_args": {"type": "array", "items": {"type": "string"}, "default": []},
-        "allow_fallback": {"type": "boolean", "default": False},
+        "clang_args": {
+            "type": "array",
+            "items": {"type": "string"},
+            "description": "Extra clang arguments when the compile database lacks enough context.",
+            "default": [],
+        },
+        "allow_fallback": {
+            "type": "boolean",
+            "description": "Allow fallback parsing without a compile database; prefer false for reliable analysis.",
+            "default": False,
+        },
         "output_format": _output_format_property(),
     }
 
 
 def _source_input_schema(extra: JsonObject | None = None) -> JsonObject:
-    properties = {"path": {"type": "string", "description": "Workspace-relative C/C++ source file path."}}
+    properties = {
+        "path": {
+            "type": "string",
+            "description": "Workspace-relative C/C++ source file path.",
+        }
+    }
     properties.update(_cpp_context_properties())
     if extra:
         properties.update(extra)
@@ -345,16 +411,36 @@ def _source_input_schema(extra: JsonObject | None = None) -> JsonObject:
 
 
 def _symbol_input_schema() -> JsonObject:
-    return _source_input_schema({"symbol": {"type": "string"}}) | {"required": ["path", "symbol"]}
+    return _source_input_schema(
+        {
+            "symbol": {
+                "type": "string",
+                "description": "Qualified or visible C/C++ symbol name to resolve.",
+            }
+        }
+    ) | {"required": ["path", "symbol"]}
 
 
 def _edit_input_schema(text_key: str) -> JsonObject:
     return _source_input_schema(
         {
-            "symbol": {"type": "string"},
-            "expect_hash": {"type": "string"},
-            text_key: {"type": "string"},
-            "check_only": {"type": "boolean", "default": False},
+            "symbol": {
+                "type": "string",
+                "description": "Qualified or visible C/C++ symbol name used as the edit anchor.",
+            },
+            "expect_hash": {
+                "type": "string",
+                "description": "Current hash or body_hash from cpp_code_map_symbol_get; stale hashes block the edit.",
+            },
+            text_key: {
+                "type": "string",
+                "description": "Replacement or inserted C/C++ source text.",
+            },
+            "check_only": {
+                "type": "boolean",
+                "description": "Preview the edit without writing files.",
+                "default": False,
+            },
         }
     ) | {"required": ["path", "symbol", "expect_hash", text_key]}
 
@@ -362,8 +448,15 @@ def _edit_input_schema(text_key: str) -> JsonObject:
 def _include_input_schema() -> JsonObject:
     return _source_input_schema(
         {
-            "include": {"type": "string"},
-            "check_only": {"type": "boolean", "default": False},
+            "include": {
+                "type": "string",
+                "description": "Include directive or header name to add.",
+            },
+            "check_only": {
+                "type": "boolean",
+                "description": "Preview the include edit without writing files.",
+                "default": False,
+            },
         }
     ) | {"required": ["path", "include"]}
 
@@ -375,7 +468,11 @@ def _index_input_schema() -> JsonObject:
             "items": {"type": "string"},
             "description": "Workspace-relative C/C++ source file paths.",
         },
-        "cache_dir": {"type": "string", "default": DEFAULT_CACHE_DIR},
+        "cache_dir": {
+            "type": "string",
+            "description": "Workspace-relative directory where symbol index files are written.",
+            "default": DEFAULT_CACHE_DIR,
+        },
     }
     properties.update(_cpp_context_properties())
     return {
@@ -388,8 +485,15 @@ def _index_input_schema() -> JsonObject:
 
 def _batch_input_schema() -> JsonObject:
     properties = {
-        "plan": {"type": ["object", "array"]},
-        "check_only": {"type": "boolean", "default": False},
+        "plan": {
+            "type": ["object", "array"],
+            "description": "cpp_code_map batch edit plan with workspace-relative file_path values.",
+        },
+        "check_only": {
+            "type": "boolean",
+            "description": "Validate the batch plan without writing files.",
+            "default": False,
+        },
     }
     properties.update(_cpp_context_properties())
     return {

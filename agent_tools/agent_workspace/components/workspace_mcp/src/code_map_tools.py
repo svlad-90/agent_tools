@@ -40,84 +40,123 @@ def code_map_tools() -> list[McpTool]:
         McpTool(
             name="code_map_map",
             title="Code Map",
-            description="Print class/function maps for Python files.",
+            description=(
+                "Use instead of grep/sed when inspecting Python structure. Returns "
+                "compact class/function maps for workspace-relative Python files."
+            ),
             input_schema=_paths_input_schema(),
             handler=_code_map_map,
         ),
         McpTool(
             name="code_map_symbol_get",
             title="Code Map Symbol Get",
-            description="Resolve one Python symbol span and hashes for guarded edits.",
+            description=(
+                "Use before Python symbol edits instead of guessing line ranges. "
+                "Resolves exact spans plus node_hash/body_hash guards for "
+                "replace/insert calls."
+            ),
             input_schema=_symbol_get_input_schema(),
             handler=_code_map_symbol_get,
         ),
         McpTool(
             name="code_map_parse_check",
             title="Code Map Parse Check",
-            description="Parse Python files and report syntax validity.",
+            description=(
+                "Use after Python edits instead of ad-hoc compileall commands. "
+                "Parses workspace-relative files and returns compact syntax status."
+            ),
             input_schema=_paths_input_schema(),
             handler=_code_map_parse_check,
         ),
         McpTool(
             name="code_map_imports_add",
             title="Code Map Imports Add",
-            description="Insert one import statement into Python files unless it already exists.",
+            description=(
+                "Use instead of manually editing import blocks. Adds an import to "
+                "workspace-relative Python files only when it is not already present."
+            ),
             input_schema=_imports_add_input_schema(),
             handler=_code_map_imports_add,
         ),
         McpTool(
             name="code_map_replace_symbol",
             title="Code Map Replace Symbol",
-            description="Replace one Python symbol node with an expected-hash guard.",
+            description=(
+                "Use instead of sed/apply_patch for whole Python symbols when a "
+                "current node_hash is known. Refuses stale edits via expect_hash."
+            ),
             input_schema=_symbol_edit_input_schema("replacement"),
             handler=_code_map_replace_symbol,
         ),
         McpTool(
             name="code_map_replace_symbol_body",
             title="Code Map Replace Symbol Body",
-            description="Replace one Python symbol body with an expected-hash guard.",
+            description=(
+                "Use instead of manual indentation-sensitive body edits when a "
+                "current body_hash is known. Replaces only the symbol body."
+            ),
             input_schema=_symbol_edit_input_schema("replacement"),
             handler=_code_map_replace_symbol_body,
         ),
         McpTool(
             name="code_map_insert_before_symbol",
             title="Code Map Insert Before Symbol",
-            description="Insert Python code before one anchor symbol with an expected-hash guard.",
+            description=(
+                "Use instead of line-number insertion when adding Python code before "
+                "a known anchor symbol. Uses expect_hash to avoid stale placement."
+            ),
             input_schema=_symbol_edit_input_schema("snippet"),
             handler=_code_map_insert_before_symbol,
         ),
         McpTool(
             name="code_map_insert_after_symbol",
             title="Code Map Insert After Symbol",
-            description="Insert Python code after one anchor symbol with an expected-hash guard.",
+            description=(
+                "Use instead of line-number insertion when adding Python code after "
+                "a known anchor symbol. Uses expect_hash to avoid stale placement."
+            ),
             input_schema=_symbol_edit_input_schema("snippet"),
             handler=_code_map_insert_after_symbol,
         ),
         McpTool(
             name="code_map_batch",
             title="Code Map Batch",
-            description="Apply a code_map batch edit plan with optional check-only mode.",
+            description=(
+                "Use for multi-file Python edits that need path validation and "
+                "optional check-only planning. Applies guarded code_map operations "
+                "from one JSON plan."
+            ),
             input_schema=_batch_input_schema(),
             handler=_code_map_batch,
         ),
         McpTool(
             name="code_map_class_diagram",
             title="Code Map Class Diagram",
-            description="Generate a PlantUML class diagram from Python sources.",
+            description=(
+                "Use instead of manually sketching Python class relations. Generates "
+                "PlantUML from workspace Python source structure."
+            ),
             input_schema=_target_input_schema(),
             handler=_code_map_class_diagram,
         ),
         McpTool(
             name="code_map_facade_audit",
             title="Code Map Facade Audit",
-            description="Audit a class facade surface, wrapper methods, and caller roots.",
+            description=(
+                "Use for architecture review instead of ad-hoc grep. Audits a Python "
+                "facade symbol, wrappers, and caller roots with structured output."
+            ),
             input_schema=_facade_audit_input_schema(),
             handler=_code_map_facade_audit,
         ),
         McpTool(
             name="code_map_protocol_audit",
             title="Code Map Protocol Audit",
-            description="Audit protocol/bridge surfaces and feature owner mixes.",
+            description=(
+                "Use for the legacy wrong_adventure-style protocol/bridge layout "
+                "instead of manual feature scans. Expects src/wrong_adventure/features "
+                "under the workspace root and reports owner mixes/facade relationships."
+            ),
             input_schema=_protocol_audit_input_schema(),
             handler=_code_map_protocol_audit,
         ),
@@ -227,6 +266,21 @@ def _code_map_facade_audit(context: ToolContext, arguments: JsonObject) -> ToolR
 
 def _code_map_protocol_audit(context: ToolContext, arguments: JsonObject) -> ToolResult:
     target = resolve_workspace_path(context.workspace, string_arg(arguments, "target"))
+    expected_features = context.workspace / "src" / "wrong_adventure" / "features"
+    if not expected_features.is_dir():
+        return ToolResult(
+            text=(
+                "code_map_protocol_audit requires the legacy wrong_adventure layout: "
+                f"{expected_features} is missing. Use code_map_map, "
+                "code_map_facade_audit, or project-specific checks for other Python projects.\n"
+            ),
+            structured_content={
+                "code": "unsupported-layout",
+                "expected_features_dir": str(expected_features),
+                "target": str(target),
+            },
+            is_error=True,
+        )
     facade_file = _optional_workspace_path(context, arguments, "facade_file")
     report = build_protocol_audit(
         target,
@@ -320,7 +374,12 @@ def _edit_error(error: CodeMapEditError, context: ToolContext) -> ToolResult:
 
 
 def _output_format_property() -> JsonObject:
-    return {"type": "string", "enum": ["text", "json"], "default": "text"}
+    return {
+        "type": "string",
+        "enum": ["text", "json"],
+        "description": "Use text for compact model-readable output or json for structured consumers.",
+        "default": "text",
+    }
 
 
 def _paths_input_schema() -> JsonObject:
@@ -330,7 +389,7 @@ def _paths_input_schema() -> JsonObject:
             "paths": {
                 "type": "array",
                 "items": {"type": "string"},
-                "description": "Workspace-relative Python file paths.",
+                "description": "Workspace-relative Python file paths. Include the leading agent_tools/ when called through MCP.",
             },
             "output_format": _output_format_property(),
         },
@@ -341,15 +400,15 @@ def _paths_input_schema() -> JsonObject:
 
 def _symbol_get_input_schema() -> JsonObject:
     schema = _paths_input_schema()
-    schema["properties"]["symbol"] = {"type": "string"}
+    schema["properties"]["symbol"] = {"type": "string", "description": "Qualified or visible Python symbol name to resolve."}
     schema["required"] = ["paths", "symbol"]
     return schema
 
 
 def _imports_add_input_schema() -> JsonObject:
     schema = _paths_input_schema()
-    schema["properties"]["statement"] = {"type": "string"}
-    schema["properties"]["check_only"] = {"type": "boolean", "default": False}
+    schema["properties"]["statement"] = {"type": "string", "description": "Import statement to add, for example 'from pkg import name'."}
+    schema["properties"]["check_only"] = {"type": "boolean", "description": "Preview the edit without writing files.", "default": False}
     schema["required"] = ["paths", "statement"]
     return schema
 
@@ -358,11 +417,14 @@ def _symbol_edit_input_schema(text_key: str) -> JsonObject:
     return {
         "type": "object",
         "properties": {
-            "path": {"type": "string", "description": "Workspace-relative Python file path."},
-            "symbol": {"type": "string"},
-            "expect_hash": {"type": "string"},
-            text_key: {"type": "string"},
-            "check_only": {"type": "boolean", "default": False},
+            "path": {"type": "string", "description": "Workspace-relative Python file path. Include the leading agent_tools/ when applicable."},
+            "symbol": {"type": "string", "description": "Qualified or visible Python symbol name used as the edit anchor."},
+            "expect_hash": {
+                "type": "string",
+                "description": "Current node_hash or body_hash from code_map_symbol_get; stale hashes block the edit.",
+            },
+            text_key: {"type": "string", "description": "Replacement or inserted Python source text."},
+            "check_only": {"type": "boolean", "description": "Preview the edit without writing files.", "default": False},
             "output_format": _output_format_property(),
         },
         "required": ["path", "symbol", "expect_hash", text_key],
@@ -374,8 +436,8 @@ def _batch_input_schema() -> JsonObject:
     return {
         "type": "object",
         "properties": {
-            "plan": {"type": "object"},
-            "check_only": {"type": "boolean", "default": False},
+            "plan": {"type": "object", "description": "code_map batch edit plan with workspace-relative file_path values."},
+            "check_only": {"type": "boolean", "description": "Validate the batch plan without writing files.", "default": False},
             "output_format": _output_format_property(),
         },
         "required": ["plan"],
@@ -398,10 +460,10 @@ def _facade_audit_input_schema() -> JsonObject:
     return {
         "type": "object",
         "properties": {
-            "path": {"type": "string", "description": "Workspace-relative Python file path."},
-            "symbol": {"type": "string"},
-            "callers": {"type": "array", "items": {"type": "string"}},
-            "include_private": {"type": "boolean", "default": False},
+            "path": {"type": "string", "description": "Workspace-relative Python file containing the facade symbol."},
+            "symbol": {"type": "string", "description": "Facade class/function symbol to audit."},
+            "callers": {"type": "array", "items": {"type": "string"}, "description": "Workspace-relative caller root files or directories to scan."},
+            "include_private": {"type": "boolean", "description": "Include private/underscore members in the audit.", "default": False},
             "output_format": _output_format_property(),
         },
         "required": ["path", "symbol", "callers"],
@@ -413,11 +475,17 @@ def _protocol_audit_input_schema() -> JsonObject:
     return {
         "type": "object",
         "properties": {
-            "target": {"type": "string", "description": "Workspace-relative Python file or directory path."},
-            "symbol": {"type": "string"},
-            "include_private": {"type": "boolean", "default": False},
-            "facade_file": {"type": "string"},
-            "facade_symbol": {"type": "string", "default": "GameSession"},
+            "target": {
+                "type": "string",
+                "description": "Workspace-relative Python file or directory path inside a wrong_adventure-style source tree.",
+            },
+            "symbol": {
+                "type": "string",
+                "description": "Optional protocol or bridge symbol to focus on.",
+            },
+            "include_private": {"type": "boolean", "description": "Include private/underscore symbols in the audit.", "default": False},
+            "facade_file": {"type": "string", "description": "Optional workspace-relative facade file used for relationship checks."},
+            "facade_symbol": {"type": "string", "description": "Facade symbol name used when facade_file is provided.", "default": "GameSession"},
             "output_format": _output_format_property(),
         },
         "required": ["target"],

@@ -22,3 +22,19 @@ checks:
       - agent_tools.tools.code_map
       - parse-check
       - path/to/module.py
+  - id: rules-sync-check
+    description: Verify generated Claude rule mirrors are synchronized with workspace rules.
+    level: repo
+    backend: command
+    cost: cheap
+    required: true
+    command:
+      - python3
+      - -m
+      - agent_tools.tools.rules_sync
+      - --check
+    suggested_command:
+      - python3
+      - -m
+      - agent_tools.tools.rules_sync
+      - --check

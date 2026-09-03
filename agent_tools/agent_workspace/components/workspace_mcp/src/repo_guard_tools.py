@@ -16,21 +16,33 @@ def repo_guard_tools() -> list[McpTool]:
         McpTool(
             name="workspace_validation_policy",
             title="Workspace Validation Policy",
-            description="Show the resolved repository validation policy.",
+            description=(
+                "Use instead of opening validation YAML files by hand. Resolves "
+                "workspace, repo, and task validation policy for a repository and "
+                "returns check ids, cost, backend, and suggested commands."
+            ),
             input_schema=_policy_schema(),
             handler=_workspace_validation_policy,
         ),
         McpTool(
             name="workspace_validation_status",
             title="Workspace Validation Status",
-            description="Show repo_guard validation status without running checks.",
+            description=(
+                "Use to preview what repo_guard would validate without running checks "
+                "or reading receipts. Returns resolved check metadata for cheap "
+                "planning before workspace_validate."
+            ),
             input_schema=_policy_schema(),
             handler=_workspace_validation_policy,
         ),
         McpTool(
             name="workspace_validate",
             title="Workspace Validate",
-            description="Run repo_guard validation checks for a workspace repository.",
+            description=(
+                "Use instead of manually running policy commands. Executes resolved "
+                "repo_guard checks for a workspace repository, writes receipts, and "
+                "returns compact actionable failures."
+            ),
             input_schema=_validate_schema(),
             handler=_workspace_validate,
         ),
@@ -119,11 +131,11 @@ def _policy_schema() -> JsonObject:
             "repo": {
                 "type": "string",
                 "default": ".",
-                "description": "Workspace-relative or absolute git repository path.",
+                "description": "Workspace-relative or absolute path inside the git repository.",
             },
             "task_dir": {
                 "type": "string",
-                "description": "Optional workspace-relative or absolute task directory.",
+                "description": "Optional workspace-relative or absolute task directory for task-level policy.",
             },
         },
         "additionalProperties": False,
@@ -135,6 +147,6 @@ def _validate_schema() -> JsonObject:
     schema["properties"]["include_heavy"] = {
         "type": "boolean",
         "default": False,
-        "description": "Run heavy checks instead of requiring existing receipts.",
+        "description": "Run heavy checks now instead of requiring existing current receipts.",
     }
     return schema

@@ -72,10 +72,6 @@ def test_workspace_mcp_lists_agent_search_tools(tmp_path: Path) -> None:
         "diff_report_init_comments",
         "diff_report_render",
         "diff_report_render_json",
-        "knowledge_get_topic",
-        "knowledge_list_topics",
-        "knowledge_search_topics",
-        "knowledge_set_topic",
         "push_guard_check",
         "push_guard_check_staged",
         "push_guard_install_hook",
@@ -85,8 +81,6 @@ def test_workspace_mcp_lists_agent_search_tools(tmp_path: Path) -> None:
         "repo_registry_list",
         "repo_registry_remove",
         "repo_registry_validate",
-        "rules_sync_apply",
-        "rules_sync_check",
         "task_actions_add",
         "task_actions_delete",
         "task_actions_list",
@@ -118,6 +112,83 @@ def test_workspace_mcp_lists_agent_search_tools(tmp_path: Path) -> None:
         "yocto_diag_command",
     ]
     assert tools[0]["inputSchema"]["type"] == "object"
+
+
+def test_workspace_mcp_tool_descriptors_are_self_descriptive(tmp_path: Path) -> None:
+    server = build_workspace_mcp_server(tmp_path)
+
+    response = server.handle_message({"jsonrpc": "2.0", "id": 1, "method": "tools/list"})
+
+    assert response is not None
+    weak_descriptions: list[str] = []
+    undocumented_properties: list[str] = []
+    for tool in response["result"]["tools"]:
+        description = str(tool.get("description") or "")
+        if len(description) < 80:
+            weak_descriptions.append(tool["name"])
+        properties = tool.get("inputSchema", {}).get("properties", {})
+        for property_name, property_schema in properties.items():
+            if not isinstance(property_schema, dict) or not str(property_schema.get("description", "")).strip():
+                undocumented_properties.append(f"{tool['name']}.{property_name}")
+
+    assert weak_descriptions == []
+    assert undocumented_properties == []
+
+
+def test_workspace_mcp_filters_tools_by_enabled_groups(tmp_path: Path) -> None:
+    server = build_workspace_mcp_server(tmp_path, enabled_tool_groups=("task_context",))
+
+    response = server.handle_message({"jsonrpc": "2.0", "id": 1, "method": "tools/list"})
+
+    assert response is not None
+    names = [tool["name"] for tool in response["result"]["tools"]]
+    assert "task_context_query" in names
+    assert "repo_registry_list" in names
+    assert "agent_search_text" not in names
+    assert "code_map_map" not in names
+
+
+def test_workspace_mcp_keeps_required_tools_enabled(tmp_path: Path) -> None:
+    server = build_workspace_mcp_server(tmp_path, enabled_tool_groups=("search",))
+
+    response = server.handle_message({"jsonrpc": "2.0", "id": 1, "method": "tools/list"})
+
+    assert response is not None
+    names = [tool["name"] for tool in response["result"]["tools"]]
+    assert "agent_search_text" in names
+    assert "task_context_query" in names
+    assert "task_actions_list" in names
+    assert "commit_msg_format" in names
+    assert "workspace_validate" in names
+    assert "code_map_map" not in names
+
+
+def test_workspace_mcp_protocol_audit_reports_unsupported_layout(tmp_path: Path) -> None:
+    server = build_workspace_mcp_server(tmp_path)
+
+    response = _mcp_call(
+        server,
+        "code_map_protocol_audit",
+        {"target": ".", "output_format": "json"},
+    )
+
+    result = response["result"]
+    assert result["isError"] is True
+    assert result["structuredContent"]["code"] == "unsupported-layout"
+    assert "wrong_adventure layout" in result["content"][0]["text"]
+
+
+def test_workspace_mcp_stdio_config_passes_enabled_groups(tmp_path: Path) -> None:
+    config = workspace_mcp_stdio_config(tmp_path, python_executable="python", enabled_tool_groups=("search", "python"))
+
+    assert config["args"] == [
+        "-m",
+        "agent_tools.agent_workspace.components.workspace_mcp",
+        "--workspace",
+        str(tmp_path.resolve()),
+        "--enabled-tool-groups",
+        "search,python",
+    ]
 
 
 def test_workspace_mcp_calls_agent_search_text(tmp_path: Path) -> None:
@@ -459,10 +530,6 @@ with tempfile.TemporaryDirectory() as workspace_text:
         "diff_report_init_comments",
         "diff_report_render",
         "diff_report_render_json",
-        "knowledge_get_topic",
-        "knowledge_list_topics",
-        "knowledge_search_topics",
-        "knowledge_set_topic",
         "push_guard_check",
         "push_guard_check_staged",
         "push_guard_install_hook",
@@ -472,8 +539,6 @@ with tempfile.TemporaryDirectory() as workspace_text:
         "repo_registry_list",
         "repo_registry_remove",
         "repo_registry_validate",
-        "rules_sync_apply",
-        "rules_sync_check",
         "task_actions_add",
         "task_actions_delete",
         "task_actions_list",
@@ -508,89 +573,6 @@ with tempfile.TemporaryDirectory() as workspace_text:
     assert "Read context without search deps." in payload["query"]["result"]["content"][0]["text"]
     assert payload["search"]["result"]["isError"] is True
     assert "dependency is missing" in payload["search"]["result"]["content"][0]["text"]
-
-
-def test_workspace_mcp_knowledge_set_get_list_and_search(
-    tmp_path: Path, monkeypatch: Any
-) -> None:
-    from agent_tools.tools import knowledge
-
-    public_dir = tmp_path / "knowledge" / "topics"
-    private_dir = tmp_path / "private" / "topics"
-    public_dir.mkdir(parents=True)
-    private_dir.mkdir(parents=True)
-    monkeypatch.setattr(knowledge, "PUBLIC_TOPICS_DIR", public_dir)
-    monkeypatch.setenv("AGENT_TOOLS_PRIVATE_KNOWLEDGE_DIR", str(private_dir))
-    server = build_workspace_mcp_server(tmp_path)
-
-    set_response = _mcp_call(
-        server,
-        "knowledge_set_topic",
-        {
-            "topic": "agent_tools",
-            "finding": "MCP knowledge finding",
-            "scope": "private",
-        },
-    )
-    assert set_response["result"]["isError"] is False
-    assert set_response["result"]["structuredContent"]["scope"] == "private"
-
-    list_response = _mcp_call(server, "knowledge_list_topics", {"scope": "all"})
-    assert list_response["result"]["structuredContent"]["topics"] == [
-        {
-            "scope": "private",
-            "topic": "agent_tools",
-            "path": str(private_dir / "agent_tools.md"),
-        }
-    ]
-
-    get_response = _mcp_call(
-        server,
-        "knowledge_get_topic",
-        {"topic": "agent_tools", "scope": "all", "with_header": True},
-    )
-    assert "# private:agent_tools" in get_response["result"]["content"][0]["text"]
-    assert "MCP knowledge finding" in get_response["result"]["content"][0]["text"]
-
-    search_response = _mcp_call(
-        server,
-        "knowledge_search_topics",
-        {"query": "knowledge", "scope": "private"},
-    )
-    assert search_response["result"]["isError"] is False
-    matches = search_response["result"]["structuredContent"]["matches"]
-    assert matches[0]["topic"] == "agent_tools"
-    assert matches[0]["line"] == 3
-
-
-def test_workspace_mcp_knowledge_rejects_invalid_topic(tmp_path: Path) -> None:
-    server = build_workspace_mcp_server(tmp_path)
-
-    response = _mcp_call(server, "knowledge_get_topic", {"topic": "../bad"})
-
-    assert response["result"]["isError"] is True
-    assert "topic must match" in response["result"]["content"][0]["text"]
-
-
-def test_workspace_mcp_knowledge_search_reports_no_matches(
-    tmp_path: Path, monkeypatch: Any
-) -> None:
-    from agent_tools.tools import knowledge
-
-    topics_dir = tmp_path / "knowledge" / "topics"
-    topics_dir.mkdir(parents=True)
-    (topics_dir / "agent_tools.md").write_text("# agent_tools\n\n- finding\n", encoding="utf-8")
-    monkeypatch.setattr(knowledge, "PUBLIC_TOPICS_DIR", topics_dir)
-    server = build_workspace_mcp_server(tmp_path)
-
-    response = _mcp_call(
-        server,
-        "knowledge_search_topics",
-        {"query": "missing", "scope": "public"},
-    )
-
-    assert response["result"]["isError"] is True
-    assert response["result"]["structuredContent"]["matches"] == []
 
 
 def test_workspace_mcp_commit_msg_formats_title_body_and_trailers(tmp_path: Path) -> None:
@@ -1113,7 +1095,7 @@ def test_workspace_mcp_cpp_code_map_inspects_edits_indexes_and_batches(tmp_path:
             "path": "sample.cpp",
             "symbol": "add",
             "expect_hash": body_hash,
-            "replacement": "\n{\n    return left - right;\n}\n",
+            "replacement": "    return left - right;\n",
             "compile_db": ".",
             "output_format": "json",
         },
@@ -1165,7 +1147,7 @@ def test_workspace_mcp_cpp_code_map_inspects_edits_indexes_and_batches(tmp_path:
     assert stale["result"]["structuredContent"]["error"].startswith("symbol body hash mismatch")
     assert indexed["result"]["structuredContent"]["ok"] is True
     assert batch["result"]["structuredContent"]["operations"][0]["operation"] == "includes-add"
-    assert "return left - right;" in source.read_text(encoding="utf-8")
+    assert "int add(int left, int right)\n{\n    return left - right;\n}\n" in source.read_text(encoding="utf-8")
 
 
 def test_workspace_mcp_cpp_code_map_blocks_batch_paths_outside_workspace(tmp_path: Path) -> None:
@@ -1282,33 +1264,6 @@ def test_workspace_mcp_diff_report_blocks_paths_outside_workspace(tmp_path: Path
             "output": str(tmp_path.parent / "outside.html"),
         },
     )
-
-    assert response["result"]["isError"] is True
-    assert "outside workspace" in response["result"]["content"][0]["text"]
-
-
-def test_workspace_mcp_rules_sync_checks_and_applies_mirrors(tmp_path: Path) -> None:
-    _write_rules_sync_workspace(tmp_path)
-    server = build_workspace_mcp_server(tmp_path)
-
-    checked = _mcp_call(server, "rules_sync_check", {})
-    applied = _mcp_call(server, "rules_sync_apply", {})
-    checked_again = _mcp_call(server, "rules_sync_check", {})
-
-    assert checked["result"]["isError"] is True
-    assert ".claude/skills/widget-tool/SKILL.md" in checked["result"]["structuredContent"]["changed"]
-    assert applied["result"]["isError"] is False
-    assert ".claude/skills/widget-tool/SKILL.md" in applied["result"]["structuredContent"]["changed"]
-    assert checked_again["result"]["isError"] is False
-    assert checked_again["result"]["structuredContent"]["clean"] is True
-    assert (tmp_path / ".claude" / "skills" / "widget-tool" / "SKILL.md").is_file()
-    assert "Always Rule" in (tmp_path / "CLAUDE.md").read_text(encoding="utf-8")
-
-
-def test_workspace_mcp_rules_sync_blocks_root_outside_workspace(tmp_path: Path) -> None:
-    server = build_workspace_mcp_server(tmp_path)
-
-    response = _mcp_call(server, "rules_sync_check", {"root": str(tmp_path.parent)})
 
     assert response["result"]["isError"] is True
     assert "outside workspace" in response["result"]["content"][0]["text"]
@@ -1474,7 +1429,8 @@ def test_workspace_mcp_validate_changed_writes_receipt_and_marks_push_guard(
     assert payload["status"] == "pass"
     assert payload["changed_files"] == ["README.md"]
     assert payload["push_guard_marked"] is True
-    assert (repo / "report" / "validation" / "latest.json").is_file()
+    assert (tmp_path / "report" / "validation" / "latest.json").is_file()
+    assert not (repo / "report" / "validation" / "latest.json").exists()
 
 
 def test_workspace_mcp_validate_changed_reports_guard_failures(tmp_path: Path) -> None:
@@ -1815,37 +1771,6 @@ def _write_sample_diff(root: Path) -> Path:
         encoding="utf-8",
     )
     return diff_path
-
-
-def _write_rules_sync_workspace(root: Path) -> None:
-    (root / "AGENTS.md").write_text("# Workspace instructions\n", encoding="utf-8")
-    (root / "CLAUDE.md").write_text("# Claude Code workspace instructions\n", encoding="utf-8")
-    _write_text(
-        root / "agent_tools" / "rules" / "always-rule.md",
-        "---\n"
-        "sync: always\n"
-        "---\n\n"
-        "# Always Rule\n\n"
-        "These rules apply everywhere.\n",
-    )
-    _write_text(
-        root / "agent_tools" / "rules" / "widget-rule.md",
-        "---\n"
-        "sync: skill\n"
-        "---\n\n"
-        "# Widget Rule\n\n"
-        "These rules apply to widgets.\n",
-    )
-    _write_text(
-        root / "agent_tools" / "skills" / "widget-tool" / "SKILL.md",
-        "---\n"
-        "name: widget-tool\n"
-        "description: Use when Codex works on widgets.\n"
-        "rule: agent_tools/rules/widget-rule.md\n"
-        "---\n\n"
-        "# Widget Tool\n\n"
-        "Codex should run widget checks.\n",
-    )
 
 
 def _write_yocto_graphs(prefix: Path) -> None:

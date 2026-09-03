@@ -19,56 +19,86 @@ def task_context_tools() -> list[McpTool]:
         McpTool(
             name="task_context_query",
             title="Task Context Query",
-            description="Read TASK_CONTEXT.sqlite3 slots for a workspace task.",
+            description=(
+                "Use instead of sqlite/Bash reads when task state is needed. "
+                "Validates the task path, reads current TASK_CONTEXT.sqlite3 slots, "
+                "omits legacy noise by default, and can render compact agent context."
+            ),
             input_schema=_query_input_schema(),
             handler=_task_context_query,
         ),
         McpTool(
             name="task_context_set_slot",
             title="Task Context Set Slot",
-            description="Create or replace one current TASK_CONTEXT.sqlite3 slot.",
+            description=(
+                "Use instead of manual SQLite writes to update durable task state. "
+                "Replaces one current slot in TASK_CONTEXT.sqlite3 with validated "
+                "category names and returns the updated slot."
+            ),
             input_schema=_set_slot_input_schema(),
             handler=_task_context_set_slot,
         ),
         McpTool(
             name="task_context_add_entry",
             title="Task Context Add Entry",
-            description="Append one structured task context journal entry.",
+            description=(
+                "Use for append-only findings or validation notes instead of editing "
+                "journal files by hand. Adds one structured entry with severity, "
+                "status, labels, and artifacts."
+            ),
             input_schema=_add_entry_input_schema(),
             handler=_task_context_add_entry,
         ),
         McpTool(
             name="task_context_edit_entries",
             title="Task Context Edit Entries",
-            description="Batch edit or delete structured task context journal entries.",
+            description=(
+                "Use for controlled journal cleanup instead of ad-hoc JSON/SQLite edits. "
+                "Filters entries, supports dry-run, and applies batch status/label/"
+                "artifact/detail changes or deletion."
+            ),
             input_schema=_edit_entries_input_schema(),
             handler=_task_context_edit_entries,
         ),
         McpTool(
             name="task_context_dictionary",
             title="Task Context Dictionary",
-            description="Read or append stable task dictionary aliases.",
+            description=(
+                "Use instead of hand-encoding repeated terms. Reads or appends stable "
+                "task dictionary aliases used by compact context rendering."
+            ),
             input_schema=_dictionary_input_schema(),
             handler=_task_context_dictionary,
         ),
         McpTool(
             name="task_context_compile_dictionary",
             title="Task Context Compile Dictionary",
-            description="Compile task context dictionary aliases from current context.",
+            description=(
+                "Use to derive dictionary aliases from current task context without "
+                "manual text analysis. Updates TASK_CONTEXT.sqlite3 dictionary data."
+            ),
             input_schema=_compile_dictionary_input_schema(),
             handler=_task_context_compile_dictionary,
         ),
         McpTool(
             name="task_context_compact",
             title="Task Context Compact",
-            description="Render compact task context from TASK_CONTEXT.sqlite3.",
+            description=(
+                "Use instead of dumping task files into the model. Renders filtered, "
+                "budgeted task context from TASK_CONTEXT.sqlite3 for handoff or "
+                "agent prompts."
+            ),
             input_schema=_compact_input_schema(),
             handler=_task_context_compact,
         ),
         McpTool(
             name="task_context_migrate_legacy",
             title="Task Context Migrate Legacy",
-            description="Import legacy TASK_CONTEXT_LOG.jsonl entries into TASK_CONTEXT.sqlite3.",
+            description=(
+                "Use only for migration from legacy task logs. Imports "
+                "TASK_CONTEXT_LOG.jsonl entries into TASK_CONTEXT.sqlite3 with "
+                "structured categories."
+            ),
             input_schema=_migrate_legacy_input_schema(),
             handler=_task_context_migrate_legacy,
         ),
@@ -255,31 +285,36 @@ def _task_property() -> JsonObject:
     }
 
 
-def _format_property(*values: str, default: str) -> JsonObject:
-    return {"type": "string", "enum": list(values), "default": default}
+def _format_property(*values: str, default: str, description: str = "Output format.") -> JsonObject:
+    return {"type": "string", "enum": list(values), "default": default, "description": description}
 
 
-def _string_array_property(default: list[str] | None = None) -> JsonObject:
-    return {"type": "array", "items": {"type": "string"}, "default": default or []}
+def _string_array_property(default: list[str] | None = None, description: str = "String list.") -> JsonObject:
+    return {"type": "array", "items": {"type": "string"}, "default": default or [], "description": description}
 
 
 def _slot_category_property() -> JsonObject:
-    return {"type": "string", "enum": list(SLOT_CATEGORIES)}
+    return {"type": "string", "enum": list(SLOT_CATEGORIES), "description": "Task context singleton slot category."}
 
 
 def _slot_categories_property() -> JsonObject:
-    return {"type": "array", "items": {"type": "string", "enum": list(SLOT_CATEGORIES)}, "default": []}
+    return {
+        "type": "array",
+        "items": {"type": "string", "enum": list(SLOT_CATEGORIES)},
+        "default": [],
+        "description": "Optional slot category filter. Empty returns all current non-legacy slots by default.",
+    }
 
 
 def _severity_property(default: str | None = None) -> JsonObject:
-    result: JsonObject = {"type": "string", "enum": list(SEVERITIES)}
+    result: JsonObject = {"type": "string", "enum": list(SEVERITIES), "description": "Journal severity filter or value."}
     if default is not None:
         result["default"] = default
     return result
 
 
 def _status_property(default: str | None = None) -> JsonObject:
-    result: JsonObject = {"type": "string", "enum": list(STATUSES)}
+    result: JsonObject = {"type": "string", "enum": list(STATUSES), "description": "Journal status filter or value."}
     if default is not None:
         result["default"] = default
     return result
@@ -291,8 +326,15 @@ def _query_input_schema() -> JsonObject:
         "properties": {
             "task": _task_property(),
             "categories": _slot_categories_property(),
-            "format": _format_property("text", "markdown", "agent", "json", default="text"),
-            "include_legacy": {"type": "boolean", "default": False},
+            "format": _format_property(
+                "text",
+                "markdown",
+                "agent",
+                "json",
+                default="text",
+                description="Use agent for compact model context or json for structured consumers.",
+            ),
+            "include_legacy": {"type": "boolean", "description": "Include migrated legacy slot content. Default omits legacy noise.", "default": False},
         },
         "required": ["task"],
         "additionalProperties": False,
@@ -305,9 +347,9 @@ def _set_slot_input_schema() -> JsonObject:
         "properties": {
             "task": _task_property(),
             "category": _slot_category_property(),
-            "content": {"type": "string", "default": ""},
-            "updated_at": {"type": "string"},
-            "format": _format_property("text", "markdown", "agent", "json", default="markdown"),
+            "content": {"type": "string", "description": "Full replacement content for the singleton slot.", "default": ""},
+            "updated_at": {"type": "string", "description": "Optional ISO timestamp override. Omit to use current time."},
+            "format": _format_property("text", "markdown", "agent", "json", default="markdown", description="Response format for the updated slot."),
         },
         "required": ["task", "category"],
         "additionalProperties": False,
@@ -319,14 +361,14 @@ def _add_entry_input_schema() -> JsonObject:
         "type": "object",
         "properties": {
             "task": _task_property(),
-            "summary": {"type": "string"},
+            "summary": {"type": "string", "description": "Short factual journal entry summary."},
             "severity": _severity_property("mid"),
-            "labels": _string_array_property(),
+            "labels": _string_array_property(description="Optional searchable labels."),
             "status": _status_property("active"),
-            "details": {"type": "string", "default": ""},
-            "source": {"type": "string", "default": "agent"},
-            "artifacts": _string_array_property(),
-            "timestamp": {"type": "string"},
+            "details": {"type": "string", "description": "Additional factual details, commands, paths, or evidence.", "default": ""},
+            "source": {"type": "string", "description": "Origin of the entry, usually agent or user.", "default": "agent"},
+            "artifacts": _string_array_property(description="Workspace-relative artifact paths associated with the entry."),
+            "timestamp": {"type": "string", "description": "Optional ISO timestamp override. Omit to use current time."},
         },
         "required": ["task", "summary"],
         "additionalProperties": False,
@@ -338,29 +380,29 @@ def _edit_entries_input_schema() -> JsonObject:
         "type": "object",
         "properties": {
             "task": _task_property(),
-            "ids": {"type": "array", "items": {"type": "integer"}, "default": []},
-            "since": {"type": "string"},
-            "until": {"type": "string"},
-            "severity": {"type": "string"},
-            "labels": _string_array_property(),
-            "statuses": {"type": "array", "items": {"type": "string", "enum": list(STATUSES)}, "default": []},
-            "all": {"type": "boolean", "default": False},
+            "ids": {"type": "array", "items": {"type": "integer"}, "description": "Specific journal entry ids to edit.", "default": []},
+            "since": {"type": "string", "description": "Only edit entries at or after this ISO/date timestamp."},
+            "until": {"type": "string", "description": "Only edit entries at or before this ISO/date timestamp."},
+            "severity": {"type": "string", "description": "Only edit entries matching this severity."},
+            "labels": _string_array_property(description="Only edit entries containing these labels."),
+            "statuses": {"type": "array", "items": {"type": "string", "enum": list(STATUSES)}, "description": "Only edit entries with these statuses.", "default": []},
+            "all": {"type": "boolean", "description": "Edit all entries matching filters. Use carefully.", "default": False},
             "set_status": _status_property(),
             "set_severity": _severity_property(),
-            "set_summary": {"type": "string"},
-            "set_details": {"type": "string"},
-            "set_source": {"type": "string"},
-            "set_labels": _string_array_property(),
-            "add_labels": _string_array_property(),
-            "remove_labels": _string_array_property(),
-            "clear_labels": {"type": "boolean", "default": False},
-            "set_artifacts": _string_array_property(),
-            "add_artifacts": _string_array_property(),
-            "remove_artifacts": _string_array_property(),
-            "clear_artifacts": {"type": "boolean", "default": False},
-            "delete": {"type": "boolean", "default": False},
-            "dry_run": {"type": "boolean", "default": False},
-            "format": _format_property("text", "markdown", "json", default="text"),
+            "set_summary": {"type": "string", "description": "Replace summary for matching entries."},
+            "set_details": {"type": "string", "description": "Replace details for matching entries."},
+            "set_source": {"type": "string", "description": "Replace source for matching entries."},
+            "set_labels": _string_array_property(description="Replace labels for matching entries."),
+            "add_labels": _string_array_property(description="Add these labels to matching entries."),
+            "remove_labels": _string_array_property(description="Remove these labels from matching entries."),
+            "clear_labels": {"type": "boolean", "description": "Remove all labels from matching entries.", "default": False},
+            "set_artifacts": _string_array_property(description="Replace artifact paths for matching entries."),
+            "add_artifacts": _string_array_property(description="Add artifact paths to matching entries."),
+            "remove_artifacts": _string_array_property(description="Remove artifact paths from matching entries."),
+            "clear_artifacts": {"type": "boolean", "description": "Remove all artifact paths from matching entries.", "default": False},
+            "delete": {"type": "boolean", "description": "Delete matching entries instead of editing them.", "default": False},
+            "dry_run": {"type": "boolean", "description": "Preview affected entries without writing changes.", "default": False},
+            "format": _format_property("text", "markdown", "json", default="text", description="Response format for matched/edited entries."),
         },
         "required": ["task"],
         "additionalProperties": False,
@@ -372,8 +414,8 @@ def _dictionary_input_schema() -> JsonObject:
         "type": "object",
         "properties": {
             "task": _task_property(),
-            "format": _format_property("text", "json", default="text"),
-            "add": _string_array_property(),
+            "format": _format_property("text", "json", default="text", description="Response format for dictionary aliases."),
+            "add": _string_array_property(description="Stable terms to add to the task dictionary."),
         },
         "required": ["task"],
         "additionalProperties": False,
@@ -394,13 +436,13 @@ def _compact_input_schema() -> JsonObject:
         "type": "object",
         "properties": {
             "task": _task_property(),
-            "since": {"type": "string"},
-            "until": {"type": "string"},
-            "severity": {"type": "string", "default": "mid..critical"},
-            "labels": _string_array_property(),
-            "statuses": {"type": "array", "items": {"type": "string", "enum": list(STATUSES)}, "default": ["active"]},
-            "limit": {"type": "integer", "minimum": 1, "default": DEFAULT_COMPACT_LIMIT},
-            "agent_context": {"type": "boolean", "default": False},
+            "since": {"type": "string", "description": "Only include entries at or after this ISO/date timestamp."},
+            "until": {"type": "string", "description": "Only include entries at or before this ISO/date timestamp."},
+            "severity": {"type": "string", "description": "Severity filter expression, for example mid..critical.", "default": "mid..critical"},
+            "labels": _string_array_property(description="Only include entries containing these labels."),
+            "statuses": {"type": "array", "items": {"type": "string", "enum": list(STATUSES)}, "description": "Only include entries with these statuses.", "default": ["active"]},
+            "limit": {"type": "integer", "minimum": 1, "description": "Approximate output token budget for compact context.", "default": DEFAULT_COMPACT_LIMIT},
+            "agent_context": {"type": "boolean", "description": "Render in the compact format intended for agent prompt injection.", "default": False},
         },
         "required": ["task"],
         "additionalProperties": False,

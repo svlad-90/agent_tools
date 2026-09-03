@@ -13,42 +13,63 @@ def task_actions_tools() -> list[McpTool]:
         McpTool(
             name="task_actions_list",
             title="Task Actions List",
-            description="List actions declared by a workspace task.",
+            description=(
+                "Use instead of reading TASK_ACTIONS.json manually. Lists task and "
+                "workspace-injected GUI actions with compact structured metadata."
+            ),
             input_schema=_list_input_schema(),
             handler=_task_actions_list,
         ),
         McpTool(
             name="task_actions_add",
             title="Task Actions Add",
-            description="Add one GUI action to a workspace task TASK_ACTIONS.json file.",
+            description=(
+                "Use instead of editing TASK_ACTIONS.json by hand. Adds one "
+                "task-local GUI action with validated command, cwd, env, and "
+                "parameter fields."
+            ),
             input_schema=_add_input_schema(),
             handler=_task_actions_add,
         ),
         McpTool(
             name="task_actions_delete",
             title="Task Actions Delete",
-            description="Delete one GUI action from a workspace task TASK_ACTIONS.json file.",
+            description=(
+                "Use instead of manual JSON deletion. Removes one task-local GUI "
+                "action or shortcut while preserving the remaining action file."
+            ),
             input_schema=_delete_input_schema(),
             handler=_task_actions_delete,
         ),
         McpTool(
             name="task_actions_update",
             title="Task Actions Update",
-            description="Update one GUI action in a workspace task TASK_ACTIONS.json file.",
+            description=(
+                "Use instead of manual JSON edits. Updates one task-local GUI "
+                "action while validating command, cwd, env, and parameters."
+            ),
             input_schema=_update_input_schema(),
             handler=_task_actions_update,
         ),
         McpTool(
             name="task_actions_show",
             title="Task Actions Show",
-            description="Show one task-declared action with command, cwd, env, and parameters.",
+            description=(
+                "Use instead of reading TASK_ACTIONS.json when inspecting one "
+                "workspace task action before running or editing it. Returns compact "
+                "command, cwd, env, parameters, and validation errors."
+            ),
             input_schema=_show_input_schema(),
             handler=_task_actions_show,
         ),
         McpTool(
             name="task_actions_run",
             title="Task Actions Run",
-            description="Run one task-declared action with optional parameter bindings.",
+            description=(
+                "Use instead of hand-building a shell command for test-only "
+                "agent-side execution of a workspace task action. Applies parameter "
+                "bindings and returns compact stdout, stderr, and exit code."
+            ),
             input_schema=_run_input_schema(),
             handler=_task_actions_run,
         ),
@@ -234,7 +255,7 @@ def _list_input_schema() -> JsonObject:
         "properties": {
             "task": {
                 "type": "string",
-                "description": "Workspace-relative or absolute task directory under tasks/.",
+                "description": "Workspace-relative or absolute task directory under workspace tasks/.",
             },
         },
         "required": ["task"],
@@ -250,24 +271,26 @@ def _add_input_schema() -> JsonObject:
                 "type": "string",
                 "description": "Workspace-relative or absolute task directory under tasks/.",
             },
-            "action": {"type": "string"},
-            "label": {"type": "string"},
+            "action": {"type": "string", "description": "Stable task action id."},
+            "label": {"type": "string", "description": "Human-readable label shown in the GUI."},
             "command": {
-                "description": "Shell command string or argv string list.",
+                "description": "Shell command string or argv string list to execute for this action.",
                 "oneOf": [
                     {"type": "string"},
                     {"type": "array", "items": {"type": "string"}},
                 ],
             },
-            "cwd": {"type": "string", "default": "."},
+            "cwd": {"type": "string", "description": "Action working directory, usually task-relative; default is the task directory.", "default": "."},
             "env": {
                 "type": "object",
                 "additionalProperties": {"type": "string"},
+                "description": "Environment variables to add or override for this action.",
                 "default": {},
             },
             "parameters": {
                 "type": "array",
                 "items": {"type": "object"},
+                "description": "Optional GUI parameter definitions consumed before action execution.",
                 "default": [],
             },
         },
@@ -290,7 +313,7 @@ def _update_input_schema() -> JsonObject:
 
 def _show_input_schema() -> JsonObject:
     schema = _list_input_schema()
-    schema["properties"]["action"] = {"type": "string"}
+    schema["properties"]["action"] = {"type": "string", "description": "Stable task action id."}
     schema["required"] = ["task", "action"]
     return schema
 
@@ -300,6 +323,7 @@ def _run_input_schema() -> JsonObject:
     schema["properties"]["bindings"] = {
         "type": "object",
         "additionalProperties": {"type": "string"},
+        "description": "Parameter id to value map used when expanding action parameters.",
         "default": {},
     }
     return schema

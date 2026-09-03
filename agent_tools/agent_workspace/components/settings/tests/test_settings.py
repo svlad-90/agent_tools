@@ -26,6 +26,8 @@ def test_agent_workspace_settings_persist_font_size(tmp_path: Path) -> None:
             "limited_bash_output_tokens": 12_000,
             "system_prompt": "Prefer short, concrete answers.\nKeep task state durable.",
             "inject_task_context_prompt": False,
+            "mcp_enabled_groups": ["search", "python", "task_context"],
+            "mcp_trusted": True,
             "task_dictionary_auto_discovery": False,
             "task_dictionary_min_occurrences": 3,
             "task_dictionary_min_saving": 24,
@@ -58,6 +60,15 @@ def test_agent_workspace_settings_persist_font_size(tmp_path: Path) -> None:
         "limited_bash_output_tokens": 12_000,
         "system_prompt": "Prefer short, concrete answers.\nKeep task state durable.",
         "inject_task_context_prompt": False,
+        "mcp_enabled_groups": (
+            "search",
+            "python",
+            "task_context",
+            "task_actions",
+            "commit_messages",
+            "validation",
+        ),
+        "mcp_trusted": True,
         "task_dictionary_auto_discovery": False,
         "task_dictionary_min_occurrences": 3,
         "task_dictionary_min_saving": 24,
@@ -120,6 +131,53 @@ def test_agent_workspace_runtime_settings_disables_agent_animations_by_default()
     assert settings.codex_animations_enabled is False
     assert settings.claude_animations_enabled is False
     assert settings.limited_bash_output_tokens == AGENT_WORKSPACE_DEFAULT_LIMITED_BASH_OUTPUT_TOKENS
+    assert settings.mcp_enabled_groups == tuple(group_id for group_id, _label in workspace_mcp_tool_groups())
+    assert workspace_mcp_enabled_groups_for_runtime(settings.mcp_enabled_groups) is None
+    assert settings.mcp_trusted is False
+
+
+def test_workspace_mcp_tool_groups_have_tooltips() -> None:
+    for group_id, _label in workspace_mcp_tool_groups():
+        assert workspace_mcp_tool_group_tooltip(group_id)
+
+
+def test_workspace_mcp_required_groups_cannot_be_disabled() -> None:
+    settings = agent_workspace_runtime_settings(
+        {
+            "mcp_enabled_groups": ["search"],
+        },
+        default_font_size=13,
+    )
+
+    enabled = set(settings.mcp_enabled_groups)
+
+    assert "search" in enabled
+    assert {group_id for group_id, _label in workspace_mcp_required_tool_groups()} <= enabled
+    assert not ({group_id for group_id, _label in workspace_mcp_required_tool_groups()} & {group_id for group_id, _label in workspace_mcp_configurable_tool_groups()})
+
+
+def test_apply_agent_workspace_mcp_trust_updates_codex_and_claude_settings(tmp_path: Path) -> None:
+    codex_path = tmp_path / "codex" / "config.toml"
+    claude_path = tmp_path / "claude" / "settings.json"
+    codex_path.parent.mkdir()
+    codex_path.write_text(
+        'model = "gpt-5.5"\n\n[mcp_servers.agent_tools_workspace]\ncommand = "python"\n',
+        encoding="utf-8",
+    )
+    claude_path.parent.mkdir()
+    claude_path.write_text('{"theme": "dark", "permissions": {"allow": ["Bash(git status)"]}}\n', encoding="utf-8")
+
+    apply_agent_workspace_mcp_trust(trusted=True, codex_path=codex_path, claude_path=claude_path)
+
+    assert 'default_tools_approval_mode = "approve"' in codex_path.read_text(encoding="utf-8")
+    claude_data = json.loads(claude_path.read_text(encoding="utf-8"))
+    assert "mcp__agent-tools__*" in claude_data["permissions"]["allow"]
+
+    apply_agent_workspace_mcp_trust(trusted=False, codex_path=codex_path, claude_path=claude_path)
+
+    assert 'default_tools_approval_mode = "prompt"' in codex_path.read_text(encoding="utf-8")
+    claude_data = json.loads(claude_path.read_text(encoding="utf-8"))
+    assert claude_data["permissions"]["allow"] == ["Bash(git status)"]
 
 
 def test_agent_workspace_runtime_settings_normalizes_ui_defaults() -> None:
@@ -139,6 +197,8 @@ def test_agent_workspace_runtime_settings_normalizes_ui_defaults() -> None:
             "limited_bash_output_tokens": 4_000,
             "system_prompt": "Use the project-specific policy.",
             "inject_task_context_prompt": False,
+            "mcp_enabled_groups": ["search", "unknown", "validation"],
+            "mcp_trusted": True,
             "task_dictionary_auto_discovery": False,
             "task_dictionary_min_occurrences": 4,
             "task_dictionary_min_saving": 32,
@@ -168,6 +228,14 @@ def test_agent_workspace_runtime_settings_normalizes_ui_defaults() -> None:
     assert settings.limited_bash_output_tokens == 4_000
     assert settings.system_prompt == "Use the project-specific policy."
     assert settings.inject_task_context_prompt is False
+    assert settings.mcp_enabled_groups == (
+        "search",
+        "task_context",
+        "task_actions",
+        "commit_messages",
+        "validation",
+    )
+    assert settings.mcp_trusted is True
     assert settings.task_dictionary_auto_discovery is False
     assert settings.task_dictionary_min_occurrences == 4
     assert settings.task_dictionary_min_saving == 32

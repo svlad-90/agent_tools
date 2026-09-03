@@ -1,6 +1,15 @@
 from __future__ import annotations
 
+import pytest
+
 from agent_tools.agent_workspace.components.test_support.src.helpers import *
+
+
+def _create_web_server_or_skip(workspace: Path):
+    try:
+        return create_web_server(workspace, "127.0.0.1", 0)
+    except PermissionError as exc:
+        pytest.skip(f"web server socket is unavailable in this environment: {exc}")
 
 
 def test_agent_workspace_web_server_exposes_tasks_api(tmp_path: Path) -> None:
@@ -8,7 +17,7 @@ def test_agent_workspace_web_server_exposes_tasks_api(tmp_path: Path) -> None:
     task.mkdir(parents=True)
     (task / "TASK_DESCRIPTION.md").write_text("# Description\n", encoding="utf-8")
 
-    server = create_web_server(tmp_path, "127.0.0.1", 0)
+    server = _create_web_server_or_skip(tmp_path)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
     try:

@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 from typing import Any, TextIO
 
+from .config import workspace_mcp_tool_allowed
 from .registry import JsonObject, ToolContext, ToolResult, WorkspaceMcpRegistry
 
 
@@ -12,9 +13,16 @@ MCP_PROTOCOL_VERSION = "2025-06-18"
 
 
 class WorkspaceMcpServer:
-    def __init__(self, workspace: Path, registry: WorkspaceMcpRegistry) -> None:
+    def __init__(
+        self,
+        workspace: Path,
+        registry: WorkspaceMcpRegistry,
+        *,
+        enabled_tool_groups: tuple[str, ...] | None = None,
+    ) -> None:
         self.workspace = workspace.resolve()
         self.registry = registry
+        self.enabled_tool_groups = enabled_tool_groups
         self._tools_load_error = ""
         self._tools_loaded = False
 
@@ -137,11 +145,9 @@ class WorkspaceMcpServer:
         from .cpp_code_map_tools import cpp_code_map_tools
         from .cpp_light_code_map_tools import cpp_light_code_map_tools
         from .diff_report_tools import diff_report_tools
-        from .knowledge_tools import knowledge_tools
         from .push_guard_tools import push_guard_tools
         from .repo_registry_tools import repo_registry_tools
         from .repo_guard_tools import repo_guard_tools
-        from .rules_sync_tools import rules_sync_tools
         from .task_actualize_tools import task_actualize_tools
         from .task_actions_tools import task_actions_tools
         from .task_context_tools import task_context_tools
@@ -149,43 +155,27 @@ class WorkspaceMcpServer:
         from .yaml_map_tools import yaml_map_tools
         from .yocto_diag_tools import yocto_diag_tools
 
-        for tool in code_map_tools():
-            self.registry.register(tool)
-        for tool in commit_msg_tools():
-            self.registry.register(tool)
-        for tool in cpp_code_map_tools():
-            self.registry.register(tool)
-        for tool in cpp_light_code_map_tools():
-            self.registry.register(tool)
-        for tool in diff_report_tools():
-            self.registry.register(tool)
-        for tool in knowledge_tools():
-            self.registry.register(tool)
-        for tool in push_guard_tools():
-            self.registry.register(tool)
-        for tool in repo_registry_tools():
-            self.registry.register(tool)
-        for tool in repo_guard_tools():
-            self.registry.register(tool)
-        for tool in rules_sync_tools():
-            self.registry.register(tool)
-        for tool in task_actualize_tools():
-            self.registry.register(tool)
-        for tool in task_actions_tools():
-            self.registry.register(tool)
-        for tool in task_context_tools():
-            self.registry.register(tool)
-        for tool in validate_tools():
-            self.registry.register(tool)
-        for tool in yaml_map_tools():
-            self.registry.register(tool)
-        for tool in yocto_diag_tools():
-            self.registry.register(tool)
+        for tools in (
+            code_map_tools(),
+            commit_msg_tools(),
+            cpp_code_map_tools(),
+            cpp_light_code_map_tools(),
+            diff_report_tools(),
+            push_guard_tools(),
+            repo_registry_tools(),
+            repo_guard_tools(),
+            task_actualize_tools(),
+            task_actions_tools(),
+            task_context_tools(),
+            validate_tools(),
+            yaml_map_tools(),
+            yocto_diag_tools(),
+        ):
+            self._register_tools(tools)
         try:
             from .agent_search_tools import agent_search_tools
 
-            for tool in agent_search_tools():
-                self.registry.register(tool)
+            self._register_tools(agent_search_tools())
         except ModuleNotFoundError as error:
             dependency = error.name or str(error)
             self._tools_load_error = (
@@ -195,7 +185,12 @@ class WorkspaceMcpServer:
             )
         self._tools_loaded = True
 
+    def _register_tools(self, tools: list[Any]) -> None:
+        for tool in tools:
+            if workspace_mcp_tool_allowed(tool.name, self.enabled_tool_groups):
+                self.registry.register(tool)
 
-def build_workspace_mcp_server(workspace: Path) -> WorkspaceMcpServer:
+
+def build_workspace_mcp_server(workspace: Path, *, enabled_tool_groups: tuple[str, ...] | None = None) -> WorkspaceMcpServer:
     registry = WorkspaceMcpRegistry()
-    return WorkspaceMcpServer(workspace, registry)
+    return WorkspaceMcpServer(workspace, registry, enabled_tool_groups=enabled_tool_groups)

@@ -7,8 +7,17 @@ import sys
 import threading
 from urllib.request import urlopen
 
+import pytest
+
 from agent_tools.agent_workspace.components.web_frontend.api import create_server
 from agent_tools.tools.task_context import set_slot
+
+
+def _create_server_or_skip(workspace: Path):
+    try:
+        return create_server(workspace, "127.0.0.1", 0)
+    except PermissionError as exc:
+        pytest.skip(f"web server socket is unavailable in this environment: {exc}")
 
 
 def test_agent_workspace_service_and_web_modules_do_not_import_gtk() -> None:
@@ -30,7 +39,7 @@ def test_agent_workspace_web_context_api_returns_slots(tmp_path: Path) -> None:
     set_slot(task, "goal", "Agent Workspace web service goal.")
     set_slot(task, "validation", "Run web service smoke.")
 
-    server = create_server(tmp_path, "127.0.0.1", 0)
+    server = _create_server_or_skip(tmp_path)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
     try:
@@ -55,7 +64,7 @@ def test_agent_workspace_web_context_api_returns_encoded_slot_markdown(tmp_path:
     set_slot(task, "goal", "Agent Workspace web service goal.")
     set_slot(task, "findings", "drivers/firmware/scmi/scmi.c appears in browser context.")
 
-    server = create_server(tmp_path, "127.0.0.1", 0)
+    server = _create_server_or_skip(tmp_path)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
     try:
@@ -81,7 +90,7 @@ def test_agent_workspace_web_context_api_returns_encoded_slot_dictionary(tmp_pat
     repeated = "drivers/firmware/scmi/scmi.c"
     set_slot(task, "findings", f"{repeated} appears. {repeated} repeats. {repeated} remains.")
 
-    server = create_server(tmp_path, "127.0.0.1", 0)
+    server = _create_server_or_skip(tmp_path)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
     try:

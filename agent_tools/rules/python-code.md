@@ -9,7 +9,9 @@ These rules apply to all Python code under the workspace root.
 1. Use Agent Workspace MCP `code_map_*` tools whenever Python code is
    inspected, changed, reviewed, or validated and those tools are available in
    the active agent client. Use the CLI implementation at
-   `agent_tools/tools/code_map` only as fallback.
+   `agent_tools/tools/code_map` only as fallback. MCP `code_map_*` tools accept
+   workspace-relative paths such as
+   `agent_tools/agent_workspace/components/agent_status/src/status.py`.
 2. For CLI fallback, run commands from the workspace root or from the
    `agent_tools/` package root. Target file paths are resolved relative to the
    `agent_tools/` package root, not relative to the current shell directory.
@@ -27,6 +29,10 @@ These rules apply to all Python code under the workspace root.
    with MCP `code_map_map` when available, or with CLI fallback:
 
    ```sh
+   # MCP path form:
+   agent_tools/agent_workspace/components/agent_status/src/status.py
+
+   # CLI fallback path form:
    python -m agent_tools.tools.code_map map tools/path/to/file.py
    ```
 
@@ -46,6 +52,10 @@ These rules apply to all Python code under the workspace root.
    `code_map_parse_check` when available, or with CLI fallback:
 
    ```sh
+   # MCP path form:
+   agent_tools/agent_workspace/components/agent_status/src/status.py
+
+   # CLI fallback path form:
    python -m agent_tools.tools.code_map parse-check tools/path/to/file.py
    ```
 

@@ -33,10 +33,28 @@ def test_codex_command_registers_workspace_mcp_server(tmp_path: Path) -> None:
     joined_pairs = _joined_pairs(command)
     assert f'-c mcp_servers.agent_tools_workspace.command="{sys.executable}"' in joined_pairs
     assert '-c mcp_servers.agent_tools_workspace.enabled=true' in joined_pairs
+    assert '-c mcp_servers.agent_tools_workspace.default_tools_approval_mode="prompt"' in joined_pairs
     assert "-c mcp_servers.agent_tools_workspace.startup_timeout_sec=10" in joined_pairs
     assert "-c mcp_servers.agent_tools_workspace.tool_timeout_sec=60" in joined_pairs
     assert "agent_tools.agent_workspace.components.workspace_mcp" in " ".join(command)
     assert str(tmp_path.resolve()) in " ".join(command)
+
+
+def test_codex_command_registers_limited_trusted_workspace_mcp_server(tmp_path: Path) -> None:
+    command = build_ai_agent_console_command(
+        tmp_path,
+        "task prompt",
+        "codex",
+        codex_executable="codex-bin",
+        claude_executable="claude-bin",
+        workspace_mcp_enabled_groups=("search", "task_context"),
+        workspace_mcp_trusted=True,
+    )
+
+    joined_pairs = _joined_pairs(command)
+    assert '-c mcp_servers.agent_tools_workspace.default_tools_approval_mode="approve"' in joined_pairs
+    assert "--enabled-tool-groups" in " ".join(command)
+    assert "search,task_context" in " ".join(command)
 
 
 def test_claude_command_registers_workspace_mcp_server(tmp_path: Path) -> None:
@@ -61,6 +79,22 @@ def test_claude_command_registers_workspace_mcp_server(tmp_path: Path) -> None:
         str(tmp_path.resolve()),
     ]
     assert server["env"] == {"PYTHONPATH": str(tmp_path.resolve())}
+
+
+def test_claude_command_registers_limited_trusted_workspace_mcp_server(tmp_path: Path) -> None:
+    command = build_ai_agent_console_command(
+        tmp_path,
+        "task prompt",
+        "claude",
+        codex_executable="codex-bin",
+        claude_executable="claude-bin",
+        workspace_mcp_enabled_groups=("search", "task_context"),
+        workspace_mcp_trusted=True,
+    )
+
+    settings = _claude_settings(command)
+    assert settings["allowedTools"] == ["mcp__agent-tools__*"]
+    assert settings["mcpServers"]["agent-tools"]["args"][-2:] == ["--enabled-tool-groups", "search,task_context"]
 
 
 def test_codex_tui_animations_can_be_enabled(tmp_path: Path) -> None:
@@ -458,10 +492,11 @@ def test_codex_console_command_resume_without_session_starts_new_task_context(tm
     ]
 
 
-def test_gtk_and_tk_codex_command_builders_match(tmp_path: Path) -> None:
+def test_gtk_and_tk_codex_command_builders_match(monkeypatch, tmp_path: Path) -> None:
     task = tmp_path / "tasks" / "sample-task"
     task.mkdir(parents=True)
     summary = discover_tasks_with_context(task, tmp_path)
+    monkeypatch.setattr(gtk_ui_module, "load_agent_workspace_settings", lambda: {})  # type: ignore[attr-defined]
 
     tk_command = ai_agent_console_command(
         tmp_path,
@@ -564,11 +599,12 @@ def test_ai_agent_console_command_can_use_claude_session_id(tmp_path: Path) -> N
     assert all("workspace task `sample-task`" not in part for part in resume_command)
 
 
-def test_gtk_and_tk_claude_command_builders_match(tmp_path: Path) -> None:
+def test_gtk_and_tk_claude_command_builders_match(monkeypatch, tmp_path: Path) -> None:
     task = tmp_path / "tasks" / "sample-task"
     task.mkdir(parents=True)
     summary = discover_tasks_with_context(task, tmp_path)
     session_id = "019feba2-e25e-76e1-9468-aa399758268f"
+    monkeypatch.setattr(gtk_ui_module, "load_agent_workspace_settings", lambda: {})  # type: ignore[attr-defined]
 
     tk_command = ai_agent_console_command(
         tmp_path,

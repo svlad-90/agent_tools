@@ -112,11 +112,15 @@ include compact search (`agent_search_*`), Python maps and guarded edits
 (`task_actions_*`), commit message formatting (`commit_msg_format`), push
 validation (`push_guard_*`), workspace validation (`workspace_validate`,
 `validate_changed`, `validate_task`, `workspace_validation_policy`, and
-`workspace_validation_status`), rules sync (`rules_sync_*`), knowledge lookup
-(`knowledge_list_topics`, `knowledge_get_topic`, `knowledge_search_topics`,
-and `knowledge_set_topic`), and Yocto diagnostics (`yocto_diag_*`). Active MCP
-clients may need to be restarted after an Agent Workspace upgrade so they
-reload the updated tool schema.
+`workspace_validation_status`), and Yocto diagnostics (`yocto_diag_*`). Active
+MCP clients may need to be restarted after an Agent Workspace upgrade so they
+reload the updated tool schema. Rule synchronization and workspace knowledge
+remain file/CLI infrastructure rather than agent-facing MCP tools.
+The Settings > MCP tab can enable or disable these tool groups for newly
+started agent sessions. The same tab can mark the workspace MCP server as
+trusted by writing Codex `default_tools_approval_mode = "approve"` for
+`agent_tools_workspace` and Claude Code `mcp__agent-tools__*` allow settings;
+clearing the checkbox reverts those approval entries.
 
 The reset-session button forgets only the selected task's selected AI-agent
 session in `.agent-workspace-state.json`; it does not delete the underlying
