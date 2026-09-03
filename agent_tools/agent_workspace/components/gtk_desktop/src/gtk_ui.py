@@ -258,6 +258,28 @@ def _claude_executable() -> str:
     return agent_executable("claude") or "claude"
 
 
+def _apply_mcp_trusted_check_toggle(
+    check: Gtk.CheckButton,
+    confirmed_mcp_trusted: bool,
+    confirm_enable: Callable[[], bool],
+    confirm_disable: Callable[[], bool],
+    apply_trust: Callable[[bool], None],
+) -> bool:
+    requested_mcp_trusted = check.get_active()
+    if requested_mcp_trusted == confirmed_mcp_trusted:
+        return confirmed_mcp_trusted
+    confirm = confirm_enable if requested_mcp_trusted else confirm_disable
+    if confirm():
+        try:
+            apply_trust(requested_mcp_trusted)
+        except OSError:
+            check.set_active(confirmed_mcp_trusted)
+            raise
+        return requested_mcp_trusted
+    check.set_active(confirmed_mcp_trusted)
+    return confirmed_mcp_trusted
+
+
 @dataclass
 class TerminalSession:
     session_id: int
@@ -1938,6 +1960,21 @@ class WorkspaceGtkGui:
         dialog.destroy()
         return response == Gtk.ResponseType.OK
 
+    def _confirm_mcp_trust_disable(self) -> bool:
+        dialog = Gtk.MessageDialog(
+            transient_for=self.window,
+            flags=Gtk.DialogFlags.MODAL,
+            message_type=Gtk.MessageType.WARNING,
+            buttons=Gtk.ButtonsType.NONE,
+            text=self._tr("settings_mcp_trust_disable_confirm_title"),
+        )
+        dialog.format_secondary_text(self._tr("settings_mcp_trust_disable_confirm_body"))
+        dialog.add_button(self._tr("cancel"), Gtk.ResponseType.CANCEL)
+        dialog.add_button(self._tr("settings_mcp_trust_disable_confirm_button"), Gtk.ResponseType.OK)
+        response = dialog.run()
+        dialog.destroy()
+        return response == Gtk.ResponseType.OK
+
     def _close_sessions_for_task(self, task: TaskSummary) -> None:
         for session_id, session in list(self.terminal_sessions.items()):
             if session.task_path != task.path:
@@ -2383,7 +2420,6 @@ class WorkspaceGtkGui:
 
     def open_settings(self, *_args: object) -> None:
         self._pause_profiling_for_settings()
-        old_mcp_trusted = self.mcp_trusted
         dialog = Gtk.Dialog(
             title=self._tr("settings_title"),
             transient_for=self.window,
@@ -2419,6 +2455,35 @@ class WorkspaceGtkGui:
         mcp_trusted_note = Gtk.Label(label=self._tr("settings_mcp_trusted_note"))
         mcp_trusted_note.set_xalign(0)
         mcp_trusted_note.set_line_wrap(True)
+        confirmed_mcp_trusted = self.mcp_trusted
+        updating_mcp_trusted_check = False
+
+        def on_mcp_trusted_toggled(check: Gtk.CheckButton) -> None:
+            nonlocal confirmed_mcp_trusted, updating_mcp_trusted_check
+            if updating_mcp_trusted_check:
+                return
+            updating_mcp_trusted_check = True
+            try:
+                try:
+                    new_mcp_trusted = _apply_mcp_trusted_check_toggle(
+                        check,
+                        confirmed_mcp_trusted,
+                        self._confirm_mcp_trust_enable,
+                        self._confirm_mcp_trust_disable,
+                        lambda trusted: apply_agent_workspace_mcp_trust(trusted=trusted),
+                    )
+                except OSError as error:
+                    check.set_active(confirmed_mcp_trusted)
+                    self._show_error(f"{self._tr('settings_mcp_trust_failed')}: {error}")
+                    return
+                if new_mcp_trusted != confirmed_mcp_trusted:
+                    confirmed_mcp_trusted = new_mcp_trusted
+                    self.mcp_trusted = confirmed_mcp_trusted
+                    self._save_settings()
+            finally:
+                updating_mcp_trusted_check = False
+
+        mcp_trusted_check.connect("toggled", on_mcp_trusted_toggled)
         mcp_group_checks: dict[str, Gtk.CheckButton] = {}
         mcp_groups_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
         mcp_groups_heading = Gtk.Label()
@@ -3003,16 +3068,7 @@ class WorkspaceGtkGui:
                 for group_id, check in mcp_group_checks.items()
                 if check.get_active()
             )
-            new_mcp_trusted = mcp_trusted_check.get_active()
-            if new_mcp_trusted and not old_mcp_trusted and not self._confirm_mcp_trust_enable():
-                dialog.destroy()
-                return
-            self.mcp_trusted = new_mcp_trusted
-            if self.mcp_trusted != old_mcp_trusted:
-                try:
-                    apply_agent_workspace_mcp_trust(trusted=self.mcp_trusted)
-                except OSError as error:
-                    self._show_error(f"{self._tr('settings_mcp_trust_failed')}: {error}")
+            self.mcp_trusted = confirmed_mcp_trusted
             self.task_dictionary_auto_discovery = dictionary_auto.get_active()
             self.task_dictionary_min_occurrences = int(dictionary_min_occurrences.get_value())
             self.task_dictionary_min_saving = int(dictionary_min_saving.get_value())

@@ -13,6 +13,7 @@ from agent_tools.agent_workspace.components.gtk_desktop.src.gtk_ui import _harne
 from agent_tools.agent_workspace.components.gtk_desktop.src.gtk_ui import _harness_debug_events_text
 from agent_tools.agent_workspace.components.gtk_desktop.src.gtk_ui import _ai_debug_restore_event_id
 from agent_tools.agent_workspace.components.gtk_desktop.src.gtk_ui import Vte
+from agent_tools.agent_workspace.components.gtk_desktop.src.gtk_ui import _apply_mcp_trusted_check_toggle
 from agent_tools.agent_workspace.components.gtk_desktop.src.codex_terminal_mouse import CodexTerminalMouseStateMachine
 from agent_tools.agent_workspace.components.harness_adapter.api import AgentType
 from agent_tools.agent_workspace.components.harness_adapter.api import HarnessDebugEvent
@@ -23,6 +24,17 @@ from agent_tools.agent_workspace.components.test_support.src.helpers import *
 def _drain_gtk_events() -> None:
     while Gtk.events_pending():
         Gtk.main_iteration_do(False)
+
+
+class FakeCheckButton:
+    def __init__(self, active: bool = False) -> None:
+        self.active = active
+
+    def get_active(self) -> bool:
+        return self.active
+
+    def set_active(self, active: bool) -> None:
+        self.active = active
 
 
 def test_gtk_artifact_sort_column_click_toggles_indicator() -> None:
@@ -2210,6 +2222,58 @@ def test_gtk_save_settings_persists_mcp_options(monkeypatch: object, tmp_path: P
     assert saved[0]["mcp_trusted"] is True
 
 
+def test_gtk_mcp_trust_toggle_confirm_applies_requested_state() -> None:
+    check = FakeCheckButton(active=True)
+    applied: list[bool] = []
+
+    confirmed = _apply_mcp_trusted_check_toggle(
+        check,
+        False,
+        lambda: True,
+        lambda: False,
+        applied.append,
+    )
+
+    assert confirmed is True
+    assert check.get_active() is True
+    assert applied == [True]
+
+
+def test_gtk_mcp_trust_toggle_confirm_reverts_rejected_state_without_apply() -> None:
+    check = FakeCheckButton(active=False)
+    applied: list[bool] = []
+
+    confirmed = _apply_mcp_trusted_check_toggle(
+        check,
+        True,
+        lambda: False,
+        lambda: False,
+        applied.append,
+    )
+
+    assert confirmed is True
+    assert check.get_active() is True
+    assert applied == []
+
+
+def test_gtk_mcp_trust_toggle_apply_failure_reverts_requested_state() -> None:
+    check = FakeCheckButton(active=False)
+
+    def fail_apply(_trusted: bool) -> None:
+        raise OSError("cannot write config")
+
+    with pytest.raises(OSError, match="cannot write config"):
+        _apply_mcp_trusted_check_toggle(
+            check,
+            True,
+            lambda: False,
+            lambda: True,
+            fail_apply,
+        )
+
+    assert check.get_active() is True
+
+
 def test_gtk_console_notebook_switch_remembers_active_task_terminal(tmp_path: Path) -> None:
     task = tmp_path / "tasks" / "sample-task"
     task.mkdir(parents=True)
@@ -2896,6 +2960,11 @@ def test_gtk_translates_agent_and_manual_labels() -> None:
     assert GTK_TRANSLATIONS["ru"]["settings_mcp_trust_confirm_title"] == "Доверять MCP-утилитам Agent Workspace?"
     assert "перезапустите" in GTK_TRANSLATIONS["ru"]["settings_mcp_trust_confirm_body"]
     assert GTK_TRANSLATIONS["ru"]["settings_mcp_trust_confirm_button"] == "Доверять MCP"
+    assert GTK_TRANSLATIONS["ru"]["settings_mcp_trust_disable_confirm_title"] == (
+        "Перестать доверять MCP-утилитам Agent Workspace?"
+    )
+    assert "старые настройки доверия MCP" in GTK_TRANSLATIONS["ru"]["settings_mcp_trust_disable_confirm_body"]
+    assert GTK_TRANSLATIONS["ru"]["settings_mcp_trust_disable_confirm_button"] == "Убрать доверие MCP"
     assert GTK_TRANSLATIONS["ru"]["codex_animations_enabled"] == "Анимации Codex"
     assert GTK_TRANSLATIONS["ru"]["claude_animations_enabled"] == "Анимации Claude"
     assert GTK_TRANSLATIONS["ru"]["limited_bash_output_tokens"] == "Лимит вывода Bash, токены"
