@@ -3288,6 +3288,8 @@ class WorkspaceGtkGui:
             lambda _button, item=action: self._on_task_action_clicked(item),
             tooltip=False,
         )
+        if action.description:
+            button.set_tooltip_text(action.description)
         button.set_size_request(-1, 20)
         button.set_focus_on_click(False)
         button.add_events(Gdk.EventMask.BUTTON_PRESS_MASK)

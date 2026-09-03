@@ -778,6 +778,89 @@ def test_gtk_task_action_order_separates_workspace_actions() -> None:
     assert gui._task_action_order() == ["build"]
 
 
+def test_gtk_task_action_button_uses_action_description_as_tooltip(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    class FakeActionButton:
+        def __init__(self) -> None:
+            self.tooltip = ""
+            self.style_context = FakeGtkStyleContext()
+
+        def set_tooltip_text(self, text: str) -> None:
+            self.tooltip = text
+
+        def get_tooltip_text(self) -> str:
+            return self.tooltip
+
+        def set_size_request(self, *_args: object) -> None:
+            return
+
+        def set_focus_on_click(self, _value: bool) -> None:
+            return
+
+        def add_events(self, _events: object) -> None:
+            return
+
+        def connect(self, *_args: object) -> None:
+            return
+
+        def get_style_context(self) -> FakeGtkStyleContext:
+            return self.style_context
+
+        def set_relief(self, _relief: object) -> None:
+            return
+
+        def set_no_show_all(self, _value: bool) -> None:
+            return
+
+        def set_visible(self, _value: bool) -> None:
+            return
+
+        def set_sensitive(self, _value: bool) -> None:
+            return
+
+    class FakeActionRow:
+        def __init__(self, *_args: object, **_kwargs: object) -> None:
+            self.children: list[FakeActionButton] = []
+
+        def pack_start(self, child: FakeActionButton, *_args: object) -> None:
+            self.children.append(child)
+
+        def show_all(self) -> None:
+            return
+
+        def get_children(self) -> list[FakeActionButton]:
+            return list(self.children)
+
+    action = TaskAction(
+        action_id="workspace:install-repo-hooks",
+        label="Install/update repo hooks",
+        command=("true",),
+        cwd=tmp_path,
+        env={},
+        source="workspace",
+        description="Install hooks from repo-registry.",
+    )
+    gui = WorkspaceGtkGui.__new__(WorkspaceGtkGui)
+    gui.task_action_reorder_mode = False
+    gui.task_action_buttons = {}
+    gui.task_action_play_buttons = {}
+    gui._on_task_action_clicked = lambda _action: None  # type: ignore[method-assign]
+    gui._on_task_action_button_press = lambda *_args: False  # type: ignore[method-assign]
+    gui._on_task_action_play_clicked = lambda *_args: None  # type: ignore[method-assign]
+    gui._on_task_action_play_button_press = lambda *_args: False  # type: ignore[method-assign]
+    gui._disable_action_hover_tracking = lambda _button: None  # type: ignore[method-assign]
+    monkeypatch.setattr(gtk_ui_module, "_compact_button", lambda *_args, **_kwargs: FakeActionButton())
+    monkeypatch.setattr(gtk_ui_module.Gtk, "Box", FakeActionRow)
+    monkeypatch.setattr(gtk_ui_module.Gtk.Button, "new_from_icon_name", lambda *_args: FakeActionButton())
+
+    row = gui._task_action_button(action, shortcut=False)
+    label_button = row.get_children()[0]
+
+    assert label_button.get_tooltip_text() == "Install hooks from repo-registry."
+
+
 def test_gtk_workspace_action_renderer_keeps_task_actions_out(monkeypatch: pytest.MonkeyPatch) -> None:
     class FakeActionWidget:
         def __init__(self) -> None:

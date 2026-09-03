@@ -137,6 +137,7 @@ def test_load_task_actions_and_run_command(tmp_path: Path) -> None:
                     {
                         "id": "unit",
                         "label": "Unit tests",
+                        "description": "Run the focused unit test action.",
                         "command": [
                             sys.executable,
                             "-c",
@@ -161,6 +162,7 @@ def test_load_task_actions_and_run_command(tmp_path: Path) -> None:
 
     assert errors == []
     assert action.label == "Unit tests"
+    assert action.description == "Run the focused unit test action."
     assert action.cwd == scripts.resolve()
     assert "ok" in report
     assert "\n1\n" in report
@@ -443,6 +445,8 @@ def test_load_task_actions_resolves_parameter_sets_and_shortcuts(tmp_path: Path)
     ]
     install_hooks = next(action for action in config.base_actions if action.action_id == "workspace:install-repo-hooks")
     assert install_hooks.label == "Install/update repo hooks"
+    assert "repo-registry" in install_hooks.description
+    assert "repo_guard" in install_hooks.description
     copy_action = next(action for action in config.base_actions if action.action_id == "copy")
     assert copy_action.parameters[0].global_name == "board"
     assert shortcut.is_shortcut

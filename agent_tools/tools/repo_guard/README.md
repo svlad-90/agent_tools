@@ -1,8 +1,9 @@
 # repo_guard
 
 `repo_guard` is the shared validation policy runner for workspace repositories.
-It is intentionally separate from `push_guard`: the existing pre-push hook is
-not wired to this runner yet.
+Installed `push_guard` pre-push hooks run this policy runner by default. The
+legacy push stamp check still runs in `push_guard`; `repo_guard` owns layered
+workspace, repository, and task policy checks.
 
 ## Commands
 
@@ -18,10 +19,10 @@ python3 -m agent_tools.tools.repo_guard pre-push --repo . origin <url>
 `policy` and `status` print the resolved policy without running checks.
 `validate` runs policy checks and writes receipts under the repository Git
 metadata. `pre-push-dry-run` builds a pre-push-like commit range from the
-current branch and its upstream, then runs the same non-heavy checks and heavy
-receipt checks without installing or invoking a Git hook. `pre-push` accepts
-normal Git pre-push stdin, runs non-heavy checks, and requires current receipts
-for heavy checks.
+current branch and its upstream. When a task directory is provided, it also
+installs or updates hooks for the repositories listed in that task's
+`repo-registry` slot. `pre-push` accepts normal Git pre-push stdin, runs
+non-heavy checks, and requires current receipts for heavy checks.
 
 ## Policy
 

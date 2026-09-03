@@ -38,6 +38,7 @@ class TaskAction:
     base_action_id: str | None = None
     is_shortcut: bool = False
     source: str = "task"
+    description: str = ""
 
 
 @dataclass(frozen=True)
@@ -152,6 +153,7 @@ def bind_task_action_parameters(
         command=action.command,
         cwd=action.cwd,
         env=env,
+        description=action.description,
         parameters=action.parameters,
         bindings=effective_bindings,
         base_action_id=action.base_action_id,
@@ -178,6 +180,7 @@ def workspace_standard_task_actions(task: TaskSummary) -> list[TaskAction]:
             ),
             cwd=workspace,
             env={},
+            description="Run workspace and repository policy checks for the workspace repository.",
             source="workspace",
         ),
         TaskAction(
@@ -197,6 +200,10 @@ def workspace_standard_task_actions(task: TaskSummary) -> list[TaskAction]:
             ),
             cwd=workspace,
             env={},
+            description=(
+                "Dry-run pre-push policy checks and install/update hooks for repositories "
+                "listed in the task repo-registry."
+            ),
             source="workspace",
         ),
         TaskAction(
@@ -215,6 +222,7 @@ def workspace_standard_task_actions(task: TaskSummary) -> list[TaskAction]:
             ),
             cwd=workspace,
             env={},
+            description="Run task_check and print only warnings and errors that need action.",
             source="workspace",
         ),
         TaskAction(
@@ -232,6 +240,10 @@ def workspace_standard_task_actions(task: TaskSummary) -> list[TaskAction]:
             ),
             cwd=workspace,
             env={},
+            description=(
+                "Install or update push hooks only for git repository roots listed in the task "
+                "repo-registry, and enable repo_guard for those repositories."
+            ),
             source="workspace",
         ),
     ]
@@ -301,6 +313,7 @@ def _parse_task_action(
 
     action_id = _string_field(entry, "id")
     label = _string_field(entry, "label")
+    description = _string_field(entry, "description") or ""
     command = _command_field(entry.get("command"))
     if action_id is None:
         return None, f"{TASK_ACTIONS_FILE}: action {index} missing string id"
@@ -333,6 +346,7 @@ def _parse_task_action(
         command=command,
         cwd=cwd,
         env=dict(env_data),
+        description=description,
         parameters=parameters,
         bindings={parameter.name: parameter.default for parameter in parameters},
     ), None
@@ -372,6 +386,7 @@ def _parse_task_shortcut(
         command=bound.command,
         cwd=bound.cwd,
         env=bound.env,
+        description=base.description,
         parameters=bound.parameters,
         bindings=bound.bindings,
         base_action_id=base.action_id,
