@@ -128,7 +128,7 @@ def _write_config(repo: Path, config: dict[str, object]) -> None:
 
 
 def _repo_guard_enabled(repo: Path) -> bool:
-    return bool(_load_config(repo).get("repo_guard_enabled", False))
+    return bool(_load_config(repo).get("repo_guard_enabled", True))
 
 
 def _set_repo_guard_enabled(args: argparse.Namespace, *, enabled: bool) -> int:
@@ -519,6 +519,9 @@ def _install_repo_hooks(repo: Path) -> int:
     workspace_root = Path(__file__).resolve().parents[3]
     hooks_dir = _git_path(repo, "hooks")
     hooks_dir.mkdir(parents=True, exist_ok=True)
+    config = _load_config(repo)
+    config["repo_guard_enabled"] = True
+    _write_config(repo, config)
     for hook_name in ("pre-push", "pre-commit"):
         hook_source = hook_dir / hook_name
         hook_target = hooks_dir / hook_name

@@ -13,6 +13,7 @@ from agent_tools.agent_workspace.components.gtk_desktop.src.gtk_ui import _harne
 from agent_tools.agent_workspace.components.gtk_desktop.src.gtk_ui import _harness_debug_events_text
 from agent_tools.agent_workspace.components.gtk_desktop.src.gtk_ui import _ai_debug_restore_event_id
 from agent_tools.agent_workspace.components.gtk_desktop.src.gtk_ui import Vte
+from agent_tools.agent_workspace.components.gtk_desktop.src.gtk_ui import _apply_mcp_trusted_check_toggle
 from agent_tools.agent_workspace.components.gtk_desktop.src.codex_terminal_mouse import CodexTerminalMouseStateMachine
 from agent_tools.agent_workspace.components.harness_adapter.api import AgentType
 from agent_tools.agent_workspace.components.harness_adapter.api import HarnessDebugEvent
@@ -23,6 +24,17 @@ from agent_tools.agent_workspace.components.test_support.src.helpers import *
 def _drain_gtk_events() -> None:
     while Gtk.events_pending():
         Gtk.main_iteration_do(False)
+
+
+class FakeCheckButton:
+    def __init__(self, active: bool = False) -> None:
+        self.active = active
+
+    def get_active(self) -> bool:
+        return self.active
+
+    def set_active(self, active: bool) -> None:
+        self.active = active
 
 
 def test_gtk_artifact_sort_column_click_toggles_indicator() -> None:
@@ -764,6 +776,89 @@ def test_gtk_task_action_order_separates_workspace_actions() -> None:
         "workspace:task-check",
     ]
     assert gui._task_action_order() == ["build"]
+
+
+def test_gtk_task_action_button_uses_action_description_as_tooltip(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    class FakeActionButton:
+        def __init__(self) -> None:
+            self.tooltip = ""
+            self.style_context = FakeGtkStyleContext()
+
+        def set_tooltip_text(self, text: str) -> None:
+            self.tooltip = text
+
+        def get_tooltip_text(self) -> str:
+            return self.tooltip
+
+        def set_size_request(self, *_args: object) -> None:
+            return
+
+        def set_focus_on_click(self, _value: bool) -> None:
+            return
+
+        def add_events(self, _events: object) -> None:
+            return
+
+        def connect(self, *_args: object) -> None:
+            return
+
+        def get_style_context(self) -> FakeGtkStyleContext:
+            return self.style_context
+
+        def set_relief(self, _relief: object) -> None:
+            return
+
+        def set_no_show_all(self, _value: bool) -> None:
+            return
+
+        def set_visible(self, _value: bool) -> None:
+            return
+
+        def set_sensitive(self, _value: bool) -> None:
+            return
+
+    class FakeActionRow:
+        def __init__(self, *_args: object, **_kwargs: object) -> None:
+            self.children: list[FakeActionButton] = []
+
+        def pack_start(self, child: FakeActionButton, *_args: object) -> None:
+            self.children.append(child)
+
+        def show_all(self) -> None:
+            return
+
+        def get_children(self) -> list[FakeActionButton]:
+            return list(self.children)
+
+    action = TaskAction(
+        action_id="workspace:install-repo-hooks",
+        label="Install/update repo hooks",
+        command=("true",),
+        cwd=tmp_path,
+        env={},
+        source="workspace",
+        description="Install hooks from repo-registry.",
+    )
+    gui = WorkspaceGtkGui.__new__(WorkspaceGtkGui)
+    gui.task_action_reorder_mode = False
+    gui.task_action_buttons = {}
+    gui.task_action_play_buttons = {}
+    gui._on_task_action_clicked = lambda _action: None  # type: ignore[method-assign]
+    gui._on_task_action_button_press = lambda *_args: False  # type: ignore[method-assign]
+    gui._on_task_action_play_clicked = lambda *_args: None  # type: ignore[method-assign]
+    gui._on_task_action_play_button_press = lambda *_args: False  # type: ignore[method-assign]
+    gui._disable_action_hover_tracking = lambda _button: None  # type: ignore[method-assign]
+    monkeypatch.setattr(gtk_ui_module, "_compact_button", lambda *_args, **_kwargs: FakeActionButton())
+    monkeypatch.setattr(gtk_ui_module.Gtk, "Box", FakeActionRow)
+    monkeypatch.setattr(gtk_ui_module.Gtk.Button, "new_from_icon_name", lambda *_args: FakeActionButton())
+
+    row = gui._task_action_button(action, shortcut=False)
+    label_button = row.get_children()[0]
+
+    assert label_button.get_tooltip_text() == "Install hooks from repo-registry."
 
 
 def test_gtk_workspace_action_renderer_keeps_task_actions_out(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -2210,6 +2305,58 @@ def test_gtk_save_settings_persists_mcp_options(monkeypatch: object, tmp_path: P
     assert saved[0]["mcp_trusted"] is True
 
 
+def test_gtk_mcp_trust_toggle_confirm_applies_requested_state() -> None:
+    check = FakeCheckButton(active=True)
+    applied: list[bool] = []
+
+    confirmed = _apply_mcp_trusted_check_toggle(
+        check,
+        False,
+        lambda: True,
+        lambda: False,
+        applied.append,
+    )
+
+    assert confirmed is True
+    assert check.get_active() is True
+    assert applied == [True]
+
+
+def test_gtk_mcp_trust_toggle_confirm_reverts_rejected_state_without_apply() -> None:
+    check = FakeCheckButton(active=False)
+    applied: list[bool] = []
+
+    confirmed = _apply_mcp_trusted_check_toggle(
+        check,
+        True,
+        lambda: False,
+        lambda: False,
+        applied.append,
+    )
+
+    assert confirmed is True
+    assert check.get_active() is True
+    assert applied == []
+
+
+def test_gtk_mcp_trust_toggle_apply_failure_reverts_requested_state() -> None:
+    check = FakeCheckButton(active=False)
+
+    def fail_apply(_trusted: bool) -> None:
+        raise OSError("cannot write config")
+
+    with pytest.raises(OSError, match="cannot write config"):
+        _apply_mcp_trusted_check_toggle(
+            check,
+            True,
+            lambda: False,
+            lambda: True,
+            fail_apply,
+        )
+
+    assert check.get_active() is True
+
+
 def test_gtk_console_notebook_switch_remembers_active_task_terminal(tmp_path: Path) -> None:
     task = tmp_path / "tasks" / "sample-task"
     task.mkdir(parents=True)
@@ -2896,6 +3043,11 @@ def test_gtk_translates_agent_and_manual_labels() -> None:
     assert GTK_TRANSLATIONS["ru"]["settings_mcp_trust_confirm_title"] == "Доверять MCP-утилитам Agent Workspace?"
     assert "перезапустите" in GTK_TRANSLATIONS["ru"]["settings_mcp_trust_confirm_body"]
     assert GTK_TRANSLATIONS["ru"]["settings_mcp_trust_confirm_button"] == "Доверять MCP"
+    assert GTK_TRANSLATIONS["ru"]["settings_mcp_trust_disable_confirm_title"] == (
+        "Перестать доверять MCP-утилитам Agent Workspace?"
+    )
+    assert "старые настройки доверия MCP" in GTK_TRANSLATIONS["ru"]["settings_mcp_trust_disable_confirm_body"]
+    assert GTK_TRANSLATIONS["ru"]["settings_mcp_trust_disable_confirm_button"] == "Убрать доверие MCP"
     assert GTK_TRANSLATIONS["ru"]["codex_animations_enabled"] == "Анимации Codex"
     assert GTK_TRANSLATIONS["ru"]["claude_animations_enabled"] == "Анимации Claude"
     assert GTK_TRANSLATIONS["ru"]["limited_bash_output_tokens"] == "Лимит вывода Bash, токены"
