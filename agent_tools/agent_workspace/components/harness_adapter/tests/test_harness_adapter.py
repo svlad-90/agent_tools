@@ -30,6 +30,9 @@ from agent_tools.agent_workspace.components.harness_adapter.api import record_ha
 from agent_tools.agent_workspace.components.harness_adapter.api import start_workspace_ipc_server
 from agent_tools.agent_workspace.components.harness_adapter.api import subscribe_harness_status
 from agent_tools.agent_workspace.components.harness_adapter.src.limited_bash import LimitedBashResult
+from agent_tools.agent_workspace.components.harness_adapter.src.limited_bash import _cleanup_limited_bash_logs
+from agent_tools.agent_workspace.components.harness_adapter.src.limited_bash import _finalize_log_base
+from agent_tools.agent_workspace.components.harness_adapter.src.limited_bash import _mark_log_base_active
 from agent_tools.agent_workspace.components.harness_adapter.src.limited_bash import head_limit_from_env
 from agent_tools.agent_workspace.components.harness_adapter.src.limited_bash import heartbeat_limit_from_env
 from agent_tools.agent_workspace.components.harness_adapter.src.limited_bash import limited_bash_shell_command
@@ -865,6 +868,60 @@ def test_limited_bash_does_not_keep_logs_for_output_under_limit(
     assert not log_dir.exists() or list(log_dir.iterdir()) == []
 
 
+def test_limited_bash_clears_previous_persisted_logs_on_next_run(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    task_dir = _task(tmp_path)
+    monkeypatch.setenv("AGENT_TOOLS_TASK_DIR", str(task_dir))
+
+    first = run_limited_bash("sleep 0.05; printf first", limit=100, cwd=tmp_path, idle_notice_seconds=0.01)
+    assert first.log_base is not None
+    stale_log = first.log_base.with_suffix(".stdout.log")
+    assert stale_log.is_file()
+
+    second = run_limited_bash("sleep 0.05; printf second", limit=100, cwd=tmp_path, idle_notice_seconds=0.01)
+
+    capsys.readouterr()
+    assert second.log_base is not None
+    assert not stale_log.exists()
+    assert second.log_base.with_suffix(".stdout.log").read_text(encoding="utf-8") == "second"
+
+
+def test_limited_bash_log_cleanup_preserves_active_parallel_runs(tmp_path: Path) -> None:
+    log_dir = tmp_path / "logs"
+    log_dir.mkdir()
+    old_base = log_dir / "limited_bash_2026_01_01_00_00_00_1_old"
+    active_base = log_dir / "limited_bash_2026_01_01_00_00_01_1_active"
+    current_base = log_dir / "limited_bash_2026_01_01_00_00_02_1_current"
+    old_base.mkdir()
+    active_base.mkdir()
+    current_base.mkdir()
+    (old_base / "limited_bash.stdout.log").write_text("old", encoding="utf-8")
+    (active_base / "limited_bash.stdout.log").write_text("active", encoding="utf-8")
+    (current_base / "limited_bash.stdout.log").write_text("current", encoding="utf-8")
+    (old_base / "run.meta").write_text("started_at=1.0\nfinished_at=2.0\n", encoding="utf-8")
+    _mark_log_base_active(active_base / "limited_bash")
+    _mark_log_base_active(current_base / "limited_bash")
+
+    _cleanup_limited_bash_logs(log_dir, keep_latest_completed=False)
+
+    assert not old_base.exists()
+    assert active_base.is_dir()
+    assert current_base.is_dir()
+
+    _finalize_log_base(active_base / "limited_bash", keep_completed=True)
+
+    assert active_base.is_dir()
+    assert current_base.is_dir()
+
+    _finalize_log_base(current_base / "limited_bash", keep_completed=True)
+
+    assert active_base.is_dir()
+    assert current_base.is_dir()
+
+
 def test_limited_bash_runs_command_in_requested_cwd(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -1076,7 +1133,7 @@ def _claude(registry: ClaudeHookRegistry, task_dir: Path, event: ClaudeHookEvent
 def _wait_for_limited_bash_stdout_log(log_dir: Path) -> Path:
     deadline = time.monotonic() + 2
     while time.monotonic() < deadline:
-        logs = list(log_dir.glob("*.stdout.log")) if log_dir.exists() else []
+        logs = list(log_dir.glob("*/*.stdout.log")) if log_dir.exists() else []
         for log in logs:
             if log.read_text(encoding="utf-8") == "started":
                 return log
