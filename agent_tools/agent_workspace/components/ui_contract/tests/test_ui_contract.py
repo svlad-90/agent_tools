@@ -57,6 +57,16 @@ class FakeDataWidget(FakeWidget):
         return self.data.get(key)
 
 
+class FakeForallWidget(FakeWidget):
+    def __init__(self, name: str, forall_children: tuple[FakeWidget, ...]) -> None:
+        super().__init__(name)
+        self._forall_children = forall_children
+
+    def forall(self, callback: object, *_args: object) -> None:
+        for child in self._forall_children:
+            callback(child)
+
+
 def test_compare_ui_trees_accepts_matching_trees() -> None:
     tree = UiTree(
         frontend="gtk",
@@ -130,6 +140,15 @@ def test_snapshot_widget_tree_reads_toolkit_data_metadata() -> None:
     tree = snapshot_widget_tree(field, frontend="gtk", view="settings")
 
     assert tree.node_map()["settings.limited_bash_head_tokens"].widget == "number"
+
+
+def test_snapshot_widget_tree_reads_forall_children() -> None:
+    field = FakeWidget("settings.default_agent")
+    root = FakeForallWidget("settings.general", (field,))
+
+    tree = snapshot_widget_tree(root, frontend="gtk", view="settings")
+
+    assert tree.node_map()["settings.general"].children == ("settings.default_agent",)
 
 
 def test_snapshot_widget_tree_reads_real_gtk_widgets() -> None:

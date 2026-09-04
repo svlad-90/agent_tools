@@ -99,13 +99,38 @@ def _widget_metadata(widget: object) -> dict[str, object]:
 
 
 def _widget_children(widget: object) -> tuple[object, ...]:
+    found: list[object] = []
+    seen: set[int] = set()
+
+    def add_child(child: object | None) -> None:
+        if child is None:
+            return
+        child_id = id(child)
+        if child_id in seen:
+            return
+        seen.add(child_id)
+        found.append(child)
+
+    forall = getattr(widget, "forall", None)
+    if callable(forall):
+        def collect(child: object, *_args: object) -> None:
+            add_child(child)
+
+        try:
+            forall(collect)
+        except TypeError:
+            try:
+                forall(collect, None)
+            except TypeError:
+                pass
+
     children = _method_value(widget, "get_children")
     if isinstance(children, (list, tuple)):
-        return tuple(children)
+        for child in children:
+            add_child(child)
     child = _method_value(widget, "get_child")
-    if child is not None:
-        return (child,)
-    return ()
+    add_child(child)
+    return tuple(found)
 
 
 def _method_value(widget: object, method_name: str) -> object | None:
