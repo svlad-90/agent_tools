@@ -9,8 +9,8 @@ import re
 import subprocess
 import sys
 from dataclasses import dataclass
-from datetime import UTC
 from datetime import datetime
+from datetime import timezone
 from pathlib import Path
 from typing import Sequence
 
@@ -107,7 +107,7 @@ def _record_success(repo: Path, commit: str, source: str) -> None:
     payload = {
         "commit": commit,
         "source": source,
-        "recorded_at": datetime.now(UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z"),
+        "recorded_at": datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z"),
     }
     _stamp_path(repo, commit).write_text(
         json.dumps(payload, sort_keys=True, indent=2) + "\n",

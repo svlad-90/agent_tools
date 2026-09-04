@@ -242,7 +242,7 @@ def workspace_standard_task_actions(task: TaskSummary) -> list[TaskAction]:
             env={},
             description=(
                 "Install or update push hooks for git repository roots listed in the task "
-                "repo-registry, then print task_check issues that still need action."
+                "repo-registry, enable repo_guard, then print task_check issues that still need action."
             ),
             source="workspace",
         ),
