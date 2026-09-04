@@ -12,7 +12,7 @@
     </phase>
 
     <phase name="validate">
-        <task name="paf_workspace.domains.environments.tasks.zephyr_xen.validate_zephyr_build"/>
+        <task name="paf_workspace.domains.zephyr_repo_validation.tasks.build.validate_zephyr_build"/>
     </phase>
 
     <phase name="push_guard">

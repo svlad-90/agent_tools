@@ -25,11 +25,11 @@ def test_all_declared_environment_images_have_known_capabilities() -> None:
 
 
 def test_environment_dockerfiles_include_capability_dependencies() -> None:
-    for alias, config in _environment_images().items():
+    images = _environment_images()
+    for alias, config in images.items():
         capabilities = normalize_capabilities(config.get("capabilities"))
         requirements = requirements_for_capabilities(capabilities)
-        dockerfile = WORKSPACE_ROOT / str(config["dockerfile"])
-        source = dockerfile.read_text(encoding="utf-8")
+        source = "\n".join(_dockerfile_sources(alias, images))
 
         missing_apt = [package for package in requirements.apt_packages if not _has_token(source, package)]
         missing_pip = [package for package in requirements.pip_packages if not _has_token(source, package)]
@@ -43,6 +43,34 @@ def _environment_images() -> dict[str, dict[str, object]]:
     images = domain["requires"]["images"]
     assert isinstance(images, dict)
     return images
+
+
+def _dockerfile_sources(alias: str, images: dict[str, dict[str, object]]) -> list[str]:
+    config = images[alias]
+    dockerfile = WORKSPACE_ROOT / str(config["dockerfile"])
+    source = dockerfile.read_text(encoding="utf-8")
+    sources = [source]
+
+    parent_alias = _parent_image_alias(source, images)
+    if parent_alias:
+        sources.extend(_dockerfile_sources(parent_alias, images))
+
+    return sources
+
+
+def _parent_image_alias(source: str, images: dict[str, dict[str, object]]) -> str | None:
+    base_image = None
+    for line in source.splitlines():
+        if line.startswith("ARG BASE_IMAGE="):
+            base_image = line.partition("=")[2].strip()
+        if line.startswith("FROM "):
+            from_value = line.split()[1]
+            if from_value == "${BASE_IMAGE}":
+                from_value = base_image or from_value
+            for alias, config in images.items():
+                if config.get("image") == from_value:
+                    return alias
+    return None
 
 
 def _has_token(source: str, token: str) -> bool:
