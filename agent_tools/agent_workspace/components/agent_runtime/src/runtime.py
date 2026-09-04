@@ -13,7 +13,11 @@ from agent_tools.tools.task_context import render_slots as render_task_context_s
 
 from ...settings.api import AGENT_WORKSPACE_AGENTS
 from ...settings.api import AGENT_WORKSPACE_DEFAULT_CLAUDE_PERMISSION_MODE
+from ...settings.api import AGENT_WORKSPACE_DEFAULT_LIMITED_BASH_HEAD_TOKENS
+from ...settings.api import AGENT_WORKSPACE_DEFAULT_LIMITED_BASH_HEARTBEAT_SECONDS
+from ...settings.api import AGENT_WORKSPACE_DEFAULT_LIMITED_BASH_HEARTBEAT_TOKENS
 from ...settings.api import AGENT_WORKSPACE_DEFAULT_LIMITED_BASH_OUTPUT_TOKENS
+from ...settings.api import AGENT_WORKSPACE_DEFAULT_LIMITED_BASH_TAIL_TOKENS
 from ...settings.api import AgentModelSettings
 from ...settings.api import TASK_CONTEXT_PROMPT_INJECTION_DEFAULT
 from ...settings.api import ai_agent_model_settings
@@ -302,6 +306,10 @@ def ai_agent_environment(
     *,
     run_id: str | None = None,
     limited_bash_output_tokens: int = AGENT_WORKSPACE_DEFAULT_LIMITED_BASH_OUTPUT_TOKENS,
+    limited_bash_head_tokens: int | None = None,
+    limited_bash_tail_tokens: int | None = None,
+    limited_bash_heartbeat_seconds: int = AGENT_WORKSPACE_DEFAULT_LIMITED_BASH_HEARTBEAT_SECONDS,
+    limited_bash_heartbeat_tokens: int = AGENT_WORKSPACE_DEFAULT_LIMITED_BASH_HEARTBEAT_TOKENS,
 ) -> dict[str, str]:
     env = dict(base_env)
     agent = normalize_agent(agent)
@@ -311,6 +319,18 @@ def ai_agent_environment(
     env["AGENT_TOOLS_TASK_DIR"] = str(task.path)
     env["AGENT_TOOLS_WORKSPACE"] = str(workspace)
     env["AGENT_TOOLS_LIMITED_BASH_OUTPUT_TOKENS"] = str(limited_bash_output_tokens)
+    env["AGENT_TOOLS_LIMITED_BASH_HEAD_TOKENS"] = str(
+        limited_bash_head_tokens
+        if limited_bash_head_tokens is not None
+        else AGENT_WORKSPACE_DEFAULT_LIMITED_BASH_HEAD_TOKENS
+    )
+    env["AGENT_TOOLS_LIMITED_BASH_TAIL_TOKENS"] = str(
+        limited_bash_tail_tokens
+        if limited_bash_tail_tokens is not None
+        else AGENT_WORKSPACE_DEFAULT_LIMITED_BASH_TAIL_TOKENS
+    )
+    env["AGENT_TOOLS_LIMITED_BASH_IDLE_NOTICE_SECONDS"] = str(limited_bash_heartbeat_seconds)
+    env["AGENT_TOOLS_LIMITED_BASH_HEARTBEAT_TOKENS"] = str(limited_bash_heartbeat_tokens)
     if session_state.session_id:
         env["AGENT_TOOLS_AGENT_SESSION_ID"] = session_state.session_id
     if run_id:

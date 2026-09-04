@@ -41,6 +41,10 @@ AGENT_WORKSPACE_DEFAULT_CLAUDE_PERMISSION_MODE = "auto"
 AGENT_WORKSPACE_DEFAULT_CODEX_ANIMATIONS_ENABLED = False
 AGENT_WORKSPACE_DEFAULT_CLAUDE_ANIMATIONS_ENABLED = False
 AGENT_WORKSPACE_DEFAULT_LIMITED_BASH_OUTPUT_TOKENS = 2_000
+AGENT_WORKSPACE_DEFAULT_LIMITED_BASH_HEAD_TOKENS = 2_000
+AGENT_WORKSPACE_DEFAULT_LIMITED_BASH_TAIL_TOKENS = 2_000
+AGENT_WORKSPACE_DEFAULT_LIMITED_BASH_HEARTBEAT_SECONDS = 30
+AGENT_WORKSPACE_DEFAULT_LIMITED_BASH_HEARTBEAT_TOKENS = 1_000
 AGENT_WORKSPACE_CODEX_MODEL_FALLBACKS = (
     "gpt-5.6-sol",
     "gpt-5.6-sol-wm",
@@ -91,6 +95,10 @@ class AgentWorkspaceRuntimeSettings:
     codex_animations_enabled: bool
     claude_animations_enabled: bool
     limited_bash_output_tokens: int
+    limited_bash_head_tokens: int
+    limited_bash_tail_tokens: int
+    limited_bash_heartbeat_seconds: int
+    limited_bash_heartbeat_tokens: int
     system_prompt: str
     inject_task_context_prompt: bool
     mcp_enabled_groups: tuple[str, ...]
@@ -527,6 +535,46 @@ def agent_workspace_runtime_settings(
             100,
             200_000,
         ),
+        limited_bash_head_tokens=_int_range_setting(
+            settings,
+            "limited_bash_head_tokens",
+            _int_range_setting(
+                settings,
+                "limited_bash_output_tokens",
+                AGENT_WORKSPACE_DEFAULT_LIMITED_BASH_HEAD_TOKENS,
+                100,
+                200_000,
+            ),
+            100,
+            200_000,
+        ),
+        limited_bash_tail_tokens=_int_range_setting(
+            settings,
+            "limited_bash_tail_tokens",
+            _int_range_setting(
+                settings,
+                "limited_bash_output_tokens",
+                AGENT_WORKSPACE_DEFAULT_LIMITED_BASH_TAIL_TOKENS,
+                100,
+                200_000,
+            ),
+            100,
+            200_000,
+        ),
+        limited_bash_heartbeat_seconds=_int_range_setting(
+            settings,
+            "limited_bash_heartbeat_seconds",
+            AGENT_WORKSPACE_DEFAULT_LIMITED_BASH_HEARTBEAT_SECONDS,
+            1,
+            300,
+        ),
+        limited_bash_heartbeat_tokens=_int_range_setting(
+            settings,
+            "limited_bash_heartbeat_tokens",
+            AGENT_WORKSPACE_DEFAULT_LIMITED_BASH_HEARTBEAT_TOKENS,
+            0,
+            200_000,
+        ),
         system_prompt=_str_setting(settings, "system_prompt", ""),
         inject_task_context_prompt=_bool_setting(
             settings,
@@ -638,11 +686,19 @@ def load_agent_workspace_settings(path: Path | None = None) -> dict[str, AgentWo
     codex_animations_enabled = data.get("codex_animations_enabled")
     claude_animations_enabled = data.get("claude_animations_enabled")
     limited_bash_output_tokens = data.get("limited_bash_output_tokens")
+    limited_bash_head_tokens = data.get("limited_bash_head_tokens")
+    limited_bash_tail_tokens = data.get("limited_bash_tail_tokens")
+    limited_bash_heartbeat_seconds = data.get("limited_bash_heartbeat_seconds")
+    limited_bash_heartbeat_tokens = data.get("limited_bash_heartbeat_tokens")
     system_prompt = data.get("system_prompt")
     if not isinstance(limited_bash_output_tokens, int) or isinstance(limited_bash_output_tokens, bool):
         legacy_chars = data.get("limited_bash_output_chars")
         if isinstance(legacy_chars, int) and not isinstance(legacy_chars, bool):
             limited_bash_output_tokens = (legacy_chars + 3) // 4
+    if not isinstance(limited_bash_head_tokens, int) or isinstance(limited_bash_head_tokens, bool):
+        limited_bash_head_tokens = limited_bash_output_tokens
+    if not isinstance(limited_bash_tail_tokens, int) or isinstance(limited_bash_tail_tokens, bool):
+        limited_bash_tail_tokens = limited_bash_output_tokens
     inject_task_context_prompt = data.get("inject_task_context_prompt")
     task_dictionary_auto_discovery = data.get("task_dictionary_auto_discovery")
     mcp_enabled_groups = data.get("mcp_enabled_groups")
@@ -698,6 +754,10 @@ def load_agent_workspace_settings(path: Path | None = None) -> dict[str, AgentWo
         ("task_dictionary_min_term_length", task_dictionary_min_term_length, 1, 200),
         ("task_dictionary_max_term_words", task_dictionary_max_term_words, 1, 20),
         ("limited_bash_output_tokens", limited_bash_output_tokens, 100, 200_000),
+        ("limited_bash_head_tokens", limited_bash_head_tokens, 100, 200_000),
+        ("limited_bash_tail_tokens", limited_bash_tail_tokens, 100, 200_000),
+        ("limited_bash_heartbeat_seconds", limited_bash_heartbeat_seconds, 1, 300),
+        ("limited_bash_heartbeat_tokens", limited_bash_heartbeat_tokens, 0, 200_000),
     ):
         if isinstance(value, int) and not isinstance(value, bool):
             settings[key] = max(minimum, min(maximum, value))

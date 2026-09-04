@@ -87,11 +87,14 @@ Codex and Claude Code. Codex launches always keep `tui.disable_mouse_capture`
 enabled; Claude Code keeps its normal mouse support so terminal scrollback
 continues to work. Both Codex and Claude Code terminals use the same GTK mouse
 proxy around the embedded VTE widget to reduce passive pointer redraw overhead.
-The Bash output token limit setting controls hook-driven command output
-guarding for both agents. The default limit is 2000 estimated tokens. When a
-Bash command exceeds that limit, Agent Workspace returns a short first/last
-line preview and guidance to the agent while saving the complete stdout,
-stderr, and metadata under the task's `report/logs/limited-bash/` directory.
+The Bash output guard settings control hook-driven command output for both
+agents. By default, Agent Workspace streams up to a 2000-token head budget,
+keeps a 2000-token tail budget for the final summary, and uses a separate
+1000-token heartbeat budget for long-running command updates. When a Bash
+command exceeds the configured head and tail budgets, Agent Workspace returns a
+bounded first/last preview and guidance to the agent while saving the complete
+stdout, stderr, and metadata under the task's `report/logs/limited-bash/`
+directory.
 Agent Workspace also provides a single workspace MCP server for agent-facing
 tools. It runs over newline-delimited stdio JSON-RPC and exports tools from a
 central registry instead of requiring one MCP server per CLI:

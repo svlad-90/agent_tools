@@ -30,8 +30,11 @@ from agent_tools.agent_workspace.components.harness_adapter.api import record_ha
 from agent_tools.agent_workspace.components.harness_adapter.api import start_workspace_ipc_server
 from agent_tools.agent_workspace.components.harness_adapter.api import subscribe_harness_status
 from agent_tools.agent_workspace.components.harness_adapter.src.limited_bash import LimitedBashResult
+from agent_tools.agent_workspace.components.harness_adapter.src.limited_bash import head_limit_from_env
+from agent_tools.agent_workspace.components.harness_adapter.src.limited_bash import heartbeat_limit_from_env
 from agent_tools.agent_workspace.components.harness_adapter.src.limited_bash import limited_bash_shell_command
 from agent_tools.agent_workspace.components.harness_adapter.src.limited_bash import run_limited_bash
+from agent_tools.agent_workspace.components.harness_adapter.src.limited_bash import tail_limit_from_env
 from agent_tools.agent_workspace.components.harness_adapter.src.claude_policy import register_claude_adapter
 from agent_tools.agent_workspace.components.harness_adapter.src.commands import handle_claude_adapter_hook
 from agent_tools.agent_workspace.components.harness_adapter.src.commands import handle_codex_adapter_hook
@@ -781,12 +784,27 @@ def test_limited_bash_blocks_large_output_and_keeps_log(
     assert result.log_base.with_suffix(".stderr.log").exists()
     captured = capsys.readouterr()
     captured_output = captured.out + captured.err
-    assert "Configured Bash output limit: 5 estimated tokens." in captured_output
+    assert "--- limited_bash: output head budget reached ---" in captured_output
+    assert "--- limited_bash: final overflow summary ---" in captured_output
+    assert "Configured limit: 5 estimated tokens." in captured_output
     assert "Live stdout log:" in captured_output
-    assert "further command output is being written to files" in captured_output
+    assert "Full logs:" in captured_output
 
 
-def test_limited_bash_overflow_streams_until_limit_and_keeps_full_log(
+def test_limited_bash_reads_split_budget_environment() -> None:
+    env = {
+        "AGENT_TOOLS_LIMITED_BASH_OUTPUT_TOKENS": "1200",
+        "AGENT_TOOLS_LIMITED_BASH_HEAD_TOKENS": "2000",
+        "AGENT_TOOLS_LIMITED_BASH_TAIL_TOKENS": "3000",
+        "AGENT_TOOLS_LIMITED_BASH_HEARTBEAT_TOKENS": "700",
+    }
+
+    assert head_limit_from_env(env) == 2000
+    assert tail_limit_from_env(env) == 3000
+    assert heartbeat_limit_from_env(env) == 700
+
+
+def test_limited_bash_overflow_keeps_head_and_tail_preview(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
@@ -802,7 +820,31 @@ def test_limited_bash_overflow_streams_until_limit_and_keeps_full_log(
     captured = capsys.readouterr()
     captured_output = captured.out + captured.err
     assert "Live stdout log:" in captured_output
-    assert "30\n" not in captured_output
+    assert "STDOUT LAST 20 LINES:" in captured_output
+    assert "30\n" in captured_output
+
+
+def test_limited_bash_overflow_reserves_stderr_tail(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    task_dir = _task(tmp_path)
+    monkeypatch.setenv("AGENT_TOOLS_TASK_DIR", str(task_dir))
+
+    command = (
+        "for i in $(seq 1 200); do echo stdout-$i; done; "
+        "echo 'stderr: incompatible pointer type' >&2; "
+        "echo 'ninja: build stopped: subcommand failed' >&2"
+    )
+    result = run_limited_bash(command, limit=20, cwd=tmp_path)
+
+    assert result.exceeded is True
+    captured = capsys.readouterr()
+    captured_output = captured.out + captured.err
+    assert "STDERR LAST 20 LINES:" in captured_output
+    assert "stderr: incompatible pointer type" in captured_output
+    assert "ninja: build stopped: subcommand failed" in captured_output
 
 
 def test_limited_bash_does_not_keep_logs_for_output_under_limit(
@@ -902,9 +944,31 @@ def test_limited_bash_reports_silent_running_command(
     assert result.log_base is not None
     assert captured.out == "done"
     assert "command is still running with no output" in captured.err
-    assert "Live stdout log:" in captured.err
+    assert "[limited_bash] live logs:" in captured.err
     assert result.log_base.with_suffix(".stdout.log").read_text(encoding="utf-8") == "done"
     assert "idle_notice_emitted=true" in result.log_base.with_suffix(".meta.txt").read_text(encoding="utf-8")
+
+
+def test_limited_bash_heartbeat_continues_after_detail_budget_exhausted(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    task_dir = _task(tmp_path)
+    monkeypatch.setenv("AGENT_TOOLS_TASK_DIR", str(task_dir))
+
+    result = run_limited_bash(
+        "sleep 0.2",
+        limit=100,
+        cwd=tmp_path,
+        heartbeat_limit=1,
+        idle_notice_seconds=0.05,
+    )
+
+    captured = capsys.readouterr()
+    assert result.exit_code == 0
+    assert result.idle_notice_emitted is True
+    assert "detailed heartbeat budget exhausted" in captured.err
 
 
 def test_harness_adapter_records_context_injection_points(tmp_path: Path) -> None:

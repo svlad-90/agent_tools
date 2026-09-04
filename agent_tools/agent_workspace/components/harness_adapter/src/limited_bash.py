@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import base64
 import codecs
+from collections import deque
 from dataclasses import dataclass
 from datetime import datetime
 import os
@@ -19,8 +20,17 @@ from agent_tools.agent_workspace.components.markdown.api import rough_token_coun
 
 DEFAULT_LIMITED_BASH_OUTPUT_TOKENS = 2_000
 LIMIT_ENV_VAR = "AGENT_TOOLS_LIMITED_BASH_OUTPUT_TOKENS"
+DEFAULT_LIMITED_BASH_HEAD_TOKENS = 2_000
+HEAD_LIMIT_ENV_VAR = "AGENT_TOOLS_LIMITED_BASH_HEAD_TOKENS"
+DEFAULT_LIMITED_BASH_TAIL_TOKENS = 2_000
+TAIL_LIMIT_ENV_VAR = "AGENT_TOOLS_LIMITED_BASH_TAIL_TOKENS"
+DEFAULT_LIMITED_BASH_HEARTBEAT_TOKENS = 1_000
+HEARTBEAT_LIMIT_ENV_VAR = "AGENT_TOOLS_LIMITED_BASH_HEARTBEAT_TOKENS"
 DEFAULT_IDLE_NOTICE_SECONDS = 30.0
 IDLE_NOTICE_ENV_VAR = "AGENT_TOOLS_LIMITED_BASH_IDLE_NOTICE_SECONDS"
+TAIL_LINE_LIMIT = 20
+HEARTBEAT_NOTICE_TOKEN_LIMIT = 300
+MIN_HEARTBEAT_DETAIL_TOKENS = 80
 
 
 @dataclass(frozen=True)
@@ -30,6 +40,50 @@ class LimitedBashResult:
     exceeded: bool
     log_base: Path | None
     idle_notice_emitted: bool = False
+
+
+@dataclass(frozen=True)
+class OutputBudgets:
+    limit_tokens: int
+    service_tokens: int
+    stdout_head_tokens: int
+    stderr_head_tokens: int
+    stdout_tail_tokens: int
+    stderr_tail_tokens: int
+    heartbeat_tokens: int
+
+    @property
+    def head_tokens(self) -> int:
+        return self.stdout_head_tokens + self.stderr_head_tokens
+
+    @property
+    def tail_tokens(self) -> int:
+        return self.stdout_tail_tokens + self.stderr_tail_tokens
+
+
+@dataclass
+class StreamCapture:
+    head_tokens: int
+    tail_tokens: int
+    output: TextIO
+    printed_head_tokens: int = 0
+    chars: int = 0
+    tokens: int = 0
+    lines: int = 0
+    interval_tokens: int = 0
+    interval_lines: int = 0
+    tail_parts: deque[str] | None = None
+    tail_part_tokens: deque[int] | None = None
+    tail_total_tokens: int = 0
+    deferred_parts: list[str] | None = None
+
+    def __post_init__(self) -> None:
+        if self.tail_parts is None:
+            self.tail_parts = deque()
+        if self.tail_part_tokens is None:
+            self.tail_part_tokens = deque()
+        if self.deferred_parts is None:
+            self.deferred_parts = []
 
 
 def limited_bash_command(command: str, *, limit: int, cwd: Path | None = None) -> list[str]:
@@ -60,18 +114,44 @@ def run_limited_bash(
     *,
     limit: int,
     cwd: Path | None = None,
+    head_limit: int | None = None,
+    tail_limit: int | None = None,
+    heartbeat_limit: int | None = None,
     idle_notice_seconds: float | None = None,
 ) -> LimitedBashResult:
     if limit < 1:
         raise ValueError("limit must be positive")
+    if head_limit is not None and head_limit < 1:
+        raise ValueError("head_limit must be positive")
+    if tail_limit is not None and tail_limit < 1:
+        raise ValueError("tail_limit must be positive")
+    if heartbeat_limit is not None and heartbeat_limit < 0:
+        raise ValueError("heartbeat_limit must be non-negative")
     if idle_notice_seconds is None:
         idle_notice_seconds = idle_notice_seconds_from_env()
-    counts = {"stdout_chars": 0, "stderr_chars": 0, "stdout_tokens": 0, "stderr_tokens": 0}
+    budgets = _allocate_output_budgets(
+        limit,
+        head_limit=head_limit,
+        tail_limit=tail_limit,
+        heartbeat_limit=heartbeat_limit,
+    )
+    captures = {
+        "stdout": StreamCapture(
+            head_tokens=budgets.stdout_head_tokens,
+            tail_tokens=budgets.stdout_tail_tokens,
+            output=sys.stdout,
+        ),
+        "stderr": StreamCapture(
+            head_tokens=budgets.stderr_head_tokens,
+            tail_tokens=budgets.stderr_tail_tokens,
+            output=sys.stderr,
+        ),
+    }
     stream_state: dict[str, object] = {
         "notice_written": False,
-        "streamed_tokens": 0,
         "last_activity": time.monotonic(),
         "idle_notice_written": False,
+        "heartbeat_tokens": 0,
     }
     stream_lock = threading.Lock()
     done = threading.Event()
@@ -93,10 +173,9 @@ def run_limited_bash(
             args=(
                 process.stdout,
                 stdout_file,
-                sys.stdout,
-                counts,
+                captures,
                 "stdout",
-                limit,
+                budgets,
                 log_base,
                 stream_state,
                 stream_lock,
@@ -108,10 +187,9 @@ def run_limited_bash(
             args=(
                 process.stderr,
                 stderr_file,
-                sys.stderr,
-                counts,
+                captures,
                 "stderr",
-                limit,
+                budgets,
                 log_base,
                 stream_state,
                 stream_lock,
@@ -120,7 +198,16 @@ def run_limited_bash(
         )
         idle_thread = threading.Thread(
             target=_write_idle_notices,
-            args=(done, sys.stderr, idle_notice_seconds, log_base, stream_state, stream_lock),
+            args=(
+                done,
+                sys.stderr,
+                idle_notice_seconds,
+                log_base,
+                budgets,
+                captures,
+                stream_state,
+                stream_lock,
+            ),
             daemon=True,
         )
         idle_thread.start()
@@ -143,9 +230,9 @@ def run_limited_bash(
             stderr_thread.join()
             idle_thread.join(timeout=1)
 
-    total_tokens = counts["stdout_tokens"] + counts["stderr_tokens"]
-    total_chars = counts["stdout_chars"] + counts["stderr_chars"]
-    exceeded = total_tokens > limit
+    total_tokens = captures["stdout"].tokens + captures["stderr"].tokens
+    total_chars = captures["stdout"].chars + captures["stderr"].chars
+    exceeded = total_tokens > budgets.limit_tokens
     idle_notice_emitted = bool(stream_state["idle_notice_written"])
     if exceeded:
         meta_log.write_text(
@@ -154,16 +241,33 @@ def run_limited_bash(
                     f"timestamp={datetime.now().astimezone().isoformat(timespec='seconds')}",
                     f"cwd={cwd or Path.cwd()}",
                     f"exit_code={exit_code}",
-                    f"limit_tokens={limit}",
+                    f"limit_tokens={budgets.limit_tokens}",
+                    f"head_limit_tokens={budgets.head_tokens}",
+                    f"tail_limit_tokens={budgets.tail_tokens}",
+                    f"heartbeat_limit_tokens={budgets.heartbeat_tokens}",
                     f"output_tokens={total_tokens}",
                     f"output_chars={total_chars}",
+                    f"stdout_tokens={captures['stdout'].tokens}",
+                    f"stderr_tokens={captures['stderr'].tokens}",
+                    f"stdout_chars={captures['stdout'].chars}",
+                    f"stderr_chars={captures['stderr'].chars}",
+                    f"stdout_lines={captures['stdout'].lines}",
+                    f"stderr_lines={captures['stderr'].lines}",
                     f"command={command}",
                 )
             )
             + "\n",
             encoding="utf-8",
         )
-        print(f"\nlimited_bash: original command exit code: {exit_code}.")
+        _write_final_overflow_summary(
+            sys.stderr,
+            limit=budgets.limit_tokens,
+            output_tokens=total_tokens,
+            exit_code=exit_code,
+            log_base=log_base,
+            budgets=budgets,
+            captures=captures,
+        )
         return LimitedBashResult(
             exit_code=2,
             output_tokens=total_tokens,
@@ -173,15 +277,21 @@ def run_limited_bash(
         )
 
     if idle_notice_emitted:
+        _flush_deferred_output(captures)
         meta_log.write_text(
             "\n".join(
                 (
                     f"timestamp={datetime.now().astimezone().isoformat(timespec='seconds')}",
                     f"cwd={cwd or Path.cwd()}",
                     f"exit_code={exit_code}",
-                    f"limit_tokens={limit}",
+                    f"limit_tokens={budgets.limit_tokens}",
+                    f"head_limit_tokens={budgets.head_tokens}",
+                    f"tail_limit_tokens={budgets.tail_tokens}",
+                    f"heartbeat_limit_tokens={budgets.heartbeat_tokens}",
                     f"output_tokens={total_tokens}",
                     f"output_chars={total_chars}",
+                    f"stdout_tokens={captures['stdout'].tokens}",
+                    f"stderr_tokens={captures['stderr'].tokens}",
                     "idle_notice_emitted=true",
                     f"command={command}",
                 )
@@ -196,18 +306,33 @@ def run_limited_bash(
             log_base=log_base,
             idle_notice_emitted=True,
         )
+    _flush_deferred_output(captures)
     _remove_logs(stdout_log, stderr_log, meta_log)
     return LimitedBashResult(exit_code=exit_code, output_tokens=total_tokens, exceeded=False, log_base=None)
 
 
 def limit_from_env(env: dict[str, str] | None = None) -> int:
-    env = env or os.environ
-    raw = env.get(LIMIT_ENV_VAR, "")
-    try:
-        value = int(raw)
-    except ValueError:
-        return DEFAULT_LIMITED_BASH_OUTPUT_TOKENS
-    return max(100, min(200_000, value))
+    return _int_env(LIMIT_ENV_VAR, DEFAULT_LIMITED_BASH_OUTPUT_TOKENS, 100, 200_000, env=env)
+
+
+def head_limit_from_env(env: dict[str, str] | None = None) -> int:
+    fallback = limit_from_env(env)
+    return _int_env(HEAD_LIMIT_ENV_VAR, fallback, 100, 200_000, env=env)
+
+
+def tail_limit_from_env(env: dict[str, str] | None = None) -> int:
+    fallback = limit_from_env(env)
+    return _int_env(TAIL_LIMIT_ENV_VAR, fallback, 100, 200_000, env=env)
+
+
+def heartbeat_limit_from_env(env: dict[str, str] | None = None) -> int:
+    return _int_env(
+        HEARTBEAT_LIMIT_ENV_VAR,
+        DEFAULT_LIMITED_BASH_HEARTBEAT_TOKENS,
+        0,
+        200_000,
+        env=env,
+    )
 
 
 def idle_notice_seconds_from_env(env: dict[str, str] | None = None) -> float:
@@ -225,6 +350,9 @@ def idle_notice_seconds_from_env(env: dict[str, str] | None = None) -> float:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--limit", type=int, default=limit_from_env())
+    parser.add_argument("--head-limit", type=int)
+    parser.add_argument("--tail-limit", type=int)
+    parser.add_argument("--heartbeat-limit", type=int)
     parser.add_argument("--idle-notice-seconds", type=float, default=idle_notice_seconds_from_env())
     parser.add_argument("--cwd")
     parser.add_argument("--command-b64", required=True)
@@ -240,6 +368,11 @@ def main(argv: list[str] | None = None) -> int:
             command,
             limit=args.limit,
             cwd=cwd,
+            head_limit=args.head_limit if args.head_limit is not None else _optional_int_env(HEAD_LIMIT_ENV_VAR),
+            tail_limit=args.tail_limit if args.tail_limit is not None else _optional_int_env(TAIL_LIMIT_ENV_VAR),
+            heartbeat_limit=(
+                args.heartbeat_limit if args.heartbeat_limit is not None else heartbeat_limit_from_env()
+            ),
             idle_notice_seconds=args.idle_notice_seconds,
         ).exit_code
     except (OSError, ValueError) as exc:
@@ -250,10 +383,9 @@ def main(argv: list[str] | None = None) -> int:
 def _copy_stream(
     stream: BinaryIO,
     log_file: BinaryIO,
-    output: TextIO,
-    counts: dict[str, int],
+    captures: dict[str, StreamCapture],
     key: str,
-    limit: int,
+    budgets: OutputBudgets,
     log_base: Path,
     stream_state: dict[str, object],
     stream_lock: threading.Lock,
@@ -265,9 +397,14 @@ def _copy_stream(
             text = decoder.decode(b"", final=True)
             if text:
                 with stream_lock:
-                    counts[f"{key}_chars"] += len(text)
-                    counts[f"{key}_tokens"] += rough_token_count(text)
-                    _write_limited_stream_part(text, output, limit, log_base, stream_state)
+                    _record_stream_part(
+                        text,
+                        captures,
+                        captures[key],
+                        budgets,
+                        log_base,
+                        stream_state,
+                    )
             return
         log_file.write(chunk)
         log_file.flush()
@@ -277,9 +414,14 @@ def _copy_stream(
         parts = text.splitlines(keepends=True) or [text]
         with stream_lock:
             for part in parts:
-                counts[f"{key}_chars"] += len(part)
-                counts[f"{key}_tokens"] += rough_token_count(part)
-                _write_limited_stream_part(part, output, limit, log_base, stream_state)
+                _record_stream_part(
+                    part,
+                    captures,
+                    captures[key],
+                    budgets,
+                    log_base,
+                    stream_state,
+                )
 
 
 def _read_binary_chunk(stream: BinaryIO) -> bytes:
@@ -289,31 +431,104 @@ def _read_binary_chunk(stream: BinaryIO) -> bytes:
     return stream.read(8192)
 
 
-def _write_limited_stream_part(
+def _record_stream_part(
     part: str,
-    output: TextIO,
-    limit: int,
+    captures: dict[str, StreamCapture],
+    capture: StreamCapture,
+    budgets: OutputBudgets,
     log_base: Path,
     stream_state: dict[str, object],
 ) -> None:
     stream_state["last_activity"] = time.monotonic()
+    part_tokens = rough_token_count(part)
+    capture.chars += len(part)
+    capture.tokens += part_tokens
+    capture.lines += part.count("\n")
+    if part and not part.endswith("\n"):
+        capture.lines += 1
+    capture.interval_tokens += part_tokens
+    capture.interval_lines += part.count("\n")
+    if part and not part.endswith("\n"):
+        capture.interval_lines += 1
+    _append_tail_part(capture, part, part_tokens)
+
+    if capture.printed_head_tokens >= capture.head_tokens:
+        if not bool(stream_state["notice_written"]) and _combined_tokens(captures) <= budgets.limit_tokens:
+            _defer_stream_part(capture, part)
+            return
+        if not bool(stream_state["notice_written"]):
+            sys.stderr.write(_head_limit_message(limit=budgets, log_base=log_base))
+            sys.stderr.flush()
+            stream_state["notice_written"] = True
+        return
+
+    remaining_tokens = max(0, capture.head_tokens - capture.printed_head_tokens)
+    if part_tokens <= remaining_tokens:
+        capture.output.write(part)
+        capture.output.flush()
+        capture.printed_head_tokens += part_tokens
+        if _combined_tokens(captures) > budgets.limit_tokens:
+            _write_head_notice_once(budgets, log_base, stream_state)
+        return
+
+    if remaining_tokens > 0:
+        prefix_length = max(1, remaining_tokens * 4)
+        prefix = part[:prefix_length]
+        capture.output.write(prefix)
+        capture.output.flush()
+        capture.printed_head_tokens = capture.head_tokens
+        remainder = part[prefix_length:]
+        if remainder and _combined_tokens(captures) <= budgets.limit_tokens:
+            _defer_stream_part(capture, remainder)
+            return
+    _write_head_notice_once(budgets, log_base, stream_state)
+
+
+def _append_tail_part(capture: StreamCapture, part: str, part_tokens: int) -> None:
+    assert capture.tail_parts is not None
+    assert capture.tail_part_tokens is not None
+    capture.tail_parts.append(part)
+    capture.tail_part_tokens.append(part_tokens)
+    capture.tail_total_tokens += part_tokens
+    while (
+        (capture.tail_total_tokens > capture.tail_tokens or len(capture.tail_parts) > TAIL_LINE_LIMIT)
+        and capture.tail_parts
+        and capture.tail_part_tokens
+        and len(capture.tail_parts) > TAIL_LINE_LIMIT
+    ):
+        capture.tail_parts.popleft()
+        capture.tail_total_tokens -= capture.tail_part_tokens.popleft()
+
+
+def _write_head_notice_once(
+    budgets: OutputBudgets,
+    log_base: Path,
+    stream_state: dict[str, object],
+) -> None:
     if bool(stream_state["notice_written"]):
         return
-    streamed_tokens = int(stream_state["streamed_tokens"])
-    part_tokens = rough_token_count(part)
-    if streamed_tokens + part_tokens <= limit:
-        output.write(part)
-        output.flush()
-        stream_state["streamed_tokens"] = streamed_tokens + part_tokens
-        return
-    remaining_tokens = max(0, limit - streamed_tokens)
-    if remaining_tokens > 0:
-        prefix = part[: max(1, remaining_tokens * 4)]
-        output.write(prefix)
-    output.write(_stream_limit_message(limit=limit, log_base=log_base))
-    output.flush()
-    stream_state["streamed_tokens"] = limit
+    sys.stderr.write(_head_limit_message(limit=budgets, log_base=log_base))
+    sys.stderr.flush()
     stream_state["notice_written"] = True
+
+
+def _defer_stream_part(capture: StreamCapture, part: str) -> None:
+    assert capture.deferred_parts is not None
+    capture.deferred_parts.append(part)
+
+
+def _flush_deferred_output(captures: dict[str, StreamCapture]) -> None:
+    for capture in captures.values():
+        assert capture.deferred_parts is not None
+        if not capture.deferred_parts:
+            continue
+        capture.output.write("".join(capture.deferred_parts))
+        capture.output.flush()
+        capture.deferred_parts.clear()
+
+
+def _combined_tokens(captures: dict[str, StreamCapture]) -> int:
+    return sum(capture.tokens for capture in captures.values())
 
 
 def _write_idle_notices(
@@ -321,6 +536,8 @@ def _write_idle_notices(
     output: TextIO,
     idle_notice_seconds: float,
     log_base: Path,
+    budgets: OutputBudgets,
+    captures: dict[str, StreamCapture],
     stream_state: dict[str, object],
     stream_lock: threading.Lock,
 ) -> None:
@@ -329,33 +546,243 @@ def _write_idle_notices(
     while not done.wait(idle_notice_seconds):
         with stream_lock:
             idle_for = time.monotonic() - float(stream_state["last_activity"])
-            if idle_for < idle_notice_seconds:
-                continue
-            output.write(
-                "\nlimited_bash: command is still running with no output "
-                f"for {int(idle_for)}s.\n"
-                f"Live stdout log: {log_base}.stdout.log\n"
-                f"Live stderr log: {log_base}.stderr.log\n"
+            interval_stdout = captures["stdout"].interval_tokens
+            interval_stderr = captures["stderr"].interval_tokens
+            should_write_progress = bool(stream_state["notice_written"]) and (
+                interval_stdout > 0 or interval_stderr > 0
             )
+            should_write_idle = idle_for >= idle_notice_seconds
+            if not should_write_progress and not should_write_idle:
+                continue
+            budget_remaining = budgets.heartbeat_tokens - int(stream_state["heartbeat_tokens"])
+            if budget_remaining < MIN_HEARTBEAT_DETAIL_TOKENS:
+                notice = _heartbeat_exhausted_notice(idle_for=idle_for, log_base=log_base, captures=captures)
+            else:
+                notice = _progress_notice(
+                    idle_for=idle_for,
+                    log_base=log_base,
+                    captures=captures,
+                    include_recent=should_write_progress,
+                )
+                notice = _cap_text_to_tokens(notice, min(budget_remaining, HEARTBEAT_NOTICE_TOKEN_LIMIT))
+                stream_state["heartbeat_tokens"] = int(stream_state["heartbeat_tokens"]) + rough_token_count(notice)
+            output.write(notice)
             output.flush()
             stream_state["last_activity"] = time.monotonic()
             stream_state["idle_notice_written"] = True
+            for capture in captures.values():
+                capture.interval_tokens = 0
+                capture.interval_lines = 0
 
 
-def _stream_limit_message(
+def _head_limit_message(
     *,
-    limit: int,
+    limit: OutputBudgets,
     log_base: Path,
 ) -> str:
     return (
-        "\nlimited_bash: configured Bash output limit reached; further command output is being written to files.\n"
-        f"Configured Bash output limit: {limit} estimated tokens.\n"
+        "\n--- limited_bash: output head budget reached ---\n"
+        "Collecting tail buffers for the final summary.\n"
+        f"Head shown: stdout ~{limit.stdout_head_tokens} tokens, "
+        f"stderr ~{limit.stderr_head_tokens} tokens.\n"
+        f"Reserved for completion: tail ~{limit.tail_tokens} tokens, "
+        f"service ~{limit.service_tokens} tokens.\n"
         f"Live stdout log: {log_base}.stdout.log\n"
         f"Live stderr log: {log_base}.stderr.log\n"
-        "Run a narrower command and explicitly cap output, for example with "
-        "`head`, `tail`, `sed -n`, `rg --max-count`, `find ... | head`, or a "
-        "tool-specific quiet/summary flag.\n"
+        "--- end limited_bash ---\n"
     )
+
+
+def _write_final_overflow_summary(
+    output: TextIO,
+    *,
+    limit: int,
+    output_tokens: int,
+    exit_code: int,
+    log_base: Path,
+    budgets: OutputBudgets,
+    captures: dict[str, StreamCapture],
+) -> None:
+    output.write(
+        "\n--- limited_bash: final overflow summary ---\n"
+        f"Configured limit: {limit} estimated tokens. "
+        f"Observed: ~{output_tokens} tokens.\n"
+        f"Original command exit code: {exit_code}.\n"
+        "Full logs:\n"
+        f"- stdout: {log_base}.stdout.log\n"
+        f"- stderr: {log_base}.stderr.log\n"
+        f"- metadata: {log_base}.meta.txt\n\n"
+        "Output shown:\n"
+        f"- stdout head: ~{budgets.stdout_head_tokens} tokens\n"
+        f"- stderr head: ~{budgets.stderr_head_tokens} tokens\n"
+        f"- stdout tail: ~{budgets.stdout_tail_tokens} tokens\n"
+        f"- stderr tail: ~{budgets.stderr_tail_tokens} tokens\n"
+        f"- service/heartbeat: ~{budgets.service_tokens + budgets.heartbeat_tokens} tokens\n"
+    )
+    _write_tail_section(output, "STDOUT", captures["stdout"])
+    _write_tail_section(output, "STDERR", captures["stderr"])
+    output.write(
+        "\n[limited_bash] rerun with a narrower command if more context is needed. "
+        "Examples: `tail -n 120 <log>`, `rg -n \"error:|FAILED|Traceback\" <log>`.\n"
+        "--- end limited_bash ---\n"
+    )
+    output.flush()
+
+
+def _write_tail_section(output: TextIO, title: str, capture: StreamCapture) -> None:
+    tail_text = _tail_text(capture)
+    omitted_tokens = max(0, capture.tokens - capture.printed_head_tokens - rough_token_count(tail_text))
+    output.write(
+        f"\n{title} omitted: ~{omitted_tokens} tokens. "
+        f"Full stream is in {title.lower()} log.\n"
+    )
+    if tail_text:
+        output.write(f"\n{title} LAST {TAIL_LINE_LIMIT} LINES:\n")
+        output.write(tail_text)
+        if not tail_text.endswith("\n"):
+            output.write("\n")
+
+
+def _tail_text(capture: StreamCapture) -> str:
+    assert capture.tail_parts is not None
+    text = "".join(capture.tail_parts)
+    lines = text.splitlines(keepends=True)
+    if len(lines) > TAIL_LINE_LIMIT:
+        text = "".join(lines[-TAIL_LINE_LIMIT:])
+    return _cap_text_to_tokens(text, capture.tail_tokens, keep="tail")
+
+
+def _progress_notice(
+    *,
+    idle_for: float,
+    log_base: Path,
+    captures: dict[str, StreamCapture],
+    include_recent: bool,
+) -> str:
+    if include_recent:
+        notice = (
+            "\n[limited_bash] command still running; "
+            f"interval: stdout +{captures['stdout'].interval_lines} lines/"
+            f"~{captures['stdout'].interval_tokens} tokens, "
+            f"stderr +{captures['stderr'].interval_lines} lines/"
+            f"~{captures['stderr'].interval_tokens} tokens; "
+            f"total: stdout ~{captures['stdout'].tokens}, "
+            f"stderr ~{captures['stderr'].tokens} tokens.\n"
+            f"[limited_bash] live logs: stdout={log_base}.stdout.log "
+            f"stderr={log_base}.stderr.log\n"
+        )
+        stderr_recent = _recent_lines(captures["stderr"], max_lines=3)
+        stdout_recent = _recent_lines(captures["stdout"], max_lines=3)
+        if stderr_recent:
+            notice += "\n--- limited_bash: stderr recent ---\n" + stderr_recent
+            if not stderr_recent.endswith("\n"):
+                notice += "\n"
+            notice += "--- end limited_bash ---\n"
+        if stdout_recent:
+            notice += "\n--- limited_bash: stdout recent ---\n" + stdout_recent
+            if not stdout_recent.endswith("\n"):
+                notice += "\n"
+            notice += "--- end limited_bash ---\n"
+        return notice
+
+    return (
+        "\n[limited_bash] command is still running with no output "
+        f"for {int(idle_for)}s.\n"
+        f"[limited_bash] live logs: stdout={log_base}.stdout.log "
+        f"stderr={log_base}.stderr.log\n"
+    )
+
+
+def _heartbeat_exhausted_notice(
+    *,
+    idle_for: float,
+    log_base: Path,
+    captures: dict[str, StreamCapture],
+) -> str:
+    return (
+        "\n[limited_bash] command still running; detailed heartbeat budget exhausted. "
+        f"interval: stdout +{captures['stdout'].interval_lines} lines/"
+        f"~{captures['stdout'].interval_tokens} tokens, "
+        f"stderr +{captures['stderr'].interval_lines} lines/"
+        f"~{captures['stderr'].interval_tokens} tokens; "
+        f"total: stdout ~{captures['stdout'].tokens}, "
+        f"stderr ~{captures['stderr'].tokens} tokens; "
+        f"idle ~{int(idle_for)}s.\n"
+        f"[limited_bash] live logs: stdout={log_base}.stdout.log "
+        f"stderr={log_base}.stderr.log\n"
+    )
+
+
+def _recent_lines(capture: StreamCapture, *, max_lines: int) -> str:
+    text = _tail_text(capture)
+    return "".join(text.splitlines(keepends=True)[-max_lines:])
+
+
+def _cap_text_to_tokens(text: str, token_limit: int, *, keep: str = "head") -> str:
+    if token_limit <= 0 or rough_token_count(text) <= token_limit:
+        return text
+    if keep == "tail":
+        char_limit = min(2_000, max(200, token_limit * 4))
+        return text[-char_limit:]
+    char_limit = max(1, token_limit * 4)
+    return text[:char_limit]
+
+
+def _allocate_output_budgets(
+    limit: int,
+    *,
+    head_limit: int | None = None,
+    tail_limit: int | None = None,
+    heartbeat_limit: int | None = None,
+) -> OutputBudgets:
+    if head_limit is None and tail_limit is None:
+        service = max(1, int(limit * 0.15))
+        tail = max(1, int(limit * 0.25))
+        head = max(1, limit - service - tail)
+        heartbeat = min(600, max(80, int(limit * 0.3))) if heartbeat_limit is None else heartbeat_limit
+    else:
+        head = head_limit if head_limit is not None else DEFAULT_LIMITED_BASH_HEAD_TOKENS
+        tail = tail_limit if tail_limit is not None else DEFAULT_LIMITED_BASH_TAIL_TOKENS
+        limit = head + tail
+        service = min(500, max(100, int(limit * 0.1)))
+        heartbeat = DEFAULT_LIMITED_BASH_HEARTBEAT_TOKENS if heartbeat_limit is None else heartbeat_limit
+    stderr_head = max(1, int(head * 0.4))
+    stdout_head = max(1, head - stderr_head)
+    stderr_tail = max(1, int(tail * 0.5))
+    stdout_tail = max(1, tail - stderr_tail)
+    return OutputBudgets(
+        limit_tokens=limit,
+        service_tokens=service,
+        stdout_head_tokens=stdout_head,
+        stderr_head_tokens=stderr_head,
+        stdout_tail_tokens=stdout_tail,
+        stderr_tail_tokens=stderr_tail,
+        heartbeat_tokens=heartbeat,
+    )
+
+
+def _int_env(
+    name: str,
+    default: int,
+    minimum: int,
+    maximum: int,
+    *,
+    env: dict[str, str] | None = None,
+) -> int:
+    env = env or os.environ
+    raw = env.get(name, "")
+    try:
+        value = int(raw)
+    except ValueError:
+        return default
+    return max(minimum, min(maximum, value))
+
+
+def _optional_int_env(env_var: str, env: dict[str, str] | None = None) -> int | None:
+    env = env or os.environ
+    if env_var not in env:
+        return None
+    return _int_env(env_var, 0, 100, 200_000, env=env)
 
 
 def _remove_logs(*paths: Path) -> None:
