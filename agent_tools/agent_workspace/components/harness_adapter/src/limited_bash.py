@@ -9,6 +9,7 @@ from datetime import datetime
 import os
 from pathlib import Path
 import shlex
+import shutil
 import subprocess
 import sys
 import threading
@@ -31,6 +32,7 @@ IDLE_NOTICE_ENV_VAR = "AGENT_TOOLS_LIMITED_BASH_IDLE_NOTICE_SECONDS"
 TAIL_LINE_LIMIT = 20
 HEARTBEAT_NOTICE_TOKEN_LIMIT = 300
 MIN_HEARTBEAT_DETAIL_TOKENS = 80
+ACTIVE_LOG_DIR = ".active"
 
 
 @dataclass(frozen=True)
@@ -259,6 +261,7 @@ def run_limited_bash(
             + "\n",
             encoding="utf-8",
         )
+        _finalize_log_base(log_base, keep_completed=True)
         _write_final_overflow_summary(
             sys.stderr,
             limit=budgets.limit_tokens,
@@ -299,6 +302,7 @@ def run_limited_bash(
             + "\n",
             encoding="utf-8",
         )
+        _finalize_log_base(log_base, keep_completed=True)
         return LimitedBashResult(
             exit_code=exit_code,
             output_tokens=total_tokens,
@@ -308,6 +312,7 @@ def run_limited_bash(
         )
     _flush_deferred_output(captures)
     _remove_logs(stdout_log, stderr_log, meta_log)
+    _finalize_log_base(log_base, keep_completed=False)
     return LimitedBashResult(exit_code=exit_code, output_tokens=total_tokens, exceeded=False, log_base=None)
 
 
@@ -801,7 +806,133 @@ def _new_log_base() -> Path:
         log_dir = Path(os.environ.get("TMPDIR", "/tmp")) / "agent-workspace-limited-bash"
     log_dir.mkdir(parents=True, exist_ok=True)
     stamp = datetime.now().strftime("%Y_%m_%d_%H_%M_%S")
-    return log_dir / f"limited_bash_{stamp}_{os.getpid()}_{uuid4().hex[:8]}"
+    run_dir = log_dir / f"limited_bash_{stamp}_{os.getpid()}_{uuid4().hex[:8]}"
+    run_dir.mkdir()
+    log_base = run_dir / "limited_bash"
+    _mark_log_base_active(log_base)
+    _cleanup_limited_bash_logs(log_dir, keep_latest_completed=False)
+    return log_base
+
+
+def _mark_log_base_active(log_base: Path) -> None:
+    log_dir = log_base.parent.parent
+    active_dir = log_dir / ACTIVE_LOG_DIR
+    active_dir.mkdir(parents=True, exist_ok=True)
+    try:
+        started_at = time.time()
+        (active_dir / log_base.parent.name).write_text(
+            f"pid={os.getpid()}\nstarted_at={started_at:.6f}\n",
+            encoding="utf-8",
+        )
+        (log_base.parent / "run.meta").write_text(
+            f"started_at={started_at:.6f}\n",
+            encoding="utf-8",
+        )
+    except OSError:
+        pass
+
+
+def _finalize_log_base(log_base: Path, *, keep_completed: bool) -> None:
+    run_dir = log_base.parent
+    log_dir = run_dir.parent
+    try:
+        (log_dir / ACTIVE_LOG_DIR / run_dir.name).unlink(missing_ok=True)
+        if keep_completed:
+            _append_run_meta(run_dir, f"finished_at={time.time():.6f}\n")
+        else:
+            shutil.rmtree(run_dir)
+    except OSError:
+        pass
+    _cleanup_limited_bash_logs(log_dir, keep_latest_completed=True)
+
+
+def _cleanup_limited_bash_logs(log_dir: Path, *, keep_latest_completed: bool = True) -> None:
+    if not log_dir.is_dir():
+        return
+    active = _active_log_bases(log_dir)
+    keep_completed = _overlapping_completed_log_runs(log_dir, active) if keep_latest_completed else set()
+    for path in log_dir.iterdir():
+        if path.name == ACTIVE_LOG_DIR:
+            _cleanup_empty_active_log_dir(path)
+            continue
+        if path.name in active or path.name in keep_completed:
+            continue
+        try:
+            if path.is_dir():
+                shutil.rmtree(path)
+            else:
+                path.unlink()
+        except OSError:
+            pass
+
+
+def _active_log_bases(log_dir: Path) -> set[str]:
+    active_dir = log_dir / ACTIVE_LOG_DIR
+    if not active_dir.is_dir():
+        return set()
+    return {path.name for path in active_dir.iterdir() if path.is_file()}
+
+
+def _overlapping_completed_log_runs(log_dir: Path, active: set[str]) -> set[str]:
+    completed = []
+    for path in log_dir.iterdir():
+        if not path.is_dir() or path.name == ACTIVE_LOG_DIR or path.name in active:
+            continue
+        interval = _run_interval(path)
+        if interval is None:
+            continue
+        completed.append((path.name, interval))
+    if not completed:
+        return set()
+    latest_name, latest_interval = max(completed, key=lambda item: item[1][1])
+    keep = {latest_name}
+    keep.update(name for name, interval in completed if _intervals_overlap(interval, latest_interval))
+    return keep
+
+
+def _run_interval(run_dir: Path) -> tuple[float, float] | None:
+    metadata = _read_key_value_file(run_dir / "run.meta")
+    try:
+        started = float(metadata["started_at"])
+        finished = float(metadata["finished_at"])
+    except (KeyError, ValueError):
+        return None
+    return started, finished
+
+
+def _intervals_overlap(left: tuple[float, float], right: tuple[float, float]) -> bool:
+    return left[0] <= right[1] and right[0] <= left[1]
+
+
+def _append_run_meta(run_dir: Path, text: str) -> None:
+    try:
+        with (run_dir / "run.meta").open("a", encoding="utf-8") as handle:
+            handle.write(text)
+    except OSError:
+        pass
+
+
+def _read_key_value_file(path: Path) -> dict[str, str]:
+    try:
+        lines = path.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return {}
+    values: dict[str, str] = {}
+    for line in lines:
+        key, separator, value = line.partition("=")
+        if separator:
+            values[key] = value
+    return values
+
+
+def _cleanup_empty_active_log_dir(active_dir: Path) -> None:
+    if not active_dir.is_dir():
+        return
+    try:
+        if not any(active_dir.iterdir()):
+            active_dir.rmdir()
+    except OSError:
+        pass
 
 
 def _shell_join(args: list[str]) -> str:

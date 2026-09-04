@@ -44,8 +44,17 @@ fi
 log_dir="$("${python_bin}" -m paf_workspace.logs \
   --workspace-root "${workspace_root}" \
   --cwd "${PWD}" \
-  --config "${config_path}")"
+  --config "${config_path}" \
+  --prepare-run)"
 mkdir -p "${log_dir}"
+finish_log_run() {
+  "${python_bin}" -m paf_workspace.logs \
+    --workspace-root "${workspace_root}" \
+    --cwd "${PWD}" \
+    --config "${config_path}" \
+    --finish-run "${log_dir}" >/dev/null || true
+}
+trap finish_log_run EXIT
 
 if [ ! -f "${paf_root}/paf_main.py" ]; then
   mkdir -p "$(dirname "${paf_root}")"
