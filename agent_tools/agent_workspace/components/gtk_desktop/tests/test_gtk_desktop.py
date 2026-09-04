@@ -2271,6 +2271,10 @@ def test_gtk_save_settings_persists_mcp_options(monkeypatch: object, tmp_path: P
     gui.codex_animations_enabled = False
     gui.claude_animations_enabled = False
     gui.limited_bash_output_tokens = 2000
+    gui.limited_bash_head_tokens = 2000
+    gui.limited_bash_tail_tokens = 3000
+    gui.limited_bash_heartbeat_seconds = 15
+    gui.limited_bash_heartbeat_tokens = 700
     gui.system_prompt = "Use workspace policy."
     gui.inject_task_context_prompt = True
     gui.mcp_enabled_groups = ("search", "python")
@@ -2303,6 +2307,10 @@ def test_gtk_save_settings_persists_mcp_options(monkeypatch: object, tmp_path: P
         "validation",
     ]
     assert saved[0]["mcp_trusted"] is True
+    assert saved[0]["limited_bash_head_tokens"] == 2000
+    assert saved[0]["limited_bash_tail_tokens"] == 3000
+    assert saved[0]["limited_bash_heartbeat_seconds"] == 15
+    assert saved[0]["limited_bash_heartbeat_tokens"] == 700
 
 
 def test_gtk_mcp_trust_toggle_confirm_applies_requested_state() -> None:
@@ -3051,6 +3059,10 @@ def test_gtk_translates_agent_and_manual_labels() -> None:
     assert GTK_TRANSLATIONS["ru"]["codex_animations_enabled"] == "Анимации Codex"
     assert GTK_TRANSLATIONS["ru"]["claude_animations_enabled"] == "Анимации Claude"
     assert GTK_TRANSLATIONS["ru"]["limited_bash_output_tokens"] == "Лимит вывода Bash, токены"
+    assert GTK_TRANSLATIONS["ru"]["limited_bash_head_tokens"] == "Бюджет начала Bash, токены"
+    assert GTK_TRANSLATIONS["ru"]["limited_bash_tail_tokens"] == "Бюджет конца Bash, токены"
+    assert GTK_TRANSLATIONS["ru"]["limited_bash_heartbeat_seconds"] == "Интервал heartbeat Bash, секунды"
+    assert GTK_TRANSLATIONS["ru"]["limited_bash_heartbeat_tokens"] == "Бюджет heartbeat Bash, токены"
     assert GTK_TRANSLATIONS["ru"]["ok"] == "ОК"
     assert GTK_TRANSLATIONS["ru"]["ai_debug_tab"] == "ИИ дебаг"
     assert GTK_TRANSLATIONS["ru"]["ai_debug_column_tool"] == "Инструмент"

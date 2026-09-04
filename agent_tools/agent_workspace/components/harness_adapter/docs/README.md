@@ -32,18 +32,28 @@ output only when policy requires agent action.
 
 `PreToolUse` wraps Bash tool calls for both Codex and Claude Code with the
 `limited_bash` runner. The wrapper executes the original command through Bash,
-counts combined stdout/stderr output with an estimated token limit, and leaves
-normal output unchanged while it stays under the limit. When output exceeds the
-limit, the wrapper returns a concise message instead of the full output:
+tracks stdout and stderr separately with estimated token budgets, and leaves
+normal output unchanged while it stays under the limit. On overflow it keeps
+streaming only a bounded head preview, then stores later output in full logs
+and in per-stream tail buffers. When the command exits, the wrapper emits a
+final bounded summary:
 
 - the configured and observed token counts;
-- a bounded stdout preview with the first 10 and last 10 logical lines;
-- a bounded stderr preview with the same shape when stderr is present;
-- a reminder to rerun with narrower output;
-- paths to complete stdout, stderr, and metadata logs.
+- the original command exit code;
+- a stdout/stderr head budget summary;
+- a bounded stdout tail preview;
+- a bounded stderr tail preview with reserved budget so noisy stdout cannot
+  hide diagnostics;
+- paths to complete stdout, stderr, and metadata logs;
+- a reminder to rerun with narrower output.
 
-Preview lines are individually capped so a single long line cannot flood agent
-context. Complete logs are published only on overflow, under the task's
+Wrapper service blocks use `--- limited_bash: ... ---` delimiters. One-line
+runtime notices use a `[limited_bash]` prefix. Long-running commands also get a
+separate capped heartbeat budget that reports interval stdout/stderr line and
+token counts plus tiny recent snippets after overflow. After that heartbeat
+detail budget is exhausted, the wrapper continues to emit short heartbeat
+notices with interval statistics and log paths, but without log snippets.
+Complete logs are published only on overflow or heartbeat emission, under the task's
 `report/logs/limited-bash/` directory when `AGENT_TOOLS_TASK_DIR` or
 `PAF_TASK_DIR` is available.
 

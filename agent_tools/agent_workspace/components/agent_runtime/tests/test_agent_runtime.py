@@ -229,6 +229,10 @@ def test_ai_agent_environment_exports_front_desk_session_identity(tmp_path: Path
         AgentSessionState(agent="claude", resume=False, session_id=None),
         run_id="run-3",
         limited_bash_output_tokens=1_200,
+        limited_bash_head_tokens=2_000,
+        limited_bash_tail_tokens=3_000,
+        limited_bash_heartbeat_seconds=15,
+        limited_bash_heartbeat_tokens=700,
     )
 
     assert new_env["AGENT_TOOLS_AGENT"] == "codex"
@@ -242,6 +246,10 @@ def test_ai_agent_environment_exports_front_desk_session_identity(tmp_path: Path
     assert resumed_env["AGENT_TOOLS_AGENT_SESSION_ID"] == "codex-session-1"
     assert "CLAUDE_CODE_DISABLE_MOUSE" not in claude_env
     assert claude_env["AGENT_TOOLS_LIMITED_BASH_OUTPUT_TOKENS"] == "1200"
+    assert claude_env["AGENT_TOOLS_LIMITED_BASH_HEAD_TOKENS"] == "2000"
+    assert claude_env["AGENT_TOOLS_LIMITED_BASH_TAIL_TOKENS"] == "3000"
+    assert claude_env["AGENT_TOOLS_LIMITED_BASH_IDLE_NOTICE_SECONDS"] == "15"
+    assert claude_env["AGENT_TOOLS_LIMITED_BASH_HEARTBEAT_TOKENS"] == "700"
     assert resumed_env["AGENT_TOOLS_RUN_ID"] == "run-2"
 
 

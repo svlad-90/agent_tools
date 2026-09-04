@@ -24,6 +24,10 @@ def test_agent_workspace_settings_persist_font_size(tmp_path: Path) -> None:
             "codex_animations_enabled": True,
             "claude_animations_enabled": True,
             "limited_bash_output_tokens": 12_000,
+            "limited_bash_head_tokens": 2_000,
+            "limited_bash_tail_tokens": 3_000,
+            "limited_bash_heartbeat_seconds": 15,
+            "limited_bash_heartbeat_tokens": 700,
             "system_prompt": "Prefer short, concrete answers.\nKeep task state durable.",
             "inject_task_context_prompt": False,
             "mcp_enabled_groups": ["search", "python", "task_context"],
@@ -58,6 +62,10 @@ def test_agent_workspace_settings_persist_font_size(tmp_path: Path) -> None:
         "codex_animations_enabled": True,
         "claude_animations_enabled": True,
         "limited_bash_output_tokens": 12_000,
+        "limited_bash_head_tokens": 2_000,
+        "limited_bash_tail_tokens": 3_000,
+        "limited_bash_heartbeat_seconds": 15,
+        "limited_bash_heartbeat_tokens": 700,
         "system_prompt": "Prefer short, concrete answers.\nKeep task state durable.",
         "inject_task_context_prompt": False,
         "mcp_enabled_groups": (
@@ -131,6 +139,10 @@ def test_agent_workspace_runtime_settings_disables_agent_animations_by_default()
     assert settings.codex_animations_enabled is False
     assert settings.claude_animations_enabled is False
     assert settings.limited_bash_output_tokens == AGENT_WORKSPACE_DEFAULT_LIMITED_BASH_OUTPUT_TOKENS
+    assert settings.limited_bash_head_tokens == AGENT_WORKSPACE_DEFAULT_LIMITED_BASH_HEAD_TOKENS
+    assert settings.limited_bash_tail_tokens == AGENT_WORKSPACE_DEFAULT_LIMITED_BASH_TAIL_TOKENS
+    assert settings.limited_bash_heartbeat_seconds == AGENT_WORKSPACE_DEFAULT_LIMITED_BASH_HEARTBEAT_SECONDS
+    assert settings.limited_bash_heartbeat_tokens == AGENT_WORKSPACE_DEFAULT_LIMITED_BASH_HEARTBEAT_TOKENS
     assert settings.mcp_enabled_groups == tuple(group_id for group_id, _label in workspace_mcp_tool_groups())
     assert workspace_mcp_enabled_groups_for_runtime(settings.mcp_enabled_groups) is None
     assert settings.mcp_trusted is False
@@ -195,6 +207,10 @@ def test_agent_workspace_runtime_settings_normalizes_ui_defaults() -> None:
             "codex_animations_enabled": True,
             "claude_animations_enabled": True,
             "limited_bash_output_tokens": 4_000,
+            "limited_bash_head_tokens": 2_500,
+            "limited_bash_tail_tokens": 1_500,
+            "limited_bash_heartbeat_seconds": 10,
+            "limited_bash_heartbeat_tokens": 900,
             "system_prompt": "Use the project-specific policy.",
             "inject_task_context_prompt": False,
             "mcp_enabled_groups": ["search", "unknown", "validation"],
@@ -226,6 +242,10 @@ def test_agent_workspace_runtime_settings_normalizes_ui_defaults() -> None:
     assert settings.codex_animations_enabled is True
     assert settings.claude_animations_enabled is True
     assert settings.limited_bash_output_tokens == 4_000
+    assert settings.limited_bash_head_tokens == 2_500
+    assert settings.limited_bash_tail_tokens == 1_500
+    assert settings.limited_bash_heartbeat_seconds == 10
+    assert settings.limited_bash_heartbeat_tokens == 900
     assert settings.system_prompt == "Use the project-specific policy."
     assert settings.inject_task_context_prompt is False
     assert settings.mcp_enabled_groups == (
@@ -270,6 +290,10 @@ def test_agent_workspace_runtime_settings_falls_back_for_invalid_values() -> Non
             "task_dictionary_min_term_length": 0,
             "task_dictionary_max_term_words": 99,
             "limited_bash_output_tokens": 12,
+            "limited_bash_head_tokens": 12,
+            "limited_bash_tail_tokens": 300_000,
+            "limited_bash_heartbeat_seconds": 0,
+            "limited_bash_heartbeat_tokens": -1,
             "task_dictionary_preview_text": "",
             "geometry": 42,
             "main_split_ratio": 2.0,
@@ -293,6 +317,10 @@ def test_agent_workspace_runtime_settings_falls_back_for_invalid_values() -> Non
     assert settings.task_dictionary_min_term_length == 1
     assert settings.task_dictionary_max_term_words == 20
     assert settings.limited_bash_output_tokens == 100
+    assert settings.limited_bash_head_tokens == 100
+    assert settings.limited_bash_tail_tokens == 200_000
+    assert settings.limited_bash_heartbeat_seconds == 1
+    assert settings.limited_bash_heartbeat_tokens == 0
     assert settings.task_dictionary_strip_articles is True
     assert settings.task_dictionary_preview_text == DICTIONARY_PREVIEW_TEXT
     assert len(settings.task_dictionary_preview_text) > 5_000
@@ -312,7 +340,11 @@ def test_agent_workspace_settings_migrates_legacy_bash_char_limit(tmp_path: Path
     settings = agent_workspace_runtime_settings(loaded, default_font_size=13)
 
     assert loaded["limited_bash_output_tokens"] == 2_000
+    assert loaded["limited_bash_head_tokens"] == 2_000
+    assert loaded["limited_bash_tail_tokens"] == 2_000
     assert settings.limited_bash_output_tokens == 2_000
+    assert settings.limited_bash_head_tokens == 2_000
+    assert settings.limited_bash_tail_tokens == 2_000
 
 
 def test_agent_workspace_runtime_settings_migrates_legacy_dictionary_preview_text() -> None:

@@ -367,6 +367,10 @@ class WorkspaceGtkGui:
         self.codex_animations_enabled = settings.codex_animations_enabled
         self.claude_animations_enabled = settings.claude_animations_enabled
         self.limited_bash_output_tokens = settings.limited_bash_output_tokens
+        self.limited_bash_head_tokens = settings.limited_bash_head_tokens
+        self.limited_bash_tail_tokens = settings.limited_bash_tail_tokens
+        self.limited_bash_heartbeat_seconds = settings.limited_bash_heartbeat_seconds
+        self.limited_bash_heartbeat_tokens = settings.limited_bash_heartbeat_tokens
         self.system_prompt = settings.system_prompt
         self.inject_task_context_prompt = settings.inject_task_context_prompt
         self.mcp_enabled_groups = settings.mcp_enabled_groups
@@ -2554,8 +2558,14 @@ class WorkspaceGtkGui:
         codex_reasoning_combo = Gtk.ComboBoxText()
         codex_animations_check = Gtk.CheckButton()
         codex_animations_check.set_active(self.codex_animations_enabled)
-        limited_bash_output_tokens = Gtk.SpinButton.new_with_range(100, 200_000, 100)
-        limited_bash_output_tokens.set_value(self.limited_bash_output_tokens)
+        limited_bash_head_tokens = Gtk.SpinButton.new_with_range(100, 200_000, 100)
+        limited_bash_head_tokens.set_value(self.limited_bash_head_tokens)
+        limited_bash_tail_tokens = Gtk.SpinButton.new_with_range(100, 200_000, 100)
+        limited_bash_tail_tokens.set_value(self.limited_bash_tail_tokens)
+        limited_bash_heartbeat_seconds = Gtk.SpinButton.new_with_range(1, 300, 1)
+        limited_bash_heartbeat_seconds.set_value(self.limited_bash_heartbeat_seconds)
+        limited_bash_heartbeat_tokens = Gtk.SpinButton.new_with_range(0, 200_000, 100)
+        limited_bash_heartbeat_tokens.set_value(self.limited_bash_heartbeat_tokens)
         system_prompt_view = _text_view(self.text_font_size, editable=True)
         system_prompt_view.get_buffer().set_text(self.system_prompt)
         system_prompt_scrolled = _scrolled(system_prompt_view)
@@ -2688,7 +2698,10 @@ class WorkspaceGtkGui:
             default_agent_combo,
             codex_model_combo,
             codex_reasoning_combo,
-            limited_bash_output_tokens,
+            limited_bash_head_tokens,
+            limited_bash_tail_tokens,
+            limited_bash_heartbeat_seconds,
+            limited_bash_heartbeat_tokens,
         ):
             register_outer_scroll_control(widget, general_scrolled)
 
@@ -2979,7 +2992,18 @@ class WorkspaceGtkGui:
         add_settings_section(agent_label("claude"), claude_rows)
         add_settings_section(
             self._tr("settings_section_bash_output"),
-            [(self._tr("limited_bash_output_tokens"), limited_bash_output_tokens)],
+            [
+                (self._tr("limited_bash_head_tokens"), limited_bash_head_tokens),
+                (self._tr("limited_bash_tail_tokens"), limited_bash_tail_tokens),
+                (
+                    self._tr("limited_bash_heartbeat_seconds"),
+                    limited_bash_heartbeat_seconds,
+                ),
+                (
+                    self._tr("limited_bash_heartbeat_tokens"),
+                    limited_bash_heartbeat_tokens,
+                ),
+            ],
         )
 
         dictionary_box.pack_start(dictionary_grid, False, False, 0)
@@ -3061,7 +3085,11 @@ class WorkspaceGtkGui:
                 self.default_claude_effort = claude_effort_combo.get_active_text() or ""
             self.codex_animations_enabled = codex_animations_check.get_active()
             self.claude_animations_enabled = claude_animations_check.get_active()
-            self.limited_bash_output_tokens = int(limited_bash_output_tokens.get_value())
+            self.limited_bash_head_tokens = int(limited_bash_head_tokens.get_value())
+            self.limited_bash_tail_tokens = int(limited_bash_tail_tokens.get_value())
+            self.limited_bash_heartbeat_seconds = int(limited_bash_heartbeat_seconds.get_value())
+            self.limited_bash_heartbeat_tokens = int(limited_bash_heartbeat_tokens.get_value())
+            self.limited_bash_output_tokens = self.limited_bash_head_tokens
             self.system_prompt = _text_buffer_text(system_prompt_view.get_buffer())
             self.mcp_enabled_groups = tuple(
                 group_id
@@ -4467,6 +4495,10 @@ class WorkspaceGtkGui:
             launch.session_state,
             run_id=run_id,
             limited_bash_output_tokens=self.limited_bash_output_tokens,
+            limited_bash_head_tokens=self.limited_bash_head_tokens,
+            limited_bash_tail_tokens=self.limited_bash_tail_tokens,
+            limited_bash_heartbeat_seconds=self.limited_bash_heartbeat_seconds,
+            limited_bash_heartbeat_tokens=self.limited_bash_heartbeat_tokens,
         )
         for session in self._current_task_terminal_sessions(task):
             if session.kind == agent:
@@ -6298,6 +6330,10 @@ class WorkspaceGtkGui:
                 "codex_animations_enabled": self.codex_animations_enabled,
                 "claude_animations_enabled": self.claude_animations_enabled,
                 "limited_bash_output_tokens": self.limited_bash_output_tokens,
+                "limited_bash_head_tokens": self.limited_bash_head_tokens,
+                "limited_bash_tail_tokens": self.limited_bash_tail_tokens,
+                "limited_bash_heartbeat_seconds": self.limited_bash_heartbeat_seconds,
+                "limited_bash_heartbeat_tokens": self.limited_bash_heartbeat_tokens,
                 "system_prompt": self.system_prompt,
                 "inject_task_context_prompt": self.inject_task_context_prompt,
                 "mcp_enabled_groups": list(mcp_enabled_groups),

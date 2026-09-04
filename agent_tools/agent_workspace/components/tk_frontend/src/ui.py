@@ -197,6 +197,10 @@ class AgentWorkspace:
         self.codex_animations_enabled = settings.codex_animations_enabled
         self.claude_animations_enabled = settings.claude_animations_enabled
         self.limited_bash_output_tokens = settings.limited_bash_output_tokens
+        self.limited_bash_head_tokens = settings.limited_bash_head_tokens
+        self.limited_bash_tail_tokens = settings.limited_bash_tail_tokens
+        self.limited_bash_heartbeat_seconds = settings.limited_bash_heartbeat_seconds
+        self.limited_bash_heartbeat_tokens = settings.limited_bash_heartbeat_tokens
         self.system_prompt = settings.system_prompt
         self.inject_task_context_prompt = settings.inject_task_context_prompt
         self.task_dictionary_auto_discovery = settings.task_dictionary_auto_discovery
@@ -784,7 +788,10 @@ class AgentWorkspace:
         codex_reasoning_var = tk.StringVar(value=self.default_codex_reasoning)
         claude_model_var = tk.StringVar(value=self.default_claude_model)
         claude_effort_var = tk.StringVar(value=self.default_claude_effort)
-        limited_bash_output_tokens_var = tk.IntVar(value=self.limited_bash_output_tokens)
+        limited_bash_head_tokens_var = tk.IntVar(value=self.limited_bash_head_tokens)
+        limited_bash_tail_tokens_var = tk.IntVar(value=self.limited_bash_tail_tokens)
+        limited_bash_heartbeat_seconds_var = tk.IntVar(value=self.limited_bash_heartbeat_seconds)
+        limited_bash_heartbeat_tokens_var = tk.IntVar(value=self.limited_bash_heartbeat_tokens)
         codex_available = agent_executable("codex") is not None
         claude_available = agent_executable("claude") is not None
         codex_models = codex_model_choices_info(use_cli=False) if codex_available else None
@@ -845,13 +852,46 @@ class AgentWorkspace:
         self._apply_text_theme(system_prompt_text, _theme_colors(self.theme))
         system_prompt_text.grid(row=row, column=1, sticky=tk.EW, pady=4)
         row += 1
-        ttk.Label(frame, text="Bash output limit, tokens").grid(row=row, column=0, sticky=tk.W, pady=4)
+        ttk.Label(frame, text="Bash head budget, tokens").grid(row=row, column=0, sticky=tk.W, pady=4)
         tk.Spinbox(
             frame,
             from_=100,
             to=200_000,
             increment=100,
-            textvariable=limited_bash_output_tokens_var,
+            textvariable=limited_bash_head_tokens_var,
+            width=10,
+            font=self.ui_font,
+        ).grid(row=row, column=1, sticky=tk.W, pady=4)
+        row += 1
+        ttk.Label(frame, text="Bash tail budget, tokens").grid(row=row, column=0, sticky=tk.W, pady=4)
+        tk.Spinbox(
+            frame,
+            from_=100,
+            to=200_000,
+            increment=100,
+            textvariable=limited_bash_tail_tokens_var,
+            width=10,
+            font=self.ui_font,
+        ).grid(row=row, column=1, sticky=tk.W, pady=4)
+        row += 1
+        ttk.Label(frame, text="Bash heartbeat interval, seconds").grid(row=row, column=0, sticky=tk.W, pady=4)
+        tk.Spinbox(
+            frame,
+            from_=1,
+            to=300,
+            increment=1,
+            textvariable=limited_bash_heartbeat_seconds_var,
+            width=10,
+            font=self.ui_font,
+        ).grid(row=row, column=1, sticky=tk.W, pady=4)
+        row += 1
+        ttk.Label(frame, text="Bash heartbeat budget, tokens").grid(row=row, column=0, sticky=tk.W, pady=4)
+        tk.Spinbox(
+            frame,
+            from_=0,
+            to=200_000,
+            increment=100,
+            textvariable=limited_bash_heartbeat_tokens_var,
             width=10,
             font=self.ui_font,
         ).grid(row=row, column=1, sticky=tk.W, pady=4)
@@ -914,7 +954,10 @@ class AgentWorkspace:
                 codex_reasoning_var,
                 claude_model_var,
                 claude_effort_var,
-                limited_bash_output_tokens_var,
+                limited_bash_head_tokens_var,
+                limited_bash_tail_tokens_var,
+                limited_bash_heartbeat_seconds_var,
+                limited_bash_heartbeat_tokens_var,
                 system_prompt_text,
             ),
         ).pack(side=tk.LEFT, padx=2)
@@ -931,7 +974,10 @@ class AgentWorkspace:
                 codex_reasoning_var,
                 claude_model_var,
                 claude_effort_var,
-                limited_bash_output_tokens_var,
+                limited_bash_head_tokens_var,
+                limited_bash_tail_tokens_var,
+                limited_bash_heartbeat_seconds_var,
+                limited_bash_heartbeat_tokens_var,
                 system_prompt_text,
             ),
         ).pack(side=tk.LEFT, padx=2)
@@ -961,7 +1007,10 @@ class AgentWorkspace:
         codex_reasoning_var: tk.StringVar,
         claude_model_var: tk.StringVar,
         claude_effort_var: tk.StringVar,
-        limited_bash_output_tokens_var: tk.IntVar,
+        limited_bash_head_tokens_var: tk.IntVar,
+        limited_bash_tail_tokens_var: tk.IntVar,
+        limited_bash_heartbeat_seconds_var: tk.IntVar,
+        limited_bash_heartbeat_tokens_var: tk.IntVar,
         system_prompt_text: tk.Text,
     ) -> None:
         self._apply_settings_values(
@@ -973,7 +1022,10 @@ class AgentWorkspace:
             codex_reasoning_var,
             claude_model_var,
             claude_effort_var,
-            limited_bash_output_tokens_var,
+            limited_bash_head_tokens_var,
+            limited_bash_tail_tokens_var,
+            limited_bash_heartbeat_seconds_var,
+            limited_bash_heartbeat_tokens_var,
             system_prompt_text,
         )
         window.destroy()
@@ -988,13 +1040,19 @@ class AgentWorkspace:
         codex_reasoning_var: tk.StringVar,
         claude_model_var: tk.StringVar,
         claude_effort_var: tk.StringVar,
-        limited_bash_output_tokens_var: tk.IntVar,
+        limited_bash_head_tokens_var: tk.IntVar,
+        limited_bash_tail_tokens_var: tk.IntVar,
+        limited_bash_heartbeat_seconds_var: tk.IntVar,
+        limited_bash_heartbeat_tokens_var: tk.IntVar,
         system_prompt_text: tk.Text,
     ) -> None:
         try:
             text_font_size = text_size_var.get()
             button_font_size = button_size_var.get()
-            limited_bash_output_tokens = limited_bash_output_tokens_var.get()
+            limited_bash_head_tokens = limited_bash_head_tokens_var.get()
+            limited_bash_tail_tokens = limited_bash_tail_tokens_var.get()
+            limited_bash_heartbeat_seconds = limited_bash_heartbeat_seconds_var.get()
+            limited_bash_heartbeat_tokens = limited_bash_heartbeat_tokens_var.get()
             system_prompt = system_prompt_text.get("1.0", "end-1c")
         except tk.TclError:
             return
@@ -1011,7 +1069,11 @@ class AgentWorkspace:
         self.default_claude_effort = (
             claude_effort_var.get() if claude_effort_var.get() in AGENT_WORKSPACE_REASONING_EFFORTS else ""
         )
-        self.limited_bash_output_tokens = max(100, min(200_000, limited_bash_output_tokens))
+        self.limited_bash_head_tokens = max(100, min(200_000, limited_bash_head_tokens))
+        self.limited_bash_tail_tokens = max(100, min(200_000, limited_bash_tail_tokens))
+        self.limited_bash_heartbeat_seconds = max(1, min(300, limited_bash_heartbeat_seconds))
+        self.limited_bash_heartbeat_tokens = max(0, min(200_000, limited_bash_heartbeat_tokens))
+        self.limited_bash_output_tokens = self.limited_bash_head_tokens
         self.system_prompt = system_prompt
         if self.selected_task is None:
             self._set_agent_selection(self.default_agent)
@@ -1250,6 +1312,10 @@ class AgentWorkspace:
             launch.session_state,
             run_id=run_id,
             limited_bash_output_tokens=self.limited_bash_output_tokens,
+            limited_bash_head_tokens=self.limited_bash_head_tokens,
+            limited_bash_tail_tokens=self.limited_bash_tail_tokens,
+            limited_bash_heartbeat_seconds=self.limited_bash_heartbeat_seconds,
+            limited_bash_heartbeat_tokens=self.limited_bash_heartbeat_tokens,
         )
         self._update_ai_agent_button_label()
         self._refresh_task_session_indicators()
@@ -2385,6 +2451,10 @@ class AgentWorkspace:
                 "codex_animations_enabled": self.codex_animations_enabled,
                 "claude_animations_enabled": self.claude_animations_enabled,
                 "limited_bash_output_tokens": self.limited_bash_output_tokens,
+                "limited_bash_head_tokens": self.limited_bash_head_tokens,
+                "limited_bash_tail_tokens": self.limited_bash_tail_tokens,
+                "limited_bash_heartbeat_seconds": self.limited_bash_heartbeat_seconds,
+                "limited_bash_heartbeat_tokens": self.limited_bash_heartbeat_tokens,
                 "system_prompt": self.system_prompt,
                 "inject_task_context_prompt": self.inject_task_context_prompt,
                 "task_dictionary_auto_discovery": self.task_dictionary_auto_discovery,
