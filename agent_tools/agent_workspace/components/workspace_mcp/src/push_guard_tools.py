@@ -157,8 +157,8 @@ def _push_guard_check(context: ToolContext, arguments: JsonObject) -> ToolResult
 
 def _push_guard_install_hook(context: ToolContext, arguments: JsonObject) -> ToolResult:
     repo = _repo(context, arguments)
-    _install_hooks(repo)
-    hooks_dir = push_guard._git_path(repo, "hooks")
+    push_guard.install_repo_hooks(repo)
+    hooks_dir = push_guard.git_path(repo, "hooks")
     payload = {
         "repo": str(repo),
         "hooks": [str(hooks_dir / "pre-commit"), str(hooks_dir / "pre-push")],
@@ -167,22 +167,6 @@ def _push_guard_install_hook(context: ToolContext, arguments: JsonObject) -> Too
         text="\n".join(f"push_guard: installed {path}" for path in payload["hooks"]) + "\n",
         structured_content=payload,
     )
-
-
-def _install_hooks(repo: Path) -> None:
-    hook_dir = Path(push_guard.__file__).resolve().parent
-    workspace_root = hook_dir.parents[2]
-    hooks_dir = push_guard._git_path(repo, "hooks")
-    hooks_dir.mkdir(parents=True, exist_ok=True)
-    for hook_name in ("pre-push", "pre-commit"):
-        hook_source = hook_dir / hook_name
-        hook_target = hooks_dir / hook_name
-        hook_text = hook_source.read_text(encoding="utf-8").replace(
-            'installed_workspace_root=""',
-            f'installed_workspace_root="{workspace_root}"',
-        )
-        hook_target.write_text(hook_text, encoding="utf-8")
-        hook_target.chmod(0o755)
 
 
 def _repo(context: ToolContext, arguments: JsonObject) -> Path:

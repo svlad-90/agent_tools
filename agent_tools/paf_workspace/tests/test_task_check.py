@@ -182,6 +182,43 @@ def test_repo_registry_slot_is_warned_when_empty(tmp_path: Path) -> None:
     assert not _has_check(checks, "WARN", "task-context-repo-registry-missing")
 
 
+def test_task_check_warns_when_registered_repo_hooks_are_missing(tmp_path: Path) -> None:
+    task_dir = tmp_path / "tasks" / "sample-task"
+    initialize_task_layout(task_dir, workspace=tmp_path)
+    set_slot(task_dir, "goal", "Goal.")
+    set_slot(task_dir, "operational-memory", "Current: ready.")
+    repo = task_dir / "dev" / "repo"
+    repo.mkdir()
+    subprocess.run(["git", "init"], cwd=repo, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    set_slot(task_dir, "repo-registry", "repositories:\n  - path: tasks/sample-task/dev/repo\n")
+
+    checks = check_task(task_dir, workspace=tmp_path)
+
+    assert _has_check(checks, "PASS", "task-context-repo-registry")
+    assert _has_check(checks, "WARN", "task-context-repo-hooks-missing")
+    assert not _has_check(checks, "PASS", "task-context-repo-hooks")
+
+
+def test_task_check_install_repo_hooks_installs_registered_repo_hooks(tmp_path: Path) -> None:
+    task_dir = tmp_path / "tasks" / "sample-task"
+    initialize_task_layout(task_dir, workspace=tmp_path)
+    set_slot(task_dir, "goal", "Goal.")
+    set_slot(task_dir, "operational-memory", "Current: ready.")
+    repo = task_dir / "dev" / "repo"
+    repo.mkdir()
+    subprocess.run(["git", "init"], cwd=repo, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    set_slot(task_dir, "repo-registry", "repositories:\n  - path: tasks/sample-task/dev/repo\n")
+
+    result = main([str(task_dir), "--workspace", str(tmp_path), "--install-repo-hooks"])
+    checks = check_task(task_dir, workspace=tmp_path)
+
+    assert result == 0
+    assert (repo / ".git" / "hooks" / "pre-push").is_file()
+    assert (repo / ".git" / "hooks" / "pre-commit").is_file()
+    assert _has_check(checks, "PASS", "task-context-repo-hooks")
+    assert not _has_check(checks, "WARN", "task-context-repo-hooks-missing")
+
+
 def test_repo_registry_slot_fails_for_non_repo_path(tmp_path: Path) -> None:
     task_dir = tmp_path / "tasks" / "sample-task"
     initialize_task_layout(task_dir, workspace=tmp_path)

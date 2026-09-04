@@ -231,18 +231,18 @@ def workspace_standard_task_actions(task: TaskSummary) -> list[TaskAction]:
             command=(
                 "python3",
                 "-m",
-                "agent_tools.tools.push_guard",
-                "install-registered-hooks",
+                "agent_tools.paf_workspace.task_check",
+                str(task.path),
                 "--workspace",
                 str(workspace),
-                "--task-dir",
-                str(task.path),
+                "--install-repo-hooks",
+                "--issues-only",
             ),
             cwd=workspace,
             env={},
             description=(
-                "Install or update push hooks only for git repository roots listed in the task "
-                "repo-registry, and enable repo_guard for those repositories."
+                "Install or update push hooks for git repository roots listed in the task "
+                "repo-registry, then print task_check issues that still need action."
             ),
             source="workspace",
         ),

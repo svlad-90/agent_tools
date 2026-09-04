@@ -188,6 +188,7 @@ from .gtk_terminal_ui import copy_primary_selection_to_clipboard as _copy_primar
 from .gtk_terminal_ui import copy_terminal_selection as _copy_terminal_selection
 from .gtk_terminal_ui import set_clipboard_text as _set_clipboard_text
 from .gtk_terminal_ui import terminal_clipboard_shortcut as _terminal_clipboard_shortcut
+from .ui_contract import mark_gtk_widget
 from .gtk_terminal_ui import terminal_session_sort_key as _terminal_session_sort_key
 from .gtk_terminal_ui import terminal_tab_label as _terminal_tab_label
 from .gtk_terminal_ui import terminal_tab_text_label as _terminal_tab_text_label
@@ -2429,32 +2430,63 @@ class WorkspaceGtkGui:
             transient_for=self.window,
             flags=Gtk.DialogFlags.MODAL,
         )
+        mark_gtk_widget(dialog, "settings.dialog", "dialog", layout="window")
         dialog.set_resizable(True)
         dialog.set_default_size(820, 560)
         dialog.add_button(self._tr("cancel"), Gtk.ResponseType.CANCEL)
         dialog.add_button(self._tr("ok"), Gtk.ResponseType.OK)
         content = dialog.get_content_area()
         notebook = Gtk.Notebook()
+        mark_gtk_widget(notebook, "settings.tabs", "tabs", widget_kind="tabs")
         notebook.set_hexpand(True)
         notebook.set_vexpand(True)
         content.add(notebook)
         general_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=18)
+        mark_gtk_widget(
+            general_box,
+            "settings.general",
+            "tab",
+            label_key="settings_dictionary_general",
+            layout="grid",
+        )
         general_box.set_border_width(12)
         general_scrolled = _scrolled(general_box)
         general_scrolled.set_hexpand(True)
         general_scrolled.set_vexpand(True)
         dictionary_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
+        mark_gtk_widget(
+            dictionary_box,
+            "settings.dictionary",
+            "tab",
+            label_key="settings_dictionary_dictionary",
+            layout="grid",
+        )
         dictionary_box.set_border_width(12)
         dictionary_scrolled = _scrolled(dictionary_box)
         dictionary_scrolled.set_hexpand(True)
         dictionary_scrolled.set_vexpand(True)
         dictionary_grid = Gtk.Grid(column_spacing=10, row_spacing=8)
         mcp_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
+        mark_gtk_widget(
+            mcp_box,
+            "settings.mcp",
+            "tab",
+            label_key="settings_mcp",
+            layout="vertical",
+            orientation="vertical",
+        )
         mcp_box.set_border_width(12)
         mcp_scrolled = _scrolled(mcp_box)
         mcp_scrolled.set_hexpand(True)
         mcp_scrolled.set_vexpand(True)
         mcp_trusted_check = Gtk.CheckButton(label=self._tr("settings_mcp_trusted"))
+        mark_gtk_widget(
+            mcp_trusted_check,
+            "settings.mcp_trusted",
+            "field",
+            label_key="settings_mcp_trusted",
+            widget_kind="checkbox",
+        )
         mcp_trusted_check.set_active(self.mcp_trusted)
         mcp_trusted_note = Gtk.Label(label=self._tr("settings_mcp_trusted_note"))
         mcp_trusted_note.set_xalign(0)
@@ -2504,6 +2536,13 @@ class WorkspaceGtkGui:
                 workspace_mcp_tool_group_tooltip(group_id),
             )
             check = Gtk.CheckButton(label=label)
+            mark_gtk_widget(
+                check,
+                f"settings.mcp_group_{group_id}",
+                "field",
+                label_key=f"settings_mcp_group_{group_id}",
+                widget_kind="checkbox",
+            )
             check.set_active(True)
             check.set_sensitive(False)
             check.set_tooltip_text(tooltip)
@@ -2518,6 +2557,13 @@ class WorkspaceGtkGui:
                 workspace_mcp_tool_group_tooltip(group_id),
             )
             check = Gtk.CheckButton(label=label)
+            mark_gtk_widget(
+                check,
+                f"settings.mcp_group_{group_id}",
+                "field",
+                label_key=f"settings_mcp_group_{group_id}",
+                widget_kind="checkbox",
+            )
             check.set_active(group_id in enabled_mcp_groups)
             check.set_tooltip_text(tooltip)
             mcp_group_checks[group_id] = check
@@ -2527,60 +2573,233 @@ class WorkspaceGtkGui:
         mcp_box.pack_start(mcp_groups_heading, False, False, 0)
         mcp_box.pack_start(mcp_groups_box, False, False, 0)
         profiling_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        mark_gtk_widget(
+            profiling_box,
+            "settings.profiling",
+            "tab",
+            label_key="settings_profiling",
+            layout="vertical",
+            orientation="vertical",
+        )
         profiling_box.set_border_width(12)
         profiling_controls = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
         profiling_enabled = Gtk.CheckButton(label=self._tr("settings_profiling_enable"))
+        mark_gtk_widget(
+            profiling_enabled,
+            "settings.profiling_enabled",
+            "field",
+            label_key="settings_profiling_enable",
+            widget_kind="checkbox",
+        )
         profiling_enabled.set_active(self.profiling_enabled)
         profiling_clear = Gtk.Button(label=self._tr("settings_profiling_clear"))
+        mark_gtk_widget(
+            profiling_clear,
+            "settings.profiling_clear",
+            "action",
+            label_key="settings_profiling_clear",
+            widget_kind="button",
+        )
         profiling_crash = Gtk.Button(label=self._tr("settings_profiling_crash_dump"))
+        mark_gtk_widget(
+            profiling_crash,
+            "settings.profiling_crash_dump",
+            "action",
+            label_key="settings_profiling_crash_dump",
+            widget_kind="button",
+        )
         profiling_controls.pack_start(profiling_enabled, False, False, 0)
         profiling_controls.pack_start(profiling_clear, False, False, 0)
         profiling_controls.pack_start(profiling_crash, False, False, 0)
         profiling_output = _text_view(self.text_font_size, editable=False)
+        mark_gtk_widget(
+            profiling_output,
+            "settings.profiling_output",
+            "text",
+            widget_kind="text_area",
+            hexpand=True,
+            vexpand=True,
+        )
         profiling_output.set_monospace(True)
         profiling_output_scrolled = _scrolled(profiling_output)
         profiling_output_scrolled.set_hexpand(True)
         profiling_output_scrolled.set_vexpand(True)
         profiling_note = Gtk.Label(label=self._tr("settings_profiling_note"))
+        mark_gtk_widget(
+            profiling_note,
+            "settings.profiling_note",
+            "text",
+            label_key="settings_profiling_note",
+            widget_kind="text",
+        )
         profiling_note.set_xalign(0)
         profiling_note.set_line_wrap(True)
         profiling_box.pack_start(profiling_controls, False, False, 0)
         profiling_box.pack_start(profiling_note, False, False, 0)
         profiling_box.pack_start(profiling_output_scrolled, True, True, 0)
         text_size = Gtk.SpinButton.new_with_range(8, 28, 1)
+        mark_gtk_widget(
+            text_size,
+            "settings.text_font_size",
+            "field",
+            label_key="text_font_size",
+            widget_kind="number",
+            min_value=8,
+            max_value=28,
+            step=1,
+        )
         text_size.set_value(self.text_font_size)
         button_size = Gtk.SpinButton.new_with_range(8, 28, 1)
+        mark_gtk_widget(
+            button_size,
+            "settings.button_font_size",
+            "field",
+            label_key="button_font_size",
+            widget_kind="number",
+            min_value=8,
+            max_value=28,
+            step=1,
+        )
         button_size.set_value(self.button_font_size)
         theme_combo = Gtk.ComboBoxText()
+        mark_gtk_widget(theme_combo, "settings.theme", "field", label_key="theme", widget_kind="select")
         language_combo = Gtk.ComboBoxText()
+        mark_gtk_widget(language_combo, "settings.language", "field", label_key="language", widget_kind="select")
         default_agent_combo = Gtk.ComboBoxText()
+        mark_gtk_widget(
+            default_agent_combo,
+            "settings.default_agent",
+            "field",
+            label_key="default_agent",
+            widget_kind="select",
+        )
         codex_model_combo = Gtk.ComboBoxText()
+        mark_gtk_widget(
+            codex_model_combo,
+            "settings.codex_model",
+            "field",
+            label_key="default_codex_model",
+            widget_kind="select",
+        )
         codex_reasoning_combo = Gtk.ComboBoxText()
+        mark_gtk_widget(
+            codex_reasoning_combo,
+            "settings.codex_reasoning",
+            "field",
+            label_key="default_codex_reasoning",
+            widget_kind="select",
+        )
         codex_animations_check = Gtk.CheckButton()
+        mark_gtk_widget(
+            codex_animations_check,
+            "settings.codex_animations_enabled",
+            "field",
+            label_key="codex_animations_enabled",
+            widget_kind="checkbox",
+        )
         codex_animations_check.set_active(self.codex_animations_enabled)
         limited_bash_head_tokens = Gtk.SpinButton.new_with_range(100, 200_000, 100)
+        mark_gtk_widget(
+            limited_bash_head_tokens,
+            "settings.limited_bash_head_tokens",
+            "field",
+            label_key="limited_bash_head_tokens",
+            widget_kind="number",
+            min_value=100,
+            max_value=200_000,
+            step=100,
+        )
         limited_bash_head_tokens.set_value(self.limited_bash_head_tokens)
         limited_bash_tail_tokens = Gtk.SpinButton.new_with_range(100, 200_000, 100)
+        mark_gtk_widget(
+            limited_bash_tail_tokens,
+            "settings.limited_bash_tail_tokens",
+            "field",
+            label_key="limited_bash_tail_tokens",
+            widget_kind="number",
+            min_value=100,
+            max_value=200_000,
+            step=100,
+        )
         limited_bash_tail_tokens.set_value(self.limited_bash_tail_tokens)
         limited_bash_heartbeat_seconds = Gtk.SpinButton.new_with_range(1, 300, 1)
+        mark_gtk_widget(
+            limited_bash_heartbeat_seconds,
+            "settings.limited_bash_heartbeat_seconds",
+            "field",
+            label_key="limited_bash_heartbeat_seconds",
+            widget_kind="number",
+            min_value=1,
+            max_value=300,
+            step=1,
+        )
         limited_bash_heartbeat_seconds.set_value(self.limited_bash_heartbeat_seconds)
         limited_bash_heartbeat_tokens = Gtk.SpinButton.new_with_range(0, 200_000, 100)
+        mark_gtk_widget(
+            limited_bash_heartbeat_tokens,
+            "settings.limited_bash_heartbeat_tokens",
+            "field",
+            label_key="limited_bash_heartbeat_tokens",
+            widget_kind="number",
+            min_value=0,
+            max_value=200_000,
+            step=100,
+        )
         limited_bash_heartbeat_tokens.set_value(self.limited_bash_heartbeat_tokens)
         system_prompt_view = _text_view(self.text_font_size, editable=True)
+        mark_gtk_widget(
+            system_prompt_view,
+            "settings.system_prompt",
+            "field",
+            label_key="system_prompt",
+            widget_kind="text_area",
+            height=96,
+            hexpand=True,
+            vexpand=False,
+        )
         system_prompt_view.get_buffer().set_text(self.system_prompt)
         system_prompt_scrolled = _scrolled(system_prompt_view)
         system_prompt_scrolled.set_hexpand(True)
         system_prompt_scrolled.set_vexpand(False)
         system_prompt_scrolled.set_min_content_height(96)
         settings_update_check_button = Gtk.Button(label=self._tr("settings_check_updates"))
+        mark_gtk_widget(
+            settings_update_check_button,
+            "settings.check_updates",
+            "action",
+            label_key="settings_check_updates",
+            widget_kind="button",
+        )
         settings_update_button = Gtk.Button(label=self._tr("settings_apply_update"))
+        mark_gtk_widget(
+            settings_update_button,
+            "settings.apply_update",
+            "action",
+            label_key="settings_apply_update",
+            widget_kind="button",
+        )
         settings_update_button.set_no_show_all(True)
         settings_update_button.set_visible(False)
         settings_update_status = Gtk.Label(label=self._tr("settings_update_idle"))
+        mark_gtk_widget(
+            settings_update_status,
+            "settings.update_status",
+            "status",
+            label_key="settings_update_idle",
+            widget_kind="text",
+        )
         settings_update_status.set_xalign(0)
         settings_update_status.set_line_wrap(True)
         settings_update_controls = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
         settings_update_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        mark_gtk_widget(
+            settings_update_box,
+            "settings.updates",
+            "tab",
+            label_key="settings_updates",
+            layout="vertical",
+            orientation="vertical",
+        )
         settings_update_box.set_border_width(12)
         settings_update_box.set_hexpand(True)
         settings_update_box.set_vexpand(True)
@@ -2809,10 +3028,31 @@ class WorkspaceGtkGui:
         settings_update_check_button.connect("clicked", run_settings_update_check)
         settings_update_button.connect("clicked", run_settings_update)
         claude_model_combo = Gtk.ComboBoxText()
+        mark_gtk_widget(
+            claude_model_combo,
+            "settings.claude_model",
+            "field",
+            label_key="default_claude_model",
+            widget_kind="select",
+        )
         claude_effort_combo = Gtk.ComboBoxText()
+        mark_gtk_widget(
+            claude_effort_combo,
+            "settings.claude_effort",
+            "field",
+            label_key="default_claude_effort",
+            widget_kind="select",
+        )
         for widget in (claude_model_combo, claude_effort_combo):
             register_outer_scroll_control(widget, general_scrolled)
         claude_animations_check = Gtk.CheckButton()
+        mark_gtk_widget(
+            claude_animations_check,
+            "settings.claude_animations_enabled",
+            "field",
+            label_key="claude_animations_enabled",
+            widget_kind="checkbox",
+        )
         claude_animations_check.set_active(self.claude_animations_enabled)
         codex_available = agent_executable("codex") is not None
         claude_available = agent_executable("claude") is not None
@@ -2861,16 +3101,70 @@ class WorkspaceGtkGui:
             else 0
         )
         dictionary_auto = Gtk.CheckButton()
+        mark_gtk_widget(
+            dictionary_auto,
+            "settings.dictionary_auto_discovery",
+            "field",
+            label_key="settings_dictionary_auto_discover",
+            widget_kind="checkbox",
+        )
         dictionary_auto.set_active(self.task_dictionary_auto_discovery)
         dictionary_strip_articles = Gtk.CheckButton()
+        mark_gtk_widget(
+            dictionary_strip_articles,
+            "settings.dictionary_strip_articles",
+            "field",
+            label_key="settings_dictionary_strip_articles",
+            widget_kind="checkbox",
+        )
         dictionary_strip_articles.set_active(self.task_dictionary_strip_articles)
         dictionary_min_occurrences = Gtk.SpinButton.new_with_range(1, 20, 1)
+        mark_gtk_widget(
+            dictionary_min_occurrences,
+            "settings.dictionary_min_occurrences",
+            "field",
+            label_key="settings_dictionary_min_occurrences",
+            widget_kind="number",
+            min_value=1,
+            max_value=20,
+            step=1,
+        )
         dictionary_min_occurrences.set_value(self.task_dictionary_min_occurrences)
         dictionary_min_saving = Gtk.SpinButton.new_with_range(0, 10_000, 1)
+        mark_gtk_widget(
+            dictionary_min_saving,
+            "settings.dictionary_min_saving",
+            "field",
+            label_key="settings_dictionary_min_saving",
+            widget_kind="number",
+            min_value=0,
+            max_value=10_000,
+            step=1,
+        )
         dictionary_min_saving.set_value(self.task_dictionary_min_saving)
         dictionary_min_term_length = Gtk.SpinButton.new_with_range(1, 200, 1)
+        mark_gtk_widget(
+            dictionary_min_term_length,
+            "settings.dictionary_min_term_length",
+            "field",
+            label_key="settings_dictionary_min_term_length",
+            widget_kind="number",
+            min_value=1,
+            max_value=200,
+            step=1,
+        )
         dictionary_min_term_length.set_value(self.task_dictionary_min_term_length)
         dictionary_max_term_words = Gtk.SpinButton.new_with_range(1, 20, 1)
+        mark_gtk_widget(
+            dictionary_max_term_words,
+            "settings.dictionary_max_term_words",
+            "field",
+            label_key="settings_dictionary_max_term_words",
+            widget_kind="number",
+            min_value=1,
+            max_value=20,
+            step=1,
+        )
         dictionary_max_term_words.set_value(self.task_dictionary_max_term_words)
         for widget in (
             dictionary_min_occurrences,
@@ -2880,6 +3174,15 @@ class WorkspaceGtkGui:
         ):
             register_outer_scroll_control(widget, dictionary_scrolled)
         preview_input = _text_view(self.text_font_size, editable=True)
+        mark_gtk_widget(
+            preview_input,
+            "settings.dictionary_preview_text",
+            "field",
+            label_key="settings_dictionary_preview_text",
+            widget_kind="text_area",
+            hexpand=True,
+            vexpand=True,
+        )
         preview_input.get_buffer().set_text(self.task_dictionary_preview_text)
         preview_output = _text_view(self.text_font_size, editable=False)
         preview_metrics = Gtk.Label()
@@ -2935,9 +3238,23 @@ class WorkspaceGtkGui:
             preview_output.get_buffer().set_text(_dictionary_preview_text(text, preview, language=self.language))
             preview_metrics.set_text(_dictionary_preview_metrics_text(text, preview, language=self.language))
 
-        def add_settings_section(title: str, rows: list[tuple[str, Gtk.Widget]]) -> None:
+        def add_settings_section(
+            title: str,
+            rows: list[tuple[str, Gtk.Widget]],
+            *,
+            contract_id: str | None = None,
+            label_key: str | None = None,
+        ) -> None:
             section_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
             section_box.set_hexpand(True)
+            if contract_id is not None:
+                mark_gtk_widget(
+                    section_box,
+                    contract_id,
+                    "section",
+                    label_key=label_key,
+                    layout="grid",
+                )
             heading = Gtk.Label()
             heading.set_xalign(0)
             heading.set_markup(f"<b>{GLib.markup_escape_text(title)}</b>")
@@ -3004,6 +3321,8 @@ class WorkspaceGtkGui:
                     limited_bash_heartbeat_tokens,
                 ),
             ],
+            contract_id="settings.bash_output",
+            label_key="settings_section_bash_output",
         )
 
         dictionary_box.pack_start(dictionary_grid, False, False, 0)

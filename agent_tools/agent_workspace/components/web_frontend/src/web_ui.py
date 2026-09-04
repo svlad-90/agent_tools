@@ -18,6 +18,7 @@ from ...process_runtime.api import install_agent_workspace_exception_logger
 from ...harness_adapter.api import clear_harness_debug_events
 from ...workspace_service.api import AgentWorkspaceService
 from ...workspace_service.api import TaskContextFilters
+from .ui_contract import web_settings_ui_tree
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -70,6 +71,9 @@ class AgentWorkspaceWebHandler(BaseHTTPRequestHandler):
             return
         if parsed.path == "/api/tasks":
             self._send_json({"tasks": self.workspace_service.tasks()})
+            return
+        if parsed.path == "/api/ui-contract/settings":
+            self._send_json(web_settings_ui_tree().to_json())
             return
         if parsed.path.startswith("/api/tasks/"):
             self._handle_task_api(parsed.path, parse_qs(parsed.query))

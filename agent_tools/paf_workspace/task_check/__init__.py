@@ -20,6 +20,7 @@ from agent_tools.tools.task_context import TaskContextSlot
 from agent_tools.tools.task_context import ensure_database as ensure_task_context_database
 from agent_tools.tools.task_context import load_slots as load_task_context_slots
 from agent_tools.tools.task_actualize import actualize_task
+from agent_tools.tools import push_guard
 from agent_tools.tools.repo_registry import validate_repo_registry
 from agent_tools.validation.policy import load_validation_policy
 
@@ -126,6 +127,11 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="Run the PAF environment-domain check command. This does not build images.",
     )
+    parser.add_argument(
+        "--install-repo-hooks",
+        action="store_true",
+        help="Install or update push_guard hooks for repositories listed in repo-registry before checking.",
+    )
     args = parser.parse_args(sys.argv[1:] if argv is None else argv)
 
     workspace = Path(args.workspace).resolve()
@@ -137,6 +143,8 @@ def main(argv: list[str] | None = None) -> int:
         init_checks.extend(initialize_task_guard(task_dir, workspace=workspace))
     if args.init_runtime_product:
         init_checks.extend(initialize_runtime_product(task_dir, workspace=workspace))
+    if args.install_repo_hooks:
+        init_checks.extend(install_repo_hooks(task_dir, workspace=workspace))
     checks = check_task(
         task_dir,
         workspace=workspace,
@@ -269,6 +277,50 @@ def initialize_task_guard(task_dir: Path, *, workspace: Path) -> list[Check]:
         return [Check("PASS", "init-task-guard-existing", f"{TASK_GUARD_FILE} already exists", str(guard_path))]
     guard_path.write_text("version: 1\nchecks: []\n", encoding="utf-8")
     return [Check("PASS", "init-task-guard", f"created {TASK_GUARD_FILE}", str(guard_path))]
+
+
+def install_repo_hooks(task_dir: Path, *, workspace: Path) -> list[Check]:
+    task_dir = task_dir.resolve()
+    workspace = workspace.resolve()
+    registry_validation = validate_repo_registry(task_dir, workspace=workspace)
+    if registry_validation.errors:
+        return [
+            Check(
+                "FAIL",
+                "init-repo-hooks-invalid-registry",
+                error,
+                str(task_dir / TASK_CONTEXT_DATABASE_FILE),
+            )
+            for error in registry_validation.errors
+        ]
+    if not registry_validation.repositories:
+        return [
+            Check(
+                "WARN",
+                "init-repo-hooks-empty-registry",
+                "repo-registry is empty; no repository hooks installed",
+                str(task_dir / TASK_CONTEXT_DATABASE_FILE),
+            )
+        ]
+
+    checks: list[Check] = []
+    for repo in registry_validation.repositories:
+        try:
+            push_guard.install_repo_hooks(repo)
+        except (OSError, subprocess.CalledProcessError) as error:
+            checks.append(Check("FAIL", "init-repo-hooks", f"failed to install repo hooks: {error}", str(repo)))
+        else:
+            checks.append(Check("PASS", "init-repo-hooks", "installed or updated repo hooks", str(repo)))
+    return checks
+
+
+def _repo_hook_findings(repositories: tuple[Path, ...]) -> list[tuple[Path, str]]:
+    findings: list[tuple[Path, str]] = []
+    for repo in repositories:
+        missing = [str(hook_path) for hook_path in push_guard.missing_repo_hooks(repo)]
+        if missing:
+            findings.append((repo, "missing push_guard hook(s): " + ", ".join(missing)))
+    return findings
 
 
 def initialize_task_layout(task_dir: Path, *, workspace: Path, privacy: str = "public") -> list[Check]:
@@ -623,6 +675,21 @@ def _check_task_context_quality(
                     str(task_dir / TASK_CONTEXT_DATABASE_FILE),
                 )
             )
+            missing_hooks = _repo_hook_findings(registry_validation.repositories)
+            if missing_hooks:
+                checks.extend(
+                    Check("WARN", "task-context-repo-hooks-missing", message, str(repo))
+                    for repo, message in missing_hooks
+                )
+            else:
+                checks.append(
+                    Check(
+                        "PASS",
+                        "task-context-repo-hooks",
+                        f"push_guard hooks are installed for {len(registry_validation.repositories)} registered repo(s)",
+                        str(task_dir / TASK_CONTEXT_DATABASE_FILE),
+                    )
+                )
     legacy = by_category.get("legacy")
     if legacy is not None and legacy.content.strip():
         checks.append(

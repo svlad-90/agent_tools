@@ -810,12 +810,12 @@ def test_workspace_standard_task_actions_are_injected_without_task_file(tmp_path
     assert actions[3].command == (
         "python3",
         "-m",
-        "agent_tools.tools.push_guard",
-        "install-registered-hooks",
+        "agent_tools.paf_workspace.task_check",
+        str(task),
         "--workspace",
         str(tmp_path),
-        "--task-dir",
-        str(task),
+        "--install-repo-hooks",
+        "--issues-only",
     )
     assert actions[0].cwd == tmp_path
     assert actions[1].cwd == tmp_path
