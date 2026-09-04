@@ -40,6 +40,10 @@ Environment entries:
   build workflow.
 - `zephyr-xenlib-act` provides the `ubuntu-22.04` act runner image used by the
   zephyr-xenlib build workflow.
+- `zephyr-repo-checks` extends `zephyr-xen` with repository-level Zephyr PR
+  check dependencies. The image and container alias live in this domain;
+  Zephyr-specific validation policy lives in the `zephyr_repo_validation`
+  domain.
 
 Every image declared in `domain.yaml` must declare `capabilities`. The
 capabilities are defined in `lib/capabilities.py`; they drive Dockerfile
@@ -93,3 +97,6 @@ same container so argument selection is visible before libclang diagnostics are
 interpreted. Without `CPP_CODE_MAP_SOURCE`, the same check parses a tiny
 generated C++ fixture so the image still proves that `cpp_code_map`, Python
 bindings, and libclang work together.
+
+Use `agent_tools/paf_workspace/domains/zephyr_repo_validation/` for Zephyr
+repository-level Doxygen, compliance, and static-analysis scenarios.

@@ -1,0 +1,88 @@
+<paf_config>
+    <phase name="ensure">
+        <task name="paf_workspace.domains.environments.tasks.base.ensure_environment_image"/>
+    </phase>
+
+    <phase name="image_check">
+        <task name="paf_workspace.domains.environments.tasks.base.check_environment_image"/>
+    </phase>
+
+    <phase name="check">
+        <task name="paf_workspace.domains.environments.tasks.base.check_workspace_tool_baseline"/>
+    </phase>
+
+    <phase name="docs_coverage">
+        <task name="paf_workspace.domains.zephyr_repo_validation.tasks.docs.validate_zephyr_docs_coverage"/>
+    </phase>
+
+    <phase name="west_update">
+        <task name="paf_workspace.domains.zephyr_repo_validation.tasks.west.prepare_zephyr_west_workspace"/>
+    </phase>
+
+    <phase name="docs_diff">
+        <task name="paf_workspace.domains.zephyr_repo_validation.tasks.docs.validate_zephyr_docs_diff"/>
+    </phase>
+
+    <phase name="compliance">
+        <task name="paf_workspace.domains.zephyr_repo_validation.tasks.compliance.validate_zephyr_compliance"/>
+    </phase>
+
+    <phase name="static_analysis">
+        <task name="paf_workspace.domains.zephyr_repo_validation.tasks.build.validate_zephyr_build"/>
+    </phase>
+
+    <phase name="codechecker_diff">
+        <task name="paf_workspace.domains.zephyr_repo_validation.tasks.codechecker.validate_zephyr_codechecker_diff"/>
+    </phase>
+
+    <phase name="push_guard">
+        <task name="paf_workspace.tasks.record_push_guard_success"/>
+    </phase>
+
+    <scenario name="check-only">
+        <phase name="image_check"/>
+        <phase name="check"/>
+    </scenario>
+
+    <scenario name="docs-coverage">
+        <phase name="ensure"/>
+        <phase name="docs_coverage"/>
+        <phase name="push_guard"/>
+    </scenario>
+
+    <scenario name="west-update">
+        <phase name="ensure"/>
+        <phase name="west_update"/>
+    </scenario>
+
+    <scenario name="docs-diff">
+        <phase name="ensure"/>
+        <phase name="docs_diff"/>
+        <phase name="push_guard"/>
+    </scenario>
+
+    <scenario name="compliance">
+        <phase name="ensure"/>
+        <phase name="compliance"/>
+        <phase name="push_guard"/>
+    </scenario>
+
+    <scenario name="compliance-with-west-update">
+        <phase name="ensure"/>
+        <phase name="west_update"/>
+        <phase name="compliance"/>
+        <phase name="push_guard"/>
+    </scenario>
+
+    <scenario name="static-analysis">
+        <phase name="ensure"/>
+        <phase name="static_analysis"/>
+        <phase name="push_guard"/>
+    </scenario>
+
+    <scenario name="codechecker-diff">
+        <phase name="ensure"/>
+        <phase name="codechecker_diff"/>
+        <phase name="push_guard"/>
+    </scenario>
+</paf_config>

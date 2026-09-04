@@ -1,0 +1,11 @@
+case:
+  name: zephyr-repo-checks
+  domain: zephyr-repo-validation
+  workspace: .
+uses:
+  - domain: environments
+environments:
+  zephyr_repo:
+    image: zephyr-repo-checks
+    container: zephyr-repo-checks-workspace
+    build_network: host

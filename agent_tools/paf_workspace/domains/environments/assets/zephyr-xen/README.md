@@ -25,25 +25,24 @@ agent_tools/paf_workspace/run-paf.sh \
   --parameter ZEPHYR_BUILD_DIR=build-pr136-wdt-cppmap
 ```
 
-To validate Zephyr Doxygen coverage JSON generation through the same
-environment domain:
+Validate Zephyr repository-level Doxygen checks through the
+`zephyr_repo_validation` domain and the repo-checks profile:
 
 ```sh
 agent_tools/paf_workspace/run-paf.sh \
-  agent_tools/paf_workspace/domains/environments/scenarios/zephyr-docs.xml \
-  validate \
-  --yaml-config agent_tools/paf_workspace/domains/environments/profiles/zephyr-xen.yaml \
-  --parameter ENVIRONMENT_FORCE_IMAGE_REBUILD=1 \
+  agent_tools/paf_workspace/domains/zephyr_repo_validation/scenarios/zephyr-repo-checks.xml \
+  docs-coverage \
+  --yaml-config agent_tools/paf_workspace/domains/zephyr_repo_validation/profiles/zephyr-repo-checks.yaml \
   --parameter ZEPHYR_DOCS_ZEPHYR=path/to/zephyr \
   --parameter ZEPHYR_DOCS_BUILD_DIR=/tmp/zephyr-doc-doxygen-coverage \
   --parameter ZEPHYR_DOCS_TIMEOUT_SEC=1800
 ```
 
-Use the docs scenario for PR failures from
+Use the repo validation docs scenarios for PR failures from
 `.github/workflows/doxygen-coverage-delta.yml`, especially reports like
 `file 'sched.h' is missing Doxygen comments`. The scenario requires the
-`zephyr-xen` image built from this Dockerfile, including Doxygen, Graphviz, and
-Zephyr documentation Python requirements.
+`zephyr-repo-checks` image, which extends this Dockerfile with repository
+check dependencies.
 
 The default container alias is `zephyr-xen-workspace`. It mounts the workspace
 at `/home/builder/workspace`, so paths passed to validation tasks are

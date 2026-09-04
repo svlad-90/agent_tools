@@ -16,16 +16,27 @@ from paf_workspace.tasks import WorkspaceTask
 class EnvironmentTask(WorkspaceTask):
     """Base task for environment-domain orchestration."""
 
+    def environment_key(self, default: str = "zephyr_xen") -> str:
+        configured = self.get_yaml_config().get("environments", {})
+        if not isinstance(configured, dict):
+            return default
+        if default in configured:
+            return default
+        if len(configured) == 1:
+            key = next(iter(configured))
+            return str(key)
+        return default
+
     def image_alias(self, default: str = "zephyr-xen") -> str:
-        profile_default = self.environment_string("zephyr_xen", "image", default)
+        profile_default = self.environment_string(self.environment_key(), "image", default)
         return self.param("ENVIRONMENT_IMAGE_ALIAS", profile_default) or profile_default
 
     def container_alias(self, default: str = "zephyr-xen-workspace") -> str:
-        profile_default = self.environment_string("zephyr_xen", "container", default)
+        profile_default = self.environment_string(self.environment_key(), "container", default)
         return self.param("ENVIRONMENT_CONTAINER_ALIAS", profile_default) or profile_default
 
     def build_network(self, default: str = "host") -> str:
-        profile_default = self.environment_string("zephyr_xen", "build_network", default)
+        profile_default = self.environment_string(self.environment_key(), "build_network", default)
         return self.param("ENVIRONMENT_BUILD_NETWORK", profile_default) or profile_default
 
     def lines_param(self, name: str) -> tuple[str, ...]:
@@ -90,6 +101,14 @@ class EnvironmentTask(WorkspaceTask):
                 continue
             return str(Path(target) / relative)
         return str(host_path)
+
+    def path_param_exists(self, path_text: str) -> bool:
+        if not path_text:
+            return False
+        path = Path(path_text)
+        if not path.is_absolute():
+            path = self.workspace_root() / path
+        return path.exists()
 
     def image_name(self, alias: str | None = None) -> str:
         image_alias = alias or self.image_alias()

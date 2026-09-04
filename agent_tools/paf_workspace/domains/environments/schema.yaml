@@ -38,6 +38,19 @@ properties:
             type: string
             default: host
         additionalProperties: false
+      zephyr_repo:
+        type: object
+        properties:
+          image:
+            type: string
+            default: zephyr-repo-checks
+          container:
+            type: string
+            default: zephyr-repo-checks-workspace
+          build_network:
+            type: string
+            default: host
+        additionalProperties: false
       agent_tools_act:
         type: object
         properties:

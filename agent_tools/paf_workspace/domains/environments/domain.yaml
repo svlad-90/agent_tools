@@ -20,6 +20,15 @@ requires:
       capabilities:
         - workspace_tools
         - cpp_source_analysis
+    zephyr-repo-checks:
+      image: codex/zephyr-repo-checks:24.04
+      dockerfile: agent_tools/paf_workspace/domains/environments/assets/zephyr-repo-checks/Dockerfile
+      context: agent_tools/paf_workspace/domains/environments/assets/zephyr-repo-checks
+      network: host
+      capabilities:
+        - workspace_tools
+        - cpp_source_analysis
+        - zephyr_pr_checks
     yocto-xen:
       image: codex/yocto-xen:kirkstone-22.04
       dockerfile: agent_tools/paf_workspace/domains/environments/assets/yocto-xen/Dockerfile
@@ -62,6 +71,9 @@ requires:
   containers:
     zephyr-xen-workspace:
       image: zephyr-xen
+      workdir: /workspace
+    zephyr-repo-checks-workspace:
+      image: zephyr-repo-checks
       workdir: /workspace
     yocto-xen-workspace:
       image: yocto-xen

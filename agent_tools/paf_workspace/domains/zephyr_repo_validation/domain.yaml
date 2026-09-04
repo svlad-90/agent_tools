@@ -1,0 +1,4 @@
+name: zephyr-repo-validation
+schema: schema.yaml
+projection:
+  prefix: YAML_CONF_

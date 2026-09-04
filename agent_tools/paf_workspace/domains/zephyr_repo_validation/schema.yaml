@@ -1,0 +1,47 @@
+$schema: https://json-schema.org/draft/2020-12/schema
+type: object
+required:
+  - case
+properties:
+  case:
+    type: object
+    required:
+      - name
+    properties:
+      name:
+        type: string
+        minLength: 1
+      domain:
+        type: string
+      workspace:
+        type: string
+    additionalProperties: false
+  uses:
+    type: array
+    items:
+      type: object
+      required:
+        - domain
+      properties:
+        domain:
+          type: string
+      additionalProperties: false
+  docker:
+    type: object
+  environments:
+    type: object
+  zephyr_repo_validation:
+    type: object
+    properties:
+      zephyr:
+        type: string
+      commit_range:
+        type: string
+      docs:
+        type: object
+      compliance:
+        type: object
+      static_analysis:
+        type: object
+    additionalProperties: true
+additionalProperties: true

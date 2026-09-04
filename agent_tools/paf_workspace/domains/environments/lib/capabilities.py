@@ -55,6 +55,30 @@ CAPABILITY_REQUIREMENTS: dict[str, CapabilityRequirement] = {
             "python3 -m agent_tools.tools.cpp_code_map help",
         ),
     ),
+    "zephyr_pr_checks": CapabilityRequirement(
+        apt_packages=(
+            "clang-tidy",
+            "coccinelle",
+            "cppcheck",
+            "libpq-dev",
+            "lcov",
+            "nodejs",
+            "npm",
+            "python3-dev",
+            "python3-setuptools",
+        ),
+        pip_packages=(
+            "codechecker",
+        ),
+        commands=(
+            "CodeChecker version",
+            "cppcheck --version",
+            "node --version",
+            "npm --version",
+            "spatch --version",
+            "genhtml --version",
+        ),
+    ),
     "agent_workspace_tests": CapabilityRequirement(
         apt_packages=(
             "gir1.2-gtk-3.0",

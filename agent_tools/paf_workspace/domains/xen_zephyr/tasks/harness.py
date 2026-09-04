@@ -6,9 +6,9 @@ from paf.paf_impl import CommunicationMode
 from paf.paf_impl import InteractionMode
 from paf.paf_impl import logger
 
-from paf_workspace.domains.environments.lib import runtime as environment_runtime
 from paf_workspace.domains.xen_zephyr.lib import runtime as harness_runtime
 from paf_workspace.domains.xen_zephyr.tasks.base import XenZephyrTask
+from paf_workspace.domains.zephyr_repo_validation.lib import runtime as zephyr_runtime
 
 
 class load_harness_scenario(XenZephyrTask):
@@ -34,7 +34,7 @@ class prepare_harness_inputs(XenZephyrTask):
         args = self.harness_args()
         scenario = getattr(args, "scenario_config", None)
         if scenario and scenario.domu_build and not args.skip_build:
-            build = environment_runtime.ZephyrBuild(
+            build = zephyr_runtime.ZephyrBuild(
                 zephyr=scenario.domu_build.zephyr,
                 app=scenario.domu_build.app,
                 board=scenario.domu_build.board,
@@ -48,7 +48,7 @@ class prepare_harness_inputs(XenZephyrTask):
             )
             self.docker_subprocess_must_succeed(
                 args.container_alias,
-                environment_runtime.zephyr_validate_command(build),
+                zephyr_runtime.zephyr_validate_command(build),
                 timeout=int(self.param("HARNESS_PREPARE_TIMEOUT_SEC", "0") or "0"),
                 communication_mode=CommunicationMode.PIPE_OUTPUT,
                 interaction_mode=InteractionMode.IGNORE_INPUT,
