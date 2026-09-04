@@ -1,0 +1,44 @@
+<paf_config>
+    <phase name="ensure">
+        <task name="paf_workspace.domains.environments.tasks.agent_workspace.ensure_agent_workspace_tests_image"/>
+    </phase>
+
+    <phase name="image_check">
+        <task name="paf_workspace.domains.environments.tasks.agent_workspace.check_agent_workspace_tests_image"/>
+    </phase>
+
+    <phase name="check">
+        <task name="paf_workspace.domains.environments.tasks.agent_workspace.check_agent_workspace_tests_tools"/>
+    </phase>
+
+    <phase name="repo_validation">
+        <task name="paf_workspace.domains.agent_tools_repo_validation.tasks.repo.validate_agent_tools_repo"/>
+    </phase>
+
+    <phase name="push_guard">
+        <task name="paf_workspace.tasks.record_push_guard_success"/>
+    </phase>
+
+    <scenario name="check-only">
+        <phase name="image_check"/>
+        <phase name="check"/>
+    </scenario>
+
+    <scenario name="ensure-only">
+        <phase name="ensure"/>
+    </scenario>
+
+    <scenario name="validate">
+        <phase name="ensure"/>
+        <phase name="check"/>
+        <phase name="repo_validation"/>
+    </scenario>
+
+    <scenario name="push-guard">
+        <phase name="ensure"/>
+        <phase name="check"/>
+        <phase name="repo_validation"/>
+        <phase name="push_guard"/>
+    </scenario>
+</paf_config>
+

@@ -9,8 +9,8 @@ import re
 import subprocess
 import sys
 from dataclasses import dataclass
-from datetime import UTC
 from datetime import datetime
+from datetime import timezone
 from pathlib import Path
 from typing import Sequence
 
@@ -69,6 +69,10 @@ def _repo_root(cwd: Path) -> Path:
 
 
 def _git_path(repo: Path, path: str) -> Path:
+    return git_path(repo, path)
+
+
+def git_path(repo: Path, path: str) -> Path:
     git_path = Path(_run_git(["rev-parse", "--git-path", path], cwd=repo))
     if git_path.is_absolute():
         return git_path
@@ -103,7 +107,7 @@ def _record_success(repo: Path, commit: str, source: str) -> None:
     payload = {
         "commit": commit,
         "source": source,
-        "recorded_at": datetime.now(UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z"),
+        "recorded_at": datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z"),
     }
     _stamp_path(repo, commit).write_text(
         json.dumps(payload, sort_keys=True, indent=2) + "\n",
@@ -515,6 +519,10 @@ def install(args: argparse.Namespace) -> int:
 
 
 def _install_repo_hooks(repo: Path) -> int:
+    return install_repo_hooks(repo)
+
+
+def install_repo_hooks(repo: Path) -> int:
     hook_dir = Path(__file__).resolve().parent
     workspace_root = Path(__file__).resolve().parents[3]
     hooks_dir = _git_path(repo, "hooks")
@@ -533,6 +541,15 @@ def _install_repo_hooks(repo: Path) -> int:
         hook_target.chmod(0o755)
         print(f"push_guard: installed {hook_target}")
     return 0
+
+
+def missing_repo_hooks(repo: Path) -> tuple[Path, ...]:
+    missing = []
+    for hook_name in ("pre-push", "pre-commit"):
+        hook_path = git_path(repo, f"hooks/{hook_name}")
+        if not hook_path.is_file():
+            missing.append(hook_path)
+    return tuple(missing)
 
 
 def install_registered_hooks(args: argparse.Namespace) -> int:

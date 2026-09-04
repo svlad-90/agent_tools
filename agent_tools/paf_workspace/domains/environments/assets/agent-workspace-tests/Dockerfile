@@ -11,6 +11,7 @@ RUN apt-get update \
 		gir1.2-gtk-3.0 \
 		gir1.2-vte-2.91 \
 		git \
+		librsvg2-common \
 		python3 \
 		python3-gi \
 		python3-pip \

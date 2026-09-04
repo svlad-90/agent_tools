@@ -34,3 +34,24 @@ def test_agent_workspace_web_server_exposes_tasks_api(tmp_path: Path) -> None:
     assert data["tasks"][0]["name"] == "sample-task"
     assert "Agent Workspace" in html
     assert "AI Debug" in html
+
+
+def test_agent_workspace_web_server_exposes_settings_ui_contract(tmp_path: Path) -> None:
+    server = _create_web_server_or_skip(tmp_path)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        host, port = server.server_address
+        with urlopen(f"http://{host}:{port}/api/ui-contract/settings", timeout=5) as response:
+            data = json.loads(response.read().decode("utf-8"))
+    finally:
+        server.shutdown()
+        thread.join(timeout=5)
+        server.server_close()
+
+    assert data["schema"] == "agent-workspace-ui-tree-v1"
+    assert data["view"] == "settings"
+    assert data["root_id"] == "settings.dialog"
+    node_ids = {node["id"] for node in data["nodes"]}
+    assert "settings.limited_bash_head_tokens" in node_ids
+    assert "settings.limited_bash_heartbeat_tokens" in node_ids

@@ -139,7 +139,7 @@ def _install_registered_hooks_for_task(repo: Path, *, task_dir: Path | None) -> 
     if task_dir is None:
         return 0
 
-    from agent_tools.tools.push_guard import _install_repo_hooks
+    from agent_tools.tools.push_guard import install_repo_hooks
     from agent_tools.tools.repo_registry import validate_repo_registry
 
     workspace = _workspace_for_task(task_dir) or repo
@@ -153,7 +153,7 @@ def _install_registered_hooks_for_task(repo: Path, *, task_dir: Path | None) -> 
         return 0
 
     for registered_repo in validation.repositories:
-        _install_repo_hooks(registered_repo)
+        install_repo_hooks(registered_repo)
     print(f"repo_guard: installed hooks for {len(validation.repositories)} registered repo(s)")
     return 0
 
