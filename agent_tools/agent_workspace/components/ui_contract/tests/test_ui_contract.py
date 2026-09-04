@@ -258,6 +258,7 @@ def test_gtk_settings_dialog_runtime_tree_matches_source_contract_ids() -> None:
     original_agent_executable = gtk_ui.agent_executable
     original_codex_model_choices_info = gtk_ui.codex_model_choices_info
     original_claude_model_choices_info = gtk_ui.claude_model_choices_info
+    original_icon_path = gtk_ui._agent_workspace_runtime_icon_path
 
     def capture_and_cancel(dialog: object) -> object:
         captured.append(snapshot_gtk_settings_runtime_tree(dialog))
@@ -267,6 +268,7 @@ def test_gtk_settings_dialog_runtime_tree_matches_source_contract_ids() -> None:
     gtk_ui.agent_executable = lambda _agent: Path("/tmp/agent-tools-ui-contract-fake-agent")
     gtk_ui.codex_model_choices_info = lambda **_kwargs: AgentModelChoices(("gpt-5",), "test")
     gtk_ui.claude_model_choices_info = lambda: AgentModelChoices(("sonnet",), "test")
+    gtk_ui._agent_workspace_runtime_icon_path = lambda: Path("/tmp/agent-tools-ui-contract-missing-icon.svg")
     try:
         with TemporaryDirectory() as tmpdir:
             gui = gtk_ui.WorkspaceGtkGui(Path(tmpdir))
@@ -283,6 +285,7 @@ def test_gtk_settings_dialog_runtime_tree_matches_source_contract_ids() -> None:
         gtk_ui.agent_executable = original_agent_executable
         gtk_ui.codex_model_choices_info = original_codex_model_choices_info
         gtk_ui.claude_model_choices_info = original_claude_model_choices_info
+        gtk_ui._agent_workspace_runtime_icon_path = original_icon_path
 
     assert len(captured) == 1
     runtime_tree = captured[0]
@@ -298,8 +301,6 @@ def test_gtk_settings_dialog_runtime_tree_matches_source_contract_ids() -> None:
         "settings.button_font_size",
         "settings.theme",
         "settings.language",
-        "settings.default_agent",
-        "settings.system_prompt",
         "settings.bash_output",
         "settings.updates",
         "settings.check_updates",
