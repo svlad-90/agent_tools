@@ -329,6 +329,7 @@ class WorkspaceGtkGui:
         self.task_actions_monitor_path: Path | None = None
         self.artifact_sort_column = "name"
         self.artifact_sort_descending = False
+        self.artifact_loaded_task_path: Path | None = None
         self.task_agent_session_marker_cache: dict[Path, tuple[str, ...]] = {}
         self.task_session_discovery = TaskSessionDiscoveryState()
         self.terminal_sessions: dict[int, TerminalSession] = {}
@@ -827,6 +828,7 @@ class WorkspaceGtkGui:
                 column = Gtk.TreeViewColumn(title, renderer, text=column_index)
                 column.set_sizing(Gtk.TreeViewColumnSizing.FIXED)
                 column.set_fixed_width(width)
+                column.set_resizable(True)
                 self.ai_debug_tree.append_column(column)
                 if key:
                     self.ai_debug_columns[key] = column
@@ -834,6 +836,7 @@ class WorkspaceGtkGui:
             content_renderer.set_property("ellipsize", Pango.EllipsizeMode.END)
             content_column = Gtk.TreeViewColumn(self._tr("ai_debug_column_content"), content_renderer, text=7)
             content_column.set_expand(True)
+            content_column.set_resizable(True)
             self.ai_debug_tree.append_column(content_column)
             self.ai_debug_columns["ai_debug_column_content"] = content_column
             self.ai_debug_page = _scrolled(self.ai_debug_tree)
@@ -1216,6 +1219,8 @@ class WorkspaceGtkGui:
             self._load_task_artifacts(self.selected_task)
 
     def _load_task_artifacts(self, task: TaskSummary) -> None:
+        previous_task_path = getattr(self, "artifact_loaded_task_path", None)
+        task_changed = previous_task_path != task.path
         had_rows = self.artifact_store.iter_n_children(None) > 0
         expanded_groups = self._artifact_expanded_group_ids()
         focus_identity = self._artifact_focus_identity()
@@ -1247,11 +1252,12 @@ class WorkspaceGtkGui:
         if filter_active:
             self._expand_artifact_groups_with_matches(groups, filtered_group_counts)
         elif filter_was_cleared:
-            self.artifact_view.expand_all()
-        elif had_rows:
+            self._expand_artifact_groups_with_matches(groups, filtered_group_counts)
+        elif had_rows and not task_changed:
             self._restore_artifact_expanded_groups(groups, expanded_groups)
         else:
-            self.artifact_view.expand_all()
+            self._expand_artifact_groups_with_matches(groups, filtered_group_counts)
+        self.artifact_loaded_task_path = task.path
         self._restore_artifact_tree_position(focus_identity, scroll_value)
 
     def _filtered_artifact_entries(self, task: TaskSummary, entries: list[ArtifactEntry]) -> list[ArtifactEntry]:
@@ -5281,23 +5287,21 @@ class WorkspaceGtkGui:
         if selected_iter is not None:
             selected_id = store[selected_iter][0]
         visible_anchor_id = self._ai_debug_visible_anchor_id(tree, store)
-        restore_id = _ai_debug_restore_event_id(
-            [str(event.event_id) for event in events],
-            selected_id=selected_id,
-            visible_anchor_id=visible_anchor_id,
-        )
         self.ai_debug_last_signature = signature
         store.clear()
-        restore_path: Gtk.TreePath | None = None
+        selected_path: Gtk.TreePath | None = None
+        visible_anchor_path: Gtk.TreePath | None = None
         for event in events:
             row_iter = store.append(_harness_debug_event_row(event, language=self.language))
             event_id = str(event.event_id)
-            if restore_id is not None and event_id == restore_id:
-                restore_path = store.get_path(row_iter)
-        if restore_path is not None:
-            if restore_id == selected_id:
-                selection.select_path(restore_path)
-            tree.scroll_to_cell(restore_path, None, False, 0.0, 0.0)
+            if selected_id is not None and event_id == selected_id:
+                selected_path = store.get_path(row_iter)
+            if visible_anchor_id is not None and event_id == visible_anchor_id:
+                visible_anchor_path = store.get_path(row_iter)
+        if selected_path is not None:
+            selection.select_path(selected_path)
+        if visible_anchor_path is not None:
+            tree.scroll_to_cell(visible_anchor_path, None, False, 0.0, 0.0)
 
     def _ai_debug_visible_anchor_id(self, tree: Gtk.TreeView, store: Gtk.ListStore) -> str | None:
         visible_range = tree.get_visible_range()
