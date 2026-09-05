@@ -184,7 +184,39 @@ def test_gtk_artifact_load_expands_groups_on_first_load(tmp_path: Path) -> None:
 
     gui._load_task_artifacts(summary)
 
-    assert gui.artifact_view.expand_all_calls == 1
+    assert gui.artifact_view.expand_all_calls == 0
+    assert gui.artifact_view.expand_row_calls == ["0"]
+
+
+def test_gtk_artifact_load_expands_groups_after_task_switch(tmp_path: Path) -> None:
+    first_task = tmp_path / "tasks" / "first-task"
+    second_task = tmp_path / "tasks" / "second-task"
+    (first_task / "report" / "logs").mkdir(parents=True)
+    (first_task / "report" / "puml").mkdir(parents=True)
+    (second_task / "report" / "logs").mkdir(parents=True)
+    (second_task / "report" / "puml").mkdir(parents=True)
+    (first_task / "report" / "logs" / "runtime.log").write_text("log", encoding="utf-8")
+    (first_task / "report" / "puml" / "flow.svg").write_text("<svg>", encoding="utf-8")
+    (second_task / "report" / "logs" / "other.log").write_text("log", encoding="utf-8")
+    (second_task / "report" / "puml" / "other.svg").write_text("<svg>", encoding="utf-8")
+    first_summary = TaskSummary("first-task", first_task, True, True, 1, 1, False)
+    second_summary = TaskSummary("second-task", second_task, True, True, 1, 1, False)
+    gui = WorkspaceGtkGui.__new__(WorkspaceGtkGui)
+    gui.artifact_store = Gtk.TreeStore(str, str, object, bool, str)
+    gui.artifact_view = FakeArtifactTreeView()
+    gui.artifact_sort_column = "name"
+    gui.artifact_sort_descending = False
+    gui._tr = lambda key: key  # type: ignore[method-assign]
+
+    gui._load_task_artifacts(first_summary)
+    gui.artifact_view.expanded_paths = set()
+    gui.artifact_view.expand_row_calls.clear()
+    gui.artifact_view.collapse_row_calls.clear()
+
+    gui._load_task_artifacts(second_summary)
+
+    assert set(gui.artifact_view.expand_row_calls) == {"0", "1"}
+    assert set(gui.artifact_view.collapse_row_calls) == {"2", "3"}
 
 
 def test_gtk_artifact_expander_click_toggles_group() -> None:
@@ -390,7 +422,7 @@ def test_gtk_artifact_filter_expands_groups_with_matches(tmp_path: Path) -> None
     assert set(gui.artifact_view.collapse_row_calls) == {"1", "2", "3"}
 
 
-def test_gtk_artifact_load_expands_all_when_filter_is_cleared(tmp_path: Path) -> None:
+def test_gtk_artifact_load_expands_populated_groups_when_filter_is_cleared(tmp_path: Path) -> None:
     task = tmp_path / "tasks" / "sample-task"
     (task / "report" / "logs").mkdir(parents=True)
     (task / "report" / "logs" / "runtime.log").write_text("log", encoding="utf-8")
@@ -408,11 +440,15 @@ def test_gtk_artifact_load_expands_all_when_filter_is_cleared(tmp_path: Path) ->
 
     gui._load_task_artifacts(summary)
     gui.artifact_view.expand_all_calls = 0
+    gui.artifact_view.expand_row_calls.clear()
+    gui.artifact_view.collapse_row_calls.clear()
     gui.artifact_text_filter = FakeArtifactTextFilter("")
 
     gui._load_task_artifacts(summary)
 
-    assert gui.artifact_view.expand_all_calls == 1
+    assert gui.artifact_view.expand_all_calls == 0
+    assert set(gui.artifact_view.expand_row_calls) == {"0", "3"}
+    assert set(gui.artifact_view.collapse_row_calls) == {"1", "2"}
 
 
 def test_gtk_artifact_extension_filter_limits_rows(tmp_path: Path) -> None:
@@ -523,6 +559,110 @@ def test_gtk_ai_debug_event_row_splits_columns() -> None:
         "started",
         "Tool use started.",
     )
+
+
+def _gtk_debug_event(event_id: int) -> HarnessDebugEvent:
+    return HarnessDebugEvent(
+        event_id=event_id,
+        task_dir=Path("/tmp/task"),
+        agent_type=AgentType.CODEX,
+        session_id="s1",
+        hook_event="pre_tool_use",
+        status_event=HarnessStatusEvent.TOOL_STARTED,
+        icon="◆",
+        message=f"Tool use {event_id}.",
+        tool_name="Bash",
+        tool_detail="python3 -m pytest",
+        outcome="started",
+        updated_at=f"2026-08-23T19:20:0{event_id}+03:00",
+    )
+
+
+class FakeAiDebugPath:
+    def __init__(self, index: int) -> None:
+        self.index = index
+
+    def to_string(self) -> str:
+        return str(self.index)
+
+
+class FakeAiDebugStore:
+    def __init__(self, rows: list[tuple[str, ...]]) -> None:
+        self.rows = list(rows)
+
+    def __getitem__(self, row_iter: int) -> tuple[str, ...]:
+        return self.rows[row_iter]
+
+    def clear(self) -> None:
+        self.rows.clear()
+
+    def append(self, row: tuple[str, ...]) -> int:
+        self.rows.append(row)
+        return len(self.rows) - 1
+
+    def get_iter(self, tree_path: FakeAiDebugPath) -> int | None:
+        if 0 <= tree_path.index < len(self.rows):
+            return tree_path.index
+        return None
+
+    def get_path(self, row_iter: int) -> FakeAiDebugPath:
+        return FakeAiDebugPath(row_iter)
+
+
+class FakeAiDebugSelection:
+    def __init__(self, store: FakeAiDebugStore, selected_iter: int | None) -> None:
+        self.store = store
+        self.selected_iter = selected_iter
+        self.selected_paths: list[str] = []
+
+    def get_selected(self) -> tuple[FakeAiDebugStore, int | None]:
+        return self.store, self.selected_iter
+
+    def select_path(self, tree_path: FakeAiDebugPath) -> None:
+        self.selected_paths.append(tree_path.to_string())
+
+
+class FakeAiDebugTree:
+    def __init__(self, store: FakeAiDebugStore, selected_iter: int | None, visible_index: int) -> None:
+        self.selection = FakeAiDebugSelection(store, selected_iter)
+        self.visible_index = visible_index
+        self.scroll_to_cell_calls: list[str] = []
+
+    def get_selection(self) -> FakeAiDebugSelection:
+        return self.selection
+
+    def get_visible_range(self) -> tuple[FakeAiDebugPath, FakeAiDebugPath]:
+        path = FakeAiDebugPath(self.visible_index)
+        return path, path
+
+    def scroll_to_cell(
+        self,
+        tree_path: FakeAiDebugPath,
+        _column: object,
+        _use_align: bool,
+        _row_align: float,
+        _col_align: float,
+    ) -> None:
+        self.scroll_to_cell_calls.append(tree_path.to_string())
+
+
+def test_gtk_ai_debug_refresh_keeps_visible_scroll_anchor() -> None:
+    events = [_gtk_debug_event(event_id) for event_id in (1, 2, 3)]
+    refreshed_events = events + [_gtk_debug_event(4)]
+    store = FakeAiDebugStore([_harness_debug_event_row(event, language="en") for event in events])
+    tree = FakeAiDebugTree(store, selected_iter=2, visible_index=0)
+    gui = WorkspaceGtkGui.__new__(WorkspaceGtkGui)
+    gui.selected_task = TaskSummary("sample-task", Path("/tmp/task"), True, True, 1, 1, False)
+    gui.ai_debug_store = store
+    gui.ai_debug_tree = tree
+    gui.ai_debug_last_signature = ()
+    gui.language = "en"
+    gui._ai_debug_events_for_task = lambda _task: refreshed_events  # type: ignore[method-assign]
+
+    gui._refresh_ai_debug()
+
+    assert tree.selection.selected_paths == ["2"]
+    assert tree.scroll_to_cell_calls == ["0"]
 
 
 def test_gtk_ai_debug_event_details_include_tool_command_without_output() -> None:
