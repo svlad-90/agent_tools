@@ -165,7 +165,8 @@ def build_ai_agent_console_command(
         return command
 
     command = [codex_executable]
-    append_ai_agent_model_options(command, agent, model=model, reasoning_effort=reasoning_effort)
+    if not (resume and resume_session_id):
+        append_ai_agent_model_options(command, agent, model=model, reasoning_effort=reasoning_effort)
     append_ai_agent_hook_options(
         command,
         agent,
