@@ -71,7 +71,7 @@ AGENT_WORKSPACE_AGENT_INSTALL_COMMANDS = {
 }
 AGENT_WORKSPACE_GEOMETRY_RE = re.compile(r"^\d+x\d+(?:[+-]\d+[+-]\d+)?$")
 TASK_CONTEXT_PROMPT_INJECTION_DEFAULT = True
-AgentWorkspaceSettingValue = int | float | str | bool | list[str]
+AgentWorkspaceSettingValue = int | float | str | bool | list[str] | dict[str, str]
 AGENT_WORKSPACE_RELEASES_API = "https://api.github.com/repos/svlad-90/agent_tools/releases/latest"
 AGENT_WORKSPACE_RELEASES_LATEST_URL = "https://github.com/svlad-90/agent_tools/releases/latest"
 AGENT_WORKSPACE_TARBALL_URL_TEMPLATE = "https://github.com/svlad-90/agent_tools/archive/refs/tags/{tag}.tar.gz"
@@ -100,6 +100,7 @@ class AgentWorkspaceRuntimeSettings:
     limited_bash_heartbeat_seconds: int
     limited_bash_heartbeat_tokens: int
     system_prompt: str
+    model_system_prompts: dict[str, str]
     inject_task_context_prompt: bool
     mcp_enabled_groups: tuple[str, ...]
     mcp_trusted: bool
@@ -576,6 +577,7 @@ def agent_workspace_runtime_settings(
             200_000,
         ),
         system_prompt=_str_setting(settings, "system_prompt", ""),
+        model_system_prompts=_model_system_prompts_setting(settings, "model_system_prompts"),
         inject_task_context_prompt=_bool_setting(
             settings,
             "inject_task_context_prompt",
@@ -662,6 +664,21 @@ def ai_agent_model_settings(
     )
 
 
+def system_prompt_for_model(
+    system_prompt: str,
+    model_system_prompts: dict[str, str],
+    model: str,
+) -> str:
+    prompt_parts = []
+    common_prompt = system_prompt.strip()
+    if common_prompt:
+        prompt_parts.append(common_prompt)
+    model_prompt = model_system_prompts.get(model.strip(), "").strip()
+    if model_prompt:
+        prompt_parts.append(model_prompt)
+    return "\n\n".join(prompt_parts)
+
+
 def load_agent_workspace_settings(path: Path | None = None) -> dict[str, AgentWorkspaceSettingValue]:
     settings_path = path or agent_workspace_settings_path()
     if not settings_path.is_file():
@@ -691,6 +708,7 @@ def load_agent_workspace_settings(path: Path | None = None) -> dict[str, AgentWo
     limited_bash_heartbeat_seconds = data.get("limited_bash_heartbeat_seconds")
     limited_bash_heartbeat_tokens = data.get("limited_bash_heartbeat_tokens")
     system_prompt = data.get("system_prompt")
+    model_system_prompts = data.get("model_system_prompts")
     if not isinstance(limited_bash_output_tokens, int) or isinstance(limited_bash_output_tokens, bool):
         legacy_chars = data.get("limited_bash_output_chars")
         if isinstance(legacy_chars, int) and not isinstance(legacy_chars, bool):
@@ -740,6 +758,14 @@ def load_agent_workspace_settings(path: Path | None = None) -> dict[str, AgentWo
         settings["claude_animations_enabled"] = claude_animations_enabled
     if isinstance(system_prompt, str):
         settings["system_prompt"] = system_prompt
+    if isinstance(model_system_prompts, dict):
+        normalized_model_prompts = {
+            key.strip(): value
+            for key, value in model_system_prompts.items()
+            if isinstance(key, str) and key.strip() and isinstance(value, str)
+        }
+        if normalized_model_prompts:
+            settings["model_system_prompts"] = normalized_model_prompts
     if isinstance(inject_task_context_prompt, bool):
         settings["inject_task_context_prompt"] = inject_task_context_prompt
     if isinstance(mcp_enabled_groups, list) and all(isinstance(item, str) for item in mcp_enabled_groups):
@@ -1095,6 +1121,20 @@ def _str_setting(settings: dict[str, AgentWorkspaceSettingValue], key: str, defa
     if isinstance(value, str):
         return value
     return default
+
+
+def _model_system_prompts_setting(
+    settings: dict[str, AgentWorkspaceSettingValue],
+    key: str,
+) -> dict[str, str]:
+    value = settings.get(key)
+    if not isinstance(value, dict):
+        return {}
+    return {
+        model.strip(): prompt
+        for model, prompt in value.items()
+        if isinstance(model, str) and model.strip() and isinstance(prompt, str)
+    }
 
 
 def _bool_setting(settings: dict[str, AgentWorkspaceSettingValue], key: str, default: bool) -> bool:

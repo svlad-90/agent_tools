@@ -62,6 +62,7 @@ from ..src.settings import run_agent_workspace_update_check
 from ..src.settings import run_agent_workspace_update
 from ..src.settings import save_agent_workspace_settings
 from ..src.settings import remember_agent_workspace
+from ..src.settings import system_prompt_for_model
 from ..src.settings import task_dictionary_policy_from_runtime_settings
 from ..src.settings import workspace_mcp_enabled_groups_for_runtime
 from ..src.settings import workspace_mcp_configurable_tool_groups
@@ -132,6 +133,7 @@ __all__ = [
     "run_agent_workspace_update",
     "save_agent_workspace_settings",
     "remember_agent_workspace",
+    "system_prompt_for_model",
     "task_dictionary_policy_from_runtime_settings",
     "workspace_mcp_enabled_groups_for_runtime",
     "workspace_mcp_configurable_tool_groups",

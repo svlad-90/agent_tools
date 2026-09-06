@@ -212,6 +212,7 @@ def test_ai_agent_environment_exports_front_desk_session_identity(tmp_path: Path
         "codex",
         AgentSessionState(agent="codex", resume=False, session_id=None),
         run_id="run-1",
+        model="gpt-5.5",
     )
     resumed_env = ai_agent_environment(
         {"PATH": "/bin"},
@@ -240,6 +241,7 @@ def test_ai_agent_environment_exports_front_desk_session_identity(tmp_path: Path
     assert new_env["AGENT_TOOLS_RUN_ID"] == "run-1"
     assert new_env["AGENT_TOOLS_TASK_DIR"] == str(task)
     assert new_env["AGENT_TOOLS_WORKSPACE"] == str(tmp_path)
+    assert new_env["AGENT_TOOLS_AGENT_MODEL"] == "gpt-5.5"
     assert "CLAUDE_CODE_DISABLE_MOUSE" not in new_env
     assert "AGENT_TOOLS_AGENT_SESSION_ID" not in new_env
     assert resumed_env["AGENT_TOOLS_SESSION_ID"] == "codex-session-1"
@@ -310,6 +312,34 @@ def test_new_ai_launch_includes_system_prompt(tmp_path: Path) -> None:
 
     assert "Workspace system prompt:" in launch.command[-1]
     assert "Use the workspace-specific system prompt." in launch.command[-1]
+
+
+def test_new_ai_launch_includes_matching_model_system_prompt(tmp_path: Path) -> None:
+    task = tmp_path / "tasks" / "sample-task"
+    task.mkdir(parents=True)
+    summary = discover_tasks_with_context(task, tmp_path)
+
+    launch = prepare_ai_agent_launch_command(
+        summary,
+        tmp_path,
+        "codex",
+        codex_model="gpt-5.5",
+        codex_reasoning="medium",
+        claude_model="sonnet",
+        claude_effort="low",
+        codex_executable="codex-bin",
+        claude_executable="claude-bin",
+        system_prompt="Use the shared workspace prompt.",
+        model_system_prompts={
+            "gpt-5.5": "Use GPT 5.5 specific steering.",
+            "sonnet": "Use Sonnet steering.",
+        },
+    )
+
+    assert "Workspace system prompt:" in launch.command[-1]
+    assert "Use the shared workspace prompt." in launch.command[-1]
+    assert "Use GPT 5.5 specific steering." in launch.command[-1]
+    assert "Use Sonnet steering." not in launch.command[-1]
 
 
 def test_resumed_ai_launch_uses_harness_adapter_prompt_instead_of_task_check_dump(
