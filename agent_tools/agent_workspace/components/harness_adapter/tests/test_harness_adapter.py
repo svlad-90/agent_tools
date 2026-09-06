@@ -583,7 +583,8 @@ def test_harness_adapter_codex_rewrites_bash_to_limited_bash(tmp_path: Path, mon
     assert hook_output["permissionDecision"] == "allow"
     assert hook_output["updatedInput"]["description"] == "small"
     assert "limited_bash" in hook_output["updatedInput"]["command"]
-    assert "printf hello" not in hook_output["updatedInput"]["command"]
+    assert "--command 'printf hello'" in hook_output["updatedInput"]["command"]
+    assert "--command-b64" not in hook_output["updatedInput"]["command"]
     assert "--limit 700" in hook_output["updatedInput"]["command"]
     assert hook_output["updatedInput"]["cwd"] == str(workdir)
     assert hook_output["updatedInput"]["workdir"] == str(workdir)
@@ -941,6 +942,8 @@ def test_limited_bash_shell_command_leaves_cwd_unset_without_policy_cwd() -> Non
     command = limited_bash_shell_command("pwd", limit=100)
 
     assert "--cwd" not in command
+    assert "--command pwd" in command
+    assert "--command-b64" not in command
 
 
 def test_limited_bash_shell_command_embeds_shell_cd_for_policy_cwd(tmp_path: Path) -> None:

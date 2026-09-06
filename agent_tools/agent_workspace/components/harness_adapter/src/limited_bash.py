@@ -89,15 +89,14 @@ class StreamCapture:
 
 
 def limited_bash_command(command: str, *, limit: int, cwd: Path | None = None) -> list[str]:
-    encoded = base64.b64encode(command.encode("utf-8")).decode("ascii")
     result = [
         "python3",
         "-m",
         "agent_tools.agent_workspace.components.harness_adapter.limited_bash",
         "--limit",
         str(limit),
-        "--command-b64",
-        encoded,
+        "--command",
+        command,
     ]
     if cwd is not None:
         result.extend(["--cwd", str(cwd)])
@@ -360,13 +359,17 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--heartbeat-limit", type=int)
     parser.add_argument("--idle-notice-seconds", type=float, default=idle_notice_seconds_from_env())
     parser.add_argument("--cwd")
-    parser.add_argument("--command-b64", required=True)
+    command_group = parser.add_mutually_exclusive_group(required=True)
+    command_group.add_argument("--command")
+    command_group.add_argument("--command-b64")
     args = parser.parse_args(argv)
-    try:
-        command = base64.b64decode(args.command_b64.encode("ascii")).decode("utf-8")
-    except (ValueError, UnicodeDecodeError) as exc:
-        print(f"limited_bash: invalid command payload: {exc}", file=sys.stderr)
-        return 2
+    command = args.command
+    if command is None:
+        try:
+            command = base64.b64decode(args.command_b64.encode("ascii")).decode("utf-8")
+        except (ValueError, UnicodeDecodeError) as exc:
+            print(f"limited_bash: invalid command payload: {exc}", file=sys.stderr)
+            return 2
     cwd = Path(args.cwd).resolve() if args.cwd else None
     try:
         return run_limited_bash(
