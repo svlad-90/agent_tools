@@ -1678,6 +1678,53 @@ def test_workspace_mcp_task_context_slot_and_journal_flow(tmp_path: Path) -> Non
     assert "Exercise full task_context MCP." in compact_response["result"]["content"][0]["text"]
 
 
+def test_workspace_mcp_task_context_set_slot_returns_compact_ack(tmp_path: Path) -> None:
+    task_dir = tmp_path / "tasks" / "sample"
+    task_dir.mkdir(parents=True)
+    server = build_workspace_mcp_server(tmp_path)
+
+    response = _mcp_call(
+        server,
+        "task_context_set_slot",
+        {
+            "task": "tasks/sample",
+            "category": "operational-memory",
+            "content": "Repeated verbose context entry for dictionary output.",
+            "format": "agent",
+        },
+    )
+
+    assert response["result"]["isError"] is False
+    text = response["result"]["content"][0]["text"]
+    assert text.startswith("task-context: updated operational-memory at ")
+    assert "Repeated verbose context entry" not in text
+    assert "## Task Dictionary" not in text
+    assert response["result"]["structuredContent"]["slot"]["category"] == "operational-memory"
+
+
+def test_workspace_mcp_task_context_set_slot_can_render_updated_slot(tmp_path: Path) -> None:
+    task_dir = tmp_path / "tasks" / "sample"
+    task_dir.mkdir(parents=True)
+    server = build_workspace_mcp_server(tmp_path)
+
+    response = _mcp_call(
+        server,
+        "task_context_set_slot",
+        {
+            "task": "tasks/sample",
+            "category": "goal",
+            "content": "Render this updated slot.",
+            "format": "markdown",
+            "render": True,
+        },
+    )
+
+    assert response["result"]["isError"] is False
+    text = response["result"]["content"][0]["text"]
+    assert "| Goal" in text
+    assert "Render this updated slot." in text
+
+
 def test_workspace_mcp_task_context_dictionary_and_migrate(tmp_path: Path) -> None:
     task_dir = tmp_path / "tasks" / "sample"
     task_dir.mkdir(parents=True)
