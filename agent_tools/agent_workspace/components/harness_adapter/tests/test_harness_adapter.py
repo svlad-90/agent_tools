@@ -137,7 +137,7 @@ def test_harness_adapter_emits_status_updates_for_codex_prompt(tmp_path: Path) -
     assert result.stdout == ""
 
 
-def test_harness_adapter_blocks_codex_stop_after_work_without_journal_update(tmp_path: Path) -> None:
+def test_harness_adapter_blocks_codex_stop_after_work_without_task_context_update(tmp_path: Path) -> None:
     task_dir = _task(tmp_path)
     registry = CodexHookRegistry()
     register_codex_adapter(registry)
@@ -152,7 +152,7 @@ def test_harness_adapter_blocks_codex_stop_after_work_without_journal_update(tmp
     assert "Stop blocked" in output["reason"]
 
 
-def test_harness_adapter_allows_codex_stop_after_journal_update(tmp_path: Path) -> None:
+def test_harness_adapter_allows_codex_stop_after_journal_slot_update(tmp_path: Path) -> None:
     task_dir = _task(tmp_path)
     registry = CodexHookRegistry()
     register_codex_adapter(registry)
@@ -160,6 +160,24 @@ def test_harness_adapter_allows_codex_stop_after_journal_update(tmp_path: Path) 
     _codex(registry, task_dir, CodexHookEvent.USER_PROMPT_SUBMIT)
     _codex(registry, task_dir, CodexHookEvent.POST_TOOL_USE)
     set_slot(task_dir, "operational-memory", "Updated after prompt.", updated_at="2999-01-01T00:00:00+00:00")
+    result = _codex(registry, task_dir, CodexHookEvent.STOP)
+
+    assert result.exit_code == 0
+    output = json.loads(result.stdout)
+    assert "repo-registry is empty" in output["systemMessage"]
+    events = load_harness_debug_events(task_dir, session_id="s1")
+    assert events[-2].status_event is HarnessStatusEvent.REPO_REGISTRY_MISSING
+    assert events[-1].status_event is HarnessStatusEvent.STOP_ALLOWED
+
+
+def test_harness_adapter_allows_codex_stop_after_any_task_context_slot_update(tmp_path: Path) -> None:
+    task_dir = _task(tmp_path)
+    registry = CodexHookRegistry()
+    register_codex_adapter(registry)
+
+    _codex(registry, task_dir, CodexHookEvent.USER_PROMPT_SUBMIT)
+    _codex(registry, task_dir, CodexHookEvent.POST_TOOL_USE)
+    set_slot(task_dir, "env", "Updated environment state.", updated_at="2999-01-01T00:00:00+00:00")
     result = _codex(registry, task_dir, CodexHookEvent.STOP)
 
     assert result.exit_code == 0
@@ -180,7 +198,6 @@ def test_harness_adapter_allows_codex_stop_silently_after_repo_registry_update(t
 
     _codex(registry, task_dir, CodexHookEvent.USER_PROMPT_SUBMIT)
     _codex(registry, task_dir, CodexHookEvent.POST_TOOL_USE)
-    set_slot(task_dir, "operational-memory", "Updated after prompt.", updated_at="2999-01-01T00:00:00+00:00")
     set_slot(task_dir, "repo-registry", "repositories:\n  - path: tasks/sample/dev/repo\n")
     result = _codex(registry, task_dir, CodexHookEvent.STOP)
 

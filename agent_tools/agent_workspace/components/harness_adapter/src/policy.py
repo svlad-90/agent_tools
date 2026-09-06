@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime
+import hashlib
 import json
 import os
 import sqlite3
@@ -139,7 +140,6 @@ class _HookRequest(Protocol):
 
 _STATUS_CALLBACKS: dict[str, StatusCallback] = {}
 
-_JOURNAL_SLOT_CATEGORIES = ("operational-memory", "findings", "validation", "decisions", "blocker-risk")
 _REPO_REGISTRY_WARNING = (
     "Warning: repo-registry is empty. Record the repositories you are working "
     "with in TASK_CONTEXT.sqlite3 only after you have identified them, so "
@@ -295,6 +295,7 @@ def handle_adapter_event(
             last_user_prompt_at=now,
             work_observed_since_prompt=False,
             journal_updated_since_prompt=False,
+            context_fingerprint_at_prompt=_task_context_fingerprint(task_dir),
         )
         _emit(task_dir, agent_type, request.session_id, HarnessStatusEvent.USER_PROMPT_RECEIVED, AGENT_PROMPT_MARKER, "User prompt observed.", hook_event=event, outcome="observed")
         return None
@@ -304,7 +305,7 @@ def handle_adapter_event(
         return _limited_bash_pre_tool_output(task_dir, request)
     if event is AgentHookEvent.POST_TOOL_USE:
         _update_adapter_state(task_dir, agent_type, request.session_id, last_event=event.value, work_observed_since_prompt=True)
-        _refresh_journal_flag(task_dir, agent_type, request.session_id)
+        _refresh_task_context_update_flag(task_dir, agent_type, request.session_id)
         _emit(task_dir, agent_type, request.session_id, HarnessStatusEvent.TOOL_FINISHED, AGENT_RUNNING_READY_MARKER, "Tool use finished.", hook_event=event, tool_name=tool_name, tool_detail=tool_detail, outcome="finished")
         return None
     if event is AgentHookEvent.PRE_COMPACT:
@@ -362,10 +363,10 @@ def _handle_stop(
             )
         )
 
-    _refresh_journal_flag(task_dir, agent_type, session_id)
+    _refresh_task_context_update_flag(task_dir, agent_type, session_id)
     state = _load_adapter_state(task_dir, agent_type, session_id)
     if state.get("work_observed_since_prompt") and not state.get("journal_updated_since_prompt"):
-        _emit(task_dir, agent_type, session_id, HarnessStatusEvent.JOURNAL_REQUIRED, "🧾", "Journal update required.", hook_event=AgentHookEvent.STOP, outcome="blocked")
+        _emit(task_dir, agent_type, session_id, HarnessStatusEvent.JOURNAL_REQUIRED, "🧾", "Task context update required.", hook_event=AgentHookEvent.STOP, outcome="blocked")
         return format_stop_block(
             "Stop blocked. Update current task context slots before ending the response. "
             "Write durable current state into operational-memory, findings, validation, decisions, "
@@ -434,7 +435,7 @@ def _handle_pre_compact(
     session_id: str | None,
 ) -> HookOutput:
     _update_adapter_state(task_dir, agent_type, session_id, last_event=AgentHookEvent.PRE_COMPACT.value)
-    _refresh_journal_flag(task_dir, agent_type, session_id)
+    _refresh_task_context_update_flag(task_dir, agent_type, session_id)
     state = _load_adapter_state(task_dir, agent_type, session_id)
     if state.get("work_observed_since_prompt") and not state.get("journal_updated_since_prompt"):
         _emit(
@@ -443,7 +444,7 @@ def _handle_pre_compact(
             session_id,
             HarnessStatusEvent.JOURNAL_REQUIRED,
             "🧾",
-            "Journal update still required after compact.",
+            "Task context update still required after compact.",
             hook_event=AgentHookEvent.PRE_COMPACT,
             outcome="pending",
         )
@@ -553,19 +554,34 @@ def _workspace_for_task(task_dir: Path) -> Path:
     return task_dir.parent
 
 
-def _latest_journal_update(task_dir: Path) -> str | None:
-    slots = load_slots(task_dir, _JOURNAL_SLOT_CATEGORIES)
+def _latest_task_context_update(task_dir: Path) -> str | None:
+    slots = load_slots(task_dir)
     if not slots:
         return None
     return max(slot.updated_at for slot in slots)
 
 
-def _refresh_journal_flag(task_dir: Path, agent_type: AgentType, session_id: str | None) -> None:
+def _task_context_fingerprint(task_dir: Path) -> str:
+    slots = load_slots(task_dir)
+    payload = [
+        {
+            "category": slot.category,
+            "content": slot.content,
+            "updated_at": slot.updated_at,
+        }
+        for slot in slots
+    ]
+    encoded = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
+
+
+def _refresh_task_context_update_flag(task_dir: Path, agent_type: AgentType, session_id: str | None) -> None:
     state = _load_adapter_state(task_dir, agent_type, session_id)
     prompt_at = state.get("last_user_prompt_at")
-    latest_update = _latest_journal_update(task_dir)
-    journal_updated = bool(prompt_at and latest_update and latest_update > prompt_at)
-    _update_adapter_state(task_dir, agent_type, session_id, journal_updated_since_prompt=journal_updated)
+    latest_update = _latest_task_context_update(task_dir)
+    context_changed = bool(state.get("context_fingerprint_at_prompt") != _task_context_fingerprint(task_dir))
+    context_updated = context_changed or bool(prompt_at and latest_update and latest_update > prompt_at)
+    _update_adapter_state(task_dir, agent_type, session_id, journal_updated_since_prompt=context_updated)
 
 
 def _ensure_adapter_schema(task_dir: Path) -> None:
@@ -580,11 +596,21 @@ def _ensure_adapter_schema(task_dir: Path) -> None:
                 work_observed_since_prompt INTEGER NOT NULL DEFAULT 0,
                 journal_updated_since_prompt INTEGER NOT NULL DEFAULT 0,
                 session_active INTEGER NOT NULL DEFAULT 0,
+                context_fingerprint_at_prompt TEXT NOT NULL DEFAULT '',
                 updated_at TEXT NOT NULL,
                 PRIMARY KEY(agent_type, session_id)
             )
             """
         )
+        columns = {
+            row[1]
+            for row in connection.execute("PRAGMA table_info(harness_adapter_state)").fetchall()
+        }
+        if "context_fingerprint_at_prompt" not in columns:
+            connection.execute(
+                "ALTER TABLE harness_adapter_state "
+                "ADD COLUMN context_fingerprint_at_prompt TEXT NOT NULL DEFAULT ''"
+            )
         connection.execute(
             "DROP TABLE IF EXISTS harness_debug_events"
         )
@@ -597,7 +623,8 @@ def _load_adapter_state(task_dir: Path, agent_type: AgentType, session_id: str |
         row = connection.execute(
             """
             SELECT last_event, last_user_prompt_at, work_observed_since_prompt,
-                   journal_updated_since_prompt, session_active, updated_at
+                   journal_updated_since_prompt, session_active,
+                   context_fingerprint_at_prompt, updated_at
             FROM harness_adapter_state
             WHERE agent_type = ? AND session_id = ?
             """,
@@ -610,6 +637,7 @@ def _load_adapter_state(task_dir: Path, agent_type: AgentType, session_id: str |
             "work_observed_since_prompt": False,
             "journal_updated_since_prompt": False,
             "session_active": False,
+            "context_fingerprint_at_prompt": "",
             "updated_at": "",
         }
     return {
@@ -618,7 +646,8 @@ def _load_adapter_state(task_dir: Path, agent_type: AgentType, session_id: str |
         "work_observed_since_prompt": bool(row[2]),
         "journal_updated_since_prompt": bool(row[3]),
         "session_active": bool(row[4]),
-        "updated_at": row[5],
+        "context_fingerprint_at_prompt": str(row[5] or ""),
+        "updated_at": row[6],
     }
 
 
@@ -632,6 +661,7 @@ def _update_adapter_state(
     work_observed_since_prompt: bool | None = None,
     journal_updated_since_prompt: bool | None = None,
     session_active: bool | None = None,
+    context_fingerprint_at_prompt: str | None = None,
 ) -> None:
     _ensure_adapter_schema(task_dir)
     state = _load_adapter_state(task_dir, agent_type, session_id)
@@ -649,6 +679,11 @@ def _update_adapter_state(
             else journal_updated_since_prompt
         ),
         "session_active": state["session_active"] if session_active is None else session_active,
+        "context_fingerprint_at_prompt": (
+            state["context_fingerprint_at_prompt"]
+            if context_fingerprint_at_prompt is None
+            else context_fingerprint_at_prompt
+        ),
     }
     with sqlite3.connect(database_path(task_dir), timeout=10) as connection:
         connection.execute(
@@ -656,15 +691,16 @@ def _update_adapter_state(
             INSERT INTO harness_adapter_state (
                 agent_type, session_id, last_event, last_user_prompt_at,
                 work_observed_since_prompt, journal_updated_since_prompt,
-                session_active, updated_at
+                session_active, context_fingerprint_at_prompt, updated_at
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(agent_type, session_id) DO UPDATE SET
                 last_event = excluded.last_event,
                 last_user_prompt_at = excluded.last_user_prompt_at,
                 work_observed_since_prompt = excluded.work_observed_since_prompt,
                 journal_updated_since_prompt = excluded.journal_updated_since_prompt,
                 session_active = excluded.session_active,
+                context_fingerprint_at_prompt = excluded.context_fingerprint_at_prompt,
                 updated_at = excluded.updated_at
             """,
             (
@@ -675,6 +711,7 @@ def _update_adapter_state(
                 int(values["work_observed_since_prompt"]),
                 int(values["journal_updated_since_prompt"]),
                 int(values["session_active"]),
+                values["context_fingerprint_at_prompt"],
                 _now(),
             ),
         )
