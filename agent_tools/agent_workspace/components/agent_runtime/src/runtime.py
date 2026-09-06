@@ -264,7 +264,6 @@ def prepare_ai_agent_launch_command(
     workspace_mcp_trusted: bool = False,
 ) -> AgentLaunchCommand:
     agent = normalize_agent(agent)
-    session_state = prepare_task_agent_session(task, workspace, agent)
     model_settings = ai_agent_model_settings(
         agent,
         codex_model=codex_model,
@@ -272,6 +271,18 @@ def prepare_ai_agent_launch_command(
         claude_model=claude_model,
         claude_effort=claude_effort,
     )
+    session_state = prepare_task_agent_session(
+        task,
+        workspace,
+        agent,
+        model=model_settings.model,
+        reasoning_effort=model_settings.reasoning_effort,
+    )
+    if session_state.resume:
+        model_settings = AgentModelSettings(
+            model=session_state.model or model_settings.model,
+            reasoning_effort=session_state.reasoning_effort or model_settings.reasoning_effort,
+        )
     _ = include_task_check
     prompt = ai_agent_task_context_prompt(
         task,

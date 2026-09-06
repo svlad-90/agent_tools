@@ -30,6 +30,8 @@ class AgentSessionState:
     agent: str
     resume: bool = False
     session_id: str | None = None
+    model: str = ""
+    reasoning_effort: str = ""
 
 
 @dataclass(frozen=True)
@@ -95,27 +97,59 @@ def load_task_agent_session(task: TaskSummary, agent: str) -> AgentSessionState:
     session_id = session.get("session_id")
     if not isinstance(session_id, str) or not CODEX_SESSION_ID_RE.fullmatch(session_id):
         session_id = None
+    model = session.get("model")
+    if not isinstance(model, str):
+        model = ""
+    reasoning_effort = session.get("reasoning_effort")
+    if not isinstance(reasoning_effort, str):
+        reasoning_effort = ""
     return AgentSessionState(
         agent=agent,
         resume=session.get("resume") is True,
         session_id=session_id,
+        model=model.strip(),
+        reasoning_effort=reasoning_effort.strip(),
     )
 
 
-def save_task_agent_session(task: TaskSummary, agent: str, session_id: str | None = None) -> None:
+def save_task_agent_session(
+    task: TaskSummary,
+    agent: str,
+    session_id: str | None = None,
+    *,
+    model: str = "",
+    reasoning_effort: str = "",
+) -> None:
     agent = normalize_agent(agent)
     data = load_task_state(task)
     data["agent"] = agent
     sessions = data.get("agent_sessions")
     if not isinstance(sessions, dict):
         sessions = {}
+    previous_session = sessions.get(agent)
+    if not isinstance(previous_session, dict):
+        previous_session = {}
     session: dict[str, Any] = {"resume": True}
     if isinstance(session_id, str) and CODEX_SESSION_ID_RE.fullmatch(session_id):
         session["session_id"] = session_id
-    elif isinstance(sessions.get(agent), dict):
-        old_session_id = sessions[agent].get("session_id")
+    else:
+        old_session_id = previous_session.get("session_id")
         if isinstance(old_session_id, str) and CODEX_SESSION_ID_RE.fullmatch(old_session_id):
             session["session_id"] = old_session_id
+    model = model.strip()
+    if not model:
+        old_model = previous_session.get("model")
+        if isinstance(old_model, str):
+            model = old_model.strip()
+    if model:
+        session["model"] = model
+    reasoning_effort = reasoning_effort.strip()
+    if not reasoning_effort:
+        old_reasoning_effort = previous_session.get("reasoning_effort")
+        if isinstance(old_reasoning_effort, str):
+            reasoning_effort = old_reasoning_effort.strip()
+    if reasoning_effort:
+        session["reasoning_effort"] = reasoning_effort
     data["agent_sessions"] = {agent: session}
     save_task_state(task, data)
 
@@ -176,15 +210,32 @@ def prepare_task_agent_session(
     workspace: Path,
     agent: str,
     home: Path | None = None,
+    *,
+    model: str = "",
+    reasoning_effort: str = "",
 ) -> AgentSessionState:
     agent = normalize_agent(agent)
     session_state = load_task_agent_session(task, agent)
     session_id = find_task_agent_session_id(task, workspace, agent, home=home)
-    save_task_agent_session(task, agent, session_id=session_id)
+    saved_model = session_state.model if session_state.resume and session_state.model else model.strip()
+    saved_reasoning_effort = (
+        session_state.reasoning_effort
+        if session_state.resume and session_state.reasoning_effort
+        else reasoning_effort.strip()
+    )
+    save_task_agent_session(
+        task,
+        agent,
+        session_id=session_id,
+        model=saved_model,
+        reasoning_effort=saved_reasoning_effort,
+    )
     return AgentSessionState(
         agent=agent,
         resume=session_state.resume,
         session_id=session_id,
+        model=saved_model,
+        reasoning_effort=saved_reasoning_effort,
     )
 
 
