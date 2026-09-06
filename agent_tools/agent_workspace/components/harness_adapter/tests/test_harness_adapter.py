@@ -246,7 +246,16 @@ def test_harness_adapter_session_start_clear_injects_context_after_manual_clear(
 def test_harness_adapter_session_start_injects_workspace_system_prompt(tmp_path: Path, monkeypatch: MonkeyPatch) -> None:
     task_dir = _task(tmp_path)
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
-    save_agent_workspace_settings({"system_prompt": "Prefer short, concrete answers."})
+    monkeypatch.delenv("AGENT_TOOLS_AGENT_MODEL", raising=False)
+    save_agent_workspace_settings(
+        {
+            "system_prompt": "Prefer short, concrete answers.",
+            "model_system_prompts": {
+                "gpt-5.5": "Use GPT 5.5 steering.",
+                "sonnet": "Use Sonnet steering.",
+            },
+        }
+    )
     registry = CodexHookRegistry()
     register_codex_adapter(registry)
 
@@ -256,6 +265,14 @@ def test_harness_adapter_session_start_injects_workspace_system_prompt(tmp_path:
     output = json.loads(result.stdout)
     assert "Workspace system prompt:" in output["systemMessage"]
     assert "Prefer short, concrete answers." in output["systemMessage"]
+    assert "Use GPT 5.5 steering." not in output["systemMessage"]
+
+    monkeypatch.setenv("AGENT_TOOLS_AGENT_MODEL", "gpt-5.5")
+    result = _codex(registry, task_dir, CodexHookEvent.SESSION_START)
+    output = json.loads(result.stdout)
+    assert "Prefer short, concrete answers." in output["systemMessage"]
+    assert "Use GPT 5.5 steering." in output["systemMessage"]
+    assert "Use Sonnet steering." not in output["systemMessage"]
 
 
 def test_harness_adapter_compacted_session_start_injects_workspace_system_prompt(

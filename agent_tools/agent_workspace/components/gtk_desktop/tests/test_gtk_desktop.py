@@ -3182,6 +3182,8 @@ def test_gtk_translates_agent_and_manual_labels() -> None:
     assert GTK_TRANSLATIONS["ru"]["default_claude_model"] == "Модель Claude"
     assert GTK_TRANSLATIONS["ru"]["default_codex_model"] == "Модель Codex"
     assert GTK_TRANSLATIONS["ru"]["system_prompt"] == "Системный промпт"
+    assert GTK_TRANSLATIONS["ru"]["claude_model_system_prompt"] == "Промпт модели Claude"
+    assert GTK_TRANSLATIONS["ru"]["codex_model_system_prompt"] == "Промпт модели Codex"
     assert GTK_TRANSLATIONS["ru"]["settings_updates"] == "Обновления"
     assert GTK_TRANSLATIONS["ru"]["settings_check_updates"] == "Проверить доступные обновления"
     assert GTK_TRANSLATIONS["ru"]["settings_apply_update"] == "Обновить"

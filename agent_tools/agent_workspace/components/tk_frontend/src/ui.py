@@ -202,6 +202,7 @@ class AgentWorkspace:
         self.limited_bash_heartbeat_seconds = settings.limited_bash_heartbeat_seconds
         self.limited_bash_heartbeat_tokens = settings.limited_bash_heartbeat_tokens
         self.system_prompt = settings.system_prompt
+        self.model_system_prompts = dict(settings.model_system_prompts)
         self.inject_task_context_prompt = settings.inject_task_context_prompt
         self.task_dictionary_auto_discovery = settings.task_dictionary_auto_discovery
         self.task_dictionary_min_occurrences = settings.task_dictionary_min_occurrences
@@ -1299,6 +1300,7 @@ class AgentWorkspace:
             claude_executable=_claude_executable(),
             inject_task_context=self.inject_task_context_prompt,
             system_prompt=self.system_prompt,
+            model_system_prompts=self.model_system_prompts,
             codex_animations_enabled=self.codex_animations_enabled,
             claude_animations_enabled=self.claude_animations_enabled,
             include_task_check=True,
@@ -1316,6 +1318,7 @@ class AgentWorkspace:
             limited_bash_tail_tokens=self.limited_bash_tail_tokens,
             limited_bash_heartbeat_seconds=self.limited_bash_heartbeat_seconds,
             limited_bash_heartbeat_tokens=self.limited_bash_heartbeat_tokens,
+            model=launch.model_settings.model,
         )
         self._update_ai_agent_button_label()
         self._refresh_task_session_indicators()
@@ -2456,6 +2459,7 @@ class AgentWorkspace:
                 "limited_bash_heartbeat_seconds": self.limited_bash_heartbeat_seconds,
                 "limited_bash_heartbeat_tokens": self.limited_bash_heartbeat_tokens,
                 "system_prompt": self.system_prompt,
+                "model_system_prompts": self.model_system_prompts,
                 "inject_task_context_prompt": self.inject_task_context_prompt,
                 "task_dictionary_auto_discovery": self.task_dictionary_auto_discovery,
                 "task_dictionary_min_occurrences": self.task_dictionary_min_occurrences,
@@ -2485,6 +2489,8 @@ def ai_agent_task_context_message(task: TaskSummary, workspace: Path) -> str:
         workspace,
         inject_task_context=settings.inject_task_context_prompt,
         system_prompt=settings.system_prompt,
+        model_system_prompts=settings.model_system_prompts,
+        model=settings.default_codex_model,
     )
 
 

@@ -22,6 +22,7 @@ from ...settings.api import AgentModelSettings
 from ...settings.api import TASK_CONTEXT_PROMPT_INJECTION_DEFAULT
 from ...settings.api import ai_agent_model_settings
 from ...settings.api import normalize_agent
+from ...settings.api import system_prompt_for_model
 from ...task_sessions.api import AgentSessionState
 from ...task_sessions.api import prepare_task_agent_session
 from ...task_sessions.api import task_agent_has_saved_resumable_state
@@ -189,6 +190,8 @@ def ai_agent_task_context_prompt(
     *,
     inject_task_context: bool = TASK_CONTEXT_PROMPT_INJECTION_DEFAULT,
     system_prompt: str = "",
+    model_system_prompts: dict[str, str] | None = None,
+    model: str = "",
 ) -> str:
     _ = inject_task_context
     message = (
@@ -201,7 +204,7 @@ def ai_agent_task_context_prompt(
     )
     if suffix:
         message = f"{message} {suffix}"
-    system_prompt = system_prompt.strip()
+    system_prompt = system_prompt_for_model(system_prompt, model_system_prompts or {}, model)
     if not system_prompt:
         return message
     return f"{message}\n\nWorkspace system prompt:\n\n{system_prompt}"
@@ -254,6 +257,7 @@ def prepare_ai_agent_launch_command(
     include_task_check: bool = False,
     inject_task_context: bool = TASK_CONTEXT_PROMPT_INJECTION_DEFAULT,
     system_prompt: str = "",
+    model_system_prompts: dict[str, str] | None = None,
     codex_animations_enabled: bool = False,
     claude_animations_enabled: bool = False,
     workspace_mcp_enabled_groups: tuple[str, ...] | None = None,
@@ -275,6 +279,8 @@ def prepare_ai_agent_launch_command(
         prompt_suffix,
         inject_task_context=inject_task_context,
         system_prompt=system_prompt,
+        model_system_prompts=model_system_prompts,
+        model=model_settings.model,
     )
     return AgentLaunchCommand(
         command=build_ai_agent_console_command(
@@ -310,6 +316,7 @@ def ai_agent_environment(
     limited_bash_tail_tokens: int | None = None,
     limited_bash_heartbeat_seconds: int = AGENT_WORKSPACE_DEFAULT_LIMITED_BASH_HEARTBEAT_SECONDS,
     limited_bash_heartbeat_tokens: int = AGENT_WORKSPACE_DEFAULT_LIMITED_BASH_HEARTBEAT_TOKENS,
+    model: str = "",
 ) -> dict[str, str]:
     env = dict(base_env)
     agent = normalize_agent(agent)
@@ -318,6 +325,8 @@ def ai_agent_environment(
     env["AGENT_TOOLS_SESSION_ID"] = session_id
     env["AGENT_TOOLS_TASK_DIR"] = str(task.path)
     env["AGENT_TOOLS_WORKSPACE"] = str(workspace)
+    if model.strip():
+        env["AGENT_TOOLS_AGENT_MODEL"] = model.strip()
     env["AGENT_TOOLS_LIMITED_BASH_OUTPUT_TOKENS"] = str(limited_bash_output_tokens)
     env["AGENT_TOOLS_LIMITED_BASH_HEAD_TOKENS"] = str(
         limited_bash_head_tokens

@@ -374,6 +374,7 @@ class WorkspaceGtkGui:
         self.limited_bash_heartbeat_seconds = settings.limited_bash_heartbeat_seconds
         self.limited_bash_heartbeat_tokens = settings.limited_bash_heartbeat_tokens
         self.system_prompt = settings.system_prompt
+        self.model_system_prompts = dict(settings.model_system_prompts)
         self.inject_task_context_prompt = settings.inject_task_context_prompt
         self.mcp_enabled_groups = settings.mcp_enabled_groups
         self.mcp_trusted = settings.mcp_trusted
@@ -2768,6 +2769,36 @@ class WorkspaceGtkGui:
         system_prompt_scrolled.set_hexpand(True)
         system_prompt_scrolled.set_vexpand(False)
         system_prompt_scrolled.set_min_content_height(96)
+        codex_model_prompt_view = _text_view(self.text_font_size, editable=True)
+        mark_gtk_widget(
+            codex_model_prompt_view,
+            "settings.codex_model_system_prompt",
+            "field",
+            label_key="codex_model_system_prompt",
+            widget_kind="text_area",
+            height=80,
+            hexpand=True,
+            vexpand=False,
+        )
+        codex_model_prompt_scrolled = _scrolled(codex_model_prompt_view)
+        codex_model_prompt_scrolled.set_hexpand(True)
+        codex_model_prompt_scrolled.set_vexpand(False)
+        codex_model_prompt_scrolled.set_min_content_height(80)
+        claude_model_prompt_view = _text_view(self.text_font_size, editable=True)
+        mark_gtk_widget(
+            claude_model_prompt_view,
+            "settings.claude_model_system_prompt",
+            "field",
+            label_key="claude_model_system_prompt",
+            widget_kind="text_area",
+            height=80,
+            hexpand=True,
+            vexpand=False,
+        )
+        claude_model_prompt_scrolled = _scrolled(claude_model_prompt_view)
+        claude_model_prompt_scrolled.set_hexpand(True)
+        claude_model_prompt_scrolled.set_vexpand(False)
+        claude_model_prompt_scrolled.set_min_content_height(80)
         settings_update_check_button = Gtk.Button(label=self._tr("settings_check_updates"))
         mark_gtk_widget(
             settings_update_check_button,
@@ -2915,6 +2946,8 @@ class WorkspaceGtkGui:
         dictionary_box.connect("button-press-event", on_settings_dialog_button_press)
         mcp_box.connect("button-press-event", on_settings_dialog_button_press)
         register_passive_text_view(system_prompt_view, system_prompt_scrolled, general_scrolled)
+        register_passive_text_view(codex_model_prompt_view, codex_model_prompt_scrolled, general_scrolled)
+        register_passive_text_view(claude_model_prompt_view, claude_model_prompt_scrolled, general_scrolled)
         for widget in (
             text_size,
             button_size,
@@ -3106,6 +3139,40 @@ class WorkspaceGtkGui:
             if self.default_claude_effort in AGENT_WORKSPACE_REASONING_EFFORTS
             else 0
         )
+        model_system_prompts = dict(self.model_system_prompts)
+
+        def active_model(combo: Gtk.ComboBoxText, fallback: str) -> str:
+            return (combo.get_active_text() or fallback).strip()
+
+        def store_model_prompt(model: str, view: Gtk.TextView) -> None:
+            if not model:
+                return
+            prompt = _text_buffer_text(view.get_buffer())
+            if prompt.strip():
+                model_system_prompts[model] = prompt
+            else:
+                model_system_prompts.pop(model, None)
+
+        def load_model_prompt(model: str, view: Gtk.TextView) -> None:
+            view.get_buffer().set_text(model_system_prompts.get(model, ""))
+
+        codex_model_prompt_state = {"model": active_model(codex_model_combo, self.default_codex_model)}
+        claude_model_prompt_state = {"model": active_model(claude_model_combo, self.default_claude_model)}
+        load_model_prompt(codex_model_prompt_state["model"], codex_model_prompt_view)
+        load_model_prompt(claude_model_prompt_state["model"], claude_model_prompt_view)
+
+        def on_codex_model_changed(combo: Gtk.ComboBoxText) -> None:
+            store_model_prompt(codex_model_prompt_state["model"], codex_model_prompt_view)
+            codex_model_prompt_state["model"] = active_model(combo, self.default_codex_model)
+            load_model_prompt(codex_model_prompt_state["model"], codex_model_prompt_view)
+
+        def on_claude_model_changed(combo: Gtk.ComboBoxText) -> None:
+            store_model_prompt(claude_model_prompt_state["model"], claude_model_prompt_view)
+            claude_model_prompt_state["model"] = active_model(combo, self.default_claude_model)
+            load_model_prompt(claude_model_prompt_state["model"], claude_model_prompt_view)
+
+        codex_model_combo.connect("changed", on_codex_model_changed)
+        claude_model_combo.connect("changed", on_claude_model_changed)
         dictionary_auto = Gtk.CheckButton()
         mark_gtk_widget(
             dictionary_auto,
@@ -3298,6 +3365,7 @@ class WorkspaceGtkGui:
             codex_rows.extend(
                 [
                     (self._tr("default_codex_model"), codex_model_combo),
+                    (self._tr("codex_model_system_prompt"), codex_model_prompt_scrolled),
                     (self._tr("default_codex_reasoning"), codex_reasoning_combo),
                 ]
             )
@@ -3308,6 +3376,7 @@ class WorkspaceGtkGui:
             claude_rows.extend(
                 [
                     (self._tr("default_claude_model"), claude_model_combo),
+                    (self._tr("claude_model_system_prompt"), claude_model_prompt_scrolled),
                     (self._tr("default_claude_effort"), claude_effort_combo),
                 ]
             )
@@ -3416,6 +3485,13 @@ class WorkspaceGtkGui:
             self.limited_bash_heartbeat_tokens = int(limited_bash_heartbeat_tokens.get_value())
             self.limited_bash_output_tokens = self.limited_bash_head_tokens
             self.system_prompt = _text_buffer_text(system_prompt_view.get_buffer())
+            store_model_prompt(codex_model_prompt_state["model"], codex_model_prompt_view)
+            store_model_prompt(claude_model_prompt_state["model"], claude_model_prompt_view)
+            self.model_system_prompts = {
+                model: prompt
+                for model, prompt in model_system_prompts.items()
+                if model.strip() and prompt.strip()
+            }
             self.mcp_enabled_groups = tuple(
                 group_id
                 for group_id, check in mcp_group_checks.items()
@@ -4805,6 +4881,7 @@ class WorkspaceGtkGui:
             prompt_suffix=CODEX_LANGUAGE_INSTRUCTIONS.get(self.language, CODEX_LANGUAGE_INSTRUCTIONS["en"]),
             inject_task_context=self.inject_task_context_prompt,
             system_prompt=self.system_prompt,
+            model_system_prompts=self.model_system_prompts,
             codex_animations_enabled=self.codex_animations_enabled,
             claude_animations_enabled=self.claude_animations_enabled,
             workspace_mcp_enabled_groups=workspace_mcp_enabled_groups_for_runtime(self.mcp_enabled_groups),
@@ -4824,6 +4901,7 @@ class WorkspaceGtkGui:
             limited_bash_tail_tokens=self.limited_bash_tail_tokens,
             limited_bash_heartbeat_seconds=self.limited_bash_heartbeat_seconds,
             limited_bash_heartbeat_tokens=self.limited_bash_heartbeat_tokens,
+            model=launch.model_settings.model,
         )
         for session in self._current_task_terminal_sessions(task):
             if session.kind == agent:
@@ -6658,6 +6736,7 @@ class WorkspaceGtkGui:
                 "limited_bash_heartbeat_seconds": self.limited_bash_heartbeat_seconds,
                 "limited_bash_heartbeat_tokens": self.limited_bash_heartbeat_tokens,
                 "system_prompt": self.system_prompt,
+                "model_system_prompts": getattr(self, "model_system_prompts", {}),
                 "inject_task_context_prompt": self.inject_task_context_prompt,
                 "mcp_enabled_groups": list(mcp_enabled_groups),
                 "mcp_trusted": self.mcp_trusted,
@@ -6970,6 +7049,8 @@ def ai_agent_task_context_message(task: TaskSummary, workspace: Path, language: 
         language_instruction,
         inject_task_context=settings.inject_task_context_prompt,
         system_prompt=settings.system_prompt,
+        model_system_prompts=settings.model_system_prompts,
+        model=settings.default_codex_model,
     )
 
 

@@ -103,6 +103,7 @@ from agent_tools.agent_workspace.components.settings.api import load_agent_works
 from agent_tools.agent_workspace.components.settings.api import run_agent_workspace_update_check
 from agent_tools.agent_workspace.components.settings.api import run_agent_workspace_update
 from agent_tools.agent_workspace.components.settings.api import save_agent_workspace_settings
+from agent_tools.agent_workspace.components.settings.api import system_prompt_for_model
 from agent_tools.agent_workspace.components.settings.api import remember_agent_workspace
 from agent_tools.agent_workspace.components.settings.api import task_dictionary_policy_from_runtime_settings
 from agent_tools.agent_workspace.components.settings.api import workspace_mcp_configurable_tool_groups

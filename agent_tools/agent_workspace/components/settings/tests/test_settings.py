@@ -212,6 +212,12 @@ def test_agent_workspace_runtime_settings_normalizes_ui_defaults() -> None:
             "limited_bash_heartbeat_seconds": 10,
             "limited_bash_heartbeat_tokens": 900,
             "system_prompt": "Use the project-specific policy.",
+            "model_system_prompts": {
+                "gpt-5.5": "Use Codex-specific steering.",
+                "  sonnet  ": "Use Claude-specific steering.",
+                "": "ignored",
+                "opus": 42,
+            },
             "inject_task_context_prompt": False,
             "mcp_enabled_groups": ["search", "unknown", "validation"],
             "mcp_trusted": True,
@@ -247,6 +253,10 @@ def test_agent_workspace_runtime_settings_normalizes_ui_defaults() -> None:
     assert settings.limited_bash_heartbeat_seconds == 10
     assert settings.limited_bash_heartbeat_tokens == 900
     assert settings.system_prompt == "Use the project-specific policy."
+    assert settings.model_system_prompts == {
+        "gpt-5.5": "Use Codex-specific steering.",
+        "sonnet": "Use Claude-specific steering.",
+    }
     assert settings.inject_task_context_prompt is False
     assert settings.mcp_enabled_groups == (
         "search",
@@ -310,6 +320,7 @@ def test_agent_workspace_runtime_settings_falls_back_for_invalid_values() -> Non
     assert settings.language == "uk"
     assert settings.default_agent == "codex"
     assert settings.system_prompt == ""
+    assert settings.model_system_prompts == {}
     assert settings.inject_task_context_prompt is True
     assert settings.task_dictionary_auto_discovery is True
     assert settings.task_dictionary_min_occurrences == 1
@@ -406,6 +417,21 @@ def test_ai_agent_model_settings_preserves_blank_values() -> None:
 
     assert settings.model == ""
     assert settings.reasoning_effort == ""
+
+
+def test_system_prompt_for_model_appends_matching_model_prompt() -> None:
+    prompt = system_prompt_for_model(
+        "Use shared workspace policy.",
+        {
+            "gpt-5.5": "Use Codex 5.5 overrides.",
+            "sonnet": "Use Claude overrides.",
+        },
+        "gpt-5.5",
+    )
+
+    assert prompt == "Use shared workspace policy.\n\nUse Codex 5.5 overrides."
+    assert system_prompt_for_model("", {"sonnet": "Use Claude overrides."}, "sonnet") == "Use Claude overrides."
+    assert system_prompt_for_model("Use shared workspace policy.", {}, "gpt-5.5") == "Use shared workspace policy."
 
 
 def test_agent_workspace_settings_clamp_bad_font_size(tmp_path: Path) -> None:

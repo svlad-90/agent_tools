@@ -4,6 +4,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime
 import json
+import os
 import sqlite3
 from pathlib import Path
 from time import time_ns
@@ -14,6 +15,7 @@ from agent_tools.agent_workspace.components.agent_status.api import AGENT_PROMPT
 from agent_tools.agent_workspace.components.agent_status.api import AGENT_RUNNING_READY_MARKER
 from agent_tools.agent_workspace.components.agent_status.api import AGENT_TOOL_MARKER
 from agent_tools.agent_workspace.components.settings.api import load_agent_workspace_settings
+from agent_tools.agent_workspace.components.settings.api import system_prompt_for_model
 from agent_tools.paf_workspace.task_check import check_task
 from agent_tools.paf_workspace.task_check import render_text
 from agent_tools.tools.repo_registry import validate_repo_registry
@@ -485,10 +487,16 @@ def _post_compact_message(task_dir: Path) -> str:
 
 
 def _workspace_system_prompt_message() -> str:
-    value = load_agent_workspace_settings().get("system_prompt", "")
-    if not isinstance(value, str):
+    settings = load_agent_workspace_settings()
+    value = settings.get("system_prompt", "")
+    model_prompts = settings.get("model_system_prompts", {})
+    if not isinstance(value, str) or not isinstance(model_prompts, dict):
         return ""
-    prompt = value.strip()
+    prompt = system_prompt_for_model(
+        value,
+        model_prompts,
+        os.environ.get("AGENT_TOOLS_AGENT_MODEL", ""),
+    )
     if not prompt:
         return ""
     return f"Workspace system prompt:\n\n{prompt}"
