@@ -33,7 +33,7 @@ def task_context_tools() -> list[McpTool]:
             description=(
                 "Use instead of manual SQLite writes to update durable task state. "
                 "Replaces one current slot in TASK_CONTEXT.sqlite3 with validated "
-                "category names and returns the updated slot."
+                "category names and returns a compact confirmation by default."
             ),
             input_schema=_set_slot_input_schema(),
             handler=_task_context_set_slot,
@@ -129,7 +129,16 @@ def _task_context_set_slot(context: ToolContext, arguments: JsonObject) -> ToolR
         string_arg(arguments, "content", ""),
         updated_at=optional_string_arg(arguments, "updated_at"),
     )
-    return _render_slots_result([slot], string_arg(arguments, "format", "markdown"), task_dir)
+    if bool_arg(arguments, "render", False):
+        return _render_slots_result([slot], string_arg(arguments, "format", "markdown"), task_dir)
+    payload = {"slot": slot.to_json(), "slots": [slot.to_json()]}
+    if string_arg(arguments, "format", "text") == "json":
+        return ToolResult(
+            text=json.dumps(payload["slot"], ensure_ascii=False, sort_keys=True) + "\n",
+            structured_content=payload,
+        )
+    text = f"task-context: updated {slot.category} at {slot.updated_at}\n"
+    return ToolResult(text=text, structured_content=payload)
 
 
 def _task_context_add_entry(context: ToolContext, arguments: JsonObject) -> ToolResult:
@@ -349,7 +358,19 @@ def _set_slot_input_schema() -> JsonObject:
             "category": _slot_category_property(),
             "content": {"type": "string", "description": "Full replacement content for the singleton slot.", "default": ""},
             "updated_at": {"type": "string", "description": "Optional ISO timestamp override. Omit to use current time."},
-            "format": _format_property("text", "markdown", "agent", "json", default="markdown", description="Response format for the updated slot."),
+            "format": _format_property(
+                "text",
+                "markdown",
+                "agent",
+                "json",
+                default="text",
+                description="Response format. Defaults to a compact confirmation.",
+            ),
+            "render": {
+                "type": "boolean",
+                "description": "Render the updated slot content instead of returning a compact confirmation.",
+                "default": False,
+            },
         },
         "required": ["task", "category"],
         "additionalProperties": False,
