@@ -313,7 +313,8 @@ def test_gtk_settings_dialog_runtime_tree_matches_source_contract_ids() -> None:
         "settings.profiling_note",
         "settings.profiling_output",
     }
-    assert set(runtime_nodes).issubset(set(source_nodes))
+    extra_runtime_ids = sorted(set(runtime_nodes) - set(source_nodes))
+    assert extra_runtime_ids == []
     assert required_runtime_ids <= set(runtime_nodes)
     assert runtime_nodes["settings.dialog"].children == source_nodes["settings.dialog"].children
     assert runtime_nodes["settings.tabs"].children
@@ -326,6 +327,28 @@ def test_web_settings_contract_matches_gtk_settings_contract() -> None:
     issues = compare_ui_trees(gtk_settings_ui_tree(), web_settings_ui_tree())
 
     assert [issue.to_json() for issue in issues] == []
+
+
+def test_settings_general_contract_matches_runtime_section_order() -> None:
+    nodes = gtk_settings_ui_tree().node_map()
+
+    assert nodes["settings.general"].children == (
+        "settings.text_font_size",
+        "settings.button_font_size",
+        "settings.theme",
+        "settings.language",
+        "settings.default_agent",
+        "settings.system_prompt",
+        "settings.codex_model",
+        "settings.codex_model_system_prompt",
+        "settings.codex_reasoning",
+        "settings.codex_animations_enabled",
+        "settings.claude_model",
+        "settings.claude_model_system_prompt",
+        "settings.claude_effort",
+        "settings.claude_animations_enabled",
+        "settings.bash_output",
+    )
 
 
 def test_settings_contract_includes_limited_bash_split_fields() -> None:
