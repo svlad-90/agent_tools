@@ -496,11 +496,24 @@ def _workspace_system_prompt_message() -> str:
     prompt = system_prompt_for_model(
         value,
         model_prompts,
-        os.environ.get("AGENT_TOOLS_AGENT_MODEL", ""),
+        _workspace_system_prompt_model(settings, model_prompts),
     )
     if not prompt:
         return ""
     return f"Workspace system prompt:\n\n{prompt}"
+
+
+def _workspace_system_prompt_model(settings: dict[str, Any], model_prompts: dict[str, object]) -> str:
+    for value in (
+        os.environ.get("AGENT_TOOLS_AGENT_MODEL", ""),
+        settings.get("default_codex_model", ""),
+    ):
+        if isinstance(value, str) and value.strip() in model_prompts:
+            return value.strip()
+    prompt_models = [model.strip() for model in model_prompts if isinstance(model, str) and model.strip()]
+    if len(prompt_models) == 1:
+        return prompt_models[0]
+    return ""
 
 
 def _truncate_post_compact_context(text: str) -> str:

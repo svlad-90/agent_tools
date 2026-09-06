@@ -292,6 +292,60 @@ def test_harness_adapter_session_start_injects_workspace_system_prompt(tmp_path:
     assert "Use Sonnet steering." not in output["systemMessage"]
 
 
+def test_harness_adapter_workspace_system_prompt_prefers_matching_default_model(
+    tmp_path: Path,
+    monkeypatch: MonkeyPatch,
+) -> None:
+    task_dir = _task(tmp_path)
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
+    monkeypatch.setenv("AGENT_TOOLS_AGENT_MODEL", "gpt-5.5")
+    save_agent_workspace_settings(
+        {
+            "default_codex_model": "gpt-6-astra",
+            "system_prompt": "Prefer short, concrete answers.",
+            "model_system_prompts": {
+                "gpt-6-astra": "Use GPT 6 steering.",
+            },
+        }
+    )
+    registry = CodexHookRegistry()
+    register_codex_adapter(registry)
+
+    result = _codex(registry, task_dir, CodexHookEvent.SESSION_START)
+
+    assert result.exit_code == 0
+    output = json.loads(result.stdout)
+    assert "Prefer short, concrete answers." in output["systemMessage"]
+    assert "Use GPT 6 steering." in output["systemMessage"]
+
+
+def test_harness_adapter_workspace_system_prompt_uses_single_model_prompt_fallback(
+    tmp_path: Path,
+    monkeypatch: MonkeyPatch,
+) -> None:
+    task_dir = _task(tmp_path)
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
+    monkeypatch.setenv("AGENT_TOOLS_AGENT_MODEL", "gpt-5.5")
+    save_agent_workspace_settings(
+        {
+            "default_codex_model": "gpt-5.5",
+            "system_prompt": "Prefer short, concrete answers.",
+            "model_system_prompts": {
+                "gpt-6-astra": "Use GPT 6 steering.",
+            },
+        }
+    )
+    registry = CodexHookRegistry()
+    register_codex_adapter(registry)
+
+    result = _codex(registry, task_dir, CodexHookEvent.SESSION_START)
+
+    assert result.exit_code == 0
+    output = json.loads(result.stdout)
+    assert "Prefer short, concrete answers." in output["systemMessage"]
+    assert "Use GPT 6 steering." in output["systemMessage"]
+
+
 def test_harness_adapter_compacted_session_start_injects_workspace_system_prompt(
     tmp_path: Path,
     monkeypatch: MonkeyPatch,
