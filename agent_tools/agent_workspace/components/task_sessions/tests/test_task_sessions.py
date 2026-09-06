@@ -58,6 +58,51 @@ def test_task_agent_session_state_preserves_agent_selection(tmp_path: Path) -> N
     assert session.session_id == session_id
 
 
+def test_task_agent_session_state_persists_model_metadata(tmp_path: Path) -> None:
+    task = tmp_path / "tasks" / "sample-task"
+    task.mkdir(parents=True)
+    summary = discover_tasks_with_context(task, tmp_path)
+    session_id = "019feba2-e25e-76e1-9468-aa399758268f"
+
+    save_task_agent_session(
+        summary,
+        "codex",
+        session_id=session_id,
+        model=" gpt-5.6-sol ",
+        reasoning_effort=" high ",
+    )
+
+    session = load_task_agent_session(summary, "codex")
+
+    assert session.resume is True
+    assert session.session_id == session_id
+    assert session.model == "gpt-5.6-sol"
+    assert session.reasoning_effort == "high"
+
+
+def test_task_agent_session_update_preserves_model_metadata(tmp_path: Path) -> None:
+    task = tmp_path / "tasks" / "sample-task"
+    task.mkdir(parents=True)
+    summary = discover_tasks_with_context(task, tmp_path)
+    first_session_id = "019feba2-e25e-76e1-9468-aa399758268f"
+    next_session_id = "019feba2-e25e-76e1-9468-aa3997582690"
+
+    save_task_agent_session(
+        summary,
+        "codex",
+        session_id=first_session_id,
+        model="gpt-5.6-sol",
+        reasoning_effort="high",
+    )
+    save_task_agent_session(summary, "codex", session_id=next_session_id)
+
+    session = load_task_agent_session(summary, "codex")
+
+    assert session.session_id == next_session_id
+    assert session.model == "gpt-5.6-sol"
+    assert session.reasoning_effort == "high"
+
+
 def test_find_task_agent_session_id_is_scoped_to_agent_type(tmp_path: Path) -> None:
     workspace = tmp_path / "workspace"
     task = workspace / "tasks" / "sample-task"
@@ -562,4 +607,3 @@ def test_prepare_task_agent_session_persists_discovered_claude_session_id(tmp_pa
     assert prepared.resume
     assert prepared.session_id == session_id
     assert load_task_agent_session(summary, "claude").session_id == session_id
-

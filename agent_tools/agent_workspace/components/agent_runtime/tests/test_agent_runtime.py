@@ -483,6 +483,46 @@ def test_prepare_ai_agent_launch_command_builds_command_from_session_and_model_s
     assert all("Current task context slots preloaded from `TASK_CONTEXT.sqlite3`" not in part for part in launch.command)
 
 
+def test_prepare_ai_agent_launch_command_restores_saved_model_settings(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    task = tmp_path / "tasks" / "sample-task"
+    task.mkdir(parents=True)
+    summary = discover_tasks_with_context(task, tmp_path)
+    home = tmp_path / "home"
+    monkeypatch.setenv("HOME", str(home))
+    session_id = "019feba2-e25e-76e1-9468-aa399758268f"
+    session_file = home / ".codex" / "sessions" / f"{session_id}.jsonl"
+    session_file.parent.mkdir(parents=True)
+    session_file.write_text("{}", encoding="utf-8")
+    save_task_agent_session(
+        summary,
+        "codex",
+        session_id=session_id,
+        model="gpt-5.6-sol",
+        reasoning_effort="high",
+    )
+
+    launch = prepare_ai_agent_launch_command(
+        summary,
+        tmp_path,
+        "codex",
+        codex_model="gpt-5.5",
+        codex_reasoning="medium",
+        claude_model="sonnet",
+        claude_effort="low",
+        codex_executable="codex-bin",
+        claude_executable="claude-bin",
+    )
+
+    assert launch.session_state.resume
+    assert launch.model_settings.model == "gpt-5.6-sol"
+    assert launch.model_settings.reasoning_effort == "high"
+    assert launch.command[:5] == ["codex-bin", "--model", "gpt-5.6-sol", "-c", 'model_reasoning_effort="high"']
+    assert launch.command[-5:] == ["resume", "--cd", str(tmp_path), "--no-alt-screen", session_id]
+
+
 def test_codex_console_command_can_resume_session(tmp_path: Path) -> None:
     task = tmp_path / "tasks" / "sample-task"
     task.mkdir(parents=True)
