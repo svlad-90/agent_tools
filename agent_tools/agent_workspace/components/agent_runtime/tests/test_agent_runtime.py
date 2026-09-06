@@ -442,6 +442,26 @@ def test_core_ai_agent_command_builder_handles_codex_and_claude(tmp_path: Path) 
     assert prompt not in claude_command
 
 
+def test_codex_resume_command_does_not_override_recorded_session_model(tmp_path: Path) -> None:
+    session_id = "019feba2-e25e-76e1-9468-aa399758268f"
+
+    command = build_ai_agent_console_command(
+        tmp_path,
+        "task prompt",
+        "codex",
+        codex_executable="codex-bin",
+        claude_executable="claude-bin",
+        resume=True,
+        resume_session_id=session_id,
+        model="gpt-5.5",
+        reasoning_effort="medium",
+    )
+
+    assert "--model" not in command
+    assert 'model_reasoning_effort="medium"' not in command
+    assert command[-5:] == ["resume", "--cd", str(tmp_path), "--no-alt-screen", session_id]
+
+
 def test_prepare_ai_agent_launch_command_builds_command_from_session_and_model_settings(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -474,7 +494,8 @@ def test_prepare_ai_agent_launch_command_builds_command_from_session_and_model_s
     assert launch.session_state.session_id == session_id
     assert launch.model_settings.model == "gpt-5.5"
     assert launch.model_settings.reasoning_effort == "medium"
-    assert launch.command[:5] == ["codex-bin", "--model", "gpt-5.5", "-c", 'model_reasoning_effort="medium"']
+    assert "--model" not in launch.command
+    assert 'model_reasoning_effort="medium"' not in launch.command
     assert "python3 -m agent_tools.agent_workspace.components.harness_adapter.codex" in " ".join(launch.command)
     assert launch.command[-5:] == ["resume", "--cd", str(tmp_path), "--no-alt-screen", session_id]
     _assert_codex_low_redraw_tui_options(launch.command)
@@ -519,7 +540,8 @@ def test_prepare_ai_agent_launch_command_restores_saved_model_settings(
     assert launch.session_state.resume
     assert launch.model_settings.model == "gpt-5.6-sol"
     assert launch.model_settings.reasoning_effort == "high"
-    assert launch.command[:5] == ["codex-bin", "--model", "gpt-5.6-sol", "-c", 'model_reasoning_effort="high"']
+    assert "--model" not in launch.command
+    assert 'model_reasoning_effort="high"' not in launch.command
     assert launch.command[-5:] == ["resume", "--cd", str(tmp_path), "--no-alt-screen", session_id]
 
 
