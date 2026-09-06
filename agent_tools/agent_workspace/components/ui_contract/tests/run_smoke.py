@@ -27,6 +27,7 @@ def main(argv: list[str] | None = None) -> int:
         test_ui_contract.test_snapshot_widget_tree_reads_real_gtk_widgets,
         test_ui_contract.test_gtk_settings_dialog_runtime_tree_matches_source_contract_ids,
         test_ui_contract.test_web_settings_contract_matches_gtk_settings_contract,
+        test_ui_contract.test_settings_general_contract_matches_runtime_section_order,
         test_ui_contract.test_settings_contract_includes_limited_bash_split_fields,
     )
     skipped: list[str] = []
