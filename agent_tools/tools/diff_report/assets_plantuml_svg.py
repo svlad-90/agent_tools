@@ -51,12 +51,14 @@ def plantuml_svg_styles() -> str:
     .diagram-zoom-stage svg path:not(.asset-focus-object):not(.asset-focus-connector):not(.diagram-note-box):not(.diagram-note-link):not(.diagram-code-link-connector),
     .diagram-preview-canvas svg polyline:not(.asset-focus-connector):not(.diagram-code-link-connector),
     .diagram-zoom-stage svg polyline:not(.asset-focus-connector):not(.diagram-code-link-connector) { stroke: var(--diagram-svg-line) !important; }
-    .diagram-preview-canvas svg polygon:not(.asset-focus-connector):not(.asset-focus-object):not(.diagram-code-link-connector):not([fill="#FFFFFF"]):not([fill="#FEFECE"]):not([fill="#EEEEEE"]):not([fill="#2D2D30"]):not([fill="#252526"]):not([fill="#3B3216"]):not([fill="#FBFB77"]),
-    .diagram-zoom-stage svg polygon:not(.asset-focus-connector):not(.asset-focus-object):not(.diagram-code-link-connector):not([fill="#FFFFFF"]):not([fill="#FEFECE"]):not([fill="#EEEEEE"]):not([fill="#2D2D30"]):not([fill="#252526"]):not([fill="#3B3216"]):not([fill="#FBFB77"]) { fill: var(--diagram-svg-arrow) !important; stroke: var(--diagram-svg-arrow) !important; stroke-width: 1.4px !important; }
+    .diagram-preview-canvas svg polygon:not(.asset-focus-connector):not(.asset-focus-object):not(.diagram-code-link-connector):not([fill="#FFFFFF"]):not([fill="#FEFECE"]):not([fill="#F5F5F5"]):not([fill="#EEEEEE"]):not([fill="#2D2D30"]):not([fill="#252526"]):not([fill="#3B3216"]):not([fill="#FBFB77"]),
+    .diagram-zoom-stage svg polygon:not(.asset-focus-connector):not(.asset-focus-object):not(.diagram-code-link-connector):not([fill="#FFFFFF"]):not([fill="#FEFECE"]):not([fill="#F5F5F5"]):not([fill="#EEEEEE"]):not([fill="#2D2D30"]):not([fill="#252526"]):not([fill="#3B3216"]):not([fill="#FBFB77"]) { fill: var(--diagram-svg-arrow) !important; stroke: var(--diagram-svg-arrow) !important; stroke-width: 1.4px !important; }
     .diagram-preview-canvas svg polygon[fill="#FFFFFF"]:not(.asset-focus-object),
     .diagram-zoom-stage svg polygon[fill="#FFFFFF"]:not(.asset-focus-object),
     .diagram-preview-canvas svg polygon[fill="#FEFECE"]:not(.asset-focus-object),
     .diagram-zoom-stage svg polygon[fill="#FEFECE"]:not(.asset-focus-object),
+    .diagram-preview-canvas svg polygon[fill="#F5F5F5"]:not(.asset-focus-object),
+    .diagram-zoom-stage svg polygon[fill="#F5F5F5"]:not(.asset-focus-object),
     .diagram-preview-canvas svg polygon[fill="#EEEEEE"]:not(.asset-focus-object),
     .diagram-zoom-stage svg polygon[fill="#EEEEEE"]:not(.asset-focus-object),
     .diagram-preview-canvas svg polygon[fill="#2D2D30"]:not(.asset-focus-object),
@@ -67,6 +69,8 @@ def plantuml_svg_styles() -> str:
     .diagram-zoom-stage svg path[fill="#FFFFFF"]:not(.asset-focus-object),
     .diagram-preview-canvas svg path[fill="#FEFECE"]:not(.asset-focus-object),
     .diagram-zoom-stage svg path[fill="#FEFECE"]:not(.asset-focus-object),
+    .diagram-preview-canvas svg path[fill="#F5F5F5"]:not(.asset-focus-object),
+    .diagram-zoom-stage svg path[fill="#F5F5F5"]:not(.asset-focus-object),
     .diagram-preview-canvas svg path[fill="#2D2D30"]:not(.asset-focus-object),
     .diagram-zoom-stage svg path[fill="#2D2D30"]:not(.asset-focus-object),
     .diagram-preview-canvas svg rect:not(.diagram-note-box):not(.diagram-code-link-badge-box),
@@ -95,7 +99,8 @@ def plantuml_svg_styles() -> str:
     svg line.asset-focus-connector, svg path.asset-focus-connector, svg polyline.asset-focus-connector { stroke-dasharray: 8 8; stroke-linecap: round; animation: focus-dash-flow 2.4s linear infinite; }
     svg line.asset-focus-connector-reverse, svg path.asset-focus-connector-reverse, svg polyline.asset-focus-connector-reverse { animation-name: focus-dash-flow-reverse; }
     svg polygon.asset-focus-connector { fill: var(--diagram-focus) !important; opacity: .95; filter: none; animation: none; }
-    svg .asset-focus-object { fill: var(--diagram-focus) !important; fill-opacity: .08 !important; stroke: var(--diagram-focus) !important; stroke-width: 4px !important; stroke-dasharray: 8 8; stroke-linecap: round; stroke-linejoin: round; vector-effect: non-scaling-stroke; filter: drop-shadow(0 0 4px var(--diagram-focus-glow)); animation: focus-dash-flow 2.4s linear infinite; pointer-events: none; }
+    svg .asset-focus-object,
+    svg .asset-focus-match.asset-focus-object { fill: var(--diagram-focus) !important; fill-opacity: .08 !important; stroke: var(--diagram-focus) !important; stroke-width: 4px !important; stroke-dasharray: 8 8; stroke-linecap: round; stroke-linejoin: round; vector-effect: non-scaling-stroke; filter: drop-shadow(0 0 4px var(--diagram-focus-glow)); animation: focus-dash-flow 2.4s linear infinite; pointer-events: none; }
     svg path.asset-focus-object, svg polyline.asset-focus-object, svg line.asset-focus-object { fill: none !important; fill-opacity: 0 !important; pointer-events: none; }
     svg .asset-focus-match { fill: var(--diagram-focus) !important; stroke: none !important; filter: none; animation: none; }
     .diagram-preview-canvas svg text.asset-focus-match,
@@ -105,7 +110,7 @@ def plantuml_svg_styles() -> str:
     .diagram-preview-canvas svg text.asset-focus-contained-text,
     .diagram-zoom-stage svg text.asset-focus-contained-text,
     .diagram-preview-canvas svg tspan.asset-focus-contained-text,
-    .diagram-zoom-stage svg tspan.asset-focus-contained-text { fill: var(--diagram-svg-text) !important; stroke: none !important; filter: none; }
+    .diagram-zoom-stage svg tspan.asset-focus-contained-text { fill: var(--diagram-focus-text) !important; stroke: none !important; filter: none; }
     svg .diagram-note-panel { opacity: 0; pointer-events: none; transition: opacity .12s ease; }
     svg .diagram-note-hover .diagram-note-panel, svg .diagram-note-hotspot:hover .diagram-note-panel { opacity: 1; pointer-events: auto; }
     svg .diagram-note-box { fill: var(--diagram-note-bg); stroke: var(--diagram-note-link); stroke-width: 1.8px; rx: 6px; ry: 6px; filter: drop-shadow(0 2px 4px rgba(15,23,42,.22)); }
@@ -134,8 +139,8 @@ def plantuml_svg_styles() -> str:
     svg .asset-focus-connector.diagram-code-link-connector { stroke: var(--diagram-focus) !important; stroke-width: 3px !important; opacity: .95; }
     svg polygon.asset-focus-connector.diagram-code-link-connector { fill: var(--diagram-focus) !important; }
     svg text.asset-focus-match.diagram-code-link-target, svg tspan.asset-focus-match.diagram-code-link-target { fill: var(--diagram-focus) !important; stroke: none !important; }
-    svg .asset-focus-related-hover { stroke: var(--diagram-focus) !important; fill: var(--diagram-focus) !important; opacity: 1 !important; filter: none; }
-    svg text.asset-focus-related-hover, svg tspan.asset-focus-related-hover { fill: var(--diagram-focus) !important; stroke: none !important; }
+    svg .asset-focus-related-hover { stroke: var(--diagram-focus) !important; fill: var(--diagram-focus) !important; fill-opacity: .08 !important; opacity: 1 !important; filter: none; }
+    svg text.asset-focus-related-hover, svg tspan.asset-focus-related-hover { fill: var(--diagram-focus) !important; fill-opacity: 1 !important; stroke: none !important; }
     svg .asset-search-match { fill: #cf222e !important; stroke: none !important; }
     svg .asset-search-submatch { fill: transparent; stroke: #ff4d5e; stroke-width: 2px; vector-effect: non-scaling-stroke; opacity: .98; }
     svg .asset-search-current { fill: #ff2a3d !important; stroke: none !important; filter: none; font-weight: 800 !important; text-decoration: underline; text-decoration-thickness: 2px; text-underline-offset: 3px; }
@@ -163,14 +168,16 @@ svg tspan:not(.diagram-note-text):not(.diagram-note-marker-text):not(.asset-focu
 svg line:not(.asset-focus-connector):not(.diagram-code-link-connector):not(.diagram-note-link),
 svg path:not(.asset-focus-object):not(.asset-focus-connector):not(.diagram-note-box):not(.diagram-note-link):not(.diagram-code-link-connector),
 svg polyline:not(.asset-focus-connector):not(.diagram-code-link-connector) {{ stroke: {colors["line"]} !important; }}
-svg polygon:not(.asset-focus-connector):not(.asset-focus-object):not(.diagram-code-link-connector):not([fill="#FFFFFF"]):not([fill="#FEFECE"]):not([fill="#EEEEEE"]):not([fill="#2D2D30"]):not([fill="#252526"]):not([fill="#3B3216"]):not([fill="#FBFB77"]) {{ fill: {colors["arrow"]} !important; stroke: {colors["arrow"]} !important; stroke-width: 1.4px !important; }}
+svg polygon:not(.asset-focus-connector):not(.asset-focus-object):not(.diagram-code-link-connector):not([fill="#FFFFFF"]):not([fill="#FEFECE"]):not([fill="#F5F5F5"]):not([fill="#EEEEEE"]):not([fill="#2D2D30"]):not([fill="#252526"]):not([fill="#3B3216"]):not([fill="#FBFB77"]) {{ fill: {colors["arrow"]} !important; stroke: {colors["arrow"]} !important; stroke-width: 1.4px !important; }}
 svg polygon[fill="#FFFFFF"]:not(.asset-focus-object),
 svg polygon[fill="#FEFECE"]:not(.asset-focus-object),
+svg polygon[fill="#F5F5F5"]:not(.asset-focus-object),
 svg polygon[fill="#EEEEEE"]:not(.asset-focus-object),
 svg polygon[fill="#2D2D30"]:not(.asset-focus-object),
 svg polygon[fill="#252526"]:not(.asset-focus-object),
 svg path[fill="#FFFFFF"]:not(.asset-focus-object),
 svg path[fill="#FEFECE"]:not(.asset-focus-object),
+svg path[fill="#F5F5F5"]:not(.asset-focus-object),
 svg path[fill="#2D2D30"]:not(.asset-focus-object),
 svg rect:not(.diagram-note-box):not(.diagram-code-link-badge-box),
 svg ellipse[fill="#FFFFFF"]:not(.asset-focus-object),

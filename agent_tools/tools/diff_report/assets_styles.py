@@ -55,6 +55,7 @@ def stylesheet() -> str:
       --diagram-code-target-border: #ca5010;
       --diagram-code-file: #0969da;
       --diagram-focus: #52657f;
+      --diagram-focus-text: #ffffff;
       --diagram-focus-glow: rgba(82,101,127,.32);
       --diagram-link: #107c10;
       --diagram-link-bg: #e9f5e9;
@@ -175,6 +176,7 @@ def stylesheet() -> str:
       --diagram-code-target-border: #3794ff;
       --diagram-code-file: #9cdcfe;
       --diagram-focus: #9cdcfe;
+      --diagram-focus-text: #111827;
       --diagram-focus-glow: rgba(156,220,254,.42);
       --diagram-link: #4ec9b0;
       --diagram-link-bg: #173f3a;
@@ -391,7 +393,7 @@ def stylesheet() -> str:
     .report-metric-cell-part.status-not-run, .report-metric-cell-part.status-not-done, .report-metric-cell-part.status-unknown, .report-metric-cell-part.status-needs-evidence { color: var(--muted); }
     .report-table-filter { display: grid; gap: 5px; max-width: 460px; margin-bottom: 10px; }
     .report-table-filter input { min-height: 36px; padding: 0 10px; border: 1px solid var(--border); border-radius: 6px; background: var(--button-bg); color: var(--text); font: inherit; }
-    .report-table-wrap { max-width: 100%; overflow-x: auto; overflow-y: visible; border: 1px solid var(--border); border-radius: 8px; }
+    .report-table-wrap { max-width: 100%; height: fit-content; overflow-x: auto; overflow-y: hidden; border: 1px solid var(--border); border-radius: 8px; }
     .report-table { width: 100%; min-width: 720px; border-collapse: separate; border-spacing: 0; table-layout: auto; }
     .report-table th, .report-table td { padding: 9px 10px; border-bottom: 1px solid var(--border); border-right: 1px solid var(--border); text-align: left; vertical-align: top; overflow-wrap: anywhere; }
     .report-table th:last-child, .report-table td:last-child { border-right: 0; }

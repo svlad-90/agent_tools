@@ -2485,6 +2485,28 @@ def _relationship_graph_script() -> str:
   let cachedCytoscapeStyleTheme = "";
   let cachedCytoscapeStyle = null;
 
+  function axisAlignedEndpoint(edge, side) {
+    const node = side === "source" ? edge.source() : edge.target();
+    const peer = side === "source" ? edge.target() : edge.source();
+    if (!node || !peer || !node.length || !peer.length) return "outside-to-node";
+    const nodePosition = node.position();
+    const peerPosition = peer.position();
+    const dx = peerPosition.x - nodePosition.x;
+    const dy = peerPosition.y - nodePosition.y;
+    if (Math.abs(dx) >= Math.abs(dy)) {
+      return `${dx >= 0 ? 50 : -50}% 0%`;
+    }
+    return `0% ${dy >= 0 ? 50 : -50}%`;
+  }
+
+  function axisAlignedSourceEndpoint(edge) {
+    return axisAlignedEndpoint(edge, "source");
+  }
+
+  function axisAlignedTargetEndpoint(edge) {
+    return axisAlignedEndpoint(edge, "target");
+  }
+
   function cytoscapeStyle() {
     const theme = document.documentElement.dataset.theme || "";
     if (cachedCytoscapeStyle && cachedCytoscapeStyleTheme === theme) {
@@ -2543,7 +2565,7 @@ def _relationship_graph_script() -> str:
       {selector: 'node[type = "evidence"]', style: {"shape": "round-tag", "background-color": metaPanel}},
       {selector: ".is-list-item", style: {"width": 190, "height": 58, "text-max-width": 162, "font-size": 9}},
       {selector: '.is-list-item[type = "cdd"]', style: {"width": 122, "height": 80, "text-max-width": 92}},
-      {selector: "edge", style: {"width": 1.4, "line-color": muted, "target-arrow-color": muted, "target-arrow-shape": "triangle", "curve-style": "bezier", "opacity": .52}},
+      {selector: "edge", style: {"width": 1.4, "line-color": muted, "target-arrow-color": muted, "target-arrow-shape": "triangle", "curve-style": "bezier", "edge-distances": "endpoints", "source-endpoint": axisAlignedSourceEndpoint, "target-endpoint": axisAlignedTargetEndpoint, "opacity": .52}},
       {selector: ".status-covered, .status-covered-candidate, .status-pass, .status-not-failed, .status-available, .status-mapped, .status-high", style: {"border-color": pass, "background-color": passBg}},
       {selector: ".status-risk, .status-needs-evidence, .status-not-applicable-candidate, .status-warning, .status-assumption-failure, .status-skip, .status-skipped, .status-auto-warning-candidate, .status-medium, .status-assumption", style: {"border-color": risk, "background-color": riskBg}},
       {selector: ".status-gap, .status-fail, .status-blocked, .status-auto-fail-candidate, .status-not-available, .status-not-mapped, .status-pending, .status-low", style: {"border-color": fail, "background-color": failBg}},
