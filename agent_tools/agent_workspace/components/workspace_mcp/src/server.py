@@ -145,6 +145,8 @@ class WorkspaceMcpServer:
         from .cpp_code_map_tools import cpp_code_map_tools
         from .cpp_light_code_map_tools import cpp_light_code_map_tools
         from .diff_report_tools import diff_report_tools
+        from .java_code_map_tools import java_code_map_tools
+        from .java_light_code_map_tools import java_light_code_map_tools
         from .push_guard_tools import push_guard_tools
         from .repo_registry_tools import repo_registry_tools
         from .repo_guard_tools import repo_guard_tools
@@ -161,6 +163,8 @@ class WorkspaceMcpServer:
             cpp_code_map_tools(),
             cpp_light_code_map_tools(),
             diff_report_tools(),
+            java_code_map_tools(),
+            java_light_code_map_tools(),
             push_guard_tools(),
             repo_registry_tools(),
             repo_guard_tools(),

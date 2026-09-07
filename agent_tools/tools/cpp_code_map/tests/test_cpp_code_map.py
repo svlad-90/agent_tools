@@ -15,6 +15,7 @@ from agent_tools.tools.cpp_code_map.core import (
     apply_batch_edits,
     build_compile_doctor,
     render_code_map,
+    render_parse_checks,
     render_symbol_snapshot,
     render_symbol_index,
     replace_symbol_body,
@@ -163,6 +164,110 @@ class CppCodeMapTests(unittest.TestCase):
         self.assertEqual(1, len(result["files"]))
         self.assertGreater(result["files"][0]["symbol_count"], 0)
 
+    def test_render_parse_checks_reports_multiple_files(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            source = _write_sample_project(root)
+            second = root / "second.cpp"
+            second.write_text("int second() { return 2; }\n", encoding="utf-8")
+            _write_compile_db(root, source, second)
+
+            result = json.loads(render_parse_checks((source, second), root, json_output=True))
+
+        self.assertTrue(result["ok"])
+        self.assertEqual([str(source), str(second)], [item["file"] for item in result["files"]])
+        self.assertEqual([True, True], [item["ok"] for item in result["files"]])
+
+    def test_parse_check_cli_accepts_multiple_files(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            source = _write_sample_project(root)
+            second = root / "second.cpp"
+            second.write_text("int second() { return 2; }\n", encoding="utf-8")
+            _write_compile_db(root, source, second)
+
+            completed = subprocess.run(
+                [
+                    sys.executable,
+                    "-m",
+                    "agent_tools.tools.cpp_code_map",
+                    "parse-check",
+                    str(source),
+                    str(second),
+                    "--compile-db",
+                    str(root),
+                    "--json",
+                ],
+                check=False,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+            )
+
+        result = json.loads(completed.stdout)
+        self.assertEqual("", completed.stderr)
+        self.assertEqual(0, completed.returncode)
+        self.assertTrue(result["ok"])
+        self.assertEqual(2, len(result["files"]))
+
+    def test_parse_check_cli_keeps_single_file_json_shape(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            source = _write_sample_project(root)
+
+            completed = subprocess.run(
+                [
+                    sys.executable,
+                    "-m",
+                    "agent_tools.tools.cpp_code_map",
+                    "parse-check",
+                    str(source),
+                    "--compile-db",
+                    str(root),
+                    "--json",
+                ],
+                check=False,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+            )
+
+        result = json.loads(completed.stdout)
+        self.assertEqual("", completed.stderr)
+        self.assertEqual(0, completed.returncode)
+        self.assertEqual(["diagnostics", "ok"], sorted(result))
+        self.assertTrue(result["ok"])
+
+    def test_parse_check_cli_fails_when_one_file_fails(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            source = _write_sample_project(root)
+            missing = root / "missing.cpp"
+
+            completed = subprocess.run(
+                [
+                    sys.executable,
+                    "-m",
+                    "agent_tools.tools.cpp_code_map",
+                    "parse-check",
+                    str(source),
+                    str(missing),
+                    "--compile-db",
+                    str(root),
+                    "--json",
+                ],
+                check=False,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+            )
+
+        result = json.loads(completed.stdout)
+        self.assertEqual("", completed.stderr)
+        self.assertEqual(2, completed.returncode)
+        self.assertFalse(result["ok"])
+        self.assertEqual([True, False], [item["ok"] for item in result["files"]])
+
     def test_workspace_module_entry_point_resolves(self) -> None:
         completed = subprocess.run(
             [sys.executable, "-m", "agent_tools.tools.cpp_code_map", "help"],
@@ -194,22 +299,25 @@ def _write_sample_project(root: Path) -> Path:
     return source
 
 
-def _write_compile_db(root: Path, source: Path) -> None:
+def _write_compile_db(root: Path, *sources: Path) -> None:
     (root / "compile_commands.json").write_text(
-        json.dumps([
-            {
-                "directory": str(root),
-                "arguments": [
-                    "/usr/bin/c++",
-                    "-std=c++17",
-                    "-c",
-                    str(source),
-                    "-o",
-                    f"{source.stem}.o",
-                ],
-                "file": str(source),
-            }
-        ]),
+        json.dumps(
+            [
+                {
+                    "directory": str(root),
+                    "arguments": [
+                        "/usr/bin/c++",
+                        "-std=c++17",
+                        "-c",
+                        str(source),
+                        "-o",
+                        f"{source.stem}.o",
+                    ],
+                    "file": str(source),
+                }
+                for source in sources
+            ]
+        ),
         encoding="utf-8",
     )
 

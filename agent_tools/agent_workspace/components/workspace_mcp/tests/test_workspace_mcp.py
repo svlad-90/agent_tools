@@ -2,10 +2,12 @@ from __future__ import annotations
 
 import io
 import json
+import os
 from pathlib import Path
 import subprocess
 import sys
 from typing import Any
+from unittest import mock
 
 from agent_tools.agent_workspace.components.workspace_mcp.api import build_workspace_mcp_server
 from agent_tools.agent_workspace.components.workspace_mcp.api import workspace_mcp_stdio_config
@@ -72,6 +74,41 @@ def test_workspace_mcp_lists_agent_search_tools(tmp_path: Path) -> None:
         "diff_report_init_comments",
         "diff_report_render",
         "diff_report_render_json",
+        "java_code_map_batch",
+        "java_code_map_call_graph",
+        "java_code_map_calls",
+        "java_code_map_doctor",
+        "java_code_map_imports_add",
+        "java_code_map_index",
+        "java_code_map_insert_after_symbol",
+        "java_code_map_insert_before_symbol",
+        "java_code_map_map",
+        "java_code_map_parse_check",
+        "java_code_map_refs",
+        "java_code_map_replace_symbol",
+        "java_code_map_replace_symbol_body",
+        "java_code_map_symbol_get",
+        "java_light_annotations",
+        "java_light_call_graph",
+        "java_light_calls",
+        "java_light_complexity",
+        "java_light_diagnose",
+        "java_light_imports",
+        "java_light_index",
+        "java_light_index_dir",
+        "java_light_insert_after_symbol",
+        "java_light_insert_before_symbol",
+        "java_light_locals",
+        "java_light_map",
+        "java_light_parse_check",
+        "java_light_query",
+        "java_light_refs",
+        "java_light_rename_symbol",
+        "java_light_replace_symbol",
+        "java_light_replace_symbol_body",
+        "java_light_symbol_get",
+        "java_light_symbols",
+        "java_light_unmapped",
         "push_guard_check",
         "push_guard_check_staged",
         "push_guard_install_hook",
@@ -160,6 +197,22 @@ def test_workspace_mcp_keeps_required_tools_enabled(tmp_path: Path) -> None:
     assert "task_actions_list" in names
     assert "commit_msg_format" in names
     assert "workspace_validate" in names
+    assert "code_map_map" not in names
+
+
+def test_workspace_mcp_filters_java_tool_group(tmp_path: Path) -> None:
+    server = build_workspace_mcp_server(tmp_path, enabled_tool_groups=("java",))
+
+    response = server.handle_message({"jsonrpc": "2.0", "id": 1, "method": "tools/list"})
+
+    assert response is not None
+    names = [tool["name"] for tool in response["result"]["tools"]]
+    assert "java_code_map_map" in names
+    assert "java_light_map" in names
+    assert "java_code_map_parse_check" in names
+    assert "java_light_parse_check" in names
+    assert "task_context_query" in names
+    assert "cpp_light_map" not in names
     assert "code_map_map" not in names
 
 
@@ -530,6 +583,41 @@ with tempfile.TemporaryDirectory() as workspace_text:
         "diff_report_init_comments",
         "diff_report_render",
         "diff_report_render_json",
+        "java_code_map_batch",
+        "java_code_map_call_graph",
+        "java_code_map_calls",
+        "java_code_map_doctor",
+        "java_code_map_imports_add",
+        "java_code_map_index",
+        "java_code_map_insert_after_symbol",
+        "java_code_map_insert_before_symbol",
+        "java_code_map_map",
+        "java_code_map_parse_check",
+        "java_code_map_refs",
+        "java_code_map_replace_symbol",
+        "java_code_map_replace_symbol_body",
+        "java_code_map_symbol_get",
+        "java_light_annotations",
+        "java_light_call_graph",
+        "java_light_calls",
+        "java_light_complexity",
+        "java_light_diagnose",
+        "java_light_imports",
+        "java_light_index",
+        "java_light_index_dir",
+        "java_light_insert_after_symbol",
+        "java_light_insert_before_symbol",
+        "java_light_locals",
+        "java_light_map",
+        "java_light_parse_check",
+        "java_light_query",
+        "java_light_refs",
+        "java_light_rename_symbol",
+        "java_light_replace_symbol",
+        "java_light_replace_symbol_body",
+        "java_light_symbol_get",
+        "java_light_symbols",
+        "java_light_unmapped",
         "push_guard_check",
         "push_guard_check_staged",
         "push_guard_install_hook",
@@ -1059,8 +1147,306 @@ def test_workspace_mcp_cpp_light_blocks_paths_outside_workspace(tmp_path: Path) 
     assert "outside workspace" in response["result"]["content"][0]["text"]
 
 
+def test_workspace_mcp_java_light_inspects_edits_indexes_and_queries(tmp_path: Path) -> None:
+    source = tmp_path / "SlayerPlugin.java"
+    source.write_text(
+        "package dev.agent;\n"
+        "\n"
+        "import org.bukkit.plugin.java.JavaPlugin;\n"
+        "\n"
+        "public class SlayerPlugin extends JavaPlugin {\n"
+        "    public int reward(int amount) {\n"
+        "        getServer();\n"
+        "        return amount;\n"
+        "    }\n"
+        "}\n",
+        encoding="utf-8",
+    )
+    server = build_workspace_mcp_server(tmp_path)
+
+    mapped = _mcp_call(server, "java_light_map", {"path": "SlayerPlugin.java", "output_format": "json"})
+    imports = _mcp_call(server, "java_light_imports", {"path": "SlayerPlugin.java", "output_format": "json"})
+    symbol = _mcp_call(
+        server,
+        "java_light_symbol_get",
+        {"path": "SlayerPlugin.java", "symbol": "reward", "output_format": "json"},
+    )
+    body_hash = symbol["result"]["structuredContent"]["body_hash"]
+    replaced = _mcp_call(
+        server,
+        "java_light_replace_symbol_body",
+        {
+            "path": "SlayerPlugin.java",
+            "symbol": "reward",
+            "expect_hash": body_hash,
+            "replacement": "        return 2;\n",
+            "output_format": "json",
+        },
+    )
+    parsed = _mcp_call(server, "java_light_parse_check", {"path": "SlayerPlugin.java", "output_format": "json"})
+    stale = _mcp_call(
+        server,
+        "java_light_replace_symbol_body",
+        {
+            "path": "SlayerPlugin.java",
+            "symbol": "reward",
+            "expect_hash": body_hash,
+            "replacement": "        return 3;\n",
+            "output_format": "json",
+        },
+    )
+    indexed = _mcp_call(
+        server,
+        "java_light_index",
+        {"paths": ["SlayerPlugin.java"], "cache_dir": "cache", "output_format": "json"},
+    )
+    queried = _mcp_call(
+        server,
+        "java_light_query",
+        {"name": "reward", "cache_dir": "cache", "output_format": "json"},
+    )
+
+    assert mapped["result"]["isError"] is False
+    assert mapped["result"]["structuredContent"]["symbols"][0]["qualified_name"] == "dev.agent.SlayerPlugin"
+    assert imports["result"]["structuredContent"]["imports"][1]["text"] == "import org.bukkit.plugin.java.JavaPlugin;"
+    assert replaced["result"]["structuredContent"]["changed"] is True
+    assert parsed["result"]["isError"] is False
+    assert stale["result"]["isError"] is True
+    assert stale["result"]["structuredContent"]["error"] == "symbol body hash mismatch"
+    assert indexed["result"]["structuredContent"]["ok"] is True
+    assert queried["result"]["structuredContent"]["matches"][0]["symbol"]["qualified_name"] == "dev.agent.SlayerPlugin.reward"
+    assert "return 2;" in source.read_text(encoding="utf-8")
+
+
+def test_workspace_mcp_java_light_blocks_paths_outside_workspace(tmp_path: Path) -> None:
+    server = build_workspace_mcp_server(tmp_path)
+
+    response = _mcp_call(
+        server,
+        "java_light_map",
+        {"path": str(tmp_path.parent / "outside.java")},
+    )
+
+    assert response["result"]["isError"] is True
+    assert "outside workspace" in response["result"]["content"][0]["text"]
+
+
+def test_workspace_mcp_java_code_map_validates_edits_indexes_and_batches(tmp_path: Path) -> None:
+    source = tmp_path / "Plugin.java"
+    source.write_text(
+        "package sample;\n"
+        "\n"
+        "public class Plugin {\n"
+        "    public int reward(int amount) {\n"
+        "        return amount;\n"
+        "    }\n"
+        "}\n",
+        encoding="utf-8",
+    )
+    _write_fake_javac(tmp_path, exit_code=0)
+    server = build_workspace_mcp_server(tmp_path)
+
+    with mock.patch.dict(os.environ, {"PATH": str(tmp_path)}):
+        mapped = _mcp_call(server, "java_code_map_map", {"path": "Plugin.java", "output_format": "json"})
+        parsed = _mcp_call(server, "java_code_map_parse_check", {"path": "Plugin.java", "output_format": "json"})
+        parsed_many = _mcp_call(
+            server,
+            "java_code_map_parse_check",
+            {"paths": ["Plugin.java"], "output_format": "json"},
+        )
+        symbol = _mcp_call(
+            server,
+            "java_code_map_symbol_get",
+            {"path": "Plugin.java", "symbol": "reward", "output_format": "json"},
+        )
+        body_hash = symbol["result"]["structuredContent"]["body_hash"]
+        replaced = _mcp_call(
+            server,
+            "java_code_map_replace_symbol_body",
+            {
+                "path": "Plugin.java",
+                "symbol": "reward",
+                "expect_hash": body_hash,
+                "replacement": "        return amount + 1;\n",
+                "output_format": "json",
+            },
+        )
+        imported = _mcp_call(
+            server,
+            "java_code_map_imports_add",
+            {
+                "path": "Plugin.java",
+                "import": "java.util.List",
+                "check_only": True,
+                "output_format": "json",
+            },
+        )
+        indexed = _mcp_call(
+            server,
+            "java_code_map_index",
+            {"paths": ["Plugin.java"], "cache_dir": "cache", "output_format": "json"},
+        )
+        batch = _mcp_call(
+            server,
+            "java_code_map_batch",
+            {
+                "plan": {
+                    "operations": [
+                        {
+                            "operation": "imports-add",
+                            "file_path": "Plugin.java",
+                            "import": "java.util.Map",
+                        }
+                    ]
+                },
+                "check_only": True,
+                "output_format": "json",
+            },
+        )
+    assert mapped["result"]["isError"] is False
+    assert mapped["result"]["structuredContent"]["compile_validated"] is True
+    assert parsed["result"]["structuredContent"]["ok"] is True
+    assert parsed_many["result"]["structuredContent"]["ok"] is True
+    assert symbol["result"]["structuredContent"]["qualified_name"] == "sample.Plugin.reward"
+    assert replaced["result"]["structuredContent"]["changed"] is True
+    assert imported["result"]["structuredContent"]["changed"] is True
+    assert imported["result"]["structuredContent"]["check_only"] is True
+    assert indexed["result"]["structuredContent"]["ok"] is True
+    assert batch["result"]["structuredContent"]["operations"][0]["operation"] == "imports-add"
+    assert "return amount + 1;" in source.read_text(encoding="utf-8")
+
+
+def test_workspace_mcp_java_code_map_can_force_jdt_backend(tmp_path: Path) -> None:
+    source = tmp_path / "Plugin.java"
+    source.write_text(
+        "package sample;\n"
+        "\n"
+        "public class Plugin {\n"
+        "    public int reward(int amount) {\n"
+        "        return amount;\n"
+        "    }\n"
+        "}\n",
+        encoding="utf-8",
+    )
+    _write_fake_javac(tmp_path, exit_code=0)
+    helper = _write_fake_jdt_helper(tmp_path, source)
+    server = build_workspace_mcp_server(tmp_path)
+
+    with mock.patch.dict(os.environ, {"PATH": str(tmp_path)}):
+        mapped = _mcp_call(
+            server,
+            "java_code_map_map",
+            {
+                "path": "Plugin.java",
+                "ast_backend": "jdt",
+                "jdt_helper": helper.name,
+                "output_format": "json",
+            },
+        )
+        symbol = _mcp_call(
+            server,
+            "java_code_map_symbol_get",
+            {
+                "path": "Plugin.java",
+                "symbol": "sample.Plugin.reward",
+                "ast_backend": "jdt",
+                "jdt_helper": helper.name,
+                "output_format": "json",
+            },
+        )
+        replaced = _mcp_call(
+            server,
+            "java_code_map_replace_symbol_body",
+            {
+                "path": "Plugin.java",
+                "symbol": "sample.Plugin.reward",
+                "expect_hash": "body-hash",
+                "replacement": "        return amount + 2;\n",
+                "ast_backend": "jdt",
+                "jdt_helper": helper.name,
+                "output_format": "json",
+            },
+        )
+        calls = _mcp_call(
+            server,
+            "java_code_map_calls",
+            {
+                "path": "Plugin.java",
+                "symbol": "sample.Plugin.reward",
+                "ast_backend": "jdt",
+                "jdt_helper": helper.name,
+                "output_format": "json",
+            },
+        )
+        refs = _mcp_call(
+            server,
+            "java_code_map_refs",
+            {
+                "path": "Plugin.java",
+                "name": "sample.Plugin.rewards",
+                "scope": "sample.Plugin.reward",
+                "ast_backend": "jdt",
+                "jdt_helper": helper.name,
+                "output_format": "json",
+            },
+        )
+        graph = _mcp_call(
+            server,
+            "java_code_map_call_graph",
+            {
+                "path": "Plugin.java",
+                "ast_backend": "jdt",
+                "jdt_helper": helper.name,
+                "output_format": "json",
+            },
+        )
+
+    assert mapped["result"]["isError"] is False
+    assert mapped["result"]["structuredContent"]["ast_backend"] == "jdt"
+    assert mapped["result"]["structuredContent"]["semantic"] is True
+    assert mapped["result"]["structuredContent"]["symbols"][0]["qualified_name"] == "sample.Plugin"
+    assert symbol["result"]["structuredContent"]["body_hash"] == "body-hash"
+    assert replaced["result"]["isError"] is False
+    assert replaced["result"]["structuredContent"]["old_hash"] == "body-hash"
+    assert calls["result"]["structuredContent"]["calls"][0]["qualified_name"] == "sample.Plugin.helper"
+    assert refs["result"]["structuredContent"]["refs"][0]["qualified_name"] == "sample.Plugin.rewards"
+    assert graph["result"]["structuredContent"]["edges"][0]["from"] == "sample.Plugin.reward"
+    assert "return amount + 2;" in source.read_text(encoding="utf-8")
+
+
+def test_workspace_mcp_java_code_map_blocks_paths_outside_workspace(tmp_path: Path) -> None:
+    server = build_workspace_mcp_server(tmp_path)
+
+    response = _mcp_call(
+        server,
+        "java_code_map_map",
+        {"path": str(tmp_path.parent / "outside.java")},
+    )
+
+    assert response["result"]["isError"] is True
+    assert "outside workspace" in response["result"]["content"][0]["text"]
+
+
 def test_workspace_mcp_cpp_code_map_inspects_edits_indexes_and_batches(tmp_path: Path) -> None:
     source = _write_cpp_sample_project(tmp_path)
+    second = tmp_path / "second.cpp"
+    second.write_text("int second() { return 2; }\n", encoding="utf-8")
+    compile_db = json.loads((tmp_path / "compile_commands.json").read_text(encoding="utf-8"))
+    compile_db.append(
+        {
+            "directory": str(tmp_path),
+            "arguments": [
+                "/usr/bin/c++",
+                "-std=c++17",
+                "-c",
+                str(second),
+                "-o",
+                "second.o",
+            ],
+            "file": str(second),
+        }
+    )
+    (tmp_path / "compile_commands.json").write_text(json.dumps(compile_db), encoding="utf-8")
     server = build_workspace_mcp_server(tmp_path)
 
     mapped = _mcp_call(
@@ -1105,6 +1491,11 @@ def test_workspace_mcp_cpp_code_map_inspects_edits_indexes_and_batches(tmp_path:
         "cpp_code_map_parse_check",
         {"path": "sample.cpp", "compile_db": ".", "output_format": "json"},
     )
+    parsed_many = _mcp_call(
+        server,
+        "cpp_code_map_parse_check",
+        {"paths": ["sample.cpp", "second.cpp"], "compile_db": ".", "output_format": "json"},
+    )
     stale = _mcp_call(
         server,
         "cpp_code_map_replace_symbol_body",
@@ -1143,6 +1534,8 @@ def test_workspace_mcp_cpp_code_map_inspects_edits_indexes_and_batches(tmp_path:
     assert include["result"]["structuredContent"]["changed"] is True
     assert replaced["result"]["structuredContent"]["changed"] is True
     assert parsed["result"]["structuredContent"]["ok"] is True
+    assert parsed_many["result"]["structuredContent"]["ok"] is True
+    assert len(parsed_many["result"]["structuredContent"]["files"]) == 2
     assert stale["result"]["isError"] is True
     assert stale["result"]["structuredContent"]["error"].startswith("symbol body hash mismatch")
     assert indexed["result"]["structuredContent"]["ok"] is True
@@ -1834,6 +2227,137 @@ def _write_yocto_graphs(prefix: Path) -> None:
 def _write_text(path: Path, text: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(text, encoding="utf-8")
+
+
+def _write_fake_javac(root: Path, *, exit_code: int, stderr: str = "") -> Path:
+    javac = root / "javac"
+    javac.write_text(
+        "#!/bin/sh\n"
+        f"printf '%s\\n' '{stderr}' >&2\n"
+        f"exit {exit_code}\n",
+        encoding="utf-8",
+    )
+    javac.chmod(0o755)
+    return javac
+
+
+def _write_fake_jdt_helper(root: Path, source: Path) -> Path:
+    helper = root / "jdt-helper"
+    text = source.read_text(encoding="utf-8")
+    class_start = text.index("public class Plugin")
+    method_start = text.index("public int reward")
+    method_end = text.index("    }\n", method_start) + len("    }\n")
+    body_start = text.index("{", method_start) + 1
+    body_end = text.rindex("}", method_start, method_end)
+    return_offset = text.index("return amount")
+    method_name_offset = text.index("reward")
+    payload = {
+        "file": str(source),
+        "schema_version": 1,
+        "engine": "jdt",
+        "ast_backend": "jdt",
+        "semantic": True,
+        "confidence": "jdt-ast",
+        "diagnostics": [],
+        "symbols": [
+            {
+                "name": "Plugin",
+                "qualified_name": "sample.Plugin",
+                "kind": "class",
+                "span": {
+                    "start_line": 3,
+                    "start_column": 1,
+                    "end_line": 8,
+                    "end_column": 2,
+                    "start_offset": class_start,
+                    "end_offset": len(text),
+                },
+                "body_span": None,
+                "hash": "class-hash",
+                "body_hash": None,
+                "children": [
+                    {
+                        "name": "reward",
+                        "qualified_name": "sample.Plugin.reward",
+                        "kind": "method",
+                        "span": {
+                            "start_line": 4,
+                            "start_column": 5,
+                            "end_line": 6,
+                            "end_column": 6,
+                            "start_offset": method_start,
+                            "end_offset": method_end,
+                        },
+                        "body_span": {
+                            "start_line": 4,
+                            "start_column": 35,
+                            "end_line": 6,
+                            "end_column": 5,
+                            "start_offset": body_start,
+                            "end_offset": body_end,
+                        },
+                        "hash": "method-hash",
+                        "body_hash": "body-hash",
+                        "children": [],
+                    }
+                ],
+            }
+        ],
+        "references": [
+            {
+                "name": "rewards",
+                "qualified_name": "sample.Plugin.rewards",
+                "binding_key": "Lsample/Plugin;.rewards",
+                "binding_kind": "field",
+                "kind": "reference",
+                "line": 5,
+                "column": 16,
+                "span": {
+                    "start_line": 5,
+                    "start_column": 16,
+                    "end_line": 5,
+                    "end_column": 22,
+                    "start_offset": return_offset,
+                    "end_offset": return_offset + len("return"),
+                },
+                "text": "rewards",
+                "enclosing_symbol": "sample.Plugin.reward",
+            }
+        ],
+        "calls": [
+            {
+                "name": "helper",
+                "qualified_name": "sample.Plugin.helper",
+                "binding_key": "Lsample/Plugin;.helper()I",
+                "kind": "method_invocation",
+                "line": 4,
+                "column": 16,
+                "span": {
+                    "start_line": 4,
+                    "start_column": 16,
+                    "end_line": 4,
+                    "end_column": 22,
+                    "start_offset": method_name_offset,
+                    "end_offset": method_name_offset + len("reward"),
+                },
+                "text": "helper",
+                "enclosing_symbol": "sample.Plugin.reward",
+            }
+        ],
+        "call_graph": [
+            {
+                "from": "sample.Plugin.reward",
+                "to": "sample.Plugin.helper",
+                "name": "helper",
+                "line": 4,
+                "column": 16,
+                "binding_key": "Lsample/Plugin;.helper()I",
+            }
+        ],
+    }
+    helper.write_text("#!/bin/sh\nprintf '%s\\n' '" + json.dumps(payload) + "'\n", encoding="utf-8")
+    helper.chmod(0o755)
+    return helper
 
 
 def _git(repo: Path, *args: str) -> subprocess.CompletedProcess[str]:

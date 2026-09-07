@@ -32,5 +32,6 @@ RUN python3 -m pip install --upgrade pip \
 		pytest \
 		tree-sitter \
 		tree-sitter-cpp \
+		tree-sitter-java \
 		types-PyYAML \
 		west

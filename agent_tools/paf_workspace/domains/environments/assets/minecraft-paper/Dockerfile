@@ -28,7 +28,8 @@ RUN python3 -m venv "${VIRTUAL_ENV}" \
 	&& pip3 install --upgrade \
 		PyYAML \
 		tree-sitter \
-		tree-sitter-cpp
+		tree-sitter-cpp \
+		tree-sitter-java
 
 RUN curl -fsSL "https://services.gradle.org/distributions/gradle-${GRADLE_VERSION}-bin.zip" \
 		-o /tmp/gradle.zip \
