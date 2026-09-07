@@ -294,7 +294,7 @@ class Pr139ReportRegressionTests(unittest.TestCase):
             "const sourceArea = Math.max(box.width * box.height, 1);",
             "if (area > Math.max(65000, sourceArea * 28))",
             "function markSvgTextInsideShape(shape, sourceLabel)",
-            "asset-focus-contained-text",
+            "asset-focus-contained-text { fill: var(--diagram-svg-text) !important; fill-opacity: 1 !important; stroke: none !important; filter: none; }",
             'node.classList.contains("diagram-note-link")',
             "function scheduleSearch(resetIndex)",
             "window.requestAnimationFrame(function ()",

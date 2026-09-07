@@ -160,7 +160,7 @@ class AssetContractTests(unittest.TestCase):
             "svg .asset-focus-related-hover { stroke: var(--diagram-focus) !important; fill: var(--diagram-focus) !important; fill-opacity: .08 !important; opacity: 1 !important; filter: none; }",
             "svg text.asset-focus-related-hover, svg tspan.asset-focus-related-hover { fill: var(--diagram-focus) !important; fill-opacity: 1 !important; stroke: none !important; }",
             "svg text.asset-focus-contained-text",
-            "asset-focus-contained-text { fill: var(--diagram-focus-text) !important; stroke: none !important; filter: none; }",
+            "asset-focus-contained-text { fill: var(--diagram-svg-text) !important; fill-opacity: 1 !important; stroke: none !important; filter: none; }",
             "svg .diagram-note-box.asset-focus-object { fill: var(--diagram-note-bg) !important; fill-opacity: 1 !important; stroke: var(--diagram-focus) !important; stroke-width: 4px !important; stroke-dasharray: 8 8; stroke-linecap: round; stroke-linejoin: round; vector-effect: non-scaling-stroke; filter: none; animation: focus-dash-flow 2.4s linear infinite; }",
             "svg .diagram-note-link { fill: none; stroke: var(--diagram-focus); stroke-width: 1.4px; opacity: 0; filter: none; animation: none; }",
             "svg .diagram-note-hover .diagram-note-link, svg .diagram-note-hotspot:hover .diagram-note-link { stroke: var(--diagram-focus); stroke-width: 1.4px; opacity: 0; filter: none; animation: none; }",
