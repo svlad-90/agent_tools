@@ -60,6 +60,23 @@ requires:
       capabilities:
         - workspace_tools
         - cpp_source_analysis
+    minecraft-paper:
+      image: minecraft-paper:java21-gradle9
+      dockerfile: agent_tools/paf_workspace/domains/environments/assets/minecraft-paper/Dockerfile
+      context: agent_tools/paf_workspace/domains/environments/assets/minecraft-paper
+      network: host
+      capabilities:
+        - workspace_tools
+        - minecraft_paper_runtime
+    juce-dev:
+      image: codex/juce-dev:24.04
+      dockerfile: agent_tools/paf_workspace/domains/environments/assets/juce-dev/Dockerfile
+      context: agent_tools/paf_workspace/domains/environments/assets/juce-dev
+      network: host
+      capabilities:
+        - workspace_tools
+        - cpp_source_analysis
+        - juce_development
     zephyr-xenlib-act:
       image: zephyr-xenlib-act:22.04
       dockerfile: agent_tools/paf_workspace/domains/environments/assets/zephyr-xenlib-act/Dockerfile
@@ -97,6 +114,20 @@ requires:
           mode: rw
     moulin-act-workspace:
       image: moulin-act
+      workdir: ${WORKSPACE_ROOT}
+      mounts:
+        - source: ${WORKSPACE_ROOT}
+          target: ${WORKSPACE_ROOT}
+          mode: rw
+    minecraft-paper-workspace:
+      image: minecraft-paper
+      workdir: ${WORKSPACE_ROOT}
+      mounts:
+        - source: ${WORKSPACE_ROOT}
+          target: ${WORKSPACE_ROOT}
+          mode: rw
+    juce-dev-workspace:
+      image: juce-dev
       workdir: ${WORKSPACE_ROOT}
       mounts:
         - source: ${WORKSPACE_ROOT}

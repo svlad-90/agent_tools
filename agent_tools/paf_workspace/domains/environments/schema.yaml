@@ -99,6 +99,32 @@ properties:
             type: string
             default: host
         additionalProperties: false
+      minecraft_paper:
+        type: object
+        properties:
+          image:
+            type: string
+            default: minecraft-paper
+          container:
+            type: string
+            default: minecraft-paper-workspace
+          build_network:
+            type: string
+            default: host
+        additionalProperties: false
+      juce_dev:
+        type: object
+        properties:
+          image:
+            type: string
+            default: juce-dev
+          container:
+            type: string
+            default: juce-dev-workspace
+          build_network:
+            type: string
+            default: host
+        additionalProperties: false
       zephyr_xenlib_act:
         type: object
         properties:

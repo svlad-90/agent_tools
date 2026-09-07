@@ -1,0 +1,46 @@
+$schema: https://json-schema.org/draft/2020-12/schema
+type: object
+required:
+  - case
+properties:
+  case:
+    type: object
+    required:
+      - name
+    properties:
+      name:
+        type: string
+        minLength: 1
+      domain:
+        type: string
+      workspace:
+        type: string
+    additionalProperties: false
+  uses:
+    type: array
+    items:
+      type: object
+      required:
+        - domain
+      properties:
+        domain:
+          type: string
+      additionalProperties: false
+  environments:
+    type: object
+  minecraft_repo_validation:
+    type: object
+    properties:
+      repo:
+        type: string
+      plugin_dir:
+        type: string
+      task_dir:
+        type: string
+      timeout_sec:
+        type: integer
+        minimum: 1
+      require_sqlite_bundle:
+        type: boolean
+    additionalProperties: true
+additionalProperties: true

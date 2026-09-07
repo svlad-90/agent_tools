@@ -1,0 +1,18 @@
+case:
+  name: looprigger-juce-validation
+  domain: juce-repo-validation
+  workspace: .
+uses:
+  - domain: environments
+environments:
+  juce_dev:
+    image: juce-dev
+    container: juce-dev-workspace
+    build_network: host
+juce_repo_validation:
+  repo: tasks/livelooping/dev/LoopRigger
+  build_dir: tasks/livelooping/dev/LoopRigger/build-paf-juce
+  task_dir: tasks/livelooping
+  timeout_sec: 900
+  cmake_args:
+    - -DLIVELOOPING_BUILD_JUCE_APP=ON
