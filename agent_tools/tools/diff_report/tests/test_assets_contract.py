@@ -211,6 +211,7 @@ class AssetContractTests(unittest.TestCase):
             'path[fill="#FEFECE"]',
             'polygon[fill="#F5F5F5"]',
             'path[fill="#F5F5F5"]',
+            'polygon[fill="#F8FAFC"]',
             'polygon[fill="#2D2D30"]',
             'path[fill="#3B3216"]',
             'ellipse[fill="#FFFFFF"]',

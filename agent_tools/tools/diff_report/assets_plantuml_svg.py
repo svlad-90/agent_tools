@@ -51,14 +51,16 @@ def plantuml_svg_styles() -> str:
     .diagram-zoom-stage svg path:not(.asset-focus-object):not(.asset-focus-connector):not(.diagram-note-box):not(.diagram-note-link):not(.diagram-code-link-connector),
     .diagram-preview-canvas svg polyline:not(.asset-focus-connector):not(.diagram-code-link-connector),
     .diagram-zoom-stage svg polyline:not(.asset-focus-connector):not(.diagram-code-link-connector) { stroke: var(--diagram-svg-line) !important; }
-    .diagram-preview-canvas svg polygon:not(.asset-focus-connector):not(.asset-focus-object):not(.diagram-code-link-connector):not([fill="#FFFFFF"]):not([fill="#FEFECE"]):not([fill="#F5F5F5"]):not([fill="#EEEEEE"]):not([fill="#2D2D30"]):not([fill="#252526"]):not([fill="#3B3216"]):not([fill="#FBFB77"]),
-    .diagram-zoom-stage svg polygon:not(.asset-focus-connector):not(.asset-focus-object):not(.diagram-code-link-connector):not([fill="#FFFFFF"]):not([fill="#FEFECE"]):not([fill="#F5F5F5"]):not([fill="#EEEEEE"]):not([fill="#2D2D30"]):not([fill="#252526"]):not([fill="#3B3216"]):not([fill="#FBFB77"]) { fill: var(--diagram-svg-arrow) !important; stroke: var(--diagram-svg-arrow) !important; stroke-width: 1.4px !important; }
+    .diagram-preview-canvas svg polygon:not(.asset-focus-connector):not(.asset-focus-object):not(.diagram-code-link-connector):not([fill="#FFFFFF"]):not([fill="#FEFECE"]):not([fill="#F5F5F5"]):not([fill="#F8FAFC"]):not([fill="#EEEEEE"]):not([fill="#2D2D30"]):not([fill="#252526"]):not([fill="#3B3216"]):not([fill="#FBFB77"]),
+    .diagram-zoom-stage svg polygon:not(.asset-focus-connector):not(.asset-focus-object):not(.diagram-code-link-connector):not([fill="#FFFFFF"]):not([fill="#FEFECE"]):not([fill="#F5F5F5"]):not([fill="#F8FAFC"]):not([fill="#EEEEEE"]):not([fill="#2D2D30"]):not([fill="#252526"]):not([fill="#3B3216"]):not([fill="#FBFB77"]) { fill: var(--diagram-svg-arrow) !important; stroke: var(--diagram-svg-arrow) !important; stroke-width: 1.4px !important; }
     .diagram-preview-canvas svg polygon[fill="#FFFFFF"]:not(.asset-focus-object),
     .diagram-zoom-stage svg polygon[fill="#FFFFFF"]:not(.asset-focus-object),
     .diagram-preview-canvas svg polygon[fill="#FEFECE"]:not(.asset-focus-object),
     .diagram-zoom-stage svg polygon[fill="#FEFECE"]:not(.asset-focus-object),
     .diagram-preview-canvas svg polygon[fill="#F5F5F5"]:not(.asset-focus-object),
     .diagram-zoom-stage svg polygon[fill="#F5F5F5"]:not(.asset-focus-object),
+    .diagram-preview-canvas svg polygon[fill="#F8FAFC"]:not(.asset-focus-object),
+    .diagram-zoom-stage svg polygon[fill="#F8FAFC"]:not(.asset-focus-object),
     .diagram-preview-canvas svg polygon[fill="#EEEEEE"]:not(.asset-focus-object),
     .diagram-zoom-stage svg polygon[fill="#EEEEEE"]:not(.asset-focus-object),
     .diagram-preview-canvas svg polygon[fill="#2D2D30"]:not(.asset-focus-object),
@@ -168,10 +170,11 @@ svg tspan:not(.diagram-note-text):not(.diagram-note-marker-text):not(.asset-focu
 svg line:not(.asset-focus-connector):not(.diagram-code-link-connector):not(.diagram-note-link),
 svg path:not(.asset-focus-object):not(.asset-focus-connector):not(.diagram-note-box):not(.diagram-note-link):not(.diagram-code-link-connector),
 svg polyline:not(.asset-focus-connector):not(.diagram-code-link-connector) {{ stroke: {colors["line"]} !important; }}
-svg polygon:not(.asset-focus-connector):not(.asset-focus-object):not(.diagram-code-link-connector):not([fill="#FFFFFF"]):not([fill="#FEFECE"]):not([fill="#F5F5F5"]):not([fill="#EEEEEE"]):not([fill="#2D2D30"]):not([fill="#252526"]):not([fill="#3B3216"]):not([fill="#FBFB77"]) {{ fill: {colors["arrow"]} !important; stroke: {colors["arrow"]} !important; stroke-width: 1.4px !important; }}
+svg polygon:not(.asset-focus-connector):not(.asset-focus-object):not(.diagram-code-link-connector):not([fill="#FFFFFF"]):not([fill="#FEFECE"]):not([fill="#F5F5F5"]):not([fill="#F8FAFC"]):not([fill="#EEEEEE"]):not([fill="#2D2D30"]):not([fill="#252526"]):not([fill="#3B3216"]):not([fill="#FBFB77"]) {{ fill: {colors["arrow"]} !important; stroke: {colors["arrow"]} !important; stroke-width: 1.4px !important; }}
 svg polygon[fill="#FFFFFF"]:not(.asset-focus-object),
 svg polygon[fill="#FEFECE"]:not(.asset-focus-object),
 svg polygon[fill="#F5F5F5"]:not(.asset-focus-object),
+svg polygon[fill="#F8FAFC"]:not(.asset-focus-object),
 svg polygon[fill="#EEEEEE"]:not(.asset-focus-object),
 svg polygon[fill="#2D2D30"]:not(.asset-focus-object),
 svg polygon[fill="#252526"]:not(.asset-focus-object),
