@@ -67,6 +67,7 @@ RUN curl -fsSL "https://github.com/ninja-build/ninja/releases/download/v${NINJA_
 RUN pip3 install --upgrade \
         tree-sitter \
         tree-sitter-cpp \
+        tree-sitter-java \
         "git+https://github.com/svlad-90/moulin@main"
 
 RUN mkdir -p /workspace "/home/${USER_NAME}" \

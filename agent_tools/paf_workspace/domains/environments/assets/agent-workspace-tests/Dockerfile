@@ -28,6 +28,7 @@ RUN python3 -m venv --system-site-packages "${VIRTUAL_ENV}" \
 		PyYAML \
 		tiktoken \
 		tree-sitter \
-		tree-sitter-cpp
+		tree-sitter-cpp \
+		tree-sitter-java
 
 WORKDIR /workspace

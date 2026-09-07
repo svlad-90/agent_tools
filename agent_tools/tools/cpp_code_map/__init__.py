@@ -15,6 +15,7 @@ from .core import render_code_map
 from .core import render_compile_doctor
 from .core import render_edit_result
 from .core import render_parse_check
+from .core import render_parse_checks
 from .core import render_puml_audit
 from .core import render_symbol_snapshot
 from .core import render_symbol_index
@@ -47,8 +48,11 @@ def main(argv: list[str] | None = None) -> int:
     symbol_parser.add_argument("--symbol", required=True)
     symbol_parser.add_argument("--json", action="store_true")
 
-    parse_parser = subparsers.add_parser("parse-check", help="Parse a C++ file and report diagnostics.")
-    _add_cpp_context_args(parse_parser)
+    parse_parser = subparsers.add_parser("parse-check", help="Parse one or more C++ files and report diagnostics.")
+    parse_parser.add_argument("cpp_files", nargs="+")
+    parse_parser.add_argument("--compile-db", "-p")
+    parse_parser.add_argument("--clang-arg", action="append", default=[])
+    parse_parser.add_argument("--allow-fallback", action="store_true")
     parse_parser.add_argument("--json", action="store_true")
 
     puml_parser = subparsers.add_parser("puml-audit", help="Audit DMA_Plantuml macros against the C++ AST.")
@@ -146,6 +150,25 @@ def _dispatch(args: argparse.Namespace, parser: argparse.ArgumentParser) -> int:
                                   cache_dir=Path(args.cache_dir).resolve() if args.cache_dir else None,
                                   json_output=args.json))
         return 0
+    if args.command == "parse-check":
+        targets = tuple(Path(file_name).resolve() for file_name in args.cpp_files)
+        if len(targets) == 1:
+            output = render_parse_check(targets[0],
+                                        _compile_db(args),
+                                        clang_args=tuple(args.clang_arg),
+                                        allow_fallback=args.allow_fallback,
+                                        json_output=args.json)
+        else:
+            output = render_parse_checks(targets,
+                                         _compile_db(args),
+                                         clang_args=tuple(args.clang_arg),
+                                         allow_fallback=args.allow_fallback,
+                                         json_output=args.json)
+        print(output)
+        if args.json:
+            return 0 if json.loads(output).get("ok") is True else 2
+        return 0 if " :: parse-check error" not in output else 2
+
     target = Path(args.cpp_file).resolve()
     compile_db = _compile_db(args)
     clang_args = tuple(getattr(args, "clang_arg", ()))
@@ -168,12 +191,6 @@ def _dispatch(args: argparse.Namespace, parser: argparse.ArgumentParser) -> int:
                                      clang_args=clang_args,
                                      allow_fallback=args.allow_fallback,
                                      json_output=args.json))
-    elif args.command == "parse-check":
-        print(render_parse_check(target,
-                                 compile_db,
-                                 clang_args=clang_args,
-                                 allow_fallback=args.allow_fallback,
-                                 json_output=args.json))
     elif args.command == "puml-audit":
         print(render_puml_audit(target,
                                 compile_db,

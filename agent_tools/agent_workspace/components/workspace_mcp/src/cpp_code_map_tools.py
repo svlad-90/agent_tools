@@ -14,6 +14,7 @@ from agent_tools.tools.cpp_code_map.core import render_code_map
 from agent_tools.tools.cpp_code_map.core import render_compile_doctor
 from agent_tools.tools.cpp_code_map.core import render_edit_result
 from agent_tools.tools.cpp_code_map.core import render_parse_check
+from agent_tools.tools.cpp_code_map.core import render_parse_checks
 from agent_tools.tools.cpp_code_map.core import render_puml_audit
 from agent_tools.tools.cpp_code_map.core import render_symbol_index
 from agent_tools.tools.cpp_code_map.core import render_symbol_snapshot
@@ -78,10 +79,10 @@ def cpp_code_map_tools() -> list[McpTool]:
             title="C++ Code Map Parse Check",
             description=(
                 "Use after C/C++ edits when compile context is available. Parses one "
-                "workspace-relative source through libclang and returns compact "
+                "or more workspace-relative sources through libclang and returns compact "
                 "diagnostics instead of dumping compiler output."
             ),
-            input_schema=_source_input_schema(),
+            input_schema=_parse_check_input_schema(),
             handler=_cpp_code_map_parse_check,
         ),
         McpTool(
@@ -205,7 +206,27 @@ def _cpp_code_map_symbol_get(context: ToolContext, arguments: JsonObject) -> Too
 
 
 def _cpp_code_map_parse_check(context: ToolContext, arguments: JsonObject) -> ToolResult:
-    return _source_result(context, arguments, render_parse_check)
+    paths = _parse_check_paths(context, arguments)
+    try:
+        if len(paths) == 1:
+            text = render_parse_check(
+                paths[0],
+                _compile_db(context, arguments),
+                clang_args=_clang_args(arguments),
+                allow_fallback=bool_arg(arguments, "allow_fallback", False),
+                json_output=_json_output(arguments),
+            )
+        else:
+            text = render_parse_checks(
+                paths,
+                _compile_db(context, arguments),
+                clang_args=_clang_args(arguments),
+                allow_fallback=bool_arg(arguments, "allow_fallback", False),
+                json_output=_json_output(arguments),
+            )
+    except CppCodeMapError as error:
+        return _error_result(error)
+    return _render_result(text, json_output=_json_output(arguments))
 
 
 def _cpp_code_map_puml_audit(context: ToolContext, arguments: JsonObject) -> ToolResult:
@@ -408,6 +429,43 @@ def _source_input_schema(extra: JsonObject | None = None) -> JsonObject:
         "required": ["path"],
         "additionalProperties": False,
     }
+
+
+def _parse_check_input_schema() -> JsonObject:
+    properties = {
+        "path": {
+            "type": "string",
+            "description": "Workspace-relative C/C++ source file path.",
+        },
+        "paths": {
+            "type": "array",
+            "items": {"type": "string"},
+            "description": "Workspace-relative C/C++ source file paths.",
+        },
+    }
+    properties.update(_cpp_context_properties())
+    return {
+        "type": "object",
+        "properties": properties,
+        "anyOf": [
+            {"required": ["path"]},
+            {"required": ["paths"]},
+        ],
+        "additionalProperties": False,
+    }
+
+
+def _parse_check_paths(context: ToolContext, arguments: JsonObject) -> tuple[Path, ...]:
+    has_path = "path" in arguments
+    has_paths = "paths" in arguments
+    if has_path == has_paths:
+        raise ValueError("provide exactly one of path or paths")
+    if has_path:
+        return (resolve_workspace_path(context.workspace, string_arg(arguments, "path")),)
+    paths = tuple(resolve_workspace_path(context.workspace, value) for value in string_list_arg(arguments, "paths"))
+    if not paths:
+        raise ValueError("paths must not be empty")
+    return paths
 
 
 def _symbol_input_schema() -> JsonObject:

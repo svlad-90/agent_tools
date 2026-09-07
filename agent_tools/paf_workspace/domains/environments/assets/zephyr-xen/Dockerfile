@@ -90,6 +90,7 @@ RUN pip3 install --upgrade \
         pyelftools \
         tree-sitter \
         tree-sitter-cpp \
+        tree-sitter-java \
         "git+https://github.com/svlad-90/moulin@main" \
     && curl -fsSL "https://raw.githubusercontent.com/zephyrproject-rtos/zephyr/${ZEPHYR_VERSION}/scripts/requirements-base.txt" \
         -o /tmp/zephyr-requirements-base.txt \

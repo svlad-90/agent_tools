@@ -24,4 +24,5 @@ RUN apt-get update \
 
 RUN pip3 install --upgrade \
 		tree-sitter \
-		tree-sitter-cpp
+		tree-sitter-cpp \
+		tree-sitter-java

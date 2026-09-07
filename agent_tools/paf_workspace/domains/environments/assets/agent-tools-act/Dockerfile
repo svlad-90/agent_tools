@@ -33,7 +33,8 @@ RUN python3 -m venv --system-site-packages "${VIRTUAL_ENV}" \
 		pytest \
 		PyYAML \
 		tree-sitter \
-		tree-sitter-cpp
+		tree-sitter-cpp \
+		tree-sitter-java
 
 RUN set -eux; \
 	case "${TARGETARCH:-amd64}" in \

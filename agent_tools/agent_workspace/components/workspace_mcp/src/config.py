@@ -25,6 +25,12 @@ WORKSPACE_MCP_TOOL_GROUPS: tuple[tuple[str, str, str, tuple[str, ...]], ...] = (
         ("cpp_light_", "cpp_code_map_"),
     ),
     (
+        "java",
+        "Java",
+        "Prefer over text search for Java symbols, call graphs, references, parse checks, and guarded edits.",
+        ("java_light_", "java_code_map_"),
+    ),
+    (
         "yaml",
         "YAML",
         "Prefer over ad-hoc scripts for YAML maps and hash-guarded nested path edits.",

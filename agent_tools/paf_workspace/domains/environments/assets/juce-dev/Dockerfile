@@ -44,6 +44,7 @@ RUN apt-get update \
         clang==18.1.8 \
         tree-sitter \
         tree-sitter-cpp \
+        tree-sitter-java \
     && rm -rf /var/lib/apt/lists/*
 
 ENV LD_LIBRARY_PATH="/usr/lib/llvm-18/lib:${LD_LIBRARY_PATH}"

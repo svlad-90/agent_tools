@@ -680,7 +680,7 @@ def _validate_installation(python: Path, args: argparse.Namespace) -> None:
         [
             str(python),
             "-c",
-            "import clang.cindex, jsonschema, regex, tree_sitter, tree_sitter_cpp, yaml, tiktoken; import agent_tools.tools.task_context as tc; import agent_tools.agent_workspace.components.workspace_mcp.api; import agent_tools.agent_workspace.components.workspace_service.api; import agent_tools.agent_workspace.components.web_frontend.api; tc.token_count('Agent Workspace')",
+            "import clang.cindex, jsonschema, regex, tree_sitter, tree_sitter_cpp, tree_sitter_java, yaml, tiktoken; import agent_tools.tools.task_context as tc; import agent_tools.agent_workspace.components.workspace_mcp.api; import agent_tools.agent_workspace.components.workspace_service.api; import agent_tools.agent_workspace.components.web_frontend.api; tc.token_count('Agent Workspace')",
         ],
         args,
         env=_python_env(),

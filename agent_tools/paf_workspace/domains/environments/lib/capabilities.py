@@ -32,14 +32,18 @@ CAPABILITY_REQUIREMENTS: dict[str, CapabilityRequirement] = {
         pip_packages=(
             "tree-sitter",
             "tree-sitter-cpp",
+            "tree-sitter-java",
         ),
         python_imports=(
             "agent_tools",
             "tree_sitter",
             "tree_sitter_cpp",
+            "tree_sitter_java",
         ),
         commands=(
             "python3 -m agent_tools.tools.cpp_light_code_map help",
+            "python3 -m agent_tools.tools.java_code_map help",
+            "python3 -m agent_tools.tools.java_light_code_map help",
         ),
     ),
     "cpp_source_analysis": CapabilityRequirement(

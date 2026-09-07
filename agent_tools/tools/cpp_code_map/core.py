@@ -155,7 +155,7 @@ def compact_help() -> str:
         "[--clang-arg <arg>] [--allow-fallback] [--json]",
         "cpp_code_map symbol-get <cpp_file> --symbol <qualified-name> "
         "[--compile-db <build-dir-or-json>] [--clang-arg <arg>] [--allow-fallback] [--json]",
-        "cpp_code_map parse-check <cpp_file> [--compile-db <build-dir-or-json>] "
+        "cpp_code_map parse-check <cpp_file> [<cpp_file> ...] [--compile-db <build-dir-or-json>] "
         "[--clang-arg <arg>] [--allow-fallback] [--json]",
         "cpp_code_map replace-symbol <cpp_file> --symbol <name> --expect-hash <sha256> "
         "(--replacement-env <VAR> | --replacement-file <path> | --replacement-text <text> | --replacement-stdin) "
@@ -223,11 +223,66 @@ def render_parse_check(file_path: Path,
                        clang_args: tuple[str, ...] = (),
                        allow_fallback: bool = False,
                        json_output: bool = False) -> str:
-    _, _, diagnostics = _parse_symbols(file_path, compile_db, clang_args, allow_fallback=allow_fallback)
-    errors = [diag for diag in diagnostics if " error: " in diag.lower()]
-    result = ParseCheckResult(ok=not errors, diagnostics=tuple(diagnostics))
+    result = build_parse_check(file_path, compile_db, clang_args=clang_args, allow_fallback=allow_fallback)
     if json_output:
         return json.dumps(asdict(result), indent=2)
+    return _render_parse_check_text(file_path, result)
+
+
+def build_parse_check(file_path: Path,
+                      compile_db: Path | None,
+                      *,
+                      clang_args: tuple[str, ...] = (),
+                      allow_fallback: bool = False) -> ParseCheckResult:
+    _, _, diagnostics = _parse_symbols(file_path, compile_db, clang_args, allow_fallback=allow_fallback)
+    errors = [diag for diag in diagnostics if " error: " in diag.lower()]
+    return ParseCheckResult(ok=not errors, diagnostics=tuple(diagnostics))
+
+
+def render_parse_checks(file_paths: tuple[Path, ...],
+                        compile_db: Path | None,
+                        *,
+                        clang_args: tuple[str, ...] = (),
+                        allow_fallback: bool = False,
+                        json_output: bool = False) -> str:
+    results = build_parse_checks(file_paths,
+                                 compile_db,
+                                 clang_args=clang_args,
+                                 allow_fallback=allow_fallback)
+    if json_output:
+        return json.dumps(
+            {
+                "ok": all(result.ok for _path, result in results),
+                "files": [
+                    {"file": str(path), **asdict(result)}
+                    for path, result in results
+                ],
+            },
+            indent=2,
+            sort_keys=True,
+        )
+    return "\n".join(_render_parse_check_text(path, result) for path, result in results)
+
+
+def build_parse_checks(file_paths: tuple[Path, ...],
+                       compile_db: Path | None,
+                       *,
+                       clang_args: tuple[str, ...] = (),
+                       allow_fallback: bool = False) -> tuple[tuple[Path, ParseCheckResult], ...]:
+    results: list[tuple[Path, ParseCheckResult]] = []
+    for file_path in file_paths:
+        try:
+            result = build_parse_check(file_path,
+                                       compile_db,
+                                       clang_args=clang_args,
+                                       allow_fallback=allow_fallback)
+        except CppCodeMapError as error:
+            result = ParseCheckResult(ok=False, diagnostics=(error.message,))
+        results.append((file_path, result))
+    return tuple(results)
+
+
+def _render_parse_check_text(file_path: Path, result: ParseCheckResult) -> str:
     if result.ok:
         if result.diagnostics:
             return f"{file_path} :: parse-check ok with diagnostics\n" + "\n".join(result.diagnostics)
