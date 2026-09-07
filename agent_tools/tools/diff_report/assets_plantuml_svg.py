@@ -112,7 +112,7 @@ def plantuml_svg_styles() -> str:
     .diagram-preview-canvas svg text.asset-focus-contained-text,
     .diagram-zoom-stage svg text.asset-focus-contained-text,
     .diagram-preview-canvas svg tspan.asset-focus-contained-text,
-    .diagram-zoom-stage svg tspan.asset-focus-contained-text { fill: var(--diagram-focus-text) !important; stroke: none !important; filter: none; }
+    .diagram-zoom-stage svg tspan.asset-focus-contained-text { fill: var(--diagram-svg-text) !important; fill-opacity: 1 !important; stroke: none !important; filter: none; }
     svg .diagram-note-panel { opacity: 0; pointer-events: none; transition: opacity .12s ease; }
     svg .diagram-note-hover .diagram-note-panel, svg .diagram-note-hotspot:hover .diagram-note-panel { opacity: 1; pointer-events: auto; }
     svg .diagram-note-box { fill: var(--diagram-note-bg); stroke: var(--diagram-note-link); stroke-width: 1.8px; rx: 6px; ry: 6px; filter: drop-shadow(0 2px 4px rgba(15,23,42,.22)); }
