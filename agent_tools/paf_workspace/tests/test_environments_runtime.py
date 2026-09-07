@@ -50,3 +50,24 @@ def test_cpp_source_analysis_capability_adds_cpp_code_map_items() -> None:
 
     assert "import clang.cindex" in command
     assert "cpp_code_map help" in command
+
+
+def test_minecraft_paper_runtime_capability_adds_java_and_gradle_checks() -> None:
+    command = workspace_tool_baseline_check_command(("workspace_tools", "minecraft_paper_runtime"))
+
+    assert "java -version" in command
+    assert "javac -version" in command
+    assert "gradle --version" in command
+    assert "sqlite3 --version" in command
+
+
+def test_juce_development_capability_adds_gui_audio_checks() -> None:
+    command = workspace_tool_baseline_check_command(("workspace_tools", "juce_development"))
+
+    assert "cmake --version" in command
+    assert "ninja --version" in command
+    assert "import yaml" in command
+    assert "pkg-config --modversion alsa" in command
+    assert "pkg-config --modversion gtk+-x11-3.0" in command
+    assert "pkg-config --modversion libcurl" in command
+    assert "xvfb-run --help" in command

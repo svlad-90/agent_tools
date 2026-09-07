@@ -1,0 +1,44 @@
+<paf_config>
+    <phase name="ensure">
+        <task name="paf_workspace.domains.environments.tasks.base.ensure_environment_image"/>
+    </phase>
+
+    <phase name="image_check">
+        <task name="paf_workspace.domains.environments.tasks.base.check_environment_image"/>
+    </phase>
+
+    <phase name="check">
+        <task name="paf_workspace.domains.environments.tasks.base.check_workspace_tool_baseline"/>
+        <task name="paf_workspace.domains.environments.tasks.base.check_cpp_code_map_tools"/>
+    </phase>
+
+    <phase name="repo_validation">
+        <task name="paf_workspace.domains.juce_repo_validation.tasks.repo.validate_juce_repo"/>
+    </phase>
+
+    <phase name="push_guard">
+        <task name="paf_workspace.tasks.record_push_guard_success"/>
+    </phase>
+
+    <scenario name="check-only">
+        <phase name="image_check"/>
+        <phase name="check"/>
+    </scenario>
+
+    <scenario name="ensure-only">
+        <phase name="ensure"/>
+    </scenario>
+
+    <scenario name="validate">
+        <phase name="ensure"/>
+        <phase name="check"/>
+        <phase name="repo_validation"/>
+    </scenario>
+
+    <scenario name="push-guard">
+        <phase name="ensure"/>
+        <phase name="check"/>
+        <phase name="repo_validation"/>
+        <phase name="push_guard"/>
+    </scenario>
+</paf_config>

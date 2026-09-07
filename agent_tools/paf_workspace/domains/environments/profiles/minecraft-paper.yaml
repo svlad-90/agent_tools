@@ -1,0 +1,10 @@
+case:
+  name: minecraft-paper-environment
+  domain: environments
+  workspace: .
+
+environments:
+  minecraft_paper:
+    image: minecraft-paper
+    container: minecraft-paper-workspace
+    build_network: host

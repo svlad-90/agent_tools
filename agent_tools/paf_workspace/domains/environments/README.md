@@ -38,6 +38,12 @@ Environment entries:
   Agent Workspace core test suite can run without remembering host packages.
 - `moulin-act` provides the `ubuntu-22.04` act runner image used by Moulin's
   build workflow.
+- `minecraft-paper` provides a Java 21 and Gradle 9 environment for validating
+  Minecraft Paper/Purpur plugin repositories and future headless server smoke
+  checks.
+- `juce-dev` provides a CMake/Ninja/JUCE Linux development environment with
+  workspace C++ analysis tooling plus ALSA, JACK, X11, GL/EGL, GTK, WebKit,
+  FreeType, fontconfig, curl, LADSPA, and Xvfb dependencies.
 - `zephyr-xenlib-act` provides the `ubuntu-22.04` act runner image used by the
   zephyr-xenlib build workflow.
 - `zephyr-repo-checks` extends `zephyr-xen` with repository-level Zephyr PR
@@ -58,6 +64,13 @@ dependency tests and runtime smoke commands:
 - `agent_workspace_tests` is required for images used to run Agent Workspace
   tests. It requires `python3-pytest`, `python3-tk`, `python3-gi`, GTK, and
   VTE GIR packages.
+- `minecraft_paper_runtime` is required for images used to validate Minecraft
+  Paper/Purpur plugin repositories. It requires Java/Javac, Gradle, SQLite,
+  curl, zip/unzip, netcat, and process tools for future server smoke checks.
+- `juce_development` is required for images used to configure, build, test,
+  or inspect JUCE/CMake repositories. It requires CMake, Ninja, compiler
+  packages, common JUCE Linux GUI/audio development libraries, and `xvfb-run`
+  for headless GUI-oriented checks.
 
 Ubuntu 24.04 images should use an explicit virtual environment in `PATH` when
 installing Python packages with `pip`.

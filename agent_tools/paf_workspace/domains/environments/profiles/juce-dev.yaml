@@ -1,0 +1,10 @@
+case:
+  name: juce-dev-environment
+  domain: environments
+  workspace: .
+
+environments:
+  juce_dev:
+    image: juce-dev
+    container: juce-dev-workspace
+    build_network: host
