@@ -70,6 +70,7 @@ def diagram_export_helpers() -> str:
       ["--diagram-svg-box-bg", "#ffffff"],
       ["--diagram-svg-note-bg", "#fff8c5"],
       ["--diagram-focus", "#1d4ed8"],
+      ["--diagram-focus-text", "#ffffff"],
       ["--diagram-note-bg", "#dbeafe"],
       ["--diagram-note-hover-bg", "#bfdbfe"],
       ["--diagram-note-text", "#111827"],

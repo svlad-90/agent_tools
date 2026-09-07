@@ -133,6 +133,8 @@ class AssetContractTests(unittest.TestCase):
             "transition: left .18s ease, right .18s ease, top .18s ease, width .18s ease, max-width .18s ease;",
             "body.has-pinned-story .story, body.has-diagram-open .story { position: fixed;",
             "top: 0; width: auto;",
+            "--diagram-focus-text:",
+            ".report-table-wrap { max-width: 100%; height: fit-content; overflow-x: auto; overflow-y: hidden;",
             ".diagram-dialog { position: absolute; left: clamp(28px, 5vw, 92px);",
             "top: calc(min(var(--story-offset, 0px), 24vh) + 10px);",
             "bottom: calc(var(--story-nav-height) + clamp(8px, 2vh, 24px));",
@@ -152,11 +154,13 @@ class AssetContractTests(unittest.TestCase):
             "svg .asset-focus-connector { stroke: var(--diagram-focus) !important; stroke-width: 3px !important; opacity: .95; filter: none; }",
             "svg polygon.asset-focus-connector { fill: var(--diagram-focus) !important; opacity: .95; filter: none; animation: none; }",
             "svg line.asset-focus-connector, svg path.asset-focus-connector, svg polyline.asset-focus-connector { stroke-dasharray: 8 8; stroke-linecap: round; animation: focus-dash-flow 2.4s linear infinite; }",
-            "svg .asset-focus-object { fill: var(--diagram-focus) !important; fill-opacity: .08 !important; stroke: var(--diagram-focus) !important; stroke-width: 4px !important; stroke-dasharray: 8 8; stroke-linecap: round; stroke-linejoin: round; vector-effect: non-scaling-stroke; filter: drop-shadow(0 0 4px var(--diagram-focus-glow)); animation: focus-dash-flow 2.4s linear infinite; pointer-events: none; }",
+            "svg .asset-focus-object,\n    svg .asset-focus-match.asset-focus-object { fill: var(--diagram-focus) !important; fill-opacity: .08 !important; stroke: var(--diagram-focus) !important; stroke-width: 4px !important; stroke-dasharray: 8 8; stroke-linecap: round; stroke-linejoin: round; vector-effect: non-scaling-stroke; filter: drop-shadow(0 0 4px var(--diagram-focus-glow)); animation: focus-dash-flow 2.4s linear infinite; pointer-events: none; }",
             "svg path.asset-focus-object, svg polyline.asset-focus-object, svg line.asset-focus-object { fill: none !important; fill-opacity: 0 !important; pointer-events: none; }",
             "svg .asset-focus-match { fill: var(--diagram-focus) !important; stroke: none !important; filter: none; animation: none; }",
-            "svg .asset-focus-related-hover { stroke: var(--diagram-focus) !important; fill: var(--diagram-focus) !important; opacity: 1 !important; filter: none; }",
+            "svg .asset-focus-related-hover { stroke: var(--diagram-focus) !important; fill: var(--diagram-focus) !important; fill-opacity: .08 !important; opacity: 1 !important; filter: none; }",
+            "svg text.asset-focus-related-hover, svg tspan.asset-focus-related-hover { fill: var(--diagram-focus) !important; fill-opacity: 1 !important; stroke: none !important; }",
             "svg text.asset-focus-contained-text",
+            "asset-focus-contained-text { fill: var(--diagram-focus-text) !important; stroke: none !important; filter: none; }",
             "svg .diagram-note-box.asset-focus-object { fill: var(--diagram-note-bg) !important; fill-opacity: 1 !important; stroke: var(--diagram-focus) !important; stroke-width: 4px !important; stroke-dasharray: 8 8; stroke-linecap: round; stroke-linejoin: round; vector-effect: non-scaling-stroke; filter: none; animation: focus-dash-flow 2.4s linear infinite; }",
             "svg .diagram-note-link { fill: none; stroke: var(--diagram-focus); stroke-width: 1.4px; opacity: 0; filter: none; animation: none; }",
             "svg .diagram-note-hover .diagram-note-link, svg .diagram-note-hotspot:hover .diagram-note-link { stroke: var(--diagram-focus); stroke-width: 1.4px; opacity: 0; filter: none; animation: none; }",
@@ -205,6 +209,8 @@ class AssetContractTests(unittest.TestCase):
             'polygon[fill="#FFFFFF"]',
             'path[fill="#FFFFFF"]',
             'path[fill="#FEFECE"]',
+            'polygon[fill="#F5F5F5"]',
+            'path[fill="#F5F5F5"]',
             'polygon[fill="#2D2D30"]',
             'path[fill="#3B3216"]',
             'ellipse[fill="#FFFFFF"]',
@@ -230,9 +236,11 @@ class AssetContractTests(unittest.TestCase):
         self.assertEqual("2.43.0", PINNED_GRAPHVIZ_DOT_VERSION)
         self.assertNotIn("asset-focus-connector { stroke: var(--diagram-focus) !important; stroke-width: 3px !important; opacity: .95; filter: drop-shadow", styles)
         self.assertNotIn("asset-focus-object { fill: var(--diagram-svg-box-bg)", styles)
+        self.assertNotIn("asset-focus-match.asset-focus-object { fill: var(--diagram-focus) !important; stroke: none", styles)
         self.assertNotIn("asset-focus-object { fill: var(--diagram-focus) !important; fill-opacity: .08 !important; stroke: var(--diagram-focus) !important; stroke-width: 4px !important; stroke-dasharray: 10 7; stroke-linecap: round; stroke-linejoin: round; vector-effect: non-scaling-stroke; filter: drop-shadow(0 0 4px rgba(255", styles)
         self.assertNotIn("asset-focus-match { fill: var(--diagram-focus) !important; stroke: none !important; filter: drop-shadow", styles)
         self.assertNotIn("asset-focus-related-hover { stroke: var(--diagram-focus) !important; fill: var(--diagram-focus) !important; opacity: 1 !important; filter: drop-shadow", styles)
+        self.assertNotIn("asset-focus-related-hover { stroke: var(--diagram-focus) !important; fill: var(--diagram-focus) !important; opacity: 1 !important; filter: none", styles)
         self.assertNotIn("diagram-note-link { fill: none; stroke: var(--diagram-note-link); stroke-width: 1.8px; opacity: .95; filter: drop-shadow", styles)
         self.assertNotIn("diagram-note-box.asset-focus-object { fill: var(--diagram-note-bg) !important; fill-opacity: 1 !important; stroke: var(--diagram-note-link)", styles)
         self.assertNotIn("focus-object-pulse", styles)
