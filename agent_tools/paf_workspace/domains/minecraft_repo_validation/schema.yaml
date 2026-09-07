@@ -42,5 +42,13 @@ properties:
         minimum: 1
       require_sqlite_bundle:
         type: boolean
+      run_paper_smoke:
+        type: boolean
+      paper_version:
+        type: string
+        minLength: 1
+      paper_smoke_timeout_sec:
+        type: integer
+        minimum: 1
     additionalProperties: true
 additionalProperties: true
