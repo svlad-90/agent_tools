@@ -96,8 +96,9 @@ def diagram_export_helpers() -> str:
     for (const rule of Array.from(rules)) {
       if (rule.type === CSSRule.STYLE_RULE) {
         const selector = standaloneSelector(rule.selectorText, includeDarkRules);
-        if (selector) {
-          output.push(selector + " { " + resolveCssVariables(rule.style.cssText) + " }");
+        const styleText = standaloneStyleText(rule.style);
+        if (selector && styleText) {
+          output.push(selector + " { " + styleText + " }");
         }
       } else if (rule.type === CSSRule.KEYFRAMES_RULE) {
         output.push(rule.cssText);
@@ -118,10 +119,7 @@ def diagram_export_helpers() -> str:
       if (isDarkRule && !includeDarkRules) {
         return "";
       }
-      if (
-        !/animation|keyframes|asset-focus-|diagram-note|diagram-code-link/.test(next)
-        && !/\\.diagram-preview-canvas\\s+svg|\\.diagram-zoom-stage\\s+svg/.test(next)
-      ) {
+      if (!selectorUsesStandaloneOverlay(next)) {
         return "";
       }
       next = next.replace(/^:root\\[data-theme="dark"\\]\\s+/, "");
@@ -136,6 +134,31 @@ def diagram_export_helpers() -> str:
     return selectors.join(", ");
   }
 
+  function selectorUsesStandaloneOverlay(selector) {
+    const positiveSelector = selector.replace(/:not\\([^)]*\\)/g, "");
+    return /\\.asset-focus-|\\.diagram-note-|\\.diagram-code-link-/.test(positiveSelector);
+  }
+
+  function standaloneStyleText(style) {
+    const declarations = [];
+    for (const property of Array.from(style)) {
+      if (!isStandaloneCssProperty(property)) {
+        continue;
+      }
+      const value = resolveCssVariables(style.getPropertyValue(property));
+      const priority = style.getPropertyPriority(property);
+      declarations.push(property + ": " + value + (priority ? " !" + priority : "") + ";");
+    }
+    return declarations.join(" ");
+  }
+
+  function isStandaloneCssProperty(property) {
+    return property === "animation"
+      || property.startsWith("animation-")
+      || property === "stroke-dasharray"
+      || property === "stroke-dashoffset";
+  }
+
   function resolveCssVariables(text) {
     const values = standaloneDiagramVariableMap(getComputedStyle(document.documentElement));
     return text.replace(/var\\((--[A-Za-z0-9_-]+)(?:,[^)]+)?\\)/g, function (match, name) {
@@ -144,8 +167,6 @@ def diagram_export_helpers() -> str:
   }
 
   function inlineReportOverlayStyles(sourceSvg, cloneSvg) {
-    const sourceNodes = [sourceSvg].concat(Array.from(sourceSvg.querySelectorAll("*")));
-    const cloneNodes = [cloneSvg].concat(Array.from(cloneSvg.querySelectorAll("*")));
     const properties = [
       "fill",
       "stroke",
@@ -164,23 +185,63 @@ def diagram_export_helpers() -> str:
       "paint-order",
       "filter",
     ];
+    inlineComputedSvgStyles(sourceSvg, cloneSvg, properties, function (sourceNode, property) {
+      return isReportOverlayNode(sourceNode) && canInlineOverlayProperty(sourceNode, property);
+    });
+  }
+
+  function inlineStandaloneSvgStyles(sourceSvg, cloneSvg) {
+    const properties = [
+      "fill",
+      "stroke",
+      "stroke-width",
+      "stroke-dasharray",
+      "stroke-dashoffset",
+      "stroke-linecap",
+      "stroke-linejoin",
+      "opacity",
+      "font-family",
+      "font-size",
+      "font-weight",
+      "font-style",
+      "text-anchor",
+      "dominant-baseline",
+      "paint-order",
+      "filter",
+    ];
+    inlineComputedSvgStyles(sourceSvg, cloneSvg, properties, function (sourceNode, property) {
+      if (
+        property === "opacity"
+        && sourceNode.classList
+        && (sourceNode.classList.contains("diagram-note-panel") || sourceNode.classList.contains("diagram-note-hotspot"))
+      ) {
+        return false;
+      }
+      return true;
+    });
+  }
+
+  function inlineComputedSvgStyles(sourceSvg, cloneSvg, properties, allowProperty) {
+    const sourceNodes = Array.from(sourceSvg.querySelectorAll("*"));
+    const cloneNodes = Array.from(cloneSvg.querySelectorAll("*"));
     sourceNodes.forEach(function (sourceNode, index) {
       const cloneNode = cloneNodes[index];
       if (!cloneNode || !sourceNode.ownerDocument.defaultView) {
         return;
       }
-      if (!isReportOverlayNode(sourceNode)) {
-        return;
-      }
       const computed = sourceNode.ownerDocument.defaultView.getComputedStyle(sourceNode);
       const declarations = [];
       for (const property of properties) {
-        if (!canInlineOverlayProperty(sourceNode, property)) {
+        if (allowProperty && !allowProperty(sourceNode, property)) {
           continue;
         }
         const value = computed.getPropertyValue(property);
         if (value) {
           declarations.push(property + ": " + value + ";");
+          const attribute = svgPresentationAttribute(property);
+          if (attribute) {
+            cloneNode.setAttribute(attribute, value);
+          }
         }
       }
       if (declarations.length) {
@@ -188,6 +249,28 @@ def diagram_export_helpers() -> str:
         cloneNode.setAttribute("style", (existing ? existing + "; " : "") + declarations.join(" "));
       }
     });
+  }
+
+  function svgPresentationAttribute(property) {
+    const attributes = {
+      "dominant-baseline": "dominant-baseline",
+      "fill": "fill",
+      "filter": "filter",
+      "font-family": "font-family",
+      "font-size": "font-size",
+      "font-style": "font-style",
+      "font-weight": "font-weight",
+      "opacity": "opacity",
+      "paint-order": "paint-order",
+      "stroke": "stroke",
+      "stroke-dasharray": "stroke-dasharray",
+      "stroke-dashoffset": "stroke-dashoffset",
+      "stroke-linecap": "stroke-linecap",
+      "stroke-linejoin": "stroke-linejoin",
+      "stroke-width": "stroke-width",
+      "text-anchor": "text-anchor",
+    };
+    return attributes[property] || "";
   }
 
   function canInlineOverlayProperty(node, property) {
@@ -222,21 +305,23 @@ def diagram_export_helpers() -> str:
 
   function isPlantUmlNoteShape(node) {
     const fill = String(node.getAttribute("fill") || "").toUpperCase();
-    return fill === "#FBFB77" || fill === "#3B3216";
+    return fill === "#FBFB77" || fill === "#ECECEC" || fill === "#3B3216";
   }
 
-  function insertSvgBackground(svg) {
+  function insertSvgBackground(svg, backgroundColor) {
     const box = svgViewBox(svg);
     if (!box || box.width <= 0 || box.height <= 0) {
       return;
     }
+    const color = backgroundColor || diagramBackgroundColor(null);
     const background = document.createElementNS("http://www.w3.org/2000/svg", "rect");
     background.setAttribute("class", "diagram-export-background");
     background.setAttribute("x", String(box.x));
     background.setAttribute("y", String(box.y));
     background.setAttribute("width", String(box.width));
     background.setAttribute("height", String(box.height));
-    background.setAttribute("fill", diagramBackgroundColor());
+    background.setAttribute("fill", color);
+    background.setAttribute("style", "fill: " + color + " !important; stroke: none !important;");
     svg.insertBefore(background, firstDrawableSvgChild(svg));
   }
 
@@ -268,7 +353,13 @@ def diagram_export_helpers() -> str:
     return Number.isFinite(parsed) ? parsed : 0;
   }
 
-  function diagramBackgroundColor() {
+  function diagramBackgroundColor(sourceSvg) {
+    if (sourceSvg && sourceSvg.ownerDocument && sourceSvg.ownerDocument.defaultView) {
+      const svgBackground = sourceSvg.ownerDocument.defaultView.getComputedStyle(sourceSvg).backgroundColor;
+      if (svgBackground && svgBackground !== "rgba(0, 0, 0, 0)") {
+        return svgBackground;
+      }
+    }
     const contentBackground = getComputedStyle(content).backgroundColor;
     if (contentBackground && contentBackground !== "rgba(0, 0, 0, 0)") {
       return contentBackground;
@@ -295,9 +386,25 @@ def diagram_export_helpers() -> str:
 
   function prepareExportedSvgForViewers(svg) {
     fixExportedSvgViewportSize(svg);
+    strengthenExportedSvgStrokes(svg);
     for (const node of svg.querySelectorAll("text, tspan")) {
       node.removeAttribute("textLength");
       node.removeAttribute("lengthAdjust");
+    }
+  }
+
+  function strengthenExportedSvgStrokes(svg) {
+    for (const node of svg.querySelectorAll("line, path, polyline")) {
+      if (node.classList && node.classList.contains("diagram-export-background")) {
+        continue;
+      }
+      const currentWidth = parseSvgLength(node.style.strokeWidth || node.getAttribute("stroke-width"));
+      if (!currentWidth || currentWidth < 1.4) {
+        node.style.strokeWidth = "1.4px";
+        node.setAttribute("stroke-width", "1.4px");
+      }
+      node.style.vectorEffect = "non-scaling-stroke";
+      node.setAttribute("vector-effect", "non-scaling-stroke");
     }
   }
 
@@ -314,7 +421,8 @@ def diagram_export_helpers() -> str:
     svg.style.height = height + "px";
     svg.style.maxWidth = "none";
     svg.style.maxHeight = "none";
-    svg.removeAttribute("viewBox");
+    svg.setAttribute("viewBox", [box.x, box.y, box.width, box.height].join(" "));
+    svg.setAttribute("preserveAspectRatio", "xMidYMid meet");
   }
 
   function exportOpenedDiagram() {
@@ -322,7 +430,9 @@ def diagram_export_helpers() -> str:
     if (!svg) {
       return;
     }
+    const backgroundColor = diagramBackgroundColor(svg);
     const clone = svg.cloneNode(true);
+    inlineStandaloneSvgStyles(svg, clone);
     inlineReportOverlayStyles(svg, clone);
     removeCodeLinkState(clone);
     prepareExportedSvgForViewers(clone);
@@ -334,7 +444,7 @@ def diagram_export_helpers() -> str:
     if (style.textContent) {
       clone.insertBefore(style, clone.firstChild);
     }
-    insertSvgBackground(clone);
+    insertSvgBackground(clone, backgroundColor);
     const source = new XMLSerializer().serializeToString(clone);
     downloadBlob(safeFileName(activeExportName, "svg"), "image/svg+xml;charset=utf-8", source);
   }
