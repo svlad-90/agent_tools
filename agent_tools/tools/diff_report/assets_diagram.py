@@ -272,8 +272,48 @@ def diagram_script() -> str:
     const shape = closestSvgObjectShape(labelNode);
     if (shape) {
       shape.classList.add("asset-focus-object");
+      markRelatedPlantUmlNoteShapes(shape);
       markSvgTextInsideShape(shape, labelNode);
     }
+  }
+
+  function markRelatedPlantUmlNoteShapes(shape) {
+    if (!isPlantUmlNoteShape(shape)) {
+      return;
+    }
+    const shapeBox = safeBBox(shape);
+    const parent = shape.parentNode;
+    if (!shapeBox || !parent || !parent.querySelectorAll) {
+      return;
+    }
+    const expanded = {
+      x: shapeBox.x - 2,
+      y: shapeBox.y - 2,
+      width: shapeBox.width + 4,
+      height: shapeBox.height + 4,
+    };
+    for (const candidate of parent.querySelectorAll("rect, polygon, path")) {
+      if (!isPlantUmlNoteShape(candidate)) {
+        continue;
+      }
+      const candidateBox = safeBBox(candidate);
+      if (!candidateBox || !svgBoxContains(expanded, candidateBox)) {
+        continue;
+      }
+      candidate.classList.add("asset-focus-object");
+    }
+  }
+
+  function isPlantUmlNoteShape(node) {
+    const fill = String(node && node.getAttribute ? node.getAttribute("fill") || "" : "").toUpperCase();
+    return fill === "#FBFB77" || fill === "#ECECEC" || fill === "#3B3216";
+  }
+
+  function svgBoxContains(outer, inner) {
+    return inner.x >= outer.x
+      && inner.y >= outer.y
+      && inner.x + inner.width <= outer.x + outer.width
+      && inner.y + inner.height <= outer.y + outer.height;
   }
 
   function markSvgTextInsideShape(shape, sourceLabel) {
@@ -390,6 +430,9 @@ def diagram_script() -> str:
       return false;
     }
     if (node.classList && node.classList.contains("diagram-note-link")) {
+      return false;
+    }
+    if (isPlantUmlNoteShape(node)) {
       return false;
     }
     const tag = node.tagName.toLowerCase();

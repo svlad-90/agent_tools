@@ -156,6 +156,8 @@ class AssetContractTests(unittest.TestCase):
             "svg line.asset-focus-connector, svg path.asset-focus-connector, svg polyline.asset-focus-connector { stroke-dasharray: 8 8; stroke-linecap: round; animation: focus-dash-flow 2.4s linear infinite; }",
             "svg .asset-focus-object,\n    svg .asset-focus-match.asset-focus-object { fill: var(--diagram-focus) !important; fill-opacity: .08 !important; stroke: var(--diagram-focus) !important; stroke-width: 4px !important; stroke-dasharray: 8 8; stroke-linecap: round; stroke-linejoin: round; vector-effect: non-scaling-stroke; filter: drop-shadow(0 0 4px var(--diagram-focus-glow)); animation: focus-dash-flow 2.4s linear infinite; pointer-events: none; }",
             "svg path.asset-focus-object, svg polyline.asset-focus-object, svg line.asset-focus-object { fill: none !important; fill-opacity: 0 !important; pointer-events: none; }",
+            'svg path[fill="#ECECEC"].asset-focus-object',
+            "fill: var(--diagram-svg-note-bg) !important; fill-opacity: 1 !important; stroke: var(--diagram-focus) !important;",
             "svg .asset-focus-match { fill: var(--diagram-focus) !important; stroke: none !important; filter: none; animation: none; }",
             "svg .asset-focus-related-hover { stroke: var(--diagram-focus) !important; fill: var(--diagram-focus) !important; fill-opacity: .08 !important; opacity: 1 !important; filter: none; }",
             "svg text.asset-focus-related-hover, svg tspan.asset-focus-related-hover { fill: var(--diagram-focus) !important; fill-opacity: 1 !important; stroke: none !important; }",
@@ -212,6 +214,7 @@ class AssetContractTests(unittest.TestCase):
             'polygon[fill="#F5F5F5"]',
             'path[fill="#F5F5F5"]',
             'polygon[fill="#F8FAFC"]',
+            'path[fill="#ECECEC"]',
             'polygon[fill="#2D2D30"]',
             'path[fill="#3B3216"]',
             'ellipse[fill="#FFFFFF"]',
@@ -583,6 +586,9 @@ class AssetContractTests(unittest.TestCase):
 	            "requestExtraPaint(modal)",
 	            "requestExtraPaint(document.body)",
             "function closestSvgObjectShape(labelNode)",
+            "function markRelatedPlantUmlNoteShapes(shape)",
+            "function isPlantUmlNoteShape(node)",
+            "function svgBoxContains(outer, inner)",
             "const sourceArea = Math.max(box.width * box.height, 1);",
             "if (area > Math.max(65000, sourceArea * 28))",
             "function markSvgTextInsideShape(shape, sourceLabel)",
@@ -646,20 +652,33 @@ class AssetContractTests(unittest.TestCase):
         expected_fragments = [
             "function exportOpenedDiagram()",
             "function exportOpenedLog()",
+            "inlineStandaloneSvgStyles(svg, clone)",
             "inlineReportOverlayStyles(svg, clone)",
+            "inlineComputedSvgStyles(sourceSvg, cloneSvg, properties, allowProperty)",
+            "svgPresentationAttribute(property)",
             "prepareExportedSvgForViewers(clone)",
+            "strengthenExportedSvgStrokes(svg)",
             "fixExportedSvgViewportSize(svg)",
             "standaloneDiagramStyle()",
             "standaloneCssRules(rules, includeDarkRules)",
             "standaloneSelector(rule.selectorText, includeDarkRules)",
-            "resolveCssVariables(rule.style.cssText)",
+            "selectorUsesStandaloneOverlay(next)",
+            "selector.replace(/:not\\([^)]*\\)/g, \"\")",
+            "standaloneStyleText(rule.style)",
+            "isStandaloneCssProperty(property)",
+            'property.startsWith("animation-")',
+            "resolveCssVariables(style.getPropertyValue(property))",
             "isPlantUmlNoteShape(node)",
             "[\"--diagram-svg-bg\", \"#ffffff\"]",
             "[\"--diagram-svg-arrow\", \"#334155\"]",
             "[\"--comment-border\", \"#ca5010\"]",
             "[\"--diagram-focus-glow\", \"rgba(29,78,216,.32)\"]",
-            "insertSvgBackground(clone)",
+            "const backgroundColor = diagramBackgroundColor(svg)",
+            "insertSvgBackground(clone, backgroundColor)",
+            "function diagramBackgroundColor(sourceSvg)",
+            "diagram-export-background",
             "removeCodeLinkState(clone)",
+            'svg.setAttribute("preserveAspectRatio", "xMidYMid meet")',
             "downloadBlob(safeFileName(activeExportName, \"svg\")",
             "downloadBlob(safeFileName(activeExportName, \"html\")",
         ]
@@ -672,6 +691,7 @@ class AssetContractTests(unittest.TestCase):
             '<svg style="background:#1F1F1F;">'
             '<text fill="#D4D4D4">title</text>'
             '<rect fill="#2D2D30" style="stroke: #D4D4D4;"/>'
+            '<path fill="#ECECEC" style="stroke: #383838;"/>'
             '<path fill="#FFFFFF" style="stroke: #D4D4D4;"/>'
             '<path fill="#3B3216" style="stroke: #D7BA7D;"/>'
             "</svg>"

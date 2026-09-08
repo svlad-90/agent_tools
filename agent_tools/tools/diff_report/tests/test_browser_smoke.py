@@ -59,6 +59,127 @@ class BrowserSmokeTests(unittest.TestCase):
         self.assertTrue(result.get("pass"), result)
         self.assertGreaterEqual(int(result.get("total", 0)), 1)
 
+    def test_dark_diagram_export_inlines_standalone_svg_paint(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            report_json = root / "report.json"
+            output = root / "report.html"
+            report_json.write_text(json.dumps(_plantuml_export_payload()), encoding="utf-8")
+
+            status = main(["--report-json", str(report_json), "--output", str(output)])
+
+            self.assertEqual(0, status)
+            result = _evaluate_in_browser(
+                output,
+                r"""(async () => {
+                  document.documentElement.dataset.theme = "dark";
+                  let exported = "";
+                  const originalCreateObjectUrl = URL.createObjectURL;
+                  URL.createObjectURL = function (blob) {
+                    window.__exportedSvgPromise = blob.text().then(function (text) {
+                      exported = text;
+                      return text;
+                    });
+                    return "blob:diff-report-test";
+                  };
+                  try {
+                    const preview = document.querySelector("[data-diagram-id='flow']");
+                    if (!preview) {
+                      return {pass: false, reason: "diagram preview missing"};
+                    }
+                    preview.click();
+                    await new Promise(resolve => requestAnimationFrame(resolve));
+                    const scroll = document.querySelector(".diagram-scroll");
+                    if (scroll) {
+                      scroll.style.backgroundColor = "#ffffff";
+                    }
+                    const exportButton = document.querySelector("[data-asset-export]");
+                    if (!exportButton || exportButton.hidden) {
+                      return {pass: false, reason: "export button missing"};
+                    }
+                    exportButton.click();
+                    if (window.__exportedSvgPromise) {
+                      exported = await window.__exportedSvgPromise;
+                    }
+                  } finally {
+                    URL.createObjectURL = originalCreateObjectUrl;
+                  }
+                  const parser = new DOMParser();
+                  const doc = parser.parseFromString(exported, "image/svg+xml");
+                  const svg = doc.documentElement;
+                  const focusedNotes = Array.from(svg.querySelectorAll(
+                    'path.asset-focus-object:not(.asset-focus-connector), polygon.asset-focus-object:not(.asset-focus-connector), rect.asset-focus-object:not(.asset-focus-connector)'
+                  ));
+                  const note = focusedNotes[0]
+                    || svg.querySelector("path.asset-focus-object, polygon.asset-focus-object, rect.asset-focus-object")
+                    || svg.querySelector("path, polygon, rect");
+                  const line = svg.querySelector("line:not(.asset-focus-connector)") || svg.querySelector("line");
+                  const arrow = Array.from(svg.querySelectorAll("polygon")).find(function (node) {
+                    return (node.getAttribute("points") || "").split(/[ ,]+/).length >= 6;
+                  });
+                  const lineStyle = line ? line.getAttribute("style") || "" : "";
+                  const arrowStyle = arrow ? arrow.getAttribute("style") || "" : "";
+                  const noteStyle = note ? note.getAttribute("style") || "" : "";
+                  const background = svg.querySelector(".diagram-export-background");
+                  const backgroundStyle = background ? background.getAttribute("style") || "" : "";
+                  const exportedStyleText = Array.from(svg.querySelectorAll("style")).map(function (node) {
+                    return node.textContent || "";
+                  }).join("\\n");
+                  const textStyle = (svg.querySelector("text") || {}).getAttribute
+                    ? svg.querySelector("text").getAttribute("style") || ""
+                    : "";
+                  return {
+                    pass: true,
+                    preserveAspectRatio: svg.getAttribute("preserveAspectRatio"),
+                    hasViewBox: svg.hasAttribute("viewBox"),
+                    backgroundFill: background ? background.getAttribute("fill") : "",
+                    backgroundStyle,
+                    lineStroke: line ? line.getAttribute("stroke") : "",
+                    lineStrokeWidth: line ? line.getAttribute("stroke-width") : "",
+                    lineVectorEffect: line ? line.getAttribute("vector-effect") : "",
+                    lineStyle,
+                    noteFill: note ? note.getAttribute("fill") : "",
+                    noteStroke: note ? note.getAttribute("stroke") : "",
+                    noteStyle,
+                    focusedNoteCount: focusedNotes.length,
+                    focusedNoteStrokes: focusedNotes.map(function (node) {
+                      return [node.getAttribute("stroke") || "", node.getAttribute("style") || ""].join(" ");
+                    }),
+                    exportedStyleText,
+                    textStyle,
+                    arrowFill: arrow ? arrow.getAttribute("fill") : "",
+                    arrowStroke: arrow ? arrow.getAttribute("stroke") : "",
+                    arrowStyle,
+                  };
+                })()""",
+                await_promise=True,
+            )
+
+        self.assertTrue(result.get("pass"), result)
+        self.assertEqual("xMidYMid meet", result.get("preserveAspectRatio"), result)
+        self.assertTrue(result.get("hasViewBox"), result)
+        self.assertEqual("rgb(31, 31, 31)", result.get("backgroundFill"), result)
+        self.assertIn("fill:", result.get("backgroundStyle", ""), result)
+        self.assertIn("stroke: none", result.get("backgroundStyle", ""), result)
+        self.assertTrue(result.get("lineStroke"), result)
+        self.assertEqual("1.4px", result.get("lineStrokeWidth"), result)
+        self.assertEqual("non-scaling-stroke", result.get("lineVectorEffect"), result)
+        self.assertIn("stroke-width: 1.4px", result.get("lineStyle", ""), result)
+        self.assertIn("vector-effect: non-scaling-stroke", result.get("lineStyle", ""), result)
+        self.assertIn("fill:", result.get("noteStyle", ""), result)
+        self.assertTrue(result.get("noteStroke"), result)
+        self.assertNotIn("202, 80, 16", result.get("noteStroke", ""), result)
+        self.assertGreaterEqual(result.get("focusedNoteCount", 0), 2, result)
+        for stroke in result.get("focusedNoteStrokes", []):
+            self.assertNotIn("202, 80, 16", stroke, result)
+        self.assertIn("fill:", result.get("textStyle", ""), result)
+        self.assertNotIn("svg text:not", result.get("exportedStyleText", ""), result)
+        self.assertNotIn("svg rect:not", result.get("exportedStyleText", ""), result)
+        self.assertNotIn("fill:", result.get("exportedStyleText", ""), result)
+        self.assertNotIn("stroke:", result.get("exportedStyleText", ""), result)
+        self.assertTrue(result.get("arrowStroke"), result)
+        self.assertIn("fill:", result.get("arrowStyle", ""), result)
+
     def test_story_bar_pinning_does_not_jump_during_manual_scroll(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
@@ -810,6 +931,43 @@ def _generic_report_payload() -> dict[str, object]:
                 *component_nodes,
             ],
             "edges": component_edges,
+        },
+    }
+
+
+def _plantuml_export_payload() -> dict[str, object]:
+    return {
+        "title": "Synthetic PlantUML export report",
+        "summary_blocks": [{"type": "diagram", "diagram": "flow", "diagram_focus": ["PlantUML note"]}],
+        "diagrams": {
+            "flow": {
+                "title": "Synthetic PlantUML flow",
+                "svg_inline": (
+                    '<svg xmlns="http://www.w3.org/2000/svg" width="240px" height="140px" '
+                    'viewBox="0 0 240 140" preserveAspectRatio="none">'
+                    '<rect x="8" y="8" width="72" height="32" fill="#F8F8F8" '
+                    'style="stroke: #383838; stroke-width: 1.5;"/>'
+                    '<text x="18" y="29" fill="#000000" font-family="sans-serif" '
+                    'font-size="14">Source</text>'
+                    '<rect x="160" y="8" width="72" height="32" fill="#F8F8F8" '
+                    'style="stroke: #383838; stroke-width: 1.5;"/>'
+                    '<text x="174" y="29" fill="#000000" font-family="sans-serif" '
+                    'font-size="14">Target</text>'
+                    '<line x1="80" y1="24" x2="158" y2="24" '
+                    'style="stroke: #383838; stroke-width: 1.0;"/>'
+                    '<polygon fill="#383838" points="150,20 160,24 150,28 154,24" '
+                    'style="stroke: #383838; stroke-width: 1.0;"/>'
+                    '<polygon points="48,72 48,122 190,122 190,82 180,72" '
+                    'fill="#ECECEC" style="stroke: #383838; stroke-width: 1.0;"/>'
+                    '<polygon points="180,72 180,82 190,82" '
+                    'fill="#ECECEC" style="stroke: #383838; stroke-width: 1.0;"/>'
+                    '<text x="56" y="96" fill="#000000" font-family="sans-serif" '
+                    'font-size="13">PlantUML note</text>'
+                    '<line x1="20" y1="132" x2="220" y2="132" '
+                    'style="stroke: #383838; stroke-width: 1.0;"/>'
+                    "</svg>"
+                ),
+            }
         },
     }
 
