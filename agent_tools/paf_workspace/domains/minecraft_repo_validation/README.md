@@ -10,6 +10,7 @@ the reusable `minecraft-paper` Docker environment:
 - server assembly dry run with missing private artifacts allowed;
 - Gradle `test jar` for `plugins/frontline-factions`;
 - self-contained SQLite bundle check for the produced plugin jar;
+- Paper runtime smoke that boots a real server with the produced plugin;
 - optional task context hygiene check;
 - optional push-guard marker phase.
 

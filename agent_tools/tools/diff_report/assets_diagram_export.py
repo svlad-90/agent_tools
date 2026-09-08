@@ -70,6 +70,7 @@ def diagram_export_helpers() -> str:
       ["--diagram-svg-box-bg", "#ffffff"],
       ["--diagram-svg-note-bg", "#fff8c5"],
       ["--diagram-focus", "#1d4ed8"],
+      ["--diagram-focus-glow", "rgba(29,78,216,.32)"],
       ["--diagram-focus-text", "#ffffff"],
       ["--diagram-note-bg", "#dbeafe"],
       ["--diagram-note-hover-bg", "#bfdbfe"],
@@ -79,6 +80,7 @@ def diagram_export_helpers() -> str:
       ["--diagram-link", "#107c10"],
       ["--diagram-link-bg", "#e9f5e9"],
       ["--diagram-link-hover-bg", "#deecf9"],
+      ["--comment-border", "#ca5010"],
     ]);
     for (const name of Array.from(fallback.keys())) {
       const value = rootStyle.getPropertyValue(name).trim();
@@ -203,6 +205,9 @@ def diagram_export_helpers() -> str:
     if (!node || !node.classList) {
       return false;
     }
+    if (isPlantUmlNoteShape(node)) {
+      return true;
+    }
     for (const className of Array.from(node.classList)) {
       if (
         className.startsWith("asset-focus-")
@@ -213,6 +218,11 @@ def diagram_export_helpers() -> str:
       }
     }
     return false;
+  }
+
+  function isPlantUmlNoteShape(node) {
+    const fill = String(node.getAttribute("fill") || "").toUpperCase();
+    return fill === "#FBFB77" || fill === "#3B3216";
   }
 
   function insertSvgBackground(svg) {

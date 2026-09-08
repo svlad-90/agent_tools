@@ -36,6 +36,18 @@ class validate_minecraft_repo(EnvironmentTask):
             "MINECRAFT_VALIDATE_REQUIRE_SQLITE_BUNDLE",
             self.config_bool("require_sqlite_bundle", True),
         )
+        run_paper_smoke = self.bool_param(
+            "MINECRAFT_VALIDATE_RUN_PAPER_SMOKE",
+            self.config_bool("run_paper_smoke", True),
+        )
+        paper_version = (
+            self.param("MINECRAFT_VALIDATE_PAPER_VERSION", "")
+            or self.config_string("paper_version", "1.21.1")
+        )
+        paper_smoke_timeout = int(
+            self.param("MINECRAFT_VALIDATE_PAPER_SMOKE_TIMEOUT_SEC", "")
+            or self.config_string("paper_smoke_timeout_sec", "180")
+        )
 
         self.assertion(repo, "Missing Minecraft repo path")
         self.assertion(plugin_dir, "Missing Minecraft plugin directory")
@@ -48,6 +60,9 @@ class validate_minecraft_repo(EnvironmentTask):
                     plugin_dir=plugin_dir,
                     task_dir=task_dir,
                     require_sqlite_bundle=require_sqlite_bundle,
+                    run_paper_smoke=run_paper_smoke,
+                    paper_version=paper_version,
+                    paper_smoke_timeout_sec=paper_smoke_timeout,
                 )
             ),
             timeout=timeout,

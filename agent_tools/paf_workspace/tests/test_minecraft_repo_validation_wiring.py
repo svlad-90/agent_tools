@@ -60,4 +60,6 @@ def test_minecraft_repo_validation_command_runs_expected_checks() -> None:
     assert 'gradle --project-dir "$PLUGIN_DIR" test jar' in command
     assert "META-INF/services/java.sql.Driver" in command
     assert "org/sqlite/native/Linux/x86_64/libsqlitejdbc.so" in command
+    assert "python3 scripts/run_paper_smoke.py" in command
+    assert "--skip-build" in command
     assert "task_check" in command

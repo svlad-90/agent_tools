@@ -13,11 +13,17 @@ class MinecraftRepoValidation:
         plugin_dir: str,
         task_dir: str = "",
         require_sqlite_bundle: bool = True,
+        run_paper_smoke: bool = True,
+        paper_version: str = "1.21.1",
+        paper_smoke_timeout_sec: int = 180,
     ) -> None:
         self.repo = repo
         self.plugin_dir = plugin_dir
         self.task_dir = task_dir
         self.require_sqlite_bundle = require_sqlite_bundle
+        self.run_paper_smoke = run_paper_smoke
+        self.paper_version = paper_version
+        self.paper_smoke_timeout_sec = paper_smoke_timeout_sec
 
 
 def minecraft_repo_validation_command(config: MinecraftRepoValidation) -> str:
@@ -25,6 +31,9 @@ def minecraft_repo_validation_command(config: MinecraftRepoValidation) -> str:
     plugin_dir = _quote(config.plugin_dir)
     task_dir = _quote(config.task_dir)
     require_sqlite_bundle = "1" if config.require_sqlite_bundle else "0"
+    run_paper_smoke = "1" if config.run_paper_smoke else "0"
+    paper_version = _quote(config.paper_version)
+    paper_smoke_timeout_sec = str(config.paper_smoke_timeout_sec)
     return f"""
 set -euo pipefail
 export PYTHONUNBUFFERED=1
@@ -32,6 +41,9 @@ REPO={repo}
 PLUGIN_DIR={plugin_dir}
 TASK_DIR={task_dir}
 REQUIRE_SQLITE_BUNDLE={require_sqlite_bundle}
+RUN_PAPER_SMOKE={run_paper_smoke}
+PAPER_VERSION={paper_version}
+PAPER_SMOKE_TIMEOUT_SEC={paper_smoke_timeout_sec}
 WORKSPACE_ROOT="$REPO/../../../.."
 
 cd "$REPO"
@@ -61,6 +73,14 @@ if [ "$REQUIRE_SQLITE_BUNDLE" = "1" ]; then
   jar tf "$JAR" | grep -x 'org/sqlite/JDBC.class'
   jar tf "$JAR" | grep -x 'org/sqlite/native/Windows/x86_64/sqlitejdbc.dll'
   jar tf "$JAR" | grep -x 'org/sqlite/native/Linux/x86_64/libsqlitejdbc.so'
+fi
+
+if [ "$RUN_PAPER_SMOKE" = "1" ]; then
+  echo "Run Paper runtime smoke"
+  python3 scripts/run_paper_smoke.py \\
+    --skip-build \\
+    --paper-version "$PAPER_VERSION" \\
+    --timeout "$PAPER_SMOKE_TIMEOUT_SEC"
 fi
 
 if [ -n "$TASK_DIR" ]; then
