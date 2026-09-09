@@ -41,6 +41,10 @@ def plantuml_svg_styles() -> str:
     /* PlantUML SVG contract: PlantUML 1.2020.02, Graphviz dot 2.43.0, JAVA_TOOL_OPTIONS=-Djava.awt.headless=true. */
     .diagram-preview-canvas svg,
     .diagram-zoom-stage svg { background: var(--diagram-svg-bg) !important; }
+    .diagram-preview-canvas svg rect[fill="#FFFFFF"][style*="stroke-width: 2.0"],
+    .diagram-zoom-stage svg rect[fill="#FFFFFF"][style*="stroke-width: 2.0"] { fill: none !important; stroke: var(--diagram-svg-line) !important; }
+    .diagram-preview-canvas svg rect[fill="#FFFFFF"][style*="stroke: none"],
+    .diagram-zoom-stage svg rect[fill="#FFFFFF"][style*="stroke: none"] { fill: none !important; stroke: none !important; }
     .diagram-preview-canvas svg text:not(.diagram-note-text):not(.diagram-note-marker-text):not(.diagram-code-link-badge-text):not(.asset-focus-match):not(.asset-focus-related-hover),
     .diagram-zoom-stage svg text:not(.diagram-note-text):not(.diagram-note-marker-text):not(.diagram-code-link-badge-text):not(.asset-focus-match):not(.asset-focus-related-hover),
     .diagram-preview-canvas svg tspan:not(.diagram-note-text):not(.diagram-note-marker-text):not(.asset-focus-match):not(.asset-focus-related-hover),
@@ -75,8 +79,8 @@ def plantuml_svg_styles() -> str:
     .diagram-zoom-stage svg path[fill="#F5F5F5"]:not(.asset-focus-object),
     .diagram-preview-canvas svg path[fill="#2D2D30"]:not(.asset-focus-object),
     .diagram-zoom-stage svg path[fill="#2D2D30"]:not(.asset-focus-object),
-    .diagram-preview-canvas svg rect:not(.diagram-export-background):not(.diagram-note-box):not(.diagram-code-link-badge-box):not([fill="#ECECEC"]):not([fill="#FBFB77"]):not([fill="#3B3216"]),
-    .diagram-zoom-stage svg rect:not(.diagram-export-background):not(.diagram-note-box):not(.diagram-code-link-badge-box):not([fill="#ECECEC"]):not([fill="#FBFB77"]):not([fill="#3B3216"]),
+    .diagram-preview-canvas svg rect:not(.diagram-export-background):not(.diagram-note-box):not(.diagram-code-link-badge-box):not([fill="#ECECEC"]):not([fill="#FBFB77"]):not([fill="#3B3216"]):not([style*="stroke-width: 2.0"]):not([style*="stroke: none"]),
+    .diagram-zoom-stage svg rect:not(.diagram-export-background):not(.diagram-note-box):not(.diagram-code-link-badge-box):not([fill="#ECECEC"]):not([fill="#FBFB77"]):not([fill="#3B3216"]):not([style*="stroke-width: 2.0"]):not([style*="stroke: none"]),
     .diagram-preview-canvas svg ellipse[fill="#FFFFFF"]:not(.asset-focus-object),
     .diagram-zoom-stage svg ellipse[fill="#FFFFFF"]:not(.asset-focus-object),
     .diagram-preview-canvas svg circle:not(.asset-focus-object),
@@ -180,6 +184,8 @@ def _plantuml_preview_style(colors: dict[str, str]) -> str:
     return f"""
 <style>
 svg {{ background: {colors["bg"]} !important; }}
+svg rect[fill="#FFFFFF"][style*="stroke-width: 2.0"] {{ fill: none !important; stroke: {colors["line"]} !important; }}
+svg rect[fill="#FFFFFF"][style*="stroke: none"] {{ fill: none !important; stroke: none !important; }}
 svg text:not(.diagram-note-text):not(.diagram-note-marker-text):not(.diagram-code-link-badge-text):not(.asset-focus-match):not(.asset-focus-related-hover),
 svg tspan:not(.diagram-note-text):not(.diagram-note-marker-text):not(.asset-focus-match):not(.asset-focus-related-hover) {{ fill: {colors["text"]} !important; stroke: none !important; }}
 svg line:not(.asset-focus-connector):not(.diagram-code-link-connector):not(.diagram-note-link),
@@ -197,7 +203,7 @@ svg path[fill="#FFFFFF"]:not(.asset-focus-object),
 svg path[fill="#FEFECE"]:not(.asset-focus-object),
 svg path[fill="#F5F5F5"]:not(.asset-focus-object),
 svg path[fill="#2D2D30"]:not(.asset-focus-object),
-svg rect:not(.diagram-export-background):not(.diagram-note-box):not(.diagram-code-link-badge-box):not([fill="#ECECEC"]):not([fill="#FBFB77"]):not([fill="#3B3216"]),
+svg rect:not(.diagram-export-background):not(.diagram-note-box):not(.diagram-code-link-badge-box):not([fill="#ECECEC"]):not([fill="#FBFB77"]):not([fill="#3B3216"]):not([style*="stroke-width: 2.0"]):not([style*="stroke: none"]),
 svg ellipse[fill="#FFFFFF"]:not(.asset-focus-object),
 svg circle:not(.asset-focus-object) {{ fill: {colors["box"]} !important; stroke: {colors["line"]} !important; }}
 svg ellipse[fill="#D4D4D4"]:not(.asset-focus-object),
