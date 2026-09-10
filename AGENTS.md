@@ -70,11 +70,15 @@ manual fallback only; do not create or require them for new tasks.
 
 Prefer Agent Workspace MCP tools over Bash/CLI wrappers when an equivalent
 `mcp__agent_tools_workspace` tool is available. Use `tool_search` to discover
-workspace MCP tools that are not already visible in the current session. Fall
-back to Bash/CLI for unavailable MCP tools, operations with no MCP wrapper, and
-intentional shell/build/PAF/git commands. Do not call the Agent Workspace
-`limited_bash` wrapper directly; harness hooks apply that output guard
-automatically when needed.
+workspace MCP tools that are not already visible in the current session. Search
+by workflow and by tool family before falling back; for example try both
+`task context query` and `task_context`, or both `diff report render` and
+`diff_report`. A single empty search is not enough to declare a named workspace
+MCP family unavailable. Use `rg`/`rg --files`, not MCP discovery, for ordinary
+source/report/log text search. Fall back to Bash/CLI for unavailable MCP tools,
+operations with no MCP wrapper, and intentional shell/build/PAF/git commands.
+Do not call the Agent Workspace `limited_bash` wrapper directly; harness hooks
+apply that output guard automatically when needed.
 
 When task context is needed, query current task context slots from
 `TASK_CONTEXT.sqlite3` with MCP `task_context_query` when available, or with
