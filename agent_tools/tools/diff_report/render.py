@@ -34,6 +34,7 @@ def render_html_report(
     commit_subject = next((line for line in (commit_message or "").splitlines() if line.strip()), None)
     subject = source.subject or commit_subject
     stats = diff_stats(source.diff_text)
+    diff_file_order = diff_files(source.diff_text)
     parts: list[str] = []
     parts.append(html_header(title))
     parts.append(
@@ -60,8 +61,8 @@ def render_html_report(
         parts.append(_render_logs_section(comments))
     if comments.story:
         parts.append(_render_story_section(comments))
-    if comment_count:
-        parts.append(_render_comments_index(comments, diff_files(source.diff_text)))
+    if comment_count or diff_file_order:
+        parts.append(_render_comments_index(comments, diff_file_order, comment_count))
     parts.append(
         render_diff(
             source.diff_text,
@@ -166,10 +167,15 @@ def _render_summary_section(comments: ReviewComments) -> str:
     return "".join(parts)
 
 
-def _render_comments_index(comments: ReviewComments, diff_file_order: list[str]) -> str:
+def _render_comments_index(
+    comments: ReviewComments,
+    diff_file_order: list[str],
+    comment_count: int,
+) -> str:
+    title = "Review Comments" if comment_count else "Files Changed"
     parts = [
         '  <section class="review-nav" id="review-comments">'
-        '<div class="review-nav-head"><h2>Review Comments</h2></div>\n'
+        f'<div class="review-nav-head"><h2>{_esc(title)}</h2></div>\n'
     ]
     comment_file_paths = set(comments.file_comments) | {key[0] for key in comments.inline_comments}
     file_paths = list(diff_file_order)
