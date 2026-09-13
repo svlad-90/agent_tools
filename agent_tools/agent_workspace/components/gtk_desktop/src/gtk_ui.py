@@ -296,6 +296,7 @@ class TerminalSession:
     run_id: str | None = None
     permission_signature: str | None = None
     ignored_permission_signature: str | None = None
+    task_command_send_pending: bool = False
 
 
 @dataclass(frozen=True)
@@ -5056,20 +5057,81 @@ class WorkspaceGtkGui:
                 break
 
     def _send_command_to_task_terminal(self, task: TaskSummary, command: str) -> None:
-        session = self._active_shell_for_task(task) or self._first_terminal_for_task(task)
+        self._refresh_task_shell_busy_states(task)
+        session = self._active_idle_shell_for_task(task) or self._first_idle_shell_for_task(task)
         if session is None:
             session_id = self.new_console(task=task)
             if session_id is not None:
+                self._mark_terminal_session_busy(session_id)
                 GLib.timeout_add(250, self._send_command_to_session_once, session_id, command + "\n")
             return
         self._activate_terminal(session.session_id)
+        self._mark_terminal_session_busy(session.session_id)
         GLib.timeout_add(50, self._send_command_to_session_once, session.session_id, command + "\n")
+
+    def _mark_terminal_session_busy(self, session_id: int) -> None:
+        session = self.terminal_sessions.get(session_id)
+        if session is not None:
+            session.busy = True
+            session.task_command_send_pending = True
+
+    def _refresh_task_shell_busy_states(self, task: TaskSummary) -> None:
+        for session in self._current_task_terminal_sessions(task):
+            if session.kind == "shell":
+                session.busy = self._shell_session_has_running_child(session)
+
+    def _shell_session_has_running_child(self, session: TerminalSession) -> bool:
+        if session.exited:
+            return False
+        if session.task_command_send_pending:
+            return True
+        if session.child_pid is None:
+            return bool(session.busy)
+        return self._process_has_live_descendant(session.child_pid)
+
+    def _process_has_live_descendant(self, pid: int) -> bool:
+        children_by_parent: dict[int, list[tuple[int, str]]] = {}
+        try:
+            for stat_path in Path("/proc").glob("[0-9]*/stat"):
+                try:
+                    text = stat_path.read_text(encoding="utf-8", errors="replace")
+                except OSError:
+                    continue
+                parsed = self._parse_proc_stat(text)
+                if parsed is None:
+                    continue
+                child_pid, state, parent_pid = parsed
+                children_by_parent.setdefault(parent_pid, []).append((child_pid, state))
+        except OSError:
+            return True
+        stack = [pid]
+        while stack:
+            parent = stack.pop()
+            for child_pid, state in children_by_parent.get(parent, []):
+                if state != "Z":
+                    return True
+                stack.append(child_pid)
+        return False
+
+    def _parse_proc_stat(self, text: str) -> tuple[int, str, int] | None:
+        rparen = text.rfind(")")
+        if rparen < 0:
+            return None
+        try:
+            pid = int(text.split(" ", 1)[0])
+            tail = text[rparen + 2 :].split()
+            state = tail[0]
+            parent_pid = int(tail[1])
+        except (IndexError, ValueError):
+            return None
+        return pid, state, parent_pid
 
     def _send_command_to_session_once(self, session_id: int, command: str) -> bool:
         session = self.terminal_sessions.get(session_id)
         if session is not None:
             self._activate_terminal(session_id)
             _feed_terminal(session.terminal, command)
+            session.task_command_send_pending = False
         return False
 
     def _start_terminal(
@@ -5095,19 +5157,6 @@ class WorkspaceGtkGui:
         terminal.connect("popup-menu", self._on_terminal_popup_menu)
         terminal.connect("key-press-event", self._on_terminal_key_press)
         terminal.connect("child-exited", self._on_terminal_child_exited)
-        terminal.spawn_async(
-            Vte.PtyFlags.DEFAULT,
-            str(cwd),
-            command,
-            _terminal_env(env),
-            GLib.SpawnFlags.DEFAULT,
-            None,
-            None,
-            -1,
-            None,
-            None,
-            None,
-        )
         scrolled = Gtk.ScrolledWindow()
         scrolled.get_style_context().add_class("terminal-page")
         terminal_child: Gtk.Widget = terminal
@@ -5134,6 +5183,19 @@ class WorkspaceGtkGui:
             run_id=run_id if session_is_agent(session_kind=kind) else None,
         )
         self.terminal_sessions[session_id] = session
+        terminal.spawn_async(
+            Vte.PtyFlags.DEFAULT,
+            str(cwd),
+            command,
+            _terminal_env(env),
+            GLib.SpawnFlags.DEFAULT,
+            None,
+            None,
+            -1,
+            None,
+            self._on_terminal_spawn_ready,
+            session_id,
+        )
         if session.run_id is not None:
             save_task_active_agent_run(task, kind, session.run_id)
         if session_is_agent(session_kind=kind):
@@ -5149,12 +5211,24 @@ class WorkspaceGtkGui:
         self._activate_terminal(session_id)
         return session_id
 
+    def _on_terminal_spawn_ready(self, terminal: Vte.Terminal, *args: object) -> None:
+        session_id = args[-1] if args else None
+        session = self.terminal_sessions.get(session_id) if isinstance(session_id, int) else self._session_for_terminal(terminal)
+        if session is None:
+            return
+        callback_values = args[:-1] if isinstance(session_id, int) else args
+        for value in callback_values:
+            if isinstance(value, int):
+                session.child_pid = value
+                return
+
     def _on_terminal_child_exited(self, terminal: Vte.Terminal, _status: int) -> None:
         session = self._session_for_terminal(terminal)
         if session is None:
             return
         session.exited = True
         session.busy = False
+        session.task_command_send_pending = False
         session.permission_pending = False
         session.permission_signature = None
         session.ignored_permission_signature = None
@@ -5890,9 +5964,21 @@ class WorkspaceGtkGui:
                 return session
         return None
 
+    def _active_idle_shell_for_task(self, task: TaskSummary) -> TerminalSession | None:
+        session = self._active_shell_for_task(task)
+        if session is None or session.busy or session.exited:
+            return None
+        return session
+
     def _first_terminal_for_task(self, task: TaskSummary) -> TerminalSession | None:
         for session in self._current_task_terminal_sessions(task):
             if session.kind == "shell":
+                return session
+        return None
+
+    def _first_idle_shell_for_task(self, task: TaskSummary) -> TerminalSession | None:
+        for session in self._current_task_terminal_sessions(task):
+            if session.kind == "shell" and not session.busy and not session.exited:
                 return session
         return None
 

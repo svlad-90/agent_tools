@@ -2630,6 +2630,101 @@ def test_gtk_activate_visible_terminal_can_restore_without_replacing_memory(tmp_
     assert gui.last_active_terminal_by_task == {summary.path: 3}
 
 
+def test_gtk_task_action_uses_new_console_when_active_shell_is_busy(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    task = tmp_path / "tasks" / "sample-task"
+    task.mkdir(parents=True)
+    summary = discover_tasks_with_context(task, tmp_path)
+    busy_page = object()
+    new_page = object()
+    busy_session = TerminalSession(1, summary.path, "shell", FakeGtkTerminal(), busy_page, busy=True)
+    gui = WorkspaceGtkGui.__new__(WorkspaceGtkGui)
+    gui.terminal_sessions = {busy_session.session_id: busy_session}
+    gui.console_notebook = FakeGtkConsoleNotebook([busy_page], current_page=0)
+    scheduled: list[tuple[int, object, tuple[object, ...]]] = []
+
+    def timeout_add(delay_ms: int, callback: object, *args: object) -> int:
+        scheduled.append((delay_ms, callback, args))
+        return 1
+
+    def new_console(*, task: TaskSummary) -> int:
+        new_session = TerminalSession(2, task.path, "shell", FakeGtkTerminal(), new_page)
+        gui.terminal_sessions[new_session.session_id] = new_session
+        return new_session.session_id
+
+    monkeypatch.setattr(gtk_ui_module.GLib, "timeout_add", timeout_add)
+    gui.new_console = new_console  # type: ignore[method-assign]
+
+    gui._send_command_to_task_terminal(summary, "printf ok")
+
+    assert busy_session.busy is True
+    assert gui.terminal_sessions[2].busy is True
+    assert gui.terminal_sessions[2].task_command_send_pending is True
+    assert scheduled and scheduled[0][0] == 250
+
+
+def test_gtk_shell_session_running_child_marks_shell_busy(tmp_path: Path) -> None:
+    task = tmp_path / "tasks" / "sample-task"
+    task.mkdir(parents=True)
+    summary = discover_tasks_with_context(task, tmp_path)
+    session = TerminalSession(7, summary.path, "shell", object(), object(), child_pid=100)
+    gui = WorkspaceGtkGui.__new__(WorkspaceGtkGui)
+    gui.terminal_sessions = {session.session_id: session}
+    gui._process_has_live_descendant = lambda pid: pid == 100  # type: ignore[method-assign]
+
+    gui._refresh_task_shell_busy_states(summary)
+
+    assert session.busy is True
+
+
+def test_gtk_task_action_reuses_shell_when_no_process_child_is_running(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    task = tmp_path / "tasks" / "sample-task"
+    task.mkdir(parents=True)
+    summary = discover_tasks_with_context(task, tmp_path)
+    page = object()
+    terminal = FakeGtkTerminal()
+    session = TerminalSession(
+        3,
+        summary.path,
+        "shell",
+        terminal,
+        page,
+        busy=True,
+        child_pid=200,
+    )
+    gui = WorkspaceGtkGui.__new__(WorkspaceGtkGui)
+    gui.terminal_sessions = {session.session_id: session}
+    gui.console_notebook = FakeGtkConsoleNotebook([page], current_page=0)
+    activated: list[int] = []
+    scheduled: list[tuple[int, object, tuple[object, ...]]] = []
+
+    def timeout_add(delay_ms: int, callback: object, *args: object) -> int:
+        scheduled.append((delay_ms, callback, args))
+        return 1
+
+    monkeypatch.setattr(gtk_ui_module.GLib, "timeout_add", timeout_add)
+    gui._activate_terminal = lambda session_id: activated.append(session_id)  # type: ignore[method-assign]
+    gui._process_has_live_descendant = lambda pid: False  # type: ignore[method-assign]
+
+    gui._send_command_to_task_terminal(summary, "printf ok")
+
+    assert activated == [session.session_id]
+    assert session.busy is True
+    assert session.task_command_send_pending is True
+    assert scheduled and scheduled[0][0] == 50
+
+
+def test_gtk_parse_proc_stat_handles_process_names_with_spaces() -> None:
+    gui = WorkspaceGtkGui.__new__(WorkspaceGtkGui)
+
+    assert gui._parse_proc_stat("123 (bash worker) S 45 1 1 0") == (123, "S", 45)
+
+
 def test_gtk_refresh_console_tabs_restores_last_focused_tab_per_task(tmp_path: Path) -> None:
     task_one = tmp_path / "tasks" / "one"
     task_two = tmp_path / "tasks" / "two"
