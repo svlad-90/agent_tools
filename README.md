@@ -44,6 +44,10 @@ wizard. Choose the UI profile (`web`, `tk`, or `gtk`) and whether to install
 common system tools such as PlantUML/Graphviz or Docker support. System package
 installation may ask for `sudo` on Linux.
 
+At this stage, `gtk` is the only fully supported UI profile. The `web` and
+`tk` profiles remain useful for compatibility work and focused testing, but
+they do not yet cover the full Agent Workspace feature set.
+
 On macOS, open `agent-workspace.command`. On Windows, run
 `agent-workspace.cmd`. Those portable launchers start the browser UI.
 
@@ -155,6 +159,9 @@ The desktop app is the fastest way to operate the workspace day to day:
 ```sh
 ./agent-workspace.sh
 ```
+
+The GTK profile is the supported daily-driver UI. Other profiles are kept
+available while their behavior is being brought up to parity.
 
 On macOS and Windows, use the browser UI launchers:
 
