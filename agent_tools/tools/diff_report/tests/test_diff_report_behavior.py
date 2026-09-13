@@ -48,6 +48,51 @@ class DiffReportBehaviorTests(unittest.TestCase):
         self.assertIn("Files changed", html)
         self.assertIn("<strong>1</strong>", html)
         self.assertIn("print(&#x27;new&#x27;)", html)
+        self.assertIn('<section class="review-nav" id="review-comments">', html)
+        self.assertIn("<h2>Files Changed</h2>", html)
+        self.assertIn('href="#app.py">app.py</a>', html)
+
+    def test_diff_report_without_comments_keeps_changed_file_navigation(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            diff_path = root / "change.patch"
+            output = root / "report.html"
+            diff_path.write_text(
+                textwrap.dedent(
+                    """\
+                    diff --git a/deep/path/app.py b/deep/path/app.py
+                    new file mode 100644
+                    index 0000000..2f9a147
+                    --- /dev/null
+                    +++ b/deep/path/app.py
+                    @@ -0,0 +1 @@
+                    +print('new')
+                    diff --git a/deep/path/tests/test_app.py b/deep/path/tests/test_app.py
+                    new file mode 100644
+                    index 0000000..329ae20
+                    --- /dev/null
+                    +++ b/deep/path/tests/test_app.py
+                    @@ -0,0 +1 @@
+                    +def test_app(): pass
+                    """
+                ),
+                encoding="utf-8",
+            )
+
+            generate_report(
+                output_path=output,
+                title="Plain diff report",
+                diff_file=diff_path,
+            )
+
+            html = output.read_text(encoding="utf-8")
+
+        self.assertIn('<section class="review-nav" id="review-comments">', html)
+        self.assertIn("<h2>Files Changed</h2>", html)
+        self.assertIn('<span class="review-nav-label">deep/path</span>', html)
+        self.assertIn('href="#deep-path-app.py">app.py</a>', html)
+        self.assertIn('href="#deep-path-tests-test_app.py">test_app.py</a>', html)
+        self.assertIn("review-nav-node review-nav-file", html)
 
     def test_empty_diff_report_omits_diff_stats(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

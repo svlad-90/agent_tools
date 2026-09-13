@@ -164,13 +164,35 @@ These rules apply to every task directory under the workspace root.
 3. Prefer Agent Workspace MCP tools over Bash/CLI wrappers when an equivalent
    `mcp__agent_tools_workspace` tool is available. MCP tools are the
    agent-facing interface for workspace utilities because they expose typed
-   arguments, structured results, path validation, and compact output. Use
-   `tool_search` to discover relevant workspace MCP tools when they are not
-   already visible in the current session. Fall back to Bash/CLI only when the
-   MCP tool is unavailable in the active client, the operation has no MCP
-   wrapper yet, or the task is intentionally running a shell/build/PAF/git
-   command. Do not call the Agent Workspace `limited_bash` wrapper directly;
-   harness hooks apply that output guard automatically when needed.
+   arguments, structured results, path validation, and compact output.
+   Discover MCP tools deliberately:
+
+   - Use `tool_search` before falling back to a CLI wrapper for workspace
+     utility workflows such as task context, repo registry, diff reports, code
+     maps, YAML maps, rules sync, commit-message formatting, task checks,
+     plugin/app operations, and connected document/site control.
+   - Search by capability, not only by guessed tool name. Try a short
+     workflow query first, such as `task context query`, `diff report render`,
+     `repo registry add`, `cpp code map symbol`, or `rules sync check`.
+     If that misses, try one broader family query, such as `task_context`,
+     `diff_report`, `repo_registry`, `cpp_code_map`, `yaml_map`, or
+     `rules_sync`.
+   - Treat a single empty or irrelevant `tool_search` result as inconclusive
+     when the rule file or skill names an MCP family. Refine the query once
+     with the domain noun and intended action before declaring the MCP tool
+     unavailable.
+   - Do not use MCP discovery for ordinary repository text/file search. Use
+     `rg` or `rg --files` for source files, report artifacts, logs, and local
+     documentation.
+   - Do not call generic MCP resource discovery as a substitute for tool
+     discovery. When looking for callable workspace/app capabilities, use
+     `tool_search` first.
+
+   Fall back to Bash/CLI only when the MCP tool is unavailable in the active
+   client after the search above, the operation has no MCP wrapper yet, or the
+   task is intentionally running a shell/build/PAF/git command. Do not call
+   the Agent Workspace `limited_bash` wrapper directly; harness hooks apply
+   that output guard automatically when needed.
 4. Before working inside an existing task directory, query current task context
    slots from `TASK_CONTEXT.sqlite3` after the directory is selected when task
    state is needed. Prefer MCP `task_context_query` when available. Otherwise
