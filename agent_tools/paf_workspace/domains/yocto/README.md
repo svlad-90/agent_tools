@@ -31,6 +31,7 @@ YOCTO_BUILD_DIR
 YOCTO_CONTAINER_ALIAS
 YOCTO_BITBAKE_ARGS
 YOCTO_BITBAKE_TIMEOUT_SEC
+YOCTO_BITBAKE_USE_PTY
 YOCTO_TARGET
 YOCTO_CLEAN_TASK
 YOCTO_GRAPH_OUTPUT_DIR
@@ -45,6 +46,10 @@ to `poky/oe-init-build-env`, `YOCTO_BUILD_DIR` defaults to
 `yocto-xen-workspace`. The default scenario image alias is `yocto-xen`; override
 `ENVIRONMENT_IMAGE_ALIAS` when a task profile uses a different Docker image
 alias.
+
+Set `YOCTO_BITBAKE_USE_PTY=1` only when the invoked command needs terminal
+semantics for progress output. Plain BitBake logs are usually clearer with the
+default pipe output.
 
 The stable project-specific settings can also live in YAML:
 

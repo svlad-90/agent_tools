@@ -589,11 +589,16 @@ class FakeAiDebugPath:
 class FakeAiDebugStore:
     def __init__(self, rows: list[tuple[str, ...]]) -> None:
         self.rows = list(rows)
+        self.clear_count = 0
 
     def __getitem__(self, row_iter: int) -> tuple[str, ...]:
         return self.rows[row_iter]
 
+    def __len__(self) -> int:
+        return len(self.rows)
+
     def clear(self) -> None:
+        self.clear_count += 1
         self.rows.clear()
 
     def append(self, row: tuple[str, ...]) -> int:
@@ -663,6 +668,47 @@ def test_gtk_ai_debug_refresh_keeps_visible_scroll_anchor() -> None:
 
     assert tree.selection.selected_paths == ["2"]
     assert tree.scroll_to_cell_calls == ["0"]
+
+
+def test_gtk_ai_debug_refresh_appends_new_tail_events() -> None:
+    events = [_gtk_debug_event(event_id) for event_id in (1, 2, 3)]
+    refreshed_events = events + [_gtk_debug_event(4), _gtk_debug_event(5)]
+    store = FakeAiDebugStore([_harness_debug_event_row(event, language="en") for event in events])
+    tree = FakeAiDebugTree(store, selected_iter=None, visible_index=0)
+    gui = WorkspaceGtkGui.__new__(WorkspaceGtkGui)
+    task = TaskSummary("sample-task", Path("/tmp/task"), True, True, 1, 1, False)
+    gui.selected_task = task
+    gui.ai_debug_store = store
+    gui.ai_debug_tree = tree
+    gui.ai_debug_last_signature = (str(task.path), tuple(event.event_id for event in events))
+    gui.language = "en"
+    gui._ai_debug_events_for_task = lambda _task: refreshed_events  # type: ignore[method-assign]
+
+    gui._refresh_ai_debug()
+
+    assert store.clear_count == 0
+    assert [row[0] for row in store.rows] == ["1", "2", "3", "4", "5"]
+    assert tree.selection.selected_paths == []
+    assert tree.scroll_to_cell_calls == []
+
+
+def test_gtk_ai_debug_refresh_rebuilds_when_existing_rows_are_not_prefix() -> None:
+    events = [_gtk_debug_event(event_id) for event_id in (2, 3, 4)]
+    store = FakeAiDebugStore([_harness_debug_event_row(_gtk_debug_event(1), language="en")])
+    tree = FakeAiDebugTree(store, selected_iter=None, visible_index=0)
+    gui = WorkspaceGtkGui.__new__(WorkspaceGtkGui)
+    task = TaskSummary("sample-task", Path("/tmp/task"), True, True, 1, 1, False)
+    gui.selected_task = task
+    gui.ai_debug_store = store
+    gui.ai_debug_tree = tree
+    gui.ai_debug_last_signature = (str(task.path), (1,))
+    gui.language = "en"
+    gui._ai_debug_events_for_task = lambda _task: events  # type: ignore[method-assign]
+
+    gui._refresh_ai_debug()
+
+    assert store.clear_count == 1
+    assert [row[0] for row in store.rows] == ["2", "3", "4"]
 
 
 def test_gtk_ai_debug_event_details_include_tool_command_without_output() -> None:
@@ -2365,6 +2411,31 @@ def test_gtk_close_console_session_clears_agent_state(tmp_path: Path) -> None:
     assert session.exited
     assert page.destroyed
     assert summary.path not in gui.last_active_terminal_by_task
+
+
+def test_gtk_close_console_session_terminates_terminal_child(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    task = tmp_path / "tasks" / "sample-task"
+    task.mkdir(parents=True)
+    summary = discover_tasks_with_context(task, tmp_path)
+    page = FakeFrame()
+    session = TerminalSession(1, summary.path, "codex", object(), page, child_pid=12345, run_id="run-1")
+    killed: list[tuple[int, object]] = []
+    gui = WorkspaceGtkGui.__new__(WorkspaceGtkGui)
+    gui.terminal_sessions = {1: session}
+    gui.last_active_terminal_by_task = {summary.path: session.session_id}
+    gui.selected_task = None
+    gui.console_notebook = type("Notebook", (), {"page_num": lambda self, page: -1})()
+    gui._task_for_path = lambda task_path: summary  # type: ignore[method-assign]
+    gui._update_codex_button_state = lambda: None  # type: ignore[method-assign]
+    monkeypatch.setattr(gtk_ui_module.os, "kill", lambda pid, sig: killed.append((pid, sig)))
+
+    assert gui._close_console_session(session, confirm=False, ensure_default=False)
+
+    assert killed == [(12345, gtk_ui_module.signal.SIGTERM)]
+    assert page.destroyed
 
 
 def test_gtk_close_disposes_terminal_sessions_before_quit(monkeypatch: object, tmp_path: Path) -> None:

@@ -10,17 +10,12 @@ These rules apply to every task directory under the workspace root.
    If the task directory does not exist and the user is asking for
    implementation, validation, or review work, create the standard layout from
    `AGENTS.md`.
-2. Do not run a task-local front-door bell as part of normal task work.
-   Workspace policy is enforced by harness hooks when the active agent harness
-   supports them. Hook adapter handles session start, user prompt lifecycle,
-   task_check gates, durable slot freshness before Stop, and compact
-   checkpoints. Legacy `front_door_bell.py` scripts may remain in old local
-   tasks as manual fallback only; do not create or require them for new tasks.
+2. Do not run a task-local front-door bell during normal task work. Workspace
+   policy is enforced by harness hooks. Legacy `front_door_bell.py` scripts are
+   manual fallback only; do not create or require them for new tasks.
 3. Prefer Agent Workspace MCP tools over Bash/CLI wrappers when an equivalent
-   `mcp__agent_tools_workspace` tool is available. MCP tools are the
-   agent-facing interface for workspace utilities because they expose typed
-   arguments, structured results, path validation, and compact output.
-   Discover MCP tools deliberately:
+   `mcp__agent_tools_workspace` tool is available. Discover MCP tools
+   deliberately:
 
    - Use `tool_search` before falling back to a CLI wrapper for workspace
      utility workflows such as task context, repo registry, diff reports, code
@@ -32,9 +27,8 @@ These rules apply to every task directory under the workspace root.
      If that misses, try one broader family query, such as `task_context`,
      `diff_report`, `repo_registry`, `cpp_code_map`, `yaml_map`, or
      `rules_sync`.
-   - Treat a single empty or irrelevant `tool_search` result as inconclusive
-     when the rule file or skill names an MCP family. Refine the query once
-     with the domain noun and intended action before declaring the MCP tool
+   - Treat one empty or irrelevant `tool_search` result as inconclusive when a
+     rule or skill names an MCP family. Refine once before declaring it
      unavailable.
    - Do not use MCP discovery for ordinary repository text/file search. Use
      `rg` or `rg --files` for source files, report artifacts, logs, and local
@@ -43,11 +37,9 @@ These rules apply to every task directory under the workspace root.
      discovery. When looking for callable workspace/app capabilities, use
      `tool_search` first.
 
-   Fall back to Bash/CLI only when the MCP tool is unavailable in the active
-   client after the search above, the operation has no MCP wrapper yet, or the
-   task is intentionally running a shell/build/PAF/git command. Do not call
-   the Agent Workspace `limited_bash` wrapper directly; harness hooks apply
-   that output guard automatically when needed.
+   Fall back to Bash/CLI only when the MCP tool is unavailable, no wrapper
+   exists, or the task is intentionally running a shell/build/PAF/git command.
+   Do not call the Agent Workspace `limited_bash` wrapper directly.
 4. Before working inside an existing task directory, query current task context
    slots from `TASK_CONTEXT.sqlite3` after the directory is selected when task
    state is needed. Prefer MCP `task_context_query` when available. Otherwise
@@ -82,19 +74,8 @@ These rules apply to every task directory under the workspace root.
      task. Leave it empty until the repository path is known from inspected
      files, commands, or user input; do not guess or invent repository paths.
      Use YAML with `repositories` entries and workspace-relative or absolute
-     `path` values, for example:
-
-     ```yaml
-     repositories:
-       - path: .
-         role: workspace
-       - path: tasks/example/dev/product-repo
-         role: task-dev
-     ```
-
-     Workspace tooling uses this slot to install and maintain repository hooks.
-     Every listed path must be a git repository root. Do not rely on recursive
-     discovery through large `dev/` trees.
+     `path` values. Every listed path must be a git repository root; do not
+     rely on recursive discovery through large `dev/` trees.
      When an agent identifies a git repository root from inspected files,
      `git rev-parse --show-toplevel`, or user input, the agent updates this
      registry itself. Prefer the MCP `repo_registry_add`,
@@ -136,18 +117,16 @@ These rules apply to every task directory under the workspace root.
 
    Before authoritative build, runtime validation, report regeneration, or a
    push-ready handoff, run `task_check` with `--strict-warnings` and bring the
-   result to 0 warnings and 0 errors. Treat this as a mandatory workspace
-   hygiene gate when the tool is available. If `task_check` itself is broken or
-   blocked by a missing environment, record the exact command, failure, and
-   follow-up in the relevant task context slot before continuing.
+   result to 0 warnings and 0 errors. If `task_check` is broken or blocked,
+   record the exact command, failure, and follow-up before continuing.
    Agent Workspace runs the compact check once immediately before starting a
    new AI session and includes any failures in the initial agent message.
    The repository pre-commit hook runs the strict task check at the commit
    boundary. Do not run it after every individual action.
 
-   Use `--init-layout` to create a missing task layout from workspace
-   templates. Use `--init-runtime-product` for Xen/QEMU/Moulin runtime tasks
-   that need a starter artifact manifest and harness scenario.
+   Use `--init-layout` to create a missing task layout. Use
+   `--init-runtime-product` for Xen/QEMU/Moulin runtime tasks that need a
+   starter artifact manifest and harness scenario.
    Before a long environment build or runtime run, use `--env-check-command`
    to print the reusable environment preflight command.
    Use `--run-env-check` only when the task should actually execute the
@@ -190,15 +169,12 @@ These rules apply to every task directory under the workspace root.
     `agent_tools/paf_workspace/templates/product-artifacts.yaml`. Keep it under
     the task's `dev/` tree and update it when artifact paths, domain roles, or
     compile databases change.
-14. Task-local GUI actions are the normal way to expose repeated task commands
-    in `agent-workspace`. Declare them in `TASK_ACTIONS.json` at the task root
-    only when the action is useful for a human user to run directly without an
-    AI agent. Good candidates include long builds, component builds, hardware
-    flashing/copying, board access, smoke tests, report generation, and cleanup
-    commands that the user is likely to launch repeatedly. Do not add GUI
-    actions for internal agent preprocessing, tiny convenience wrappers,
-    exploratory commands, or one-off experiments just because a script exists.
-    The file is JSON with an `actions` list:
+14. Task-local GUI actions expose repeated task commands in `agent-workspace`.
+    Declare them in `TASK_ACTIONS.json` only when useful for a human to run
+    directly: long builds, component builds, hardware flashing/copying, board
+    access, smoke tests, report generation, or likely repeated cleanup. Do not
+    add GUI actions for agent-only preprocessing, tiny wrappers, exploratory
+    commands, or one-off experiments.
 
     ```json
     {
@@ -214,11 +190,10 @@ These rules apply to every task directory under the workspace root.
     }
     ```
 
-    `id`, `label`, and `command` are required. `command` may be either a string
-    shell command or an argv list. `cwd` is optional, defaults to `.`, and must
-    stay inside the task directory. `env` is optional and must be a string map.
-    Prefer commands under `scripts/` for repeatable task routines; keep
-    agent-only helpers and one-off experiments out of `TASK_ACTIONS.json`.
+    `id`, `label`, and `command` are required. `command` may be a string shell
+    command or an argv list. `cwd` defaults to `.` and must stay inside the task
+    directory. `env` is an optional string map. Prefer commands under
+    `scripts/` for repeatable task routines.
 15. Keep commit-ready source/tooling changes separate from review/report
     artifacts unless the user asks to include both. Review tasks place reports
     under `report/`; source tasks should not accumulate report output as a side

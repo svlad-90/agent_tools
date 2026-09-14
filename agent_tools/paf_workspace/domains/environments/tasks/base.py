@@ -306,7 +306,7 @@ class run_container_command(EnvironmentTask):
             self.container_alias(),
             command,
             timeout=int(self.param("ENVIRONMENT_CONTAINER_COMMAND_TIMEOUT_SEC", "0") or "0"),
-            communication_mode=CommunicationMode.PIPE_OUTPUT,
+            communication_mode=self.communication_mode_param("ENVIRONMENT_CONTAINER_COMMAND_USE_PTY"),
             interaction_mode=InteractionMode.IGNORE_INPUT,
             avoid_printing_command=self.bool_param("ENVIRONMENT_CONTAINER_COMMAND_HIDE_COMMAND"),
             avoid_printing_command_reason=self.param(

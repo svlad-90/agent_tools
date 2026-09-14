@@ -11,6 +11,10 @@
         <task name="paf_workspace.domains.environments.tasks.base.check_workspace_tool_baseline"/>
     </phase>
 
+    <phase name="run_container_command">
+        <task name="paf_workspace.domains.environments.tasks.base.run_container_command"/>
+    </phase>
+
     <scenario name="check-only">
         <phase name="image_check"/>
         <phase name="check"/>
@@ -23,5 +27,10 @@
     <scenario name="validate">
         <phase name="ensure"/>
         <phase name="check"/>
+    </scenario>
+
+    <scenario name="run-container-command">
+        <phase name="ensure"/>
+        <phase name="run_container_command"/>
     </scenario>
 </paf_config>

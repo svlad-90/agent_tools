@@ -35,6 +35,8 @@ properties:
         type: string
       plugin_dir:
         type: string
+      client_dir:
+        type: string
       task_dir:
         type: string
       timeout_sec:
