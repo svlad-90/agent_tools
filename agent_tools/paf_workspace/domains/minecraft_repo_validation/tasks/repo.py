@@ -26,6 +26,8 @@ class validate_minecraft_repo(EnvironmentTask):
             self.param("MINECRAFT_VALIDATE_PLUGIN_DIR", "") or self.config_string("plugin_dir", ""),
             container_alias,
         )
+        client_dir_param = self.param("MINECRAFT_VALIDATE_CLIENT_DIR", "") or self.config_string("client_dir", "")
+        client_dir = self.container_workspace_path(client_dir_param, container_alias) if client_dir_param else ""
         task_dir_param = self.param("MINECRAFT_VALIDATE_TASK_DIR", "") or self.config_string("task_dir", "")
         task_dir = self.container_workspace_path(task_dir_param, container_alias) if task_dir_param else ""
         timeout = int(
@@ -58,6 +60,7 @@ class validate_minecraft_repo(EnvironmentTask):
                 runtime.MinecraftRepoValidation(
                     repo=repo,
                     plugin_dir=plugin_dir,
+                    client_dir=client_dir,
                     task_dir=task_dir,
                     require_sqlite_bundle=require_sqlite_bundle,
                     run_paper_smoke=run_paper_smoke,

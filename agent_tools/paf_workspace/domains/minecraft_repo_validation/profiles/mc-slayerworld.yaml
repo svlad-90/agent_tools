@@ -12,6 +12,7 @@ environments:
 minecraft_repo_validation:
   repo: tasks/minecraft_development/dev/mc.slayerworld
   plugin_dir: tasks/minecraft_development/dev/mc.slayerworld/plugins/frontline-factions
+  client_dir: tasks/minecraft_development/dev/mc.slayerworld/clients/frontline-visuals
   task_dir: tasks/minecraft_development
   timeout_sec: 900
   require_sqlite_bundle: true

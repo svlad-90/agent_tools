@@ -6,6 +6,7 @@ from pathlib import Path
 import argparse
 import os
 import re
+import signal
 import shutil
 import subprocess
 import sys
@@ -5430,8 +5431,30 @@ class WorkspaceGtkGui:
         if task is None or store is None or tree is None:
             return
         events = self._ai_debug_events_for_task(task)
-        signature = (str(task.path), tuple(event.event_id for event in events))
-        if signature == getattr(self, "ai_debug_last_signature", ()):
+        task_key = str(task.path)
+        event_ids = tuple(event.event_id for event in events)
+        signature = (task_key, event_ids)
+        previous_signature = getattr(self, "ai_debug_last_signature", ())
+        if signature == previous_signature:
+            return
+        previous_task_key: str | None = None
+        previous_event_ids: tuple[int, ...] = ()
+        if (
+            isinstance(previous_signature, tuple)
+            and len(previous_signature) == 2
+            and isinstance(previous_signature[0], str)
+            and isinstance(previous_signature[1], tuple)
+        ):
+            previous_task_key = previous_signature[0]
+            previous_event_ids = previous_signature[1]
+        if (
+            previous_task_key == task_key
+            and event_ids[: len(previous_event_ids)] == previous_event_ids
+            and len(store) == len(previous_event_ids)
+        ):
+            for event in events[len(previous_event_ids):]:
+                store.append(_harness_debug_event_row(event, language=self.language))
+            self.ai_debug_last_signature = signature
             return
         selection = tree.get_selection()
         selected_id: str | None = None
@@ -5612,6 +5635,7 @@ class WorkspaceGtkGui:
         session.busy = False
         session.exited = True
         self._remove_codex_terminal_window_filter(session.terminal)
+        self._terminate_terminal_child(session)
         if session.run_id is not None:
             clear_task_active_agent_run(
                 self._task_for_path(session.task_path),
@@ -5623,6 +5647,16 @@ class WorkspaceGtkGui:
             self._ensure_default_console_for_selected_task()
         self._update_codex_button_state()
         return True
+
+    def _terminate_terminal_child(self, session: TerminalSession) -> None:
+        if session.child_pid is None:
+            return
+        try:
+            os.kill(session.child_pid, signal.SIGTERM)
+        except ProcessLookupError:
+            return
+        except (PermissionError, OSError):
+            return
 
     def _close_all_terminal_sessions(self) -> None:
         for session in list(self.terminal_sessions.values()):

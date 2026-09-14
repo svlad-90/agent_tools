@@ -107,7 +107,7 @@ class YoctoTask(WorkspaceTask):
             self.command(bitbake_args, graph_copy),
             timeout=int(self.param("YOCTO_BITBAKE_TIMEOUT_SEC", "0") or "0"),
             substitute_params=False,
-            communication_mode=CommunicationMode.PIPE_OUTPUT,
+            communication_mode=self.communication_mode_param("YOCTO_BITBAKE_USE_PTY"),
             interaction_mode=InteractionMode.IGNORE_INPUT,
             avoid_printing_command=self.bool_param("YOCTO_BITBAKE_HIDE_COMMAND"),
             avoid_printing_command_reason=self.param(

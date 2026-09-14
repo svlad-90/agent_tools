@@ -11,6 +11,7 @@ class MinecraftRepoValidation:
         *,
         repo: str,
         plugin_dir: str,
+        client_dir: str = "",
         task_dir: str = "",
         require_sqlite_bundle: bool = True,
         run_paper_smoke: bool = True,
@@ -19,6 +20,7 @@ class MinecraftRepoValidation:
     ) -> None:
         self.repo = repo
         self.plugin_dir = plugin_dir
+        self.client_dir = client_dir
         self.task_dir = task_dir
         self.require_sqlite_bundle = require_sqlite_bundle
         self.run_paper_smoke = run_paper_smoke
@@ -29,6 +31,7 @@ class MinecraftRepoValidation:
 def minecraft_repo_validation_command(config: MinecraftRepoValidation) -> str:
     repo = _quote(config.repo)
     plugin_dir = _quote(config.plugin_dir)
+    client_dir = _quote(config.client_dir)
     task_dir = _quote(config.task_dir)
     require_sqlite_bundle = "1" if config.require_sqlite_bundle else "0"
     run_paper_smoke = "1" if config.run_paper_smoke else "0"
@@ -39,6 +42,7 @@ set -euo pipefail
 export PYTHONUNBUFFERED=1
 REPO={repo}
 PLUGIN_DIR={plugin_dir}
+CLIENT_DIR={client_dir}
 TASK_DIR={task_dir}
 REQUIRE_SQLITE_BUNDLE={require_sqlite_bundle}
 RUN_PAPER_SMOKE={run_paper_smoke}
@@ -73,6 +77,11 @@ if [ "$REQUIRE_SQLITE_BUNDLE" = "1" ]; then
   jar tf "$JAR" | grep -x 'org/sqlite/JDBC.class'
   jar tf "$JAR" | grep -x 'org/sqlite/native/Windows/x86_64/sqlitejdbc.dll'
   jar tf "$JAR" | grep -x 'org/sqlite/native/Linux/x86_64/libsqlitejdbc.so'
+fi
+
+if [ -n "$CLIENT_DIR" ]; then
+  echo "Run Gradle build for client mod"
+  gradle --project-dir "$CLIENT_DIR" build
 fi
 
 if [ "$RUN_PAPER_SMOKE" = "1" ]; then

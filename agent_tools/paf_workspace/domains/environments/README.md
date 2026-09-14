@@ -88,6 +88,22 @@ Run validation with the same scenario and profile, replacing `check-only` with
 `validate`. Use PAF `--parameter KEY=VALUE` overrides for task-local checkout
 paths, token files, target filters, and extra act arguments.
 
+For long commands with terminal-style progress, such as `repo sync`, prefer a
+pseudo terminal instead of pipe capture:
+
+```sh
+agent_tools/paf_workspace/run-paf.sh \
+  agent_tools/paf_workspace/domains/environments/scenarios/<environment>.xml \
+  run-container-command \
+  --yaml-config agent_tools/paf_workspace/domains/environments/profiles/<environment>.yaml \
+  --parameter ENVIRONMENT_CONTAINER_COMMAND='repo sync' \
+  --parameter ENVIRONMENT_CONTAINER_COMMAND_USE_PTY=1
+```
+
+The PTY mode keeps carriage-return progress visible for tools that otherwise
+look like they are stuck on a single line when output is captured through a
+pipe.
+
 Run `cpp_code_map` preflight inside an environment with:
 
 ```sh

@@ -25,6 +25,14 @@ class WorkspaceTask(SSHLocalClient):
         value = self.param(name, str(int(default)))
         return str(value).lower() in ("1", "true", "yes", "on")
 
+    def communication_mode_param(
+        self,
+        name: str,
+        *,
+        default: CommunicationMode = CommunicationMode.PIPE_OUTPUT,
+    ) -> CommunicationMode:
+        return CommunicationMode.USE_PTY if self.bool_param(name) else default
+
     def path_param(self, name: str, default: str | None = None) -> Path:
         value = self.param(name, default)
         if value is None:
@@ -52,7 +60,7 @@ class WorkspaceTask(SSHLocalClient):
             timeout=timeout,
             shell=True,
             substitute_params=True,
-            communication_mode=CommunicationMode.PIPE_OUTPUT,
+            communication_mode=self.communication_mode_param(f"{name}_USE_PTY"),
             interaction_mode=InteractionMode.IGNORE_INPUT,
             avoid_printing_command=self.bool_param(f"{name}_HIDE_COMMAND"),
             avoid_printing_command_reason=self.param(
