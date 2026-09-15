@@ -72,6 +72,16 @@ def _policy_root(tmp_path: Path) -> Path:
     return root
 
 
+def _zephyr_checker_module() -> Path:
+    return (
+        Path(__file__).resolve().parents[3]
+        / "validation"
+        / "repos"
+        / "zephyr"
+        / "zephyr.py"
+    )
+
+
 def test_repo_policy_matches_github_fork_by_repo_name(tmp_path: Path) -> None:
     repo = tmp_path / "repo"
     _init_repo(repo)
@@ -349,6 +359,120 @@ def test_validate_parse_check_skips_deleted_python_paths(tmp_path: Path) -> None
 
     assert result.status == "pass"
     assert result.checks[0].summary == "no changed Python files"
+
+
+def test_zephyr_spdx_file_copyright_blocks_plain_added_copyright(tmp_path: Path) -> None:
+    repo = tmp_path / "zephyr"
+    _init_repo(repo, remote="git@github.com:fork/zephyr.git")
+    for filename in ("west.yml", "Kconfig.zephyr", "README.rst", "REUSE.toml"):
+        (repo / filename).write_text("repo marker\n", encoding="utf-8")
+    _commit(repo)
+    source = repo / "drivers" / "xen" / "fdt.c"
+    source.parent.mkdir(parents=True)
+    source.write_text(
+        "/*\n"
+        " * Copyright (c) 2026 EPAM Systems\n"
+        " * SPDX-License-Identifier: Apache-2.0\n"
+        " */\n",
+        encoding="utf-8",
+    )
+    _git(repo, "add", ".")
+    _git(repo, "commit", "-m", "Add Xen FDT", "-s")
+    root = _policy_root(tmp_path)
+    (root / "repos" / "zephyr.yaml").write_text(
+        yaml.safe_dump(
+            {
+                "version": 1,
+                "repo": {
+                    "id": "zephyr",
+                    "names": ["zephyr"],
+                    "github_repos": ["github.com/zephyrproject-rtos/zephyr"],
+                    "allow_forks": True,
+                    "characteristic_files": [
+                        "west.yml",
+                        "Kconfig.zephyr",
+                        "README.rst",
+                        "REUSE.toml",
+                    ],
+                },
+                "checks": [
+                    {
+                        "id": "zephyr-spdx-file-copyright",
+                        "backend": "python",
+                        "module": str(_zephyr_checker_module()),
+                        "function": "zephyr_spdx_file_copyright",
+                        "cost": "cheap",
+                    }
+                ],
+            },
+            sort_keys=False,
+        ),
+        encoding="utf-8",
+    )
+
+    result = validate(repo, policy_root=root)
+
+    assert result.status == "fail"
+    report = compact_report(result)
+    assert "zephyr-spdx-file-copyright" in report
+    assert "drivers/xen/fdt.c" in report
+    assert "SPDX-FileCopyrightText" in report
+
+
+def test_zephyr_spdx_file_copyright_accepts_spdx_file_copyright_text(tmp_path: Path) -> None:
+    repo = tmp_path / "zephyr"
+    _init_repo(repo, remote="git@github.com:fork/zephyr.git")
+    for filename in ("west.yml", "Kconfig.zephyr", "README.rst", "REUSE.toml"):
+        (repo / filename).write_text("repo marker\n", encoding="utf-8")
+    _commit(repo)
+    source = repo / "drivers" / "xen" / "fdt.c"
+    source.parent.mkdir(parents=True)
+    source.write_text(
+        "/*\n"
+        " * SPDX-FileCopyrightText: Copyright (c) 2026 EPAM Systems\n"
+        " * SPDX-License-Identifier: Apache-2.0\n"
+        " */\n",
+        encoding="utf-8",
+    )
+    _git(repo, "add", ".")
+    _git(repo, "commit", "-m", "Add Xen FDT", "-s")
+    root = _policy_root(tmp_path)
+    (root / "repos" / "zephyr.yaml").write_text(
+        yaml.safe_dump(
+            {
+                "version": 1,
+                "repo": {
+                    "id": "zephyr",
+                    "names": ["zephyr"],
+                    "github_repos": ["github.com/zephyrproject-rtos/zephyr"],
+                    "allow_forks": True,
+                    "characteristic_files": [
+                        "west.yml",
+                        "Kconfig.zephyr",
+                        "README.rst",
+                        "REUSE.toml",
+                    ],
+                },
+                "checks": [
+                    {
+                        "id": "zephyr-spdx-file-copyright",
+                        "backend": "python",
+                        "module": str(_zephyr_checker_module()),
+                        "function": "zephyr_spdx_file_copyright",
+                        "cost": "cheap",
+                    }
+                ],
+            },
+            sort_keys=False,
+        ),
+        encoding="utf-8",
+    )
+
+    result = validate(repo, policy_root=root)
+
+    assert result.status == "pass"
+    assert result.checks[0].check_id == "workspace-file-hygiene"
+    assert result.checks[1].check_id == "zephyr-spdx-file-copyright"
 
 
 def test_compact_report_omits_passed_checks(tmp_path: Path) -> None:

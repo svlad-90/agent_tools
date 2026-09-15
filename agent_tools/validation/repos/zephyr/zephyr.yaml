@@ -1,0 +1,27 @@
+version: 1
+repo:
+  id: zephyr
+  names:
+    - zephyr
+  github_repos:
+    - github.com/zephyrproject-rtos/zephyr
+    - github.com/xen-troops/zephyr
+  allow_forks: true
+  characteristic_files:
+    - west.yml
+    - Kconfig.zephyr
+    - README.rst
+    - REUSE.toml
+checks:
+  - id: zephyr-spdx-file-copyright
+    description: Require Zephyr SPDX-FileCopyrightText copyright headers in added lines.
+    level: repo
+    backend: python
+    module: zephyr.py
+    function: zephyr_spdx_file_copyright
+    cost: cheap
+    required: true
+    suggested_command:
+      - git
+      - diff
+      - --check

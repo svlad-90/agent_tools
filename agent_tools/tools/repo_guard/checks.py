@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import importlib.util
 import subprocess
 import sys
 import time
@@ -26,6 +27,8 @@ def run_check(context: GuardContext, check: CheckConfig) -> CheckResult:
         return _run_command_backend(context, check, _resolve_command(context, check))
     if check.backend == "paf":
         return _run_command_backend(context, check, _paf_command(context, check))
+    if check.backend == "python":
+        return _run_python_backend(context, check)
     if check.backend == "task_check":
         return _run_command_backend(context, check, _task_check_command(context, check))
     if check.backend == "task_command":
@@ -142,6 +145,72 @@ def _shell_syntax_changed(context: GuardContext, check: CheckConfig) -> CheckRes
         if path.suffix == ".sh" and (context.repo / path).is_file():
             results.append(_run_command_backend(context, check, ("bash", "-n", path.as_posix())))
     return _aggregate_command_results(context, check, results, "no changed shell scripts")
+
+
+def _run_python_backend(context: GuardContext, check: CheckConfig) -> CheckResult:
+    start = time.monotonic()
+    module_path = _python_check_module_path(check)
+    function_name = str(check.config.get("function", ""))
+    if module_path is None:
+        return _result(context, check, "fail", "python check is missing module", returncode=2)
+    if not function_name:
+        return _result(context, check, "fail", "python check is missing function", returncode=2)
+    if not module_path.is_file():
+        return _result(
+            context,
+            check,
+            "fail",
+            "python check module is missing",
+            stderr=str(module_path),
+            returncode=2,
+        )
+    try:
+        module = _load_python_check_module(module_path)
+        function = getattr(module, function_name)
+        result = function(context, check)
+    except Exception as exc:  # noqa: BLE001 - check failures must become guard output
+        return _result(
+            context,
+            check,
+            "fail",
+            "python check raised an exception",
+            stderr=f"{type(exc).__name__}: {exc}",
+            duration=time.monotonic() - start,
+            returncode=2,
+        )
+    if not isinstance(result, CheckResult):
+        return _result(
+            context,
+            check,
+            "fail",
+            "python check returned an invalid result",
+            stderr=f"{function_name} returned {type(result).__name__}, expected CheckResult",
+            duration=time.monotonic() - start,
+            returncode=2,
+        )
+    return result
+
+
+def _python_check_module_path(check: CheckConfig) -> Path | None:
+    module = check.config.get("module")
+    if not isinstance(module, str) or not module:
+        return None
+    path = Path(module)
+    if path.is_absolute():
+        return path
+    if check.policy_path is None:
+        return Path(module)
+    return check.policy_path.parent / path
+
+
+def _load_python_check_module(path: Path):
+    name = f"agent_tools_repo_guard_{abs(hash(path.resolve()))}"
+    spec = importlib.util.spec_from_file_location(name, path)
+    if spec is None or spec.loader is None:
+        raise ImportError(f"cannot load {path}")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
 
 
 def _aggregate_command_results(

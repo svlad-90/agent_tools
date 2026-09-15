@@ -20,7 +20,7 @@ import yaml
 JsonObject = dict[str, Any]
 WORKSPACE_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_POLICY_ROOT = WORKSPACE_ROOT / "agent_tools" / "validation"
-CHECK_BACKENDS = {"builtin", "command", "paf", "task_check", "task_command"}
+CHECK_BACKENDS = {"builtin", "command", "paf", "python", "task_check", "task_command"}
 CHECK_COSTS = {"cheap", "medium", "heavy"}
 CHECK_LEVELS = {"workspace", "repo", "task"}
 _GITHUB_RE = re.compile(
@@ -155,7 +155,8 @@ def _matched_repo_policy(
     repo: Path,
     root: Path,
 ) -> tuple[RepoIdentity | None, PolicyDocument | None, tuple[CheckConfig, ...]]:
-    for path in sorted((root / "repos").glob("*.yaml")):
+    paths = [*(root / "repos").glob("*.yaml"), *(root / "repos").glob("*/*.yaml")]
+    for path in sorted(paths):
         document = _load_policy_document(path, "repo", required=True)
         identity = _identity_from_data(document.data, path)
         if _matches_identity(repo, identity):
@@ -279,6 +280,11 @@ def _checks_from_data(
         command = tuple(str(part) for part in _list_value(raw_check.get("command"), path=path, key="command"))
         if backend == "command" and not command:
             raise ValueError(f"{path}: check {check_id!r} with command backend must define command")
+        if backend == "python":
+            if not _optional_str(raw_check.get("module")):
+                raise ValueError(f"{path}: check {check_id!r} with python backend must define module")
+            if not _optional_str(raw_check.get("function")):
+                raise ValueError(f"{path}: check {check_id!r} with python backend must define function")
         checks.append(
             CheckConfig(
                 check_id=check_id,
