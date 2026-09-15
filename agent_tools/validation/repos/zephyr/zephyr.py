@@ -39,17 +39,49 @@ def zephyr_spdx_file_copyright(context: GuardContext, check: CheckConfig) -> Che
 
 
 def _spdx_findings(context: GuardContext) -> Iterable[str]:
-    for commit in context.commits:
+    base = _tree_diff_base(context)
+    upstream_ref = _optional_ref(context, "refs/remotes/upstream/main")
+    if base is not None:
         yield from _spdx_findings_from_diff(
+            context,
             run_git(
-                ["show", "--format=", "--unified=0", "--no-ext-diff", commit],
+                [
+                    "diff",
+                    "--unified=0",
+                    "--no-ext-diff",
+                    "--diff-filter=A",
+                    f"{base}..HEAD",
+                ],
                 cwd=context.repo,
             ),
-            source=commit[:12],
+            source="branch-diff",
+            skip_existing_ref=upstream_ref,
         )
+    else:
+        for commit in context.commits:
+            yield from _spdx_findings_from_diff(
+                context,
+                run_git(
+                    [
+                        "show",
+                        "--format=",
+                        "--unified=0",
+                        "--no-ext-diff",
+                        "--diff-filter=A",
+                        commit,
+                    ],
+                    cwd=context.repo,
+                ),
+                source=commit[:12],
+                skip_existing_ref=upstream_ref,
+            )
     if context.mode == "validate":
         yield from _spdx_findings_from_diff(
-            run_git(["diff", "--unified=0", "--no-ext-diff", "HEAD"], cwd=context.repo),
+            context,
+            run_git(
+                ["diff", "--unified=0", "--no-ext-diff", "--diff-filter=A", "HEAD"],
+                cwd=context.repo,
+            ),
             source="worktree",
         )
         for path in context.changed_paths:
@@ -63,12 +95,38 @@ def _spdx_findings(context: GuardContext) -> Iterable[str]:
             )
 
 
-def _spdx_findings_from_diff(diff: str, *, source: str) -> Iterable[str]:
+def _tree_diff_base(context: GuardContext) -> str | None:
+    try:
+        return run_git(["rev-parse", "--verify", "@{upstream}"], cwd=context.repo)
+    except subprocess.CalledProcessError:
+        return None
+
+
+def _optional_ref(context: GuardContext, ref: str) -> str | None:
+    try:
+        return run_git(["rev-parse", "--verify", ref], cwd=context.repo)
+    except subprocess.CalledProcessError:
+        return None
+
+
+def _spdx_findings_from_diff(
+    context: GuardContext,
+    diff: str,
+    *,
+    source: str,
+    skip_existing_ref: str | None = None,
+) -> Iterable[str]:
     current_path: Path | None = None
     new_line = 0
     for line in diff.splitlines():
         if line.startswith("+++ b/"):
             current_path = Path(line.removeprefix("+++ b/"))
+            if skip_existing_ref is not None and _path_exists_at_ref(
+                context,
+                skip_existing_ref,
+                current_path,
+            ):
+                current_path = None
             continue
         if line.startswith("@@ "):
             new_line = _new_line_from_hunk(line)
@@ -84,6 +142,17 @@ def _spdx_findings_from_diff(diff: str, *, source: str) -> Iterable[str]:
             start_line=new_line,
         )
         new_line += 1
+
+
+def _path_exists_at_ref(context: GuardContext, ref: str, path: Path) -> bool:
+    completed = subprocess.run(
+        ["git", "cat-file", "-e", f"{ref}:{path.as_posix()}"],
+        cwd=context.repo,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        text=True,
+    )
+    return completed.returncode == 0
 
 
 def _new_line_from_hunk(header: str) -> int:
