@@ -57,6 +57,7 @@ def test_validation_policy_files_are_mappings_with_unique_check_ids() -> None:
     paths = [
         VALIDATION_ROOT / "workspace-policy.yaml",
         *sorted((VALIDATION_ROOT / "repos").glob("*.yaml")),
+        *sorted((VALIDATION_ROOT / "repos").glob("*/*.yaml")),
     ]
     assert paths
     for path in paths:
@@ -71,6 +72,7 @@ def test_validation_policy_files_are_mappings_with_unique_check_ids() -> None:
                 "builtin",
                 "command",
                 "paf",
+                "python",
                 "task_check",
                 "task_command",
             }, path
@@ -79,12 +81,19 @@ def test_validation_policy_files_are_mappings_with_unique_check_ids() -> None:
                 assert isinstance(check["command"], list), path
             if "suggested_command" in check:
                 assert isinstance(check["suggested_command"], list) and check["suggested_command"], path
+            if check.get("backend") == "python":
+                assert isinstance(check.get("module"), str) and check["module"], path
+                assert isinstance(check.get("function"), str) and check["function"], path
             check_ids.append(check["id"])
         assert len(check_ids) == len(set(check_ids)), path
 
 
 def test_repo_policy_files_have_identity_evidence() -> None:
-    for path in sorted((VALIDATION_ROOT / "repos").glob("*.yaml")):
+    paths = [
+        *sorted((VALIDATION_ROOT / "repos").glob("*.yaml")),
+        *sorted((VALIDATION_ROOT / "repos").glob("*/*.yaml")),
+    ]
+    for path in paths:
         data = yaml.safe_load(path.read_text(encoding="utf-8"))
         repo = data.get("repo")
         assert isinstance(repo, dict), path

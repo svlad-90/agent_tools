@@ -4,6 +4,31 @@ These findings apply to workspace-local tools such as `task_check`,
 `diff_report`, `code_map`, `cpp_code_map`, `yaml_map`, reusable environments,
 and workspace skills.
 
+## limited_bash live-log paths must remain inspectable after completion
+
+`limited_bash` may print live stdout/stderr log paths when command output is
+large or when a long-running command has no recent output. Treat those paths as
+part of the agent-facing command result, not as disposable temporary details.
+
+Known failure shape:
+
+- A guarded Bash command reports `Live stdout log:` or `[limited_bash] live
+  logs:`.
+- The agent tries to inspect that path after the command completes, or after a
+  subsequent guarded command starts.
+- The path no longer exists, making it look like the directory was renamed even
+  though cleanup actually removed the completed run.
+
+Practical checklist:
+
+- Keep active limited-bash runs and a small retention window of completed
+  persistent runs.
+- Do not make startup cleanup for a new persistent run delete recently completed
+  runs whose paths may already have been shown to the agent.
+- Preserve the invariant with a regression test that starts two persistent
+  `run_limited_bash` commands and then reads the first command's
+  `limited_bash.stdout.log` after the second command has started/completed.
+
 ## GitHub organization identity routing belongs in private config
 
 Some repositories need a specific local Git identity for pushes based on the

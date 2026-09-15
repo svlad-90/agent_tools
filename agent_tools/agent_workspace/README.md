@@ -94,7 +94,11 @@ keeps a 2000-token tail budget for the final summary, and uses a separate
 command exceeds the configured head and tail budgets, Agent Workspace returns a
 bounded first/last preview and guidance to the agent while saving the complete
 stdout, stderr, and metadata under the task's `report/logs/limited-bash/`
-directory.
+directory. Those live-log paths are part of the command result contract: after
+they are printed, later `limited_bash` runs must not immediately remove them.
+The cleanup keeps active runs plus the most recent completed persistent runs so
+agents can inspect a previously reported path after a command finishes or after
+the next guarded command starts.
 Agent Workspace also provides a single workspace MCP server for agent-facing
 tools. It runs over newline-delimited stdio JSON-RPC and exports tools from a
 central registry instead of requiring one MCP server per CLI:

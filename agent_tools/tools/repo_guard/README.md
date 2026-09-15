@@ -31,11 +31,14 @@ Workspace policy lives under:
 ```text
 agent_tools/validation/workspace-policy.yaml
 agent_tools/validation/repos/*.yaml
+agent_tools/validation/repos/<repo>/*.yaml
 tasks/<task>/TASK_GUARD.yaml
 ```
 
 Repository identity is resolved from GitHub URLs, fork-compatible repository
 names, characteristic files, and an optional `verify_command`.
+Repository-local Python checks can be kept beside their policy YAML with
+`backend: python`, `module: <file.py>`, and `function: <callable>`.
 
 Check ids are stable policy identifiers, not exported low-level tools. They
 are bound into receipts with the repository, commit range, changed path scope,
@@ -47,6 +50,7 @@ policy hash, checker config, backend, and task context.
   changed Python parse checks, and shell syntax checks.
 - `command` - repo-specific command declared in policy.
 - `paf` - PAF scenario dispatch.
+- `python` - repository-local Python check module declared in policy.
 - `task_check` - workspace task hygiene check.
 - `task_command` - task-local script or command.
 

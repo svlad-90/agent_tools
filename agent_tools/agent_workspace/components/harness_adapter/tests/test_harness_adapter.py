@@ -957,7 +957,7 @@ def test_limited_bash_does_not_keep_logs_for_output_under_limit(
     assert not log_dir.exists() or list(log_dir.iterdir()) == []
 
 
-def test_limited_bash_clears_previous_persisted_logs_on_next_run(
+def test_limited_bash_keeps_recent_persisted_logs_on_next_run(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
@@ -974,7 +974,7 @@ def test_limited_bash_clears_previous_persisted_logs_on_next_run(
 
     capsys.readouterr()
     assert second.log_base is not None
-    assert not stale_log.exists()
+    assert stale_log.read_text(encoding="utf-8") == "first"
     assert second.log_base.with_suffix(".stdout.log").read_text(encoding="utf-8") == "second"
 
 

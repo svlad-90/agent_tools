@@ -33,6 +33,7 @@ TAIL_LINE_LIMIT = 20
 HEARTBEAT_NOTICE_TOKEN_LIMIT = 300
 MIN_HEARTBEAT_DETAIL_TOKENS = 80
 ACTIVE_LOG_DIR = ".active"
+KEEP_COMPLETED_LOG_RUNS = 8
 
 
 @dataclass(frozen=True)
@@ -813,7 +814,7 @@ def _new_log_base() -> Path:
     run_dir.mkdir()
     log_base = run_dir / "limited_bash"
     _mark_log_base_active(log_base)
-    _cleanup_limited_bash_logs(log_dir, keep_latest_completed=False)
+    _cleanup_limited_bash_logs(log_dir, keep_latest_completed=True)
     return log_base
 
 
@@ -853,7 +854,7 @@ def _cleanup_limited_bash_logs(log_dir: Path, *, keep_latest_completed: bool = T
     if not log_dir.is_dir():
         return
     active = _active_log_bases(log_dir)
-    keep_completed = _overlapping_completed_log_runs(log_dir, active) if keep_latest_completed else set()
+    keep_completed = _recent_completed_log_runs(log_dir, active) if keep_latest_completed else set()
     for path in log_dir.iterdir():
         if path.name == ACTIVE_LOG_DIR:
             _cleanup_empty_active_log_dir(path)
@@ -876,7 +877,7 @@ def _active_log_bases(log_dir: Path) -> set[str]:
     return {path.name for path in active_dir.iterdir() if path.is_file()}
 
 
-def _overlapping_completed_log_runs(log_dir: Path, active: set[str]) -> set[str]:
+def _recent_completed_log_runs(log_dir: Path, active: set[str]) -> set[str]:
     completed = []
     for path in log_dir.iterdir():
         if not path.is_dir() or path.name == ACTIVE_LOG_DIR or path.name in active:
@@ -887,8 +888,9 @@ def _overlapping_completed_log_runs(log_dir: Path, active: set[str]) -> set[str]
         completed.append((path.name, interval))
     if not completed:
         return set()
-    latest_name, latest_interval = max(completed, key=lambda item: item[1][1])
-    keep = {latest_name}
+    completed.sort(key=lambda item: item[1][1], reverse=True)
+    latest_interval = completed[0][1]
+    keep = {name for name, _interval in completed[:KEEP_COMPLETED_LOG_RUNS]}
     keep.update(name for name, interval in completed if _intervals_overlap(interval, latest_interval))
     return keep
 
