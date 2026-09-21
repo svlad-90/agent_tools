@@ -36,6 +36,27 @@ python -m agent_tools.tools.diff_report \
   --output task/report/dashboard/index.html
 ```
 
+To keep the same report queryable without a server and distributable as one
+offline HTML file, add a compact SQLite store and an embedded SQL.js runtime:
+
+```sh
+python -m agent_tools.tools.diff_report \
+  --report-json task/report/dashboard/dashboard.json \
+  --output task/report/dashboard/index.html \
+  --sqlite-output task/report/dashboard/report.sqlite3 \
+  --single-html-output task/report/dashboard/index.single.html
+```
+
+`--sqlite-output` writes the normalized report model. `--single-html-output`
+embeds that read-only database and the SQL.js runtime into the rendered HTML;
+it requires both `--output` and `--sqlite-output`. See [SQLITE.md](SQLITE.md)
+and [GRAPH_MODEL.md](GRAPH_MODEL.md) for the storage and graph contracts.
+
+`--report-json` includes the full relationship-graph renderer: hierarchical
+parents, projection filters, graph arrows, and the same offline runtime when
+the SQLite options above are supplied. It is part of the main `diff_report`
+package rather than a separate report implementation.
+
 For reports where comment anchors should be refreshed while regenerating the
 HTML, enable target refresh:
 

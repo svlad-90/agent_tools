@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import sqlite3
 import sys
 from pathlib import Path
 
@@ -10,6 +11,9 @@ from .comments_template import build_comments_template
 from .core import compact_help, generate_report, generate_report_json
 from .diff_source import load_diff_source
 from .models import DiffReportError
+from .report_json import load_report_json
+from .sqlite_runtime import build_single_html
+from .sqlite_store import create_schema, write_report
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -31,6 +35,14 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--compose-report", help="Write findings compose diagnostics JSON.")
     parser.add_argument("--output", help="HTML report output path.")
     parser.add_argument("--report-json", help="Render a generic non-diff report from JSON.")
+    parser.add_argument(
+        "--sqlite-output",
+        help="Write the generic report model to a compact SQLite database. Requires --report-json.",
+    )
+    parser.add_argument(
+        "--single-html-output",
+        help="Embed --output and --sqlite-output into one offline HTML file. Requires both.",
+    )
     parser.add_argument(
         "--report-test-mode",
         action="store_true",
@@ -62,14 +74,21 @@ def main(argv: list[str] | None = None) -> int:
         parser.error("--output-comments is required when --findings is used")
     if args.output_comments and not args.findings:
         parser.error("--findings is required when --output-comments is used")
-    if not args.output and not args.init_comments and not args.output_comments:
+    if not args.output and not args.sqlite_output and not args.init_comments and not args.output_comments:
         parser.error(
-            "--output is required unless --help-compact, --init-comments, or --output-comments is used"
+            "--output is required unless --help-compact, --init-comments, or --output-comments is used; "
+            "--sqlite-output is an alternative only with --report-json"
         )
+    if (args.sqlite_output or args.single_html_output) and not args.report_json:
+        parser.error("--sqlite-output and --single-html-output require --report-json")
+    if args.single_html_output and (not args.output or not args.sqlite_output):
+        parser.error("--single-html-output requires both --output and --sqlite-output")
 
     try:
         output = _resolve_path(args.output) if args.output else None
         report_json = _resolve_path(args.report_json) if args.report_json else None
+        sqlite_output = _resolve_path(args.sqlite_output) if args.sqlite_output else None
+        single_html_output = _resolve_path(args.single_html_output) if args.single_html_output else None
         repo = _resolve_path(args.repo) if args.repo else None
         diff_file = _resolve_path(args.diff_file) if args.diff_file else None
         comments_file = _resolve_path(args.comments) if args.comments else None
@@ -78,15 +97,28 @@ def main(argv: list[str] | None = None) -> int:
         output_comments = _resolve_path(args.output_comments) if args.output_comments else None
         compose_report = _resolve_path(args.compose_report) if args.compose_report else None
         if report_json is not None:
-            if output is None:
-                parser.error("--output is required when --report-json is used")
-            generate_report_json(
-                report_file=report_json,
-                output_path=output,
-                title=args.title if args.title != "PR Diff Review" else None,
-                test_mode=args.report_test_mode,
-            )
-            print(str(output))
+            if output is not None:
+                generate_report_json(
+                    report_file=report_json,
+                    output_path=output,
+                    title=args.title if args.title != "PR Diff Review" else None,
+                    test_mode=args.report_test_mode,
+                )
+                print(str(output))
+            if sqlite_output is not None:
+                load_report_json(report_json)
+                payload = json.loads(report_json.read_text(encoding="utf-8"))
+                sqlite_output.parent.mkdir(parents=True, exist_ok=True)
+                sqlite_output.unlink(missing_ok=True)
+                with sqlite3.connect(sqlite_output) as connection:
+                    create_schema(connection)
+                    write_report(connection, payload)
+                    connection.commit()
+                print(str(sqlite_output))
+            if single_html_output is not None:
+                assert output is not None and sqlite_output is not None
+                build_single_html(output, sqlite_output, single_html_output)
+                print(str(single_html_output))
             return 0
         if init_comments is not None:
             source = load_diff_source(

@@ -11,6 +11,7 @@ from .html_utils import anchor as _anchor
 from .html_utils import esc as _esc
 from .html_utils import format_text as _format_text
 from .models import DiffReportError, ReviewComments
+from .graph_model import model_traversal, validate_graph_model
 from .render import (
     _render_comment_assets,
     _render_diagram_modal,
@@ -127,6 +128,10 @@ class RelationshipGraph:
     traversal: dict[str, Any] | None = None
     filter_defaults: dict[str, Any] | None = None
     status_order: tuple[str, ...] = ()
+    data_source: str = "inline"
+    node_count: int | None = None
+    edge_count: int | None = None
+    model: dict[str, Any] | None = None
 
 
 @dataclass(frozen=True)
@@ -628,7 +633,11 @@ def relationship_graph_from_payload(raw_graph: Any) -> RelationshipGraph | None:
         raise DiffReportError("report.relationship_graph must be an object")
     raw_nodes = raw_graph.get("nodes", [])
     raw_edges = raw_graph.get("edges", [])
-    if not isinstance(raw_nodes, list) or not raw_nodes:
+    data_source = str(raw_graph.get("data_source") or "inline")
+    if data_source not in {"inline", "sqlite"}:
+        raise DiffReportError("report.relationship_graph.data_source must be inline or sqlite")
+    deferred_graph = data_source == "sqlite"
+    if not isinstance(raw_nodes, list) or (not raw_nodes and not deferred_graph):
         raise DiffReportError("report.relationship_graph.nodes must be a non-empty list")
     if not isinstance(raw_edges, list):
         raise DiffReportError("report.relationship_graph.edges must be a list")
@@ -655,13 +664,37 @@ def relationship_graph_from_payload(raw_graph: Any) -> RelationshipGraph | None:
             raise DiffReportError(f"report.relationship_graph.edges[{index}].target references missing node {target}")
         edge.setdefault("relation", "related_to")
         edges.append(edge)
+    direct_children: dict[str, set[str]] = {}
+    for edge in edges:
+        if "context_children" not in edge:
+            direct_children.setdefault(edge["source"], set()).add(edge["target"])
+    context_groups: dict[str, str] = {}
+    node_types = {node["id"]: node.get("type", "entity") for node in nodes}
+    for edge in edges:
+        if "context_children" not in edge:
+            continue
+        group = edge.get("context_group", node_types[edge["source"]])
+        if not isinstance(group, str) or not group.strip():
+            raise DiffReportError("relationship graph context_group must be a non-empty string")
+        if context_groups.setdefault(edge["source"], group) != group:
+            raise DiffReportError("relationship graph context_group must be consistent for each parent")
+        children = edge["context_children"]
+        if not isinstance(children, list) or not all(isinstance(child, str) for child in children):
+            raise DiffReportError("relationship graph context_children must be a string list")
+        if any(child not in direct_children.get(edge["target"], set()) for child in children):
+            raise DiffReportError("relationship graph context_children must reference direct children of the target")
+    model = validate_graph_model(nodes, edges, raw_graph["model"]) if "model" in raw_graph else None
     return RelationshipGraph(
         title=str(raw_graph.get("title", "Relationship Graph")),
         nodes=tuple(nodes),
         edges=tuple(edges),
-        traversal=_relationship_graph_traversal_from_payload(raw_graph.get("traversal")),
+        traversal=model_traversal(model) if model else _relationship_graph_traversal_from_payload(raw_graph.get("traversal")),
         filter_defaults=_object_optional(raw_graph.get("filter_defaults"), "report.relationship_graph.filter_defaults"),
         status_order=_string_tuple_optional(raw_graph.get("status_order"), "report.relationship_graph.status_order"),
+        data_source=data_source,
+        node_count=_optional_int(raw_graph.get("node_count"), "report.relationship_graph.node_count"),
+        edge_count=_optional_int(raw_graph.get("edge_count"), "report.relationship_graph.edge_count"),
+        model=model,
     )
 
 
@@ -963,10 +996,12 @@ def _render_relationship_graph_section(graph: RelationshipGraph) -> str:
         graph_payload["filter_defaults"] = graph.filter_defaults
     if graph.status_order:
         graph_payload["status_order"] = list(graph.status_order)
+    if graph.model:
+        graph_payload["model"] = graph.model
     graph_json = json.dumps(graph_payload, ensure_ascii=False).replace("</", "<\\/")
-    node_count = len(graph.nodes)
-    edge_count = len(graph.edges)
-    preview_focus = _relationship_preview_focus(graph.nodes)
+    node_count = graph.node_count if graph.node_count is not None else len(graph.nodes)
+    edge_count = graph.edge_count if graph.edge_count is not None else len(graph.edges)
+    preview_focus = _relationship_preview_focus(graph.nodes, graph.model)
     preview_focus_type = str(preview_focus.get("type") or "entity") if preview_focus else "entity"
     preview_focus_id = str(preview_focus.get("id") or "") if preview_focus else ""
     type_counts = Counter(
@@ -974,7 +1009,13 @@ def _render_relationship_graph_section(graph: RelationshipGraph) -> str:
         for node in graph.nodes
         if str(node.get("id") or "") != preview_focus_id
     )
-    type_preview_items = type_counts.most_common(8)
+    definitions = (graph.model or {}).get("entity_types", {})
+    type_ranks = (graph.traversal or {}).get("type_ranks", {})
+    type_preview_items = sorted(type_counts.items(), key=lambda item: (
+        definitions.get(item[0], {}).get("rank", type_ranks.get(item[0], 99)),
+        str(definitions.get(item[0], {}).get("label", item[0])).casefold(),
+        item[0],
+    ))
     inspectable_types = {item for item, _count in type_preview_items}
     preview_nodes = tuple(
         node
@@ -985,7 +1026,7 @@ def _render_relationship_graph_section(graph: RelationshipGraph) -> str:
     status_counts = Counter(str(node.get("status") or "unknown") for node in preview_nodes)
     type_preview = "".join(
         _render_relationship_preview_chip(
-            item,
+            definitions.get(item, {}).get("label", item),
             count,
             {
                 "focus": preview_focus_id,
@@ -1026,7 +1067,7 @@ def _render_relationship_graph_section(graph: RelationshipGraph) -> str:
       <button type="button" data-relationship-open>Open graph</button>
       <div>
         <strong>{_esc(graph.title)}</strong>
-        <p>{node_count} nodes, {edge_count} links. Open the graph in a larger workspace to inspect requirement, domain, CDD, HAL, CTS/VTS, and evidence relationships.</p>
+        <p>{node_count} nodes, {edge_count} links.</p>
         <div class="relationship-preview" aria-label="Graph preview">
           <div><span class="label">Types</span><div class="relationship-preview-row">{type_preview}</div></div>
           <div><span class="label">Statuses</span><div class="relationship-preview-row">{status_preview}</div></div>
@@ -1048,16 +1089,14 @@ def _render_relationship_graph_section(graph: RelationshipGraph) -> str:
             <div class="relationship-search-controls">
               <label class="label relationship-cell-find-label" for="relationship-find-node">Find node</label>
               <div class="relationship-search-tools relationship-cell-regex">
-                <button type="button" class="relationship-search-help-button" data-relationship-search-help aria-expanded="false" aria-label="Search help">?</button>
+                <button type="button" class="relationship-search-help-button" data-relationship-search-help aria-pressed="false" aria-label="Graph help mode" title="Graph help mode">?</button>
                 <label class="relationship-search-regex"><input type="checkbox" data-relationship-search-regex><span>Regex</span></label>
-                <div class="relationship-search-help" data-relationship-search-help-popover hidden>
-                  <strong>Search rules</strong>
-                  <p>Without Regex, search matches plain text built from type, name, and summary; separators are treated as spaces.</p>
-                  <p>With Regex, search matches this candidate string: status · type · name · summary.</p>
-                  <p>Examples: CDD Andr, fail, ^not_failed.*audio, storage|graphics.</p>
+                <div class="relationship-search-help" data-relationship-search-help-popover role="tooltip" hidden>
+                  <strong data-relationship-help-title></strong>
+                  <p data-relationship-help-text></p>
                 </div>
               </div>
-              <input class="relationship-cell-find-input" id="relationship-find-node" type="search" data-relationship-search placeholder="VSR, HAL, CTS, CDD">
+              <input class="relationship-cell-find-input" id="relationship-find-node" type="search" data-relationship-search placeholder="Search nodes">
               <div class="relationship-search-results" data-relationship-search-results role="listbox" hidden></div>
             </div>
             <div class="relationship-view-controls">
@@ -1087,6 +1126,16 @@ def _render_relationship_graph_section(graph: RelationshipGraph) -> str:
               </div>
               <div class="relationship-canvas-wrap">
                 <div class="relationship-canvas" data-relationship-canvas role="img" aria-label="{_esc(graph.title)}"></div>
+                <div class="relationship-parent-summary" data-relationship-parent-summary role="status" hidden>
+                  <div class="relationship-parent-summary-counts">
+                    <span><b data-parent-count="visible">0</b> visible</span>
+                    <span hidden><b data-parent-common>0</b> shared by all</span>
+                    <span><b data-parent-count="dimmed">0</b> dimmed</span>
+                    <span><b data-parent-count="filtered">0</b> filtered</span>
+                    <span><b data-parent-count="pages">0</b> on other pages</span>
+                    <span><b data-parent-count="outside">0</b> outside view</span>
+                  </div>
+                </div>
               </div>
               <div class="relationship-selection-panel" data-relationship-selection-table>
                 <div class="relationship-selection-table-head">
@@ -1114,8 +1163,9 @@ def _render_relationship_graph_section(graph: RelationshipGraph) -> str:
 """
 
 
-def _relationship_preview_focus(nodes: tuple[dict[str, Any], ...]) -> dict[str, Any] | None:
-    return next((node for node in nodes if str(node.get("type") or "entity") == "product"), None) or (nodes[0] if nodes else None)
+def _relationship_preview_focus(nodes: tuple[dict[str, Any], ...], model: dict[str, Any] | None = None) -> dict[str, Any] | None:
+    definitions = (model or {}).get("entity_types", {})
+    return next((node for node in nodes if definitions.get(node.get("type"), {}).get("root")), None) or (nodes[0] if nodes else None)
 
 
 def _ordered_counter_items(counter: Counter[str], priority: tuple[str, ...], limit: int) -> list[tuple[str, int]]:
@@ -1324,6 +1374,13 @@ def _required_text(item: dict[str, Any], key: str, field: str) -> str:
     return value
 
 
+def _optional_int(value: Any, field_name: str) -> int | None:
+    if value is None:
+        return None
+    if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+        raise DiffReportError(f"{field_name} must be a non-negative integer")
+    return value
+
 def _optional_text(item: dict[str, Any], key: str) -> str | None:
     if key not in item or item[key] is None:
         return None
@@ -1475,26 +1532,106 @@ def _relationship_graph_script() -> str:
     return r"""
 <script>
 (() => {
-  const TYPE_ORDER = ["product", "analysis_entity", "domain", "vsr", "cdd", "hal", "feature", "property", "cts_module", "vts_module", "artifact", "gap", "decision"];
-  const TYPE_LABELS = {
-    product: "Product",
-    analysis_entity: "Analysis entity",
-    vsr: "VSR",
-    cdd: "CDD",
-    hal: "HAL",
-    cts_module: "CTS module",
-    vts_module: "VTS module",
-    evidence: "Evidence",
-    gap: "Gap",
-    decision: "Decision",
-    domain: "Domain",
-    feature: "Feature",
-    property: "Property",
-    artifact: "Artifact"
-  };
-  const DEFAULT_TYPE_RANKS = {product: 0, analysis_entity: 1, domain: 1, vsr: 2, cdd: 2, hal: 3, feature: 3, property: 3, cts_module: 3, vts_module: 3, artifact: 4, gap: 4, decision: 4};
-  const DEFAULT_TERMINAL_TYPES = ["cts_module", "vts_module", "cdd", "property", "feature", "gap", "decision"];
+  const nodeDefinitions = new WeakMap();
+  const DEFAULT_TYPE_RANKS = {};
+  const DEFAULT_TERMINAL_TYPES = [];
   const MAX_FOCUS_OPTIONS = 400;
+  let graphGpuCapability = null;
+  let graphGpuFailure = '';
+
+  function graphContextCapability(gl) {
+    if (!gl || gl.isContextLost()) return {hardware:false, reason:'unavailable'};
+    try {
+      const info=gl.getExtension('WEBGL_debug_renderer_info');
+      const renderer=info && String(gl.getParameter(info.UNMASKED_RENDERER_WEBGL) || '').trim();
+      if (!renderer || /^(WebKit WebGL|WebGL(?: 2\.0)?|ANGLE|OpenGL(?: ES)?(?: [\d.]+)?)$/i.test(renderer)) {
+        return {hardware:false, reason:'unidentified'};
+      }
+      const software=/swiftshader|llvmpipe|softpipe|lavapipe|swrast|software|rasterizer|\bwarp\b|microsoft basic render|mesa x11|gdi generic/i.test(renderer);
+      return {hardware:!software, reason:software?'software':'hardware', renderer};
+    } catch (_) {
+      return {hardware:false, reason:'unidentified'};
+    }
+  }
+
+  function releaseGraphContext(gl) {
+    try { gl?.getExtension('WEBGL_lose_context')?.loseContext(); } catch (_) {}
+  }
+
+  function graphRendererCapability() {
+    if (graphGpuCapability) return graphGpuCapability;
+    let gl;
+    try {
+      gl=document.createElement('canvas').getContext('webgl2',{failIfMajorPerformanceCaveat:true});
+      graphGpuCapability=graphContextCapability(gl);
+    } catch (_) {
+      graphGpuCapability={hardware:false,reason:'unavailable'};
+    } finally {
+      releaseGraphContext(gl);
+    }
+    return graphGpuCapability;
+  }
+
+  function createGraphRenderer(options, onContextLost) {
+    const canvas=options.container, capability=graphRendererCapability();
+    const accelerated=capability.hardware && !graphGpuFailure;
+    let cy;
+    if (accelerated) {
+      try {
+        cy=cytoscape({...options,renderer:{name:'canvas',webgl:true}});
+        // Pinned Cytoscape renderer: verify the actual context, not just the probe.
+        const renderer=cy.renderer(), gl=renderer.data.contexts[renderer.WEBGL];
+        const actual=graphContextCapability(gl);
+        if (!actual.hardware) {
+          graphGpuFailure=actual.reason;
+          cy.destroy();
+          releaseGraphContext(gl);
+          cy=null;
+        } else {
+          const lost=()=>{
+            graphGpuFailure='context-lost';
+            requestAnimationFrame(()=>{ if (!cy.destroyed()) onContextLost(cy); });
+          };
+          gl.canvas.addEventListener('webglcontextlost',lost);
+          cy.on('destroy',()=>{
+            gl.canvas.removeEventListener('webglcontextlost',lost);
+            releaseGraphContext(gl);
+          });
+          canvas.dataset.graphRenderer='webgl';
+          canvas.dataset.graphRendererReason='hardware';
+          return cy;
+        }
+      } catch (_) {
+        graphGpuFailure='initialization-failed';
+        // Cytoscape registers the core before constructing its renderer.
+        const partial=cy || canvas._cyreg?.cy;
+        if (partial) partial.destroy();
+        canvas.replaceChildren();
+      }
+    }
+    canvas.dataset.graphRenderer='canvas';
+    canvas.dataset.graphRendererReason=graphGpuFailure || capability.reason;
+    return cytoscape({...options,renderer:{name:'canvas',webgl:false}});
+  }
+
+  function recoverGraphRenderer(browser,state,failed) {
+    if (state.cy!==failed) return;
+    stopInspectionSwap(state);
+    clearNodeMagnification(state);
+    const inspectedId=state.inspectedNodeId;
+    const viewport={zoom:failed.zoom(),pan:{...failed.pan()}};
+    const positions=new Map(failed.nodes().map(node=>[node.id(),{...node.position()}]));
+    state.graphRenderSignature='';
+    renderGraph(browser,state);
+    const inspected=state.cy.getElementById(inspectedId);
+    if (inspected.length) inspectGraphNode(state,inspected);
+    state.cy.batch(()=>state.cy.nodes().forEach(node=>{
+      const position=positions.get(node.id());
+      if (position) node.position(position);
+    }));
+    state.cy.viewport(viewport);
+    renderInspectionGroups(state);
+  }
 
   function cssStatus(status) {
     return "status-" + String(status || "unknown").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
@@ -1516,7 +1653,36 @@ def _relationship_graph_script() -> str:
   }
 
   function nodeTypeLabel(node) {
-    return TYPE_LABELS[node.type] || node.type || "Entity";
+    return (nodeDefinitions.get(node) || {}).label || node.type || "Entity";
+  }
+
+  function typeLabel(type, state) {
+    return (state.typeDefinitions[type] || {}).label || type;
+  }
+
+  function prepareGraphDefinitions(graph) {
+    const definitions = graph.model && graph.model.entity_types || {};
+    const ranks = graph.traversal && graph.traversal.type_ranks || {};
+    const parents = new Map(graph.edges.filter(edge =>
+      graph.model?.relation_types[edge.relation]?.hierarchy).map(edge => [edge.target, edge.source]));
+    const byId = new Map(graph.nodes.map(node => [node.id, node]));
+    const depths = new Map();
+    const depth = id => {
+      if (!depths.has(id)) {
+        const parent = parents.get(id);
+        depths.set(id, parent && byId.get(parent)?.type === byId.get(id)?.type ? depth(parent) + 1 : 0);
+      }
+      return depths.get(id);
+    };
+    const stride = 1 + Math.max(0, ...graph.nodes.map(node => depth(node.id)));
+    for (const node of graph.nodes) {
+      const definition = definitions[node.type] || {rank: ranks[node.type]};
+      nodeDefinitions.set(node, Object.assign({}, definition, {
+        rank: definition.rank + depth(node.id) / stride,
+        label: depth(node.id) && definition.nested_label || definition.label,
+      }));
+    }
+    return definitions;
   }
 
   function detailFieldLabel(key) {
@@ -1533,6 +1699,31 @@ def _relationship_graph_script() -> str:
       analysis_notes: "Analysis notes"
     };
     return labels[key] || String(key).replaceAll("_", " ");
+  }
+
+  function evidenceActionLabel(key) {
+    const labels = {
+      test_cases_api: "Run test cases",
+      source_groups_api: "Source test groups",
+      source_cases_api: "Source test cases",
+      failed_case_impact_api: "Failed case impact"
+    };
+    return labels[key] || detailFieldLabel(key);
+  }
+
+  function isEvidenceApiDetail(key, value) {
+    return String(key || "").endsWith("_api") && /^\/api\/evidence\//.test(String(value || ""));
+  }
+
+  function renderEvidenceActions(details) {
+    const actions = Object.entries(details || {}).filter(([key, value]) => isEvidenceApiDetail(key, value));
+    if (!actions.length) return "";
+    let html = '<div class="relationship-evidence-actions" aria-label="Evidence drilldowns">';
+    for (const [key, value] of actions) {
+      html += `<a class="relationship-evidence-action" href="${esc(value)}">${esc(evidenceActionLabel(key))}</a>`;
+    }
+    html += "</div>";
+    return html;
   }
 
   function orderedDetailRows(node, details) {
@@ -1562,8 +1753,10 @@ def _relationship_graph_script() -> str:
     try {
       const parsed = JSON.parse(script.textContent || "{}");
       return {
+        dataSource: parsed.data_source || "inline",
         nodes: Array.isArray(parsed.nodes) ? parsed.nodes : [],
         edges: Array.isArray(parsed.edges) ? parsed.edges : [],
+        model: parsed.model || null,
         traversal: parsed.traversal && typeof parsed.traversal === "object" ? parsed.traversal : {},
         filterDefaults: parsed.filter_defaults && typeof parsed.filter_defaults === "object" ? parsed.filter_defaults : {},
         statusOrder: Array.isArray(parsed.status_order) ? parsed.status_order.map(String).filter((value) => value.trim()) : []
@@ -1573,10 +1766,221 @@ def _relationship_graph_script() -> str:
     }
   }
 
-  function isTypeEnabled(node, selectedId, enabledTypes) {
+  async function loadGraph(browser) {
+    const manifest = parseGraph(browser);
+    if (manifest.dataSource !== "sqlite") return manifest;
+    const href = "/api/report/relationship-graph";
+    let payload;
+    if (window.__diffReportData) {
+      payload = await window.__diffReportData.query(href);
+    } else {
+      if (window.location.protocol === "file:") {
+        throw new Error("Open index.single.html to load this graph offline.");
+      }
+      const response = await fetch(href);
+      if (!response.ok) throw new Error("Graph request failed: " + response.status);
+      payload = await response.json();
+    }
+    if (!Array.isArray(payload.nodes) || !payload.nodes.length || !Array.isArray(payload.edges)) {
+      throw new Error("The report database contains no relationship graph.");
+    }
+    return Object.assign(manifest, {
+      nodes: payload.nodes,
+      edges: payload.edges,
+      model: payload.model || manifest.model,
+      traversal: payload.traversal || manifest.traversal,
+      filterDefaults: payload.filter_defaults || manifest.filterDefaults,
+      statusOrder: payload.status_order || manifest.statusOrder
+    });
+  }
+
+  function isTypeEnabled(node, selectedId, enabledTypes, state) {
     if (!node) return false;
     if (selectedId && node.id === selectedId) return true;
-    return enabledTypes.has(node.type || "entity");
+    const type = node.type || "entity";
+    if (!enabledTypes.has(type)) return false;
+    if (!state || state.projectionMode !== "custom") return true;
+    const choice = state.projectionSelections && state.projectionSelections[String(typeRank(node))];
+    return decodeProjectionChoice(choice, [type]).includes(type);
+  }
+
+  function contextParentEdges(state, focusId = state.selectedId) {
+    if (!state.contextEdgesByTarget) {
+      state.contextEdgesByTarget = new Map();
+      for (const edge of state.edges) {
+        if (!Array.isArray(edge.context_children)) continue;
+        if (!state.contextEdgesByTarget.has(edge.target)) state.contextEdgesByTarget.set(edge.target, []);
+        state.contextEdgesByTarget.get(edge.target).push(edge);
+      }
+    }
+    return state.contextEdgesByTarget.get(focusId) || [];
+  }
+
+
+  function contextGroup(edge, state) {
+    return edge.context_group || state.nodesById.get(edge.source).type || "entity";
+  }
+
+  function contextTraversalEdge(edge) {
+    return !Array.isArray(edge.context_children) && edge.context_traverse !== false;
+  }
+
+  function contextChoices(state) {
+    return new Map(contextParentEdges(state).map(edge => [edge.source, edge]));
+  }
+
+  function isGroupingContext(edge, state) {
+    const definition = state.model && state.model.relation_types[edge.relation];
+    return Boolean(definition && definition.grouping);
+  }
+
+  function contextMembership(state, edge, leavesOnly = false, seen = new Set()) {
+    if (seen.has(edge)) return new Set();
+    seen.add(edge);
+    const result = new Set();
+    for (const child of edge.context_children) {
+      const nested = contextParentEdges(state, child).filter(next =>
+        next.source === edge.source && contextGroup(next, state) === contextGroup(edge, state));
+      if (!leavesOnly || !nested.length) result.add(child);
+      for (const next of nested) {
+        for (const member of contextMembership(state, next, leavesOnly, seen)) result.add(member);
+      }
+    }
+    return result;
+  }
+
+  function addContextParents(graph, state) {
+    const parents = [...contextChoices(state).values()];
+    const projectedIds = new Set(graph.nodes.map(node => node.id));
+    // Complete the nearest contextual ancestors too (for example, a test's
+    // subtopics). Stop at that boundary so a broader topic cannot add domains
+    // unrelated to the visible subtopics.
+    const incoming = new Map();
+    for (const edge of graph.edges) {
+      if (!contextTraversalEdge(edge)) continue;
+      if (!incoming.has(edge.target)) incoming.set(edge.target, []);
+      incoming.get(edge.target).push(edge.source);
+    }
+    const queue = [state.selectedId], visited = new Set();
+    for (let i = 0; i < queue.length; i++) {
+      const id = queue[i];
+      if (visited.has(id)) continue;
+      visited.add(id);
+      const contextual = contextParentEdges(state, id);
+      if (contextual.length) {
+        for (const edge of contextual) {
+          // A contextual owner of a sibling is not an ancestor of this view.
+          // Test the unpaginated projection so paging cannot remove parents.
+          if (id !== state.selectedId && ![...contextMembership(state, edge, true)]
+            .some(member => projectedIds.has(member))) continue;
+          // An ordinary parent already present in this projection needs no
+          // second, contextual path through a different branch of the graph.
+          const shownHierarchy=graph.edges.some(item=>item.target===edge.target &&
+            state.model?.relation_types[item.relation]?.hierarchy);
+          if (!parents.includes(edge) && (shownHierarchy || !graph.nodes.some(node=>node.id===edge.source))) parents.push(edge);
+        }
+      } else queue.push(...(incoming.get(id) || []));
+    }
+    const entryPath = [];
+    const hierarchyEdges = new Map(state.edges.filter(edge =>
+      state.model?.relation_types[edge.relation]?.hierarchy).map(edge => [edge.target, edge]));
+    const displayedParents = parents.map(parent => {
+      let target = parent.target;
+      const seen = new Set();
+      while (hierarchyEdges.has(target) && !seen.has(target)) {
+        seen.add(target);
+        const owner = hierarchyEdges.get(target);
+        const membership = contextParentEdges(state, owner.source).find(edge =>
+          edge.source === parent.source && edge.context_children.includes(target));
+        if (!membership) break;
+        entryPath.push(owner);
+        target = owner.source;
+      }
+      // Keep the original leaf membership on this presentation-only route.
+      return target === parent.target ? parent : Object.assign({}, parent, {target, context_focus: parent.target});
+    });
+    // Parent membership is informational. Show every owner's path to the root.
+    const ownershipSeeds=new Set([...parents.map(parent=>parent.source),
+      ...[...visited].filter(id=>!contextParentEdges(state,id).length)]);
+    // Preserve the first-owner rule without rescanning every edge for each ancestor.
+    const ownersByTarget = new Map();
+    for (const edge of state.edges) {
+      if (!ownersByTarget.has(edge.target) && state.model?.relation_types[edge.relation]?.kind === 'ownership') {
+        ownersByTarget.set(edge.target, edge);
+      }
+    }
+    for (const seed of ownershipSeeds) {
+      const seen = new Set();
+      for (let id = seed; !seen.has(id); ) {
+        seen.add(id);
+        const owner = ownersByTarget.get(id);
+        if (!owner) break;
+        entryPath.push(owner);
+        id = owner.source;
+      }
+    }
+    const focusRank = traversalRank(state, state.nodesById.get(state.selectedId));
+    const childRank = Math.min(Infinity, ...graph.nodes.map(node => traversalRank(state, node)).filter(rank => rank > focusRank));
+    // Context targets are entry points, not traversal paths to all their children.
+    let targets = state.edges.filter(edge => edge.source === state.selectedId &&
+      Array.isArray(edge.context_children) && edge.context_children.length &&
+      traversalRank(state, state.nodesById.get(edge.target)) <= childRank &&
+      ((state.projectionMode || 'auto') === 'auto' ||
+        isTypeEnabled(state.nodesById.get(edge.target), state.selectedId, state.enabledTypes, state)) &&
+      isSubfilterEnabled(state.nodesById.get(edge.target), state) &&
+      isActiveViewNodeAllowed(state.nodesById.get(edge.target), state));
+    const targetIds = new Set(targets.map(edge => edge.target));
+    const hierarchyParents = new Map(state.edges.filter(edge =>
+      state.model?.relation_types[edge.relation]?.hierarchy).map(edge => [edge.target, edge.source]));
+    targets = targets.filter(edge => {
+      for (let parent = hierarchyParents.get(edge.target); parent; parent = hierarchyParents.get(parent)) {
+        if (targetIds.has(parent)) return false;
+      }
+      return true;
+    });
+    if ((!parents.length && !targets.length && !entryPath.length) || graph.listMode) return graph;
+    const nodes = new Map(graph.nodes.map((node) => [node.id, node]));
+    const edges = graph.edges.filter(edge => !parents.includes(edge) && !parents.some(parent =>
+      parent.source === edge.source && parent.context_children.includes(edge.target) &&
+      state.model?.contexts.some(rule => rule.relation === parent.relation &&
+        rule.membership_path.length === 1 && rule.membership_path[0].relation === edge.relation)));
+    const contextIds = new Set(graph.contextIds || []);
+    const distances = new Map(graph.distances || []);
+    nodes.set(state.selectedId, state.nodesById.get(state.selectedId));
+    contextIds.add(state.selectedId);
+    for (const edge of [...displayedParents, ...targets, ...entryPath]) {
+      for (const id of [edge.source, edge.target]) {
+        const node = state.nodesById.get(id);
+        nodes.set(id, node);
+        contextIds.add(id);
+        distances.set(id, 1);
+      }
+      const existing = edges.find(item => item.source === edge.source && item.target === edge.target &&
+        item.relation === edge.relation && Array.isArray(item.context_children) && Array.isArray(edge.context_children));
+      if (existing && existing !== edge) {
+        edges[edges.indexOf(existing)] = Object.assign({}, existing, {
+          context_children: [...new Set([...existing.context_children, ...edge.context_children])],
+          context_focuses: [...new Set([...(existing.context_focuses || []), existing.context_focus,
+            edge.context_focus].filter(Boolean))]
+        });
+      } else if (!edges.includes(edge)) edges.push(edge);
+    }
+    const groupsOwnedMembers = edge => state.model && state.model.contexts.some(rule =>
+      rule.relation === edge.relation && state.model.relation_types[rule.child_relation].kind === 'ownership');
+    const grouped = new Set(targets.filter(edge => isGroupingContext(edge, state) || groupsOwnedMembers(edge))
+      .flatMap(edge => [...contextMembership(state, edge)]));
+    // Collapse only this parent's reviewed membership; never change stored links.
+    for (const id of grouped) {
+      if (id === state.selectedId || contextIds.has(id)) continue;
+      nodes.delete(id);
+      distances.delete(id);
+    }
+    return Object.assign({}, graph, {nodes: Array.from(nodes.values()),
+      edges: edges.filter(edge => nodes.has(edge.source) && nodes.has(edge.target)), contextIds, distances});
+  }
+
+  function contextEmptyMessage(state) {
+    return state.contextFocusExcluded ? 'Focus excluded by parent filters' : 'No matching children for selected parent filters';
   }
 
   function directedReachableIds(rootId, state) {
@@ -1590,6 +1994,9 @@ def _relationship_graph_script() -> str:
       const fromId = queue[cursor];
       cursor += 1;
       for (const edge of outgoing.get(fromId) || []) {
+        if (Array.isArray(edge.context_children)) continue;
+        if (["none", "reverse"].includes(edgeTraversalMode(edge, state.traversal))) continue;
+        if (edge.model_provenance && edge.context_traverse === false) continue;
         if (ids.has(edge.target)) continue;
         ids.add(edge.target);
         queue.push(edge.target);
@@ -1605,6 +2012,15 @@ def _relationship_graph_script() -> str:
     state.scopedAdjacencyCache = null;
   }
 
+  function invalidateGraphCaches(state) {
+    if (!state) return;
+    state.scopedEdgesCache = null;
+    state.scopedAdjacencyCache = null;
+    state.focusGraphCache = null;
+    state.statusChipScopeCache = null;
+    if (state.focusGraph) state.focusGraph.pageCache = null;
+  }
+
   function isolatedIdsForRoot(state, rootId) {
     const id = String(rootId || "");
     return id ? directedReachableIds(id, state) : null;
@@ -1617,22 +2033,23 @@ def _relationship_graph_script() -> str:
 
   function isStandaloneScopeNode(node) {
     if (!node) return false;
-    if ((node.type || "entity") === "analysis_entity") return true;
-    const details = node.details && typeof node.details === "object" ? node.details : {};
-    return Boolean(details.analysis_scope);
+    const definition = nodeDefinitions.get(node) || {};
+    return definition.scope === "isolated" || Boolean(definition.scope_field && fieldValue(node, definition.scope_field));
   }
 
-  function stateGraphNodes(state) {
+  function stateGraphNodes(state, ignoreContext = false) {
     if (!state) return [];
-    if (state.isolatedNodeIds) return state.nodes.filter((node) => nodeInScope(state, node));
-    return state.nodes.filter((node) => !isStandaloneScopeNode(node));
+    return state.nodes.filter((node) =>
+      (state.isolatedNodeIds ? nodeInScope(state, node) : !isStandaloneScopeNode(node)) &&
+      (ignoreContext || !state.contextAllowedIds || state.contextAllowedIds.has(node.id))
+    );
   }
 
   function stateGraphEdges(state) {
     if (!state) return [];
     if (state.scopedEdgesCache) return state.scopedEdgesCache;
     const visibleIds = new Set(stateGraphNodes(state).map((node) => node.id));
-    state.scopedEdgesCache = state.edges.filter((edge) => visibleIds.has(edge.source) && visibleIds.has(edge.target));
+    state.scopedEdgesCache = state.edges.filter((edge) => !Array.isArray(edge.context_children) && edgeTraversalMode(edge, state.traversal) !== "none" && visibleIds.has(edge.source) && visibleIds.has(edge.target) && (!state.contextAllowedEdges || state.contextAllowedEdges.has(edge)));
     return state.scopedEdgesCache;
   }
 
@@ -1767,14 +2184,16 @@ def _relationship_graph_script() -> str:
     if (!node) return false;
     if (!nodeInScope(state, node)) return false;
     if (state && node.id === state.selectedId) return true;
-    return isActiveViewNodeAllowed(node, state) && isTypeEnabled(node, state && state.selectedId, state.enabledTypes) && isSubfilterEnabled(node, state);
+    if (state.contextAllowedIds && !state.contextAllowedIds.has(node.id)) return false;
+    return isActiveViewNodeAllowed(node, state) && isTypeEnabled(node, state && state.selectedId, state.enabledTypes, state) && isSubfilterEnabled(node, state);
   }
 
   function isNodeVisibleIgnoringStatus(node, state) {
     if (!node) return false;
     if (!nodeInScope(state, node)) return false;
     if (state && node.id === state.selectedId) return true;
-    return isActiveViewNodeAllowed(node, state) && isTypeEnabled(node, state && state.selectedId, state.enabledTypes) && isNonStatusSubfilterEnabled(node, state);
+    if (state.contextAllowedIds && !state.contextAllowedIds.has(node.id)) return false;
+    return isActiveViewNodeAllowed(node, state) && isTypeEnabled(node, state && state.selectedId, state.enabledTypes, state) && isNonStatusSubfilterEnabled(node, state);
   }
 
   function includeNodeInSubfilters(state, node) {
@@ -1786,8 +2205,17 @@ def _relationship_graph_script() -> str:
     }
   }
 
-  function traversalConfig(rawTraversal) {
-    const raw = rawTraversal && typeof rawTraversal === "object" ? rawTraversal : {};
+  function traversalConfig(rawTraversal, model) {
+    let raw = rawTraversal && typeof rawTraversal === "object" ? rawTraversal : {};
+    if (model) {
+      const types = Object.entries(model.entity_types);
+      raw = {
+        type_ranks: Object.fromEntries(types.filter(([, spec]) => spec.representation === 'node').map(([name, spec]) => [name, spec.rank])),
+        terminal_types: types.filter(([, spec]) => spec.terminal).map(([name]) => name),
+        relation_traversal: Object.fromEntries(Object.entries(model.relation_types).map(([name, spec]) => [name, spec.traversal])),
+        edge_direction: 'focused_context'
+      };
+    }
     const terminalTypes = Array.isArray(raw.terminal_types) ? raw.terminal_types : DEFAULT_TERMINAL_TYPES;
     const passThroughTypes = Array.isArray(raw.pass_through_types) ? raw.pass_through_types : [];
     const relationTraversal = raw.relation_traversal && typeof raw.relation_traversal === "object" ? raw.relation_traversal : {};
@@ -1872,6 +2300,7 @@ def _relationship_graph_script() -> str:
     }
     const rankOf = (node) => {
       if (!node) return 99;
+      if (nodeDefinitions.has(node)) return typeRank(node);
       const ranks = traversal.typeRanks || DEFAULT_TYPE_RANKS;
       const value = ranks[node.type || "entity"];
       return Number.isFinite(value) ? value : 99;
@@ -1910,6 +2339,7 @@ def _relationship_graph_script() -> str:
         const rawCandidates = neighbors(currentId).filter((item) => {
           const node = nodesById.get(item.id);
           if (!node) return false;
+          if (edgeTraversalMode(item.edge, traversal) === "none") return false;
           if (isSecondaryEdge(item.edge) && !includeSecondaryLinks) return false;
           if (!contextNodeVisible(node)) return false;
           return rankOf(node) < currentRank;
@@ -1942,13 +2372,16 @@ def _relationship_graph_script() -> str:
     const secondaryDescendants = [];
     while (downQueue.length) {
       const fromId = downQueue.shift();
-      const fromRank = rankOf(nodesById.get(fromId));
+      const fromNode = nodesById.get(fromId);
+      if (fromId !== selectedId && traversal.terminalTypes && traversal.terminalTypes.has(fromNode.type) && !(traversal.passThroughTypes && traversal.passThroughTypes.has(fromNode.type))) continue;
+      const fromRank = rankOf(fromNode);
       const regularItems = [];
       const fallbackItems = [];
       for (const item of neighbors(fromId)) {
         const toId = item.id;
         const toNode = nodesById.get(toId);
         if (!toNode || downSeen.has(toId)) continue;
+        if (["none", "reverse"].includes(edgeTraversalMode(item.edge, traversal))) continue;
         const edgeSecondary = isSecondaryEdge(item.edge);
         const edgeFallback = isFallbackTraversalEdge(item.edge, traversal);
         const directedChild = item.edge.source === fromId && item.edge.target === toId;
@@ -2064,9 +2497,14 @@ def _relationship_graph_script() -> str:
     return types.length === 1 ? types[0] : "";
   }
 
+  function hierarchyEntityType(state, type) {
+    return Object.values(state.model?.relation_types || {}).some(relation =>
+      relation.hierarchy && (relation.source.includes(type) || relation.target.includes(type)));
+  }
+
   function buildTypeListGraph(state) {
     const selectedType = singleEnabledType(state);
-    if (!selectedType) return null;
+    if (!selectedType || hierarchyEntityType(state, selectedType)) return null;
     const selected = state.nodesById.get(state.selectedId || "");
     if (selected && (selected.type || "entity") !== selectedType) return null;
     const nodes = stateGraphNodes(state).filter((node) => node.type === selectedType && isSubfilterEnabled(node, state));
@@ -2079,6 +2517,7 @@ def _relationship_graph_script() -> str:
   }
 
   function buildFocusedTypeListGraph(state, statusSensitive) {
+    if (contextParentEdges(state).length || state.contextSelections.length || state.contextOptionRootId) return null;
     const selected = state.nodesById.get(state.selectedId || "");
     if (!selected) return null;
     const selectedType = selected.type || "entity";
@@ -2086,6 +2525,13 @@ def _relationship_graph_script() -> str:
     if (enabled.length !== 2 || !enabled.includes(selectedType)) return null;
     const targetType = enabled.find((type) => type !== selectedType);
     if (!targetType) return null;
+    if (hierarchyEntityType(state, selectedType) || hierarchyEntityType(state, targetType)) return null;
+    // Cross-type ownership is a graph too; `hierarchy` only marks recursive types.
+    const ownsTarget = Object.values(state.model?.relation_types || {}).some(relation =>
+      relation.kind === "ownership" && relation.traversal !== "none" &&
+      ((relation.source.includes(selectedType) && relation.target.includes(targetType)) ||
+       (relation.source.includes(targetType) && relation.target.includes(selectedType))));
+    if (ownsTarget) return null;
     const filterNode = statusSensitive === false ? isNonStatusSubfilterEnabled : isSubfilterEnabled;
     const nodes = [selected].concat(
       stateGraphNodes(state)
@@ -2103,24 +2549,11 @@ def _relationship_graph_script() -> str:
   }
 
   function buildStatusChipScopeGraph(state) {
-    if (state.plainListMode) {
-      const compare = graphOrderComparator(state, statusOrderMap(state));
-      const targetTypes = plainListTargetTypes(state);
-      const nodes = stateGraphNodes(state)
-        .filter((node) => plainListNodeVisible(state, node, targetTypes, false))
-        .sort(compare);
-      return {
-        nodes,
-        edges: [],
-        distances: new Map(nodes.map((node) => [node.id, node.id === state.selectedId ? 0 : 1])),
-        listMode: true
-      };
-    }
     const focusedTypeList = buildFocusedTypeListGraph(state, false);
     if (focusedTypeList) return focusedTypeList;
     const selectedType = singleEnabledType(state);
     const selected = state.nodesById.get(state.selectedId || "");
-    if (selectedType && selected && (selected.type || "entity") === selectedType) {
+    if (selectedType && !hierarchyEntityType(state, selectedType) && selected && (selected.type || "entity") === selectedType) {
       const nodes = stateGraphNodes(state).filter((node) => node.type === selectedType && isNonStatusSubfilterEnabled(node, state));
       return {
         nodes,
@@ -2162,41 +2595,6 @@ def _relationship_graph_script() -> str:
       typeRank(left) - typeRank(right) ||
       String(left.type || "entity").localeCompare(String(right.type || "entity")) ||
       String(left.label || left.id).localeCompare(String(right.label || right.id));
-  }
-
-  function plainListTargetTypes(state) {
-    const selected = state.nodesById.get(state.selectedId || "");
-    if (!selected) return null;
-    const selectedType = selected.type || "entity";
-    const targets = Array.from(state.enabledTypes || []).filter((type) => type && type !== selectedType);
-    return targets.length ? new Set(targets) : null;
-  }
-
-  function plainListNodeVisible(state, node, targetTypes, statusSensitive) {
-    if (!node || !nodeInScope(state, node)) return false;
-    const type = node.type || "entity";
-    if (targetTypes) {
-      if (!targetTypes.has(type)) return false;
-    } else if (!state.enabledTypes.has(type)) {
-      return false;
-    }
-    if (!isActiveViewNodeAllowed(node, state)) return false;
-    return statusSensitive ? isSubfilterEnabled(node, state) : isNonStatusSubfilterEnabled(node, state);
-  }
-
-  function buildPlainListGraph(state) {
-    if (!state.plainListMode) return null;
-    const compare = graphOrderComparator(state, statusOrderMap(state));
-    const targetTypes = plainListTargetTypes(state);
-    const nodes = stateGraphNodes(state)
-      .filter((node) => plainListNodeVisible(state, node, targetTypes, true))
-      .sort(compare);
-    return {
-      nodes,
-      edges: [],
-      distances: new Map(nodes.map((node) => [node.id, node.id === state.selectedId ? 0 : 1])),
-      listMode: true
-    };
   }
 
   function capGraph(graph, state, limit, page) {
@@ -2252,7 +2650,18 @@ def _relationship_graph_script() -> str:
     let pageCache = graph.pageCache;
     if (!pageCache || pageCache.pageSize !== pageSize || pageCache.selectedId !== selectedId) {
       const selectedNode = graph.nodes.find((node) => node.id === selectedId);
-      const contextIds = graph.contextIds || new Set(selectedNode ? [selectedId] : []);
+      const contextIds = new Set(graph.contextIds || (selectedNode ? [selectedId] : []));
+      if (!graph.listMode) {
+        const levels = new Map();
+        for (const node of graph.nodes) {
+          if (node.id === selectedId || !contextIds.has(node.id)) continue;
+          const rank = traversalRank(state, node);
+          if (!levels.has(rank)) levels.set(rank, []);
+          levels.get(rank).push(node.id);
+        }
+        // Large ancestor rows are presentation pages, never implicit filters.
+        for (const ids of levels.values()) if (ids.length > pageSize) ids.forEach(id => contextIds.delete(id));
+      }
       const contextNodes = graph.listMode && !graph.stickyContext ? [] : graph.nodes.filter((node) => contextIds.has(node.id));
       const orderedNodes = graph.listMode
         ? (graph.stickyContext ? graph.nodes.filter((node) => !contextIds.has(node.id)) : graph.nodes.slice())
@@ -2269,7 +2678,9 @@ def _relationship_graph_script() -> str:
       graph.pageCache = pageCache;
     }
     const contextNodes = pageCache.contextNodes;
-    const orderedNodes = pageCache.orderedNodes;
+    const priority = state.inspectionOrder && state.inspectionOrder.graph === graph ? state.inspectionOrder.ids : null;
+    const orderedNodes = priority ? pageCache.orderedNodes.slice().sort((a,b)=>
+      inspectionMembershipCompare(state.inspectionOrder,a.id,b.id)) : pageCache.orderedNodes;
     const total = pageCache.total;
     if (total <= pageSize) {
       const nodes = graph.listMode && !graph.stickyContext ? orderedNodes : contextNodes.concat(orderedNodes);
@@ -2284,6 +2695,16 @@ def _relationship_graph_script() -> str:
     const startIndex = currentPage * pageSize;
     const pageNodes = orderedNodes.slice(startIndex, startIndex + pageSize);
     const nodes = graph.listMode && !graph.stickyContext ? pageNodes : contextNodes.concat(pageNodes);
+    if (priority && !nodes.some(node => node.id === state.inspectionOrder.parentId)) {
+      const parent = graph.nodes.find(node => node.id === state.inspectionOrder.parentId);
+      if (parent) nodes.push(parent);
+    }
+    for (const id of state.inspectionOrder?.parents || []) {
+      if (!nodes.some(node=>node.id===id)) {
+        const parent=graph.nodes.find(node=>node.id===id);
+        if (parent) nodes.push(parent);
+      }
+    }
     const end = Math.min(startIndex + pageSize, total);
     return {
       nodes,
@@ -2322,8 +2743,8 @@ def _relationship_graph_script() -> str:
   }
 
   function typeRank(node) {
-    const index = TYPE_ORDER.indexOf(node.type || "entity");
-    return index === -1 ? 99 : index;
+    const rank = (nodeDefinitions.get(node) || {}).rank;
+    return Number.isFinite(rank) ? rank : 99;
   }
 
   function layoutNodes(nodes, width, height, selectedId, edges) {
@@ -2554,18 +2975,14 @@ def _relationship_graph_script() -> str:
           "overlay-opacity": 0
         }
       },
-      {selector: 'node[type = "domain"]', style: {"shape": "ellipse", "background-color": domainPanel}},
-      {selector: 'node[type = "vsr"]', style: {"shape": "round-rectangle"}},
-      {selector: 'node[type = "cdd"]', style: {"shape": "diamond", "width": 130, "height": 86}},
-      {selector: 'node[type = "hal"]', style: {"shape": "hexagon"}},
-      {selector: 'node[type = "product"]', style: {"shape": "round-rectangle", "width": 190, "height": 76, "background-color": domainPanel}},
-      {selector: 'node[type = "cts_module"]', style: {"shape": "barrel"}},
-      {selector: 'node[type = "vts_module"]', style: {"shape": "barrel"}},
-      {selector: 'node[type = "artifact"]', style: {"shape": "tag", "background-color": metaPanel}},
-      {selector: 'node[type = "evidence"]', style: {"shape": "round-tag", "background-color": metaPanel}},
+      {selector: 'node', style: {"shape": "data(shape)"}},
+      {selector: 'node[shape = "ellipse"]', style: {"background-color": domainPanel}},
+      {selector: 'node[shape = "diamond"]', style: {"width": 130, "height": 86}},
+      {selector: 'node[?modelRoot]', style: {"width": 190, "height": 76, "background-color": domainPanel}},
+      {selector: 'node[shape = "tag"], node[shape = "round-tag"]', style: {"background-color": metaPanel}},
       {selector: ".is-list-item", style: {"width": 190, "height": 58, "text-max-width": 162, "font-size": 9}},
-      {selector: '.is-list-item[type = "cdd"]', style: {"width": 122, "height": 80, "text-max-width": 92}},
-      {selector: "edge", style: {"width": 1.4, "line-color": muted, "target-arrow-color": muted, "target-arrow-shape": "triangle", "curve-style": "bezier", "edge-distances": "endpoints", "source-endpoint": axisAlignedSourceEndpoint, "target-endpoint": axisAlignedTargetEndpoint, "opacity": .52}},
+      {selector: '.is-list-item[shape = "diamond"]', style: {"width": 122, "height": 80, "text-max-width": 92}},
+      {selector: "edge", style: {"width": 1.4, "line-color": muted, "target-arrow-color": muted, "target-arrow-shape": "triangle", "curve-style": "bezier", "opacity": .52}},
       {selector: ".status-covered, .status-covered-candidate, .status-pass, .status-not-failed, .status-available, .status-mapped, .status-high", style: {"border-color": pass, "background-color": passBg}},
       {selector: ".status-risk, .status-needs-evidence, .status-not-applicable-candidate, .status-warning, .status-assumption-failure, .status-skip, .status-skipped, .status-auto-warning-candidate, .status-medium, .status-assumption", style: {"border-color": risk, "background-color": riskBg}},
       {selector: ".status-gap, .status-fail, .status-blocked, .status-auto-fail-candidate, .status-not-available, .status-not-mapped, .status-pending, .status-low", style: {"border-color": fail, "background-color": failBg}},
@@ -2573,7 +2990,20 @@ def _relationship_graph_script() -> str:
       {selector: ".status-not-run, .status-not-done, .status-not-started, .status-other, .status-unknown, .status-auto-no-result-candidate, .status-no-test-signal", style: {"border-color": neutral, "background-color": neutralBg}},
       {selector: ".is-selected", style: {"border-color": link, "border-width": 5, "outline-color": link, "outline-width": 3, "outline-opacity": .52}},
       {selector: ".is-active", style: {"outline-color": active, "outline-width": 3, "outline-opacity": .45}},
+      {selector: ".is-context-muted", style: {"border-color": neutral, "border-width": 2, "outline-color": neutral, "outline-opacity": .25, "background-color": neutralBg, "color": text, "opacity": 1}},
+      {selector: "node.is-parent-preview-dim", style: {"opacity": .35}},
+      {selector: "edge.is-parent-preview-dim", style: {"opacity": .12}},
+      {selector: "node.is-parent-preview-member", style: {"outline-color": link, "outline-width": 4, "outline-opacity": .8}},
+      {selector: "edge.is-parent-preview-member", style: {"line-color": link, "target-arrow-color": link, "width": 2.5, "opacity": 1, "z-index-compare": "manual", "z-compound-depth": "top", "z-index": 9997}},
+      {selector: "edge.is-parent-preview-member", style: {"source-endpoint": "0% 50%", "target-endpoint": "0% -50%"}},
+      {selector: "edge.is-inspection-bundled", style: {"opacity": 0, "events": "no"}},
+      {selector: "edge.is-inspection-routed", style: {"opacity": 0, "events": "no"}},
+      {selector: "edge.is-inspection-swapping", style: {"line-color": neutral, "target-arrow-color": neutral, "opacity": .45, "events": "no"}},
+      {selector: "node.is-inspection-group-member", style: {"outline-opacity": 0}},
+      {selector: "node.is-parent-intersection", style: {"outline-color": link, "outline-width": 5, "outline-opacity": 1}},
+      {selector: "node.is-inspection-initiator", style: {"outline-color": "#c02683", "outline-width": 7, "outline-opacity": 1, "outline-offset": 4}},
       {selector: "node:selected", style: {"border-color": link, "border-width": 4}}
+      ,{selector: "node.is-pressed", style: {"background-blacken": .18, "text-margin-y": 2, "outline-opacity": .2}}
     ];
     return cachedCytoscapeStyle;
   }
@@ -2602,6 +3032,7 @@ def _relationship_graph_script() -> str:
 
   function nodeTraversalRank(node, traversal) {
     if (!node) return 99;
+    if (nodeDefinitions.has(node)) return typeRank(node);
     const ranks = traversal && traversal.typeRanks || DEFAULT_TYPE_RANKS;
     const value = ranks[node.type || "entity"];
     return Number.isFinite(value) ? value : 99;
@@ -2695,10 +3126,12 @@ def _relationship_graph_script() -> str:
         label: node.label || node.id,
         displayLabel: `${nodeTypeLabel(node)}\n${wrapNodeDisplayLabel(node)}`,
         type: node.type || "entity",
+        shape: (nodeDefinitions.get(node) || {}).shape || "round-rectangle",
+        modelRoot: Boolean((nodeDefinitions.get(node) || {}).root),
         status: graphNodeVisualStatus(node, graph)
       },
       position: graph.listMode ? listNodePosition(index, graph, node) : hierarchyNodePosition(node, graph),
-      classes: `${cssStatus(graphNodeVisualStatus(node, graph))} ${graph.listMode ? "is-list-item" : ""} ${node.id === graph.selectedId ? "is-selected" : ""} ${node.id === graph.activeId ? "is-active" : ""}`
+      classes: `${cssStatus(graphNodeVisualStatus(node, graph))} ${graph.listMode ? "is-list-item" : ""} ${node.id === graph.selectedId ? "is-selected" : ""} ${node.id === graph.activeId ? "is-active" : ""} ${graph.filterableParentIds.has(node.id) && node.id !== graph.selectedId ? "is-context-candidate" : ""} ${graph.filterableParentIds.has(node.id) && graph.contextParentIds.has(node.id) ? "is-context-filter" : ""} ${graph.mutedContextParentIds.has(node.id) ? "is-context-muted" : ""}`
     }));
     const edges = visibleEdgesForCanvas(graph.selectedId, graph).map((edge, index) => ({
       group: "edges",
@@ -2706,10 +3139,1343 @@ def _relationship_graph_script() -> str:
         id: `edge:${index}:${edge.source}:${edge.target}`,
         source: edge.source,
         target: edge.target,
+        contextChildren: edge.context_children || null,
+        contextFocus: edge.context_focus || null,
+        contextFocuses: edge.context_focuses || [],
         relation: edge.relation || "related_to"
       }
     }));
     return [...nodes, ...edges];
+  }
+
+  function clearParentPreview(state) {
+    stopInspectionSwap(state);
+    if (state.inspectionOverlay) state.inspectionOverlay.remove();
+    if (state.inspectionContourOverlay) state.inspectionContourOverlay.remove();
+    state.inspectionOverlay = null;
+    state.inspectionContourOverlay = null;
+    state.inspectionRouteSignature = '';
+    state.inspectionEdges = [];
+    state.inspectionLinks = [];
+    state.inspectionRoutes = [];
+    state.inspectionGroups = [];
+    state.inspectionOverview = false;
+    state.inspectedNodeId = "";
+    clearNodeMagnification(state);
+    if (state.ancestorPositions?.cy === state.cy) {
+      state.cy.batch(() => {
+        for (const [id, position] of state.ancestorPositions.positions) {
+          const node = state.cy.getElementById(id);
+          if (node.length) node.position(position);
+        }
+      });
+    }
+    state.ancestorPositions = null;
+    if (state.cy) state.cy.elements().removeClass('is-parent-preview-dim is-parent-preview-member is-parent-preview-exclusive is-parent-intersection is-inspection-bundled is-inspection-group-member is-inspection-routed is-inspection-initiator');
+    if (state.cy) state.cy.edges().removeStyle('width arrow-scale');
+    const summary = state.browser.querySelector('[data-relationship-parent-summary]');
+    if (summary) summary.hidden = true;
+    refreshProjectionLevelMarkers(state.browser,state);
+  }
+
+  const magnifiedStyleKeys = 'label width height padding border-width font-size text-max-width z-index z-compound-depth opacity';
+
+
+  function applyNodeMagnification(state, item, scale) {
+    item.target=scale;
+    item.scale=scale;
+    const style={};
+    for (const [key,value] of Object.entries(item.base)) style[key]=value*scale;
+    state.foregroundLayer=(state.foregroundLayer||9999)+1;
+    style['z-index']=state.foregroundLayer;
+    item.node.style(style);
+  }
+
+  function clearNodeMagnification(state, repaint=true) {
+    state.magnifiedNode=null;
+    for (const item of state.magnifications?.values() || []) {
+      if (!item.node.removed()) item.node.removeStyle(magnifiedStyleKeys);
+    }
+    state.magnifications?.clear();
+    if (repaint && state.inspectionOverlay && !state.inspectionSwap) renderInspectionGroups(state);
+  }
+
+  function magnifyNode(state, node, keepInViewport=false, initialScale=1) {
+    if (!state.graphInteractive || state.inspectionSwap || state.helpMode) { clearNodeMagnification(state); return; }
+    if (state.magnifiedNode?.id()===node.id()) return;
+    clearNodeMagnification(state);
+    state.magnifications ||= new Map();
+    let item=state.magnifications.get(node.id());
+    if (!item) {
+      const base={};
+      for (const key of ['font-size','text-max-width','width','height','padding']) base[key]=node.numericStyle(key);
+      item={node,base,shape:inspectionShape(node),scale:initialScale};
+      state.magnifications.set(node.id(),item);
+      if (initialScale!==1) {
+        const style={};
+        for (const [key,value] of Object.entries(base)) style[key]=value*initialScale;
+        node.style(style);
+      }
+    }
+    const zoom=state.cy.zoom();
+    const displayScale=state.cy.container().getBoundingClientRect().width/state.cy.width() || 1;
+    const maxWidth=item.base.width+2*item.base.padding;
+    const maxHeight=item.base.height+2*item.base.padding;
+    const scale=Math.max(1,Math.min(18.2/(item.base['font-size']*zoom*displayScale),
+      (state.cy.width()-24)/(maxWidth*zoom),(state.cy.height()-24)/(maxHeight*zoom)));
+    node.style({'z-index':9998,'z-compound-depth':'top','opacity':.75});
+    state.magnifiedNode=node;
+    applyNodeMagnification(state,item,scale);
+    if (state.inspectionOverlay && !state.inspectionSwap) renderInspectionGroups(state);
+  }
+
+  function inspectionBaseShape(state, node) {
+    const shape=state.magnifications?.get(node.id())?.shape;
+    if (!shape) return inspectionShape(node);
+    const dx=node.position('x')-(shape.box.x1+shape.box.x2)/2;
+    const dy=node.position('y')-(shape.box.y1+shape.box.y2)/2;
+    const translate=r=>({x1:r.x1+dx,x2:r.x2+dx,y1:r.y1+dy,y2:r.y2+dy});
+    return {...shape,box:translate(shape.box),rects:shape.rects.map(translate),
+      ports:shape.ports.map(p=>({...p,x:p.x+dx,y:p.y+dy}))};
+  }
+
+  function inspectionNodeAt(state, point) {
+    const current=state.magnifiedNode;
+    const other=state.cy.nodes().toArray().find(node=>{
+      if (node.id()===current?.id()) return false;
+      const shape=inspectionBaseShape(state,node), b=shape.box;
+      return current ? point.x>=b.x1 && point.x<=b.x2 && point.y>=b.y1 && point.y<=b.y2 :
+        insideInspectionShape(point,shape);
+    });
+    if (other) return other;
+    if (current && insideInspectionShape(point,inspectionShape(current))) return current;
+    return state.cy.nodes().toArray().find(node=>insideInspectionShape(point,inspectionBaseShape(state,node)));
+  }
+
+  function inspectionPriorityCompare(state, left, right) {
+    const order = state.inspectionOrder;
+    return order ? typeRank(left) - typeRank(right) ||
+      String(left.type).localeCompare(String(right.type)) ||
+      inspectionMembershipCompare(order,left.id,right.id) : 0;
+  }
+
+  function inspectionMembershipCompare(order, left, right) {
+    if (order.anchors?.has(left) || order.anchors?.has(right)) return 0;
+    if (!order.memberships) return Number(order.ids.has(right))-Number(order.ids.has(left));
+    const a=order.memberships.get(left)||[], b=order.memberships.get(right)||[];
+    return b.length-a.length || a.join('|').localeCompare(b.join('|'));
+  }
+
+  function inspectionMembers(state, parentId) {
+    const graph = state.focusGraph, outgoing = new Map(), found = new Set(), visited = new Set();
+    for (const edge of graph.edges) {
+      if (!outgoing.has(edge.source)) outgoing.set(edge.source, []);
+      outgoing.get(edge.source).push(edge);
+    }
+    const choice=contextChoices(state).get(parentId);
+    const queue = choice ? choice.context_children.map(id=>({id,members:null})) : [{id: parentId, members: null}];
+    if (choice) choice.context_children.forEach(id=>found.add(id));
+    for (let index = 0; index < queue.length; index++) {
+      const item = queue[index], key = JSON.stringify([item.id, item.members]);
+      if (visited.has(key)) continue;
+      visited.add(key);
+      // Reaching the focus via an ordinary ancestor path does not grant its children.
+      if (item.id === state.selectedId && item.id !== parentId && !item.members) continue;
+      for (const edge of outgoing.get(item.id) || []) {
+        const inherited=inspectionContextContinuation(state,edge.relation,edge.target,item.members);
+        if (inherited === undefined) continue;
+        found.add(edge.target);
+        queue.push({id: edge.target, members: edge.context_children || inherited});
+      }
+    }
+    return found;
+  }
+
+  function inspectionContextContinuation(state, relation, target, members) {
+    if (!members || members.includes(target)) return null;
+    if (!state.model?.relation_types[relation]?.hierarchy) return undefined;
+    const queue=[target], seen=new Set();
+    for (let i=0;i<queue.length;i++) {
+      if (seen.has(queue[i])) continue;
+      seen.add(queue[i]);
+      for (const edge of state.focusGraph?.edges || []) {
+        if (edge.source!==queue[i]) continue;
+        if (!contextTraversalEdge(edge)) continue;
+        if (members.includes(edge.target)) return members;
+        if (state.model?.relation_types[edge.relation]?.hierarchy) queue.push(edge.target);
+      }
+    }
+    return undefined;
+  }
+
+  function inspectionParentIds(state) {
+    const graph = state.visibleGraph;
+    if (!graph || graph.listMode) return new Set();
+    return new Set(graph.nodes.map(node=>node.id));
+  }
+
+  function orderForInspection(state, parentId, parents = [parentId]) {
+    const graph = state.focusGraph, cache = graph && graph.pageCache;
+    if (!cache || graph.listMode) return;
+    if (parentId === state.selectedId && state.inspectionOrder && !state.ctrlInspection) {
+      clearInspectionSelection(state);
+      return;
+    }
+    const parentRank = typeRank(state.nodesById.get(parentId));
+    const memberships=new Map();
+    for (const id of parents) for (const child of inspectionMembers(state,id)) {
+      if (!memberships.has(child)) memberships.set(child,[]);
+      memberships.get(child).push(id);
+    }
+    const ids = new Set(memberships.keys());
+    const base = graph.nodes.filter(node => node.id !== state.selectedId && typeRank(node) > parentRank);
+    const count = base.filter(node => ids.has(node.id)).length;
+    if (!count && parents.length<2 && !state.ctrlInspection) {
+      if (state.inspectionOrder && contextChoices(state).has(parentId)) clearInspectionSelection(state);
+      return;
+    }
+    const previous = state.inspectionOrder;
+    const eligible = state.ctrlInspection || parents.length>1 || (count > 0 && count < base.length);
+    const basePage = previous ? previous.basePage : state.graphPage;
+    if (!eligible && !previous) return;
+    if (parents.length===1 && !previous?.memberships && eligible && previous && state.graphPage === 0 &&
+        base.every(node => previous.ids.has(node.id) === ids.has(node.id))) {
+      state.inspectionOrder = {graph, parentId, ids, basePage, parents, anchors:previous.anchors};
+      return;
+    }
+    clearParentPreview(state);
+    const viewport = {zoom: state.cy.zoom(), pan: {...state.cy.pan()}};
+    const anchorRank = Math.max(parentRank, ...parents.map(id => typeRank(state.nodesById.get(id))));
+    const anchors = new Map(state.cy.nodes().filter(node => typeRank(state.nodesById.get(node.id())) <= anchorRank)
+      .map(node => [node.id(), {...node.position()}]));
+    state.inspectionOrder = eligible ? {graph, parentId, ids, basePage, parents, anchors,
+      memberships:parents.length>1 ? memberships : null} : null;
+    state.graphPage = eligible ? 0 : basePage;
+    state.graphRenderSignature = "";
+    renderGraph(state.browser, state);
+    clearParentPreview(state);
+    state.cy.zoom(viewport.zoom);
+    state.cy.pan(viewport.pan);
+    for (const [id, position] of anchors) {
+      const node = state.cy.getElementById(id);
+      if (node.length) node.position(position);
+    }
+  }
+
+  function clearInspectionSelection(state) {
+    state.ctrlInspection=false;
+    const previous = state.inspectionOrder;
+    const viewport = state.cy && {zoom: state.cy.zoom(), pan: {...state.cy.pan()}};
+    clearParentPreview(state);
+    state.inspectionOrder = null;
+    if (previous && previous.graph === state.focusGraph) {
+      state.graphPage = previous.basePage;
+      state.graphRenderSignature = "";
+      renderGraph(state.browser, state);
+      state.cy.zoom(viewport.zoom);
+      state.cy.pan(viewport.pan);
+    }
+  }
+
+  function inspectGraphNode(state, node) {
+    if (state.inspectionOrder?.parents?.length>1) {
+      previewMultipleParents(state);
+      return;
+    }
+    if (state.visibleGraph.contextChoiceIds.has(node.id())) previewContextParent(state, node.id());
+    else previewChildAncestors(state, node.id());
+    state.inspectedNodeId = node.id();
+    node.addClass('is-inspection-initiator');
+    compactInspectionAncestors(state, node.id());
+    groupInspectionPaths(state, node.id());
+    state.activeId = node.id();
+    renderDetail(state.browser, state);
+  }
+
+  function toggleInspectionParent(state, id) {
+    state.ctrlInspection=true;
+    let parents=state.inspectionOrder?.parents?.slice() ||
+      (inspectionParentIds(state).has(state.inspectedNodeId) ? [state.inspectedNodeId] : []);
+    const level=typeRank(state.nodesById.get(id));
+    parents=parents.filter(parent=>typeRank(state.nodesById.get(parent))===level);
+    parents=parents.includes(id) ? parents.filter(parent=>parent!==id) : parents.concat(id);
+    if (!parents.length) { clearInspectionSelection(state); return; }
+    parents.sort();
+    orderForInspection(state,parents[parents.length-1],parents);
+    inspectGraphNode(state,state.cy.getElementById(parents[parents.length-1]));
+  }
+
+  function previewMultipleParents(state) {
+    const order=state.inspectionOrder, cy=state.cy, nodes=new Set(), edges=new Set();
+    for (const id of order.parents) {
+      if (state.visibleGraph.contextChoiceIds.has(id)) previewContextParent(state,id);
+      else previewChildAncestors(state,id);
+      cy.nodes('.is-parent-preview-member').forEach(node=>nodes.add(node.id()));
+      cy.edges('.is-parent-preview-member').forEach(edge=>edges.add(edge.id()));
+    }
+    clearParentPreview(state);
+    cy.batch(()=>{
+      cy.nodes().forEach(node=>node.addClass(nodes.has(node.id())?'is-parent-preview-member':'is-parent-preview-dim'));
+      cy.edges().forEach(edge=>edge.addClass(edges.has(edge.id())?'is-parent-preview-member':'is-parent-preview-dim'));
+      cy.nodes().filter(node=>order.memberships.get(node.id())?.length===order.parents.length)
+        .addClass('is-parent-intersection');
+    });
+    state.inspectedNodeId=order.parentId;
+    compactInspectionAncestors(state, order.parentId);
+    groupInspectionPaths(state,order.parentId);
+    for (const id of order.parents) cy.getElementById(id).addClass('is-inspection-initiator');
+    const union=new Set(order.parents.flatMap(id=>contextChoices(state).get(id)?.context_children ||
+      [...inspectionMembers(state,id)].filter(child=>child!==state.selectedId)));
+    renderParentSummary(state,{source:order.parentId,target:state.selectedId,context_children:[...union]},
+      new Set(state.visibleGraph.nodes.map(node=>node.id)));
+    if (!union.size) state.browser.querySelector('[data-relationship-parent-summary]').hidden=true;
+    state.activeId=order.parentId;
+    renderDetail(state.browser,state);
+  }
+
+  function inspectionIsSingleSink(state, id) {
+    return !(state.inspectionOrder?.parents?.length>1) &&
+      !state.cy.edges('.is-parent-preview-member').some(edge=>edge.source().id()===id);
+  }
+
+  function compactInspectionAncestors(state, selectedId) {
+    const cy = state.cy, rank = typeRank(state.nodesById.get(selectedId));
+    if (!cy || !state.visibleGraph?.hierarchyLayout) return;
+    const levels = new Map(), positions = new Map();
+    const highlighted = cy.edges('.is-parent-preview-member');
+    const singleSink=inspectionIsSingleSink(state,selectedId);
+    cy.nodes().forEach(node => {
+      const level = typeRank(state.nodesById.get(node.id()));
+      if (level >= rank) return;
+      const key = JSON.stringify([level, node.style('shape')]);
+      if (!levels.has(key)) levels.set(key, []);
+      levels.get(key).push(node);
+    });
+    for (const nodes of levels.values()) {
+      if (nodes.filter(node => node.hasClass('is-parent-preview-member')).length < 2) continue;
+      nodes.sort((a,b) => a.position('y')-b.position('y') || a.position('x')-b.position('x'));
+      const slots = nodes.map(node => ({...node.position()}));
+      const keys = new Map(nodes.map(node => [node.id(), singleSink ? '' : JSON.stringify(highlighted
+        .filter(edge => edge.target().id() === node.id())
+        .map(edge => [edge.source().id(), edge.data('relation')]).sort())]));
+      const groups=new Map();
+      const members=singleSink ? cy.nodes('.is-parent-preview-member').filter(node=>
+        typeRank(state.nodesById.get(node.id()))===typeRank(state.nodesById.get(nodes[0].id()))) : nodes;
+      for (const node of members) {
+        if (!node.hasClass('is-parent-preview-member')) continue;
+        const key=singleSink ? '' : keys.get(node.id());
+        if (!groups.has(key)) groups.set(key,[]);
+        groups.get(key).push(node.id());
+      }
+      const grouped=[...groups.values()].filter(ids=>ids.length>1);
+      const components=proposed=>grouped.map(ids=>inspectionContours(inspectionGroupRects(state,ids,proposed)).length);
+      const before=components();
+      if (before.every(count=>count<=1)) continue;
+      const keyOrder=new Map([...groups.keys()].map((key,index)=>[key,index]));
+      const ordered = nodes.slice().sort((a,b) =>
+        Number(b.hasClass('is-parent-preview-member'))-Number(a.hasClass('is-parent-preview-member')) ||
+        (a.hasClass('is-parent-preview-member') ? keyOrder.get(keys.get(a.id()))-keyOrder.get(keys.get(b.id())) : 0));
+      const proposed=new Map(ordered.map((node,i)=>[node.id(),slots[i]])), after=components(proposed);
+      // Reordering must join a split frame, not just change the order of its members.
+      if (after.some((count,i)=>count>before[i]) || !after.some((count,i)=>count<before[i])) continue;
+      nodes.forEach((node,i) => {
+        const destination=proposed.get(node.id());
+        if (destination.x!==slots[i].x || destination.y!==slots[i].y) positions.set(node.id(),slots[i]);
+      });
+      cy.batch(() => ordered.forEach((node,i) => node.position(slots[i])));
+    }
+    state.ancestorPositions = positions.size ? {cy, positions} : null;
+  }
+
+  function stopInspectionSwap(state) {
+    const swap = state.inspectionSwap;
+    if (!swap) return;
+    cancelAnimationFrame(swap.frame);
+    state.inspectionSwap = null;
+    if (state.cy !== swap.cy || swap.cy.destroyed()) return;
+    swap.cy.batch(() => {
+      for (const move of swap.moves) if (!move.node.removed()) move.node.position(move.to);
+      swap.cy.edges().removeClass('is-inspection-swapping');
+      state.foregroundLayer=(state.foregroundLayer||9999)+1;
+      swap.moves[0].node.style('z-index',state.foregroundLayer);
+    });
+    if (state.inspectionOverlay) state.inspectionOverlay.style.visibility = '';
+    if (state.inspectionContourOverlay) state.inspectionContourOverlay.style.visibility = '';
+    state.inspectionRouteSignature = '';
+    renderInspectionGroups(state);
+  }
+
+  function animateInspectionSwap(state, id, origin) {
+    const cy = state.cy, node = cy?.getElementById(id);
+    if (!node?.length || state.inspectedNodeId !== id || matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+    const destination = {...node.position()};
+    const distance = Math.hypot(destination.x-origin.x, destination.y-origin.y);
+    if (distance < .5) return;
+    const rank = typeRank(state.nodesById.get(id));
+    // The final occupant of the clicked slot is the only exchange partner.
+    const partner = cy.nodes().filter(other => other.id() !== id &&
+      typeRank(state.nodesById.get(other.id())) === rank &&
+      Math.hypot(other.position('x')-origin.x, other.position('y')-origin.y) < .5)[0];
+    if (!partner) return;
+    clearNodeMagnification(state, false);
+    const moves = [{node,from:origin,to:destination},
+      {node:partner,from:destination,to:{...partner.position()}}];
+    const swap = {cy, moves, frame:0, started:performance.now()};
+    state.inspectionSwap = swap;
+    if (state.inspectionOverlay) state.inspectionOverlay.style.visibility = 'hidden';
+    if (state.inspectionContourOverlay) state.inspectionContourOverlay.style.visibility = 'hidden';
+    cy.edges().addClass('is-inspection-swapping');
+    const frame = now => {
+      if (state.inspectionSwap !== swap || state.cy !== cy || cy.destroyed()) return;
+      const progress = Math.min(1,(now-swap.started)/650), eased = progress*progress*(3-2*progress);
+      cy.batch(() => moves.forEach(move => {
+        move.node.position({x:move.from.x+(move.to.x-move.from.x)*eased,
+          y:move.from.y+(move.to.y-move.from.y)*eased});
+      }));
+      if (progress < 1) swap.frame = requestAnimationFrame(frame);
+      else stopInspectionSwap(state);
+    };
+    frame(swap.started);
+  }
+
+  function installInspectionMenu(state, canvas) {
+    if (state.inspectionMenu) return;
+    const menu=document.createElement('div'), button=document.createElement('button');
+    menu.className='copy-context-menu'; menu.hidden=true; menu.setAttribute('role','menu');
+    menu.setAttribute('data-inspection-menu',''); button.type='button'; button.setAttribute('role','menuitem');
+    button.setAttribute('data-inspection-open-view',''); menu.append(button);
+    (canvas.closest('[data-relationship-modal]') || document.body).append(menu);
+    state.inspectionMenu=menu;
+    canvas.addEventListener('contextmenu',event=>{
+      if (!state.cy) return;
+      event.preventDefault(); event.stopPropagation();
+      button.textContent=state.selectionView?'Exit selection view':'Open selection view';
+      button.disabled=!state.selectionView&&!state.inspectedNodeId;
+      menu.hidden=false;
+      menu.style.left=Math.max(8,Math.min(event.clientX,window.innerWidth-menu.offsetWidth-8))+'px';
+      menu.style.top=Math.max(8,Math.min(event.clientY,window.innerHeight-menu.offsetHeight-8))+'px';
+      button.focus();
+    });
+    button.addEventListener('click',()=>{
+      menu.hidden=true;
+      if (state.selectionView) exitInspectionView(state);
+      else openInspectionView(state);
+    });
+    document.addEventListener('pointerdown',event=>{if(!menu.contains(event.target))menu.hidden=true;},true);
+    document.addEventListener('keydown',event=>{
+      if(!menu.hidden&&event.key==='Escape'){menu.hidden=true;event.preventDefault();event.stopPropagation();canvas.focus();}
+    },true);
+    window.addEventListener('resize',()=>{menu.hidden=true;});
+  }
+
+  function openInspectionView(state) {
+    if (!state.cy || !state.inspectedNodeId) return;
+    const graph=state.visibleGraph;
+    const ids=new Set(state.cy.nodes('.is-parent-preview-member, .is-inspection-initiator').map(node=>node.id()));
+    ids.add(state.inspectedNodeId);
+    const edges=visibleEdgesForCanvas(state.selectedId,graph).filter((edge,index)=>
+      ids.has(edge.source)&&ids.has(edge.target)&&
+      state.cy.getElementById(`edge:${index}:${edge.source}:${edge.target}`).hasClass('is-parent-preview-member'));
+    const returnView=navigationSnapshot(state);
+    const returnInspection={id:state.inspectedNodeId,
+      parents:state.inspectionOrder?.memberships ? state.inspectionOrder.parents.slice() : null};
+    pushNavigationSnapshot(state);
+    // Freeze the drawn paths, including their context metadata, not a new neighborhood query.
+    state.selectionView=Object.assign({},graph,{
+      returnView,returnInspection,
+      nodes:graph.nodes.filter(node=>ids.has(node.id)),edges:edges.slice(),
+      pageCache:null,pagination:null,hierarchyLayout:null,listLayout:null,stickyContext:false
+    });
+    if (!ids.has(state.selectedId)) state.selectedId=state.inspectedNodeId;
+    state.activeId=state.selectedId;
+    state.inspectionOrder=null;
+    state.ctrlInspection=false;
+    state.graphPage=0;
+    state.graphRenderSignature='';
+    renderRelationshipState(state.browser,state);
+    fitGraph(state,40);
+  }
+
+  function exitInspectionView(state) {
+    const snapshot=state.selectionView?.returnView;
+    const inspection=state.selectionView?.returnInspection;
+    if (!snapshot) return;
+    pushNavigationSnapshot(state);
+    restoreNavigationSnapshot(state.browser,state,snapshot);
+    if (inspection && state.nodesById.has(inspection.id)) {
+      const parents=inspection.parents?.filter(id=>state.nodesById.has(id)) || [inspection.id];
+      state.ctrlInspection=Boolean(inspection.parents);
+      orderForInspection(state,inspection.id,parents);
+      const node=state.cy.getElementById(inspection.id);
+      if (node.length) inspectGraphNode(state,node);
+      clearNodeMagnification(state);
+    }
+    fitGraph(state,40);
+  }
+
+  function selectionViewGraph(state, ignoreStatus=false) {
+    const graph=state.selectionView;
+    const nodes=graph.nodes.filter(node=>node.id===state.selectedId || graph.contextIds?.has(node.id) ||
+      (isTypeEnabled(node,state.selectedId,state.enabledTypes,state) &&
+        (ignoreStatus ? isNonStatusSubfilterEnabled(node,state) : isSubfilterEnabled(node,state))));
+    const ids=new Set(nodes.map(node=>node.id));
+    return Object.assign({},graph,{nodes,
+      edges:graph.edges.filter(edge=>ids.has(edge.source)&&ids.has(edge.target)),pageCache:null});
+  }
+
+  function inspectionParentMark(state, id) {
+    const ids=[...(state.inspectionOrder?.parents || [state.inspectedNodeId])].sort((left,right)=>{
+      const a=state.cy.getElementById(left).position(), b=state.cy.getElementById(right).position();
+      return a.y-b.y || a.x-b.x || left.localeCompare(right);
+    }), index=ids.indexOf(id);
+    const colors=['#007f86','#b83d76','#7560c3','#347d34','#aa6210','#3976ad','#a8463f'];
+    return {number:index+1,color:colors[index%colors.length],label:state.nodesById.get(id)?.label || id};
+  }
+
+
+  // Union occupied row bands, retaining the notch beside a partially filled row.
+  function inspectionContours(rects) {
+    const xs = [...new Set(rects.flatMap(r => [r.x1, r.x2]))].sort((a,b) => a-b);
+    const ys = [...new Set(rects.flatMap(r => [r.y1, r.y2]))].sort((a,b) => a-b);
+    const cells = new Set();
+    for (let x=0; x<xs.length-1; x++) for (let y=0; y<ys.length-1; y++) {
+      if (rects.some(r => xs[x]>=r.x1 && xs[x+1]<=r.x2 && ys[y]>=r.y1 && ys[y+1]<=r.y2)) cells.add(`${x},${y}`);
+    }
+    const edges = new Map();
+    const add = (a,b) => {
+      const key = a.join(',');
+      if (!edges.has(key)) edges.set(key, []);
+      edges.get(key).push(b);
+    };
+    for (const cell of cells) {
+      const [x,y] = cell.split(',').map(Number);
+      if (!cells.has(`${x},${y-1}`)) add([x,y],[x+1,y]);
+      if (!cells.has(`${x+1},${y}`)) add([x+1,y],[x+1,y+1]);
+      if (!cells.has(`${x},${y+1}`)) add([x+1,y+1],[x,y+1]);
+      if (!cells.has(`${x-1},${y}`)) add([x,y+1],[x,y]);
+    }
+    const contours = [];
+    while (edges.size) {
+      const start = edges.keys().next().value, points = [];
+      let key = start;
+      do {
+        const [x,y] = key.split(',').map(Number);
+        points.push({x:xs[x],y:ys[y]});
+        const next = edges.get(key), end = next.pop();
+        if (!next.length) edges.delete(key);
+        key = end.join(',');
+      } while (key !== start);
+      contours.push(points);
+    }
+    return contours;
+  }
+
+  function inspectionGroupRects(state, ids, positions = null) {
+    const selected = new Set(ids), rank = typeRank(state.nodesById.get(ids[0]));
+    const position=node=>positions?.get(node.id()) || node.position();
+    const rows = [];
+    state.cy.nodes().filter(n => typeRank(state.nodesById.get(n.id())) === rank).sort((a,b) =>
+      position(a).y-position(b).y || position(a).x-position(b).x).forEach(node => {
+      let row = rows[rows.length-1];
+      if (!row || Math.abs(row.y-position(node).y)>1) rows.push(row={y:position(node).y,nodes:[]});
+      row.nodes.push(node);
+    });
+    const bounds = rows.map(row => row.nodes.map(node => {
+      const box=node.boundingBox({includeLabels:false,includeOverlays:false,includeOutlines:false});
+      const dx=position(node).x-node.position('x'),dy=position(node).y-node.position('y');
+      return {x1:box.x1+dx,x2:box.x2+dx,y1:box.y1+dy,y2:box.y2+dy};
+    }));
+    const bands = rows.map((row,rowIndex) => {
+      const rects = [];
+      let run = null;
+      row.nodes.forEach((node,index) => {
+        if (!selected.has(node.id())) { run=null; return; }
+        const box = bounds[rowIndex][index];
+        const left = row.nodes[index-1], right = row.nodes[index+1];
+        const padding = Math.max(0, Math.min(12,
+          left ? (box.x1-position(left).x-left.outerWidth()/2)/3 : 12,
+          right ? (position(right).x-right.outerWidth()/2-box.x2)/3 : 12));
+        const verticalPadding = Math.max(0,Math.min(10,
+          ...(bounds[rowIndex-1] || []).map(other => (box.y1-other.y2)/4),
+          ...(bounds[rowIndex+1] || []).map(other => (other.y1-box.y2)/4)));
+        const rect = {x1:box.x1-padding,x2:box.x2+padding,y1:box.y1-verticalPadding,y2:box.y2+verticalPadding};
+        if (run) {
+          run.x2=rect.x2; run.y1=Math.min(run.y1,rect.y1); run.y2=Math.max(run.y2,rect.y2);
+        } else { run=rect; rects.push(run); }
+      });
+      return rects;
+    });
+    // Join only consecutive occupied rows; never bridge an unrelated row or column.
+    for (let i=1;i<bands.length;i++) for (const above of bands[i-1]) for (const below of bands[i]) {
+      if (Math.min(above.x2,below.x2)<=Math.max(above.x1,below.x1)) continue;
+      const middle=(above.y2+below.y1)/2;
+      above.y2=middle; below.y1=middle;
+    }
+    return bands.flat();
+  }
+
+  function inspectionDiagonalContour(state, ids, rects) {
+    const members=new Set(ids), gap=6/state.cy.zoom(), joined=rects.slice();
+    const obstacles=state.cy.nodes().filter(n=>!members.has(n.id())).map(n=>inspectionBaseShape(state,n).box);
+    const overlap=(a,b)=>Math.min(a.x2,b.x2)>Math.max(a.x1,b.x1)&&Math.min(a.y2,b.y2)>Math.max(a.y1,b.y1);
+    const roots=rects.map((_,i)=>i), root=i=>roots[i]===i ? i : (roots[i]=root(roots[i]));
+    const pairs=[];
+    for (let i=0;i<rects.length;i++) for (let j=i+1;j<rects.length;j++) {
+      const a=rects[i], b=rects[j];
+      if (Math.min(a.x2,b.x2)>=Math.max(a.x1,b.x1)&&Math.min(a.y2,b.y2)>=Math.max(a.y1,b.y1)) {
+        roots[root(i)]=root(j);continue;
+      }
+      const near=(a,b)=>({x:Math.max(a.x1+gap,Math.min(a.x2-gap,(b.x1+b.x2)/2)),
+        y:Math.max(a.y1+gap,Math.min(a.y2-gap,(b.y1+b.y2)/2))});
+      const from=near(a,b), to=near(b,a);
+      pairs.push({i,j,from,to,distance:Math.hypot(to.x-from.x,to.y-from.y)});
+    }
+    // Join only through empty space; narrow bridges do not enclose neighboring cells.
+    for (const pair of pairs.sort((a,b)=>a.distance-b.distance)) {
+      if (root(pair.i)===root(pair.j)) continue;
+      const bridge=[], steps=Math.max(2,Math.ceil(pair.distance/gap));
+      for (let i=0;i<=steps;i++) {
+        const x=pair.from.x+(pair.to.x-pair.from.x)*i/steps, y=pair.from.y+(pair.to.y-pair.from.y)*i/steps;
+        bridge.push({x1:x-gap,x2:x+gap,y1:y-gap,y2:y+gap});
+      }
+      if (bridge.some(r=>obstacles.some(b=>overlap(r,{x1:b.x1-gap,y1:b.y1-gap,x2:b.x2+gap,y2:b.y2+gap})))) continue;
+      joined.push(...bridge);
+      roots[root(pair.i)]=root(pair.j);
+    }
+    if (new Set(roots.map((_,i)=>root(i))).size!==1) return null;
+    const contours=inspectionContours(joined);
+    if (contours.length!==1) return null;
+    const simplify=points=>{
+      if (points.length<3) return points;
+      const a=points[0],b=points.at(-1), length=Math.hypot(b.x-a.x,b.y-a.y);
+      let best=0,index=0;
+      for (let i=1;i<points.length-1;i++) {
+        const p=points[i], distance=length ? Math.abs((b.x-a.x)*(a.y-p.y)-(a.x-p.x)*(b.y-a.y))/length : Math.hypot(p.x-a.x,p.y-a.y);
+        if (distance>best) {best=distance;index=i;}
+      }
+      return best<=gap*.6 ? [a,b] : simplify(points.slice(0,index+1)).slice(0,-1).concat(simplify(points.slice(index)));
+    };
+    const contour=contours[0], middle=Math.floor(contour.length/2);
+    const diagonal=simplify(contour.slice(0,middle+1)).slice(0,-1)
+      .concat(simplify(contour.slice(middle).concat(contour[0])).slice(0,-1));
+    return {rects:joined,contour:diagonal};
+  }
+
+  function groupInspectionPaths(state, inspectedId) {
+    const cy=state.cy, graph=state.visibleGraph;
+    if (!cy || !graph || !graph.hierarchyLayout || graph.listMode) return;
+    const comparison=state.inspectionOrder?.memberships ? new Set(state.inspectionOrder.parents) : null;
+    const sources=new Set(comparison || [inspectedId]);
+    if (graph.contextChoiceIds.has(inspectedId)) {
+      const choice=contextChoices(state).get(inspectedId);
+      if (choice) sources.add(choice.target);
+    }
+    const candidates=new Map();
+    const levels=new Map(), inspectedRank=typeRank(state.nodesById.get(inspectedId));
+    const partitioned=comparison && comparison.size>1;
+    const singleSink=inspectionIsSingleSink(state,inspectedId);
+    const membershipIds=id=>partitioned ? (state.inspectionOrder.memberships.get(id)||[]) : [];
+    cy.nodes('.is-parent-preview-member').forEach(node=>{
+      const rank=typeRank(state.nodesById.get(node.id()));
+      if (singleSink ? rank>=inspectedRank : rank<=inspectedRank) return;
+      const membership=membershipIds(node.id());
+      if (partitioned && !membership.length) return;
+      const key=JSON.stringify([rank,membership]);
+      if (!levels.has(key)) levels.set(key,{rank,membershipIds:membership,sourceIds:[],memberIds:new Set(),edges:[],incoming:true,overview:true});
+      levels.get(key).memberIds.add(node.id());
+    });
+    // A broad ancestor view summarizes sets, not every pair inside those sets.
+    // Keep exact edge identities on each summary link for inspection and validation.
+    state.inspectionOverview=Boolean((partitioned || singleSink) && levels.size) ||
+      new Set([...levels.values()].filter(g=>g.memberIds.size>1).map(g=>g.rank)).size>1;
+    if (state.inspectionOverview) clearNodeMagnification(state);
+    if (state.inspectionOverview) for (const [key,group] of levels) candidates.set('overview:'+key,group);
+    cy.edges('.is-parent-preview-member').forEach(edge => {
+      const union=comparison && sources.has(edge.source().id());
+      if (union && sources.has(edge.target().id())) return;
+      const key=JSON.stringify([union ? 'union' : edge.source().id(),
+        typeRank(state.nodesById.get(edge.target().id())),edge.data('relation')]);
+      if (!candidates.has(key)) candidates.set(key,{sourceId:edge.source().id(),sourceIds:[edge.source().id()],memberIds:new Set(),edges:[]});
+      const group=candidates.get(key);
+      if (!group.sourceIds.includes(edge.source().id())) group.sourceIds.push(edge.source().id());
+      group.memberIds.add(edge.target().id()); group.edges.push(edge);
+    });
+    // Bundle repeated incoming paths too, but never imply a shared upstream parent
+    // where the visible members actually have different parent sets.
+    const highlighted=cy.edges('.is-parent-preview-member');
+    highlighted.filter(edge=>comparison ? comparison.has(edge.source().id()) : edge.target().id()===inspectedId).forEach(edge=>{
+      const member=edge.source(), incoming=highlighted.filter(item=>item.target().id()===member.id());
+      const signature=[...new Set(incoming.map(item=>JSON.stringify([item.source().id(),item.data('relation')])))].sort();
+      const key=JSON.stringify(['incoming',typeRank(state.nodesById.get(member.id())),edge.data('relation'),signature]);
+      if (!candidates.has(key)) {
+        const sourceIds=[...new Set(incoming.map(item=>item.source().id()))];
+        candidates.set(key,{sourceId:sourceIds[0],sourceIds,memberIds:new Set(),edges:[],incoming:true});
+      }
+      const group=candidates.get(key);
+      if (!group.memberIds.has(member.id())) group.edges.push(...incoming);
+      group.memberIds.add(member.id());
+    });
+    // Equivalent path segments may be framed at any visible hierarchy level.
+    cy.nodes('.is-parent-preview-member').forEach(member=>{
+      if (member.id()===inspectedId && !comparison) return;
+      const incoming=highlighted.filter(edge=>edge.target().id()===member.id());
+      if (!incoming.length) return;
+      const outgoing=highlighted.filter(edge=>edge.source().id()===member.id());
+      const signature=edges=>edges.map(edge=>[edge.source().id()===member.id()?edge.target().id():edge.source().id(),
+        edge.data('relation')]).sort((a,b)=>JSON.stringify(a).localeCompare(JSON.stringify(b)));
+      const key=JSON.stringify(['equivalent',typeRank(state.nodesById.get(member.id())),
+        signature(incoming),signature(outgoing)]);
+      if (!candidates.has(key)) candidates.set(key,{sourceId:incoming[0].source().id(),sourceIds:[...new Set(incoming.map(e=>e.source().id()))],
+        memberIds:new Set(),edges:[],incoming:true,equivalent:true});
+      const group=candidates.get(key);
+      group.memberIds.add(member.id()); group.edges.push(...incoming);
+    });
+    state.inspectionGroups=[];
+    const groupedMembers=new Set();
+    const components=[];
+    for (const candidate of candidates.values()) {
+      if (!candidate.incoming) { components.push(candidate); continue; }
+      const pending=inspectionGroupRects(state,[...candidate.memberIds]);
+      const diagonal=candidate.overview && candidate.membershipIds?.length===1 &&
+        inspectionContours(pending).length>1 ?
+        inspectionDiagonalContour(state,[...candidate.memberIds],pending) : null;
+      if (diagonal) {
+        components.push({...candidate,rects:diagonal.rects,diagonal:diagonal.contour});
+        continue;
+      }
+      // Keep parents stationary. Separate occupied components instead of
+      // stretching a frame across unrelated cells.
+      while (pending.length) {
+        const rects=[pending.pop()];
+        for (let i=0;i<rects.length;i++) for (let j=pending.length-1;j>=0;j--) {
+          const a=rects[i],b=pending[j];
+          if (Math.min(a.x2,b.x2)>=Math.max(a.x1,b.x1) && Math.min(a.y2,b.y2)>=Math.max(a.y1,b.y1)) {
+            rects.push(...pending.splice(j,1));
+          }
+        }
+        const memberIds=new Set([...candidate.memberIds].filter(id=>{
+          const p=cy.getElementById(id).position();
+          return rects.some(r=>p.x>=r.x1&&p.x<=r.x2&&p.y>=r.y1&&p.y<=r.y2);
+        }));
+        components.push(Object.assign({},candidate,{memberIds,rects,
+          edges:candidate.edges.filter(edge=>memberIds.has(edge.target().id()))}));
+      }
+    }
+    for (const group of components) {
+      if (group.memberIds.size<2 || [...group.memberIds].some(id=>groupedMembers.has(id) || (!comparison && id===inspectedId))) continue;
+      if (partitioned && new Set([...group.memberIds].map(id=>JSON.stringify(membershipIds(id)))).size>1) continue;
+      group.memberIds=[...group.memberIds];
+      group.rects=group.rects || inspectionGroupRects(state,group.memberIds);
+      group.contours=group.diagonal ? [group.diagonal] : inspectionContours(group.rects);
+      // Disconnected runs cannot truthfully be represented by one shared arrow.
+      if (group.contours.length!==1) continue;
+      const sinks=new Map();
+      cy.edges('.is-parent-preview-member').forEach(edge => {
+        if (!group.memberIds.includes(edge.source().id()) || group.memberIds.includes(edge.target().id())) return;
+        const key=JSON.stringify([edge.target().id(),edge.data('relation')]);
+        if (!sinks.has(key)) sinks.set(key,[]);
+        sinks.get(key).push(edge);
+      });
+      group.sinkIds=[];
+      group.sinkLinks=[];
+      for (const [key,edges] of sinks) {
+        if (new Set(edges.map(e=>e.source().id())).size!==group.memberIds.length) continue;
+        const [id,relation]=JSON.parse(key);
+        if (!group.sinkIds.includes(id)) group.sinkIds.push(id);
+        group.sinkLinks.push({id,relation}); group.edges.push(...edges);
+      }
+      // Partial paths retain their actual node endpoints inside the frame.
+      state.inspectionGroups.push(group);
+      group.memberIds.forEach(id=>groupedMembers.add(id));
+    }
+    if (!cy.edges('.is-parent-preview-member').length) return;
+    cy.batch(() => state.inspectionGroups.forEach(group => {
+      group.edges.forEach(edge => edge.addClass('is-inspection-bundled'));
+      group.memberIds.forEach(id => cy.getElementById(id).addClass('is-inspection-group-member'));
+    }));
+    if (state.inspectionOverview) cy.edges('.is-parent-preview-member').addClass('is-inspection-bundled');
+    state.inspectionEdges=cy.edges('.is-parent-preview-member').filter(edge=>!edge.hasClass('is-inspection-bundled'));
+    state.inspectionEdges.addClass('is-inspection-routed');
+    const svg=document.createElementNS('http://www.w3.org/2000/svg','svg');
+    svg.setAttribute('data-inspection-overlay','');
+    svg.setAttribute('aria-hidden','true');
+    svg.style.cssText='position:absolute;inset:0;width:100%;height:100%;pointer-events:none;z-index:2;overflow:hidden';
+    const contours=svg.cloneNode(false);
+    contours.removeAttribute('data-inspection-overlay');
+    contours.setAttribute('data-inspection-contours','');
+    contours.style.zIndex='0';
+    cy.container().prepend(contours);
+    state.inspectionContourOverlay=contours;
+    cy.container().append(svg);
+    state.inspectionOverlay=svg;
+    state.inspectionGeometryDirty=true;
+    renderInspectionGroups(state);
+  }
+
+  function inspectionShape(node, group = null) {
+    const rects=group ? group.rects : [{x1:node.position('x')-node.outerWidth()/2,
+      x2:node.position('x')+node.outerWidth()/2,y1:node.position('y')-node.outerHeight()/2,
+      y2:node.position('y')+node.outerHeight()/2}];
+    const box={x1:Math.min(...rects.map(r=>r.x1)),x2:Math.max(...rects.map(r=>r.x2)),
+      y1:Math.min(...rects.map(r=>r.y1)),y2:Math.max(...rects.map(r=>r.y2))};
+    const shape={id:group ? 'group:'+group.memberIds.join('|') : node.id(), box, rects, polygon:group?.diagonal,
+      kind:group ? 'group' : node.style('shape'), ports:[]};
+    for (const [side,axis,other,nx,ny] of [['bottom','y2','x',0,1],['top','y1','x',0,-1],
+      ['left','x1','y',-1,0],['right','x2','y',1,0]]) {
+      const intervals=rects.filter(r=>r[axis]===box[axis]).map(r=>[r[other+'1'],r[other+'2']]).sort((a,b)=>a[0]-b[0]);
+      const merged=[];
+      for (const interval of intervals) {
+        const last=merged[merged.length-1];
+        if (last && interval[0]<=last[1]) last[1]=Math.max(last[1],interval[1]);
+        else merged.push([...interval]);
+      }
+      const span=merged.reduce((a,b)=>a[1]-a[0]>b[1]-b[0]?a:b), middle=(span[0]+span[1])/2;
+      shape.ports.push({x:nx ? box[axis] : middle,y:ny ? box[axis] : middle,nx,ny,side});
+    }
+    return shape;
+  }
+
+  function insideInspectionShape(point, shape) {
+    const b=shape.box;
+    if (point.x<=b.x1+.001 || point.x>=b.x2-.001 || point.y<=b.y1+.001 || point.y>=b.y2-.001) return false;
+    const x=(point.x-(b.x1+b.x2)/2)/((b.x2-b.x1)/2), y=(point.y-(b.y1+b.y2)/2)/((b.y2-b.y1)/2);
+    if (shape.kind==='ellipse') return x*x+y*y<.99999;
+    if (shape.kind==='diamond') return Math.abs(x)+Math.abs(y)<.99999;
+    if (shape.polygon) {
+      let inside=false;
+      for (let i=0,j=shape.polygon.length-1;i<shape.polygon.length;j=i++) {
+        const a=shape.polygon[i],b=shape.polygon[j];
+        if ((a.y>point.y)!==(b.y>point.y) && point.x<(b.x-a.x)*(point.y-a.y)/(b.y-a.y)+a.x) inside=!inside;
+      }
+      return inside;
+    }
+    // Internal seams between row rectangles belong to the group, not to free space.
+    return shape.rects.some(r=>point.x>=r.x1 && point.x<=r.x2 && point.y>=r.y1 && point.y<=r.y2);
+  }
+
+  function inspectionCurve(from, to, bend, zoom) {
+    const a={x:from.x+from.nx*bend,y:from.y+from.ny*bend};
+    const b={x:to.x+to.nx*bend,y:to.y+to.ny*bend};
+    const steps=Math.max(24,Math.min(240,Math.ceil((Math.hypot(to.x-from.x,to.y-from.y)+bend*2)*zoom/2)));
+    const points=[];
+    for (let i=0;i<=steps;i++) {
+      const t=i/steps, s=1-t;
+      points.push({x:s*s*s*from.x+3*s*s*t*a.x+3*s*t*t*b.x+t*t*t*to.x,
+        y:s*s*s*from.y+3*s*s*t*a.y+3*s*t*t*b.y+t*t*t*to.y});
+    }
+    return {from,to,points,d:`M${from.x},${from.y} C${a.x},${a.y} ${b.x},${b.y} ${to.x},${to.y}`};
+  }
+
+  function roundedInspectionRoute(vertices, radius, zoom) {
+    const path=vertices.filter((p,i)=>!i || Math.hypot(p.x-vertices[i-1].x,p.y-vertices[i-1].y)>.001);
+    const points=[path[0]];
+    let d=`M${path[0].x},${path[0].y}`;
+    const line=end=>{
+      const start=points[points.length-1], count=Math.max(1,Math.ceil(Math.hypot(end.x-start.x,end.y-start.y)*zoom/2));
+      for (let i=1;i<=count;i++) points.push({x:start.x+(end.x-start.x)*i/count,y:start.y+(end.y-start.y)*i/count});
+      d+=` L${end.x},${end.y}`;
+    };
+    for (let i=1;i<path.length-1;i++) {
+      const a=path[i-1],b=path[i],c=path[i+1], before=Math.hypot(b.x-a.x,b.y-a.y),after=Math.hypot(c.x-b.x,c.y-b.y);
+      const r=Math.min(radius,before/2,after/2);
+      const entry={x:b.x+(a.x-b.x)*r/before,y:b.y+(a.y-b.y)*r/before};
+      const exit={x:b.x+(c.x-b.x)*r/after,y:b.y+(c.y-b.y)*r/after};
+      line(entry);
+      for (let j=1;j<=12;j++) {
+        const t=j/12,s=1-t;
+        points.push({x:s*s*entry.x+2*s*t*b.x+t*t*exit.x,y:s*s*entry.y+2*s*t*b.y+t*t*exit.y});
+      }
+      d+=` Q${b.x},${b.y} ${exit.x},${exit.y}`;
+    }
+    line(path[path.length-1]);
+    return {from:path[0],to:path[path.length-1],points,d};
+  }
+
+  function routeInspectionArrow(source, target, obstacles, zoom) {
+    const gap=14/zoom, clear=route=>!route.points.some(p=>obstacles.some(shape=>insideInspectionShape(p,shape)));
+    const score=route=>route.points.slice(1).reduce((sum,p,i)=>sum+Math.hypot(p.x-route.points[i].x,p.y-route.points[i].y),0)+
+      (route.from.side==='bottom'?0:gap)+(route.to.side==='top'?0:gap);
+    const preferred=inspectionCurve(source.ports[0],target.ports[1],Math.max(gap,(target.box.y1-source.box.y2)/2),zoom);
+    if (target.box.y1-source.box.y2>=gap*2 && clear(preferred)) return preferred;
+    let best=null, cost=Infinity;
+    const consider=route=>{
+      const value=score(route);
+      if (value<cost && clear(route)) { best=route; cost=value; }
+    };
+    for (const from of source.ports) for (const to of target.ports) {
+      if (obstacles.some(s=>insideInspectionShape(from,s) || insideInspectionShape(to,s))) continue;
+      const distance=Math.hypot(to.x-from.x,to.y-from.y);
+      consider(inspectionCurve(from,to,Math.max(gap,Math.min(80/zoom,distance*.45)),zoom));
+    }
+    if (best) return best;
+    // Try local row/column gaps before detouring around the entire graph.
+    const left=Math.min(...obstacles.map(s=>s.box.x1))-gap*2, right=Math.max(...obstacles.map(s=>s.box.x2))+gap*2;
+    const top=Math.min(...obstacles.map(s=>s.box.y1))-gap*2, bottom=Math.max(...obstacles.map(s=>s.box.y2))+gap*2;
+    const lanes=(axis,cross)=>{
+      const low=Math.min(source.box[cross+'1'],target.box[cross+'1']);
+      const high=Math.max(source.box[cross+'2'],target.box[cross+'2']);
+      const intervals=obstacles.filter(s=>s.box[cross+'2']>=low&&s.box[cross+'1']<=high)
+        .map(s=>[s.box[axis+'1'],s.box[axis+'2']]).sort((a,b)=>a[0]-b[0]);
+      if (!intervals.length) return [];
+      const result=[intervals[0][0]-gap];
+      let end=intervals[0][1];
+      for (const [start,finish] of intervals.slice(1)) {
+        if (start>end) result.push((start+end)/2);
+        end=Math.max(end,finish);
+      }
+      result.push(end+gap);
+      return result;
+    };
+    const xs=[...lanes('x','y'),left,right],ys=[...lanes('y','x'),top,bottom];
+    // Dense rows can have less free space than the preferred screen-space exit gap.
+    for (const clearance of [gap,gap/2,Math.min(1/zoom,gap/4)]) {
+      for (const from of source.ports) for (const to of target.ports) {
+        if (obstacles.some(s=>insideInspectionShape(from,s) || insideInspectionShape(to,s))) continue;
+        const a={x:from.x+from.nx*clearance,y:from.y+from.ny*clearance};
+        const b={x:to.x+to.nx*clearance,y:to.y+to.ny*clearance};
+        for (const x of xs) consider(roundedInspectionRoute([from,a,{x,y:a.y},{x,y:b.y},b,to],clearance/2,zoom));
+        for (const y of ys) consider(roundedInspectionRoute([from,a,{x:a.x,y},{x:b.x,y},b,to],clearance/2,zoom));
+      }
+      if (best) return best;
+    }
+    return best;
+  }
+
+  function inspectionBusRoutes(bus, obstacles, zoom) {
+    const parents=bus.links.map(link=>bus.incoming?link.target:link.source), gap=24/zoom;
+    const top=Math.min(...parents.map(s=>s.box.y1)), bottom=Math.max(...parents.map(s=>s.box.y2));
+    const peers=obstacles.filter(s=>s.id!==bus.common.id&&s.box.y2>=top&&s.box.y1<=bottom);
+    const oneRow=parents.every(s=>Math.abs((s.box.y1+s.box.y2)-(parents[0].box.y1+parents[0].box.y2))<2);
+    const left=Math.min(...parents.map(s=>s.box.x1)),right=Math.max(...parents.map(s=>s.box.x2));
+    const rowClearances=obstacles.filter(s=>s.box.x2>=left&&s.box.x1<=right)
+      .map(s=>bus.incoming?top-s.box.y2:s.box.y1-bottom).filter(distance=>distance>0);
+    const rowGap=Math.min(gap,...rowClearances.map(distance=>distance/2));
+    const rail=oneRow ? (bus.incoming?top-rowGap:bottom+rowGap) :
+      (bus.incoming?Math.min(...peers.map(s=>s.box.x1))-gap:Math.max(...peers.map(s=>s.box.x2))+gap);
+    const joint=(x,y)=>({id:'connector:'+x+':'+y,kind:'junction',box:{x1:x,x2:x,y1:y,y2:y},rects:[],
+      ports:[{x,y,nx:0,ny:1,side:'bottom'},{x,y,nx:0,ny:-1,side:'top'},
+        {x,y,nx:-1,ny:0,side:'left'},{x,y,nx:1,ny:0,side:'right'}]});
+    const joints=parents.map(s=>{
+      if (oneRow) return joint((s.box.x1+s.box.x2)/2,rail);
+      const edge=bus.incoming?s.box.y1:s.box.y2, direction=bus.incoming?-1:1;
+      const nearby=obstacles.filter(other=>other.id!==s.id&&
+        other.box.x2>=Math.min(rail,s.box.x1)&&other.box.x1<=Math.max(rail,s.box.x2))
+        .map(other=>bus.incoming?edge-other.box.y2:other.box.y1-edge).filter(distance=>distance>0);
+      return joint(rail,edge+direction*Math.min(18/zoom,...nearby.map(distance=>distance/2)));
+    });
+    const center=oneRow ? joint((Math.min(...joints.map(s=>s.box.x1))+Math.max(...joints.map(s=>s.box.x1)))/2,rail) :
+      joint(rail,bus.incoming?top-gap:bottom+gap);
+    const routes=[];
+    const pin=(shape,side)=>{
+      const port=shape.ports.find(p=>p.side===side);
+      return Object.assign({},shape,{ports:[port,port]});
+    };
+    const add=(source,target,head)=>{
+      const route=routeInspectionArrow(source,target,obstacles,zoom);
+      if (!route) return false;
+      routes.push({source:source.id,target:target.id,route,grouped:true,head,connector:true});
+      return true;
+    };
+    if (!add(bus.incoming?bus.common:pin(center,'bottom'),bus.incoming?pin(center,'top'):bus.common,!bus.incoming)) return null;
+    for (let i=0;i<parents.length;i++) {
+      const junction=pin(joints[i],oneRow?(bus.incoming?'bottom':'top'):(bus.incoming?'right':'left'));
+      const parent=parents[i],port=parent.ports[bus.incoming?1:0],end=junction.ports[0];
+      const points=oneRow?[port,end]:[port,{x:port.x,y:end.y},end];
+      const branch=roundedInspectionRoute(bus.incoming?points.reverse():points,6/zoom,zoom);
+      if (!branch.points.some(p=>obstacles.some(s=>insideInspectionShape(p,s)))) {
+        routes.push({source:bus.incoming?junction.id:parent.id,target:bus.incoming?parent.id:junction.id,
+          route:branch,grouped:true,head:bus.incoming,connector:true});
+      } else if (!add(bus.incoming?junction:parent,bus.incoming?parent:junction,bus.incoming)) return null;
+    }
+    const ends=[center,...joints].sort((a,b)=>oneRow?a.box.x1-b.box.x1:a.box.y1-b.box.y1);
+    const from=ends[0].ports[0],to=ends[ends.length-1].ports[0];
+    const route=roundedInspectionRoute([from,to],0,zoom);
+    if (route.points.some(p=>obstacles.some(s=>insideInspectionShape(p,s)))) return null;
+    routes.push({source:'connector',target:'connector',route,grouped:true,head:false,connector:true});
+    return routes;
+  }
+
+  let inspectionMaskSequence=0;
+
+  function updateInspectionHoverMask(state) {
+    const items=[...(state.magnifications?.values()||[])];
+    const zoom=state.cy.zoom(), pan=state.cy.pan();
+    const shapes=items.map(item=>({kind:item.node.style('shape'),
+      box:item.node.boundingBox({includeLabels:false,includeOverlays:false,includeOutlines:true})}));
+    const signature=JSON.stringify([zoom,pan,shapes]);
+    for (const svg of [state.inspectionOverlay,state.inspectionContourOverlay]) {
+      const group=svg?.firstElementChild;
+      if (!group) continue;
+      if (!items.length) {
+        group.removeAttribute('mask');
+        continue;
+      }
+      if (!svg.__hoverMask) {
+        const create=name=>document.createElementNS('http://www.w3.org/2000/svg',name);
+        const defs=create('defs'),mask=create('mask'),background=create('rect'),cutouts=create('g');
+        mask.id='inspection-hover-mask-'+(++inspectionMaskSequence);
+        mask.setAttribute('maskUnits','userSpaceOnUse');
+        mask.setAttribute('maskContentUnits','userSpaceOnUse');
+        mask.style.maskType='luminance';
+        background.setAttribute('fill','white');
+        cutouts.setAttribute('fill','black');
+        mask.append(background,cutouts);defs.append(mask);svg.append(defs);
+        svg.__hoverMask={mask,background,cutouts};
+      }
+      const cached=svg.__hoverMask;
+      group.setAttribute('mask','url(#'+cached.mask.id+')');
+      if (cached.signature===signature) continue;
+      cached.signature=signature;
+      const bounds={x:-pan.x/zoom-20,y:-pan.y/zoom-20,width:state.cy.width()/zoom+40,height:state.cy.height()/zoom+40};
+      for (const [key,value] of Object.entries(bounds)) {
+        cached.mask.setAttribute(key,value);cached.background.setAttribute(key,value);
+      }
+      cached.cutouts.innerHTML=shapes.map(({kind,box:b})=>{
+        const x=(b.x1+b.x2)/2,y=(b.y1+b.y2)/2,w=b.x2-b.x1,h=b.y2-b.y1;
+        if (kind==='ellipse') return `<ellipse cx="${x}" cy="${y}" rx="${w/2}" ry="${h/2}"/>`;
+        if (kind==='diamond') return `<polygon points="${x},${b.y1} ${b.x2},${y} ${x},${b.y2} ${b.x1},${y}"/>`;
+        return `<rect x="${b.x1}" y="${b.y1}" width="${w}" height="${h}" rx="${Math.min(w,h)*.08}"/>`;
+      }).join('');
+    }
+  }
+
+  function updateInspectionArrowEndpoints(state) {
+    const svg=state.inspectionOverlay;
+    if (!svg || state.inspectionSwap) return;
+    const paths=state.inspectionArrowPaths ||= svg.querySelectorAll('[data-edge-arrow], [data-group-arrow]');
+    const endpoint=(id,port)=>{
+      const item=state.magnifications?.get(id);
+      return item ? inspectionShape(item.node).ports.find(p=>p.side===port.side)||port : port;
+    };
+    for (const [index,item] of (state.inspectionArrowVisuals||[]).entries()) {
+      const route=item.route, from=endpoint(item.source,route.from), to=endpoint(item.target,route.to);
+      const signature=[from.x,from.y,to.x,to.y,state.cy.zoom()].join(',');
+      if (signature===item.displaySignature) continue;
+      item.displaySignature=signature;
+      const changed=from!==route.from || to!==route.to;
+      const points=changed ? route.points.map((p,i)=>{
+        const t=i/(route.points.length-1), a=Math.pow(1-t,3), b=Math.pow(t,3);
+        return {x:p.x+(from.x-route.from.x)*a+(to.x-route.to.x)*b,
+          y:p.y+(from.y-route.from.y)*a+(to.y-route.to.y)*b};
+      }) : null;
+      paths[index]?.setAttribute('d',points ? 'M'+points.map(p=>p.x+','+p.y).join(' L') : route.d);
+      if (!item.head) continue;
+      const size=7/state.cy.zoom(), base={x:to.x+to.nx*size,y:to.y+to.ny*size};
+      paths[index]?.nextElementSibling?.setAttribute('d',
+        'M'+to.x+','+to.y+' L'+(base.x-to.ny*size/2)+','+(base.y+to.nx*size/2)+
+        ' L'+(base.x+to.ny*size/2)+','+(base.y-to.nx*size/2)+' Z');
+    }
+  }
+
+  function renderInspectionGroups(state) {
+    const svg=state.inspectionOverlay, cy=state.cy;
+    if (!svg || !cy || state.inspectionSwap) return;
+    const zoom=cy.zoom(), pan=cy.pan(), color=cssValue('--graph-focus','#2563eb');
+    const transform=`translate(${pan.x} ${pan.y}) scale(${zoom})`;
+    if (!state.inspectionGeometryDirty && svg.firstElementChild) {
+      svg.firstElementChild.setAttribute('transform',transform);
+      state.inspectionContourOverlay.firstElementChild.setAttribute('transform',transform);
+      updateInspectionArrowEndpoints(state);
+      updateInspectionHoverMask(state);
+      return;
+    }
+    state.inspectionGeometryDirty=false;
+    const shapes=new Map();
+    cy.nodes('.is-parent-preview-member, .is-parent-preview-exclusive').forEach(node=>{
+      shapes.set(node.id(),inspectionBaseShape(state,node));
+    });
+    const groupShapes=state.inspectionGroups.map(group=>inspectionShape(null,group));
+    const members=new Set(state.inspectionGroups.flatMap(g=>g.memberIds));
+    const obstacles=[...shapes.values()].filter(s=>!members.has(s.id)).concat(groupShapes);
+    const signature=JSON.stringify([obstacles.map(s=>[s.id,s.box]),
+      state.inspectionOrder?.memberships ? cy.nodes().map(n=>[n.id(),n.position()]) : null]);
+    if (signature===state.inspectionRouteSignature && svg.firstElementChild) {
+      svg.firstElementChild.setAttribute('transform',transform);
+      state.inspectionContourOverlay.firstElementChild.setAttribute('transform',transform);
+      updateInspectionArrowEndpoints(state);
+      updateInspectionHoverMask(state);
+      return;
+    }
+    state.inspectionRouteSignature=signature;
+    state.inspectionRoutes=[];
+    state.inspectionArrowVisuals=[];
+    state.inspectionArrowPaths=null;
+    const parts=[], contours=[], badges=[];
+    const marks=(ids,x,y)=>{
+      const badgeScale=state.inspectionBadgeScale || 1, size=20*badgeScale;
+      [...ids].sort((a,b)=>inspectionParentMark(state,a).number-inspectionParentMark(state,b).number).forEach((id,i)=>{
+        const mark=inspectionParentMark(state,id), cx=x+(i-(ids.length-1)/2)*size;
+        badges.push(`<g data-membership-parent="${esc(id)}"><title>${esc(mark.label)}</title><circle cx="${cx}" cy="${y}" r="${9*badgeScale}" fill="${mark.color}" stroke="white" stroke-width="${badgeScale}"/><text x="${cx}" y="${y}" text-anchor="middle" dominant-baseline="central" fill="white" font-size="${12*badgeScale}" font-family="sans-serif" font-weight="bold">${mark.number}</text></g>`);
+      });
+    };
+    const drawRoute=(route,grouped,edgeId='',head=true,summaryCount=0,stroke=color,source='',target='') => {
+      if (!route) return;
+      state.inspectionArrowVisuals.push({route,source,target,head});
+      const to=route.to,size=7/zoom,base={x:to.x+to.nx*size,y:to.y+to.ny*size};
+      parts.push(`<path ${grouped?'data-group-arrow':'data-edge-arrow'}="${esc(edgeId)}" d="${route.d}" fill="none" stroke="${esc(stroke)}" stroke-width="2.5" vector-effect="non-scaling-stroke"${summaryCount>1?' stroke-dasharray="5 3" style="pointer-events:stroke"':''}><title>${summaryCount>1?summaryCount+' connections between members':''}</title></path>`);
+      if (head) parts.push(`<path d="M${to.x},${to.y} L${base.x-to.ny*size/2},${base.y+to.nx*size/2} L${base.x+to.ny*size/2},${base.y-to.nx*size/2} Z" fill="${esc(stroke)}"/>`);
+    };
+    const arrow=(source,target,grouped,edgeId='',edgeIds=[],stroke=color) => {
+      if (!source || !target) return;
+      const barriers=obstacles.filter(s=>{
+        const index=groupShapes.indexOf(s);
+        if (index<0 || s===source || s===target) return true;
+        const ids=state.inspectionGroups[index].memberIds;
+        return !ids.includes(source.id) && !ids.includes(target.id);
+      });
+      for (const group of state.inspectionGroups) {
+        if (!group.memberIds.includes(source.id) && !group.memberIds.includes(target.id)) continue;
+        for (const id of group.memberIds) if (shapes.has(id)) barriers.push(shapes.get(id));
+      }
+      for (const shape of [source,target]) if (!barriers.includes(shape)) barriers.push(shape);
+      const route=routeInspectionArrow(source,target,barriers,zoom);
+      state.inspectionRoutes.push({source:source.id,target:target.id,route,grouped,edgeId,edgeIds,color:stroke});
+      if (!route) return;
+      drawRoute(route,grouped,edgeId,true,state.inspectionOverview?edgeIds.length:0,stroke,source.id,target.id);
+      if (state.inspectionOrder?.memberships && state.inspectionOrder.parents.includes(source.id)) {
+        marks([source.id],route.from.x+route.from.nx*18/zoom,route.from.y+route.from.ny*18/zoom);
+      }
+    };
+    const selected=new Set(state.inspectionOrder?.memberships ? state.inspectionOrder.parents : []);
+    const parentShape=id=>{
+      const index=state.inspectionGroups.findIndex(group=>group.memberIds.includes(id)&&
+        (state.inspectionOverview || group.equivalent || group.memberIds.every(member=>selected.has(member))));
+      return index<0 ? shapes.get(id) : groupShapes[index];
+    };
+    const links=[];
+    const link=(source,target,grouped,edgeId='',relation='')=>{
+      if (!source || !target || source===target) return;
+      const existing=links.find(item=>item.source===source&&item.target===target&&item.relation===relation);
+      if (existing) { if (edgeId) existing.edgeIds.push(edgeId); return; }
+      links.push({source,target,grouped,edgeId,relation,edgeIds:edgeId?[edgeId]:[]});
+    };
+    const displayedEdges=state.inspectionOverview?cy.edges('.is-parent-preview-member'):state.inspectionEdges;
+    for (const edge of displayedEdges) link(parentShape(edge.source().id()),parentShape(edge.target().id()),state.inspectionOverview,edge.id(),edge.data('relation'));
+    state.inspectionGroups.forEach((group,index)=>{
+      const points=group.contours[0],shape=groupShapes[index];
+      if (!state.inspectionOverview) {
+        for (const id of group.sourceIds) link(parentShape(id),shape,true,'',group.edges.find(e=>e.source().id()===id)?.data('relation')||'');
+        for (const {id,relation} of group.sinkLinks) link(shape,parentShape(id),true,'',relation);
+      }
+      const ids=group.membershipIds||[], frameColor=ids.length===1?inspectionParentMark(state,ids[0]).color:color;
+      contours.push(`<path data-group-contour="" d="M${points.map(p=>`${p.x},${p.y}`).join(' L')} Z" fill="none" stroke="${esc(frameColor)}" stroke-width="1.5" stroke-linejoin="round" vector-effect="non-scaling-stroke"/>`);
+    });
+    const membership=id=>selected.has(id) ? [id] : state.inspectionOrder?.memberships?.get(id)||[];
+    const shapeMembership=shape=>{
+      const index=groupShapes.indexOf(shape);
+      return index<0 ? membership(shape.id) :
+        [...new Set(state.inspectionGroups[index].memberIds.flatMap(membership))];
+    };
+    const sharedMembership=(a,b)=>a.length && b.length ? a.filter(id=>b.includes(id)) : a.length ? a : b;
+    for (const item of links) {
+      const sets=item.edgeIds.length ? item.edgeIds.map(id=>{
+        const edge=cy.getElementById(id);
+        return sharedMembership(membership(edge.source().id()),membership(edge.target().id()));
+      }) : [sharedMembership(shapeMembership(item.source),shapeMembership(item.target))];
+      const ids=[...new Set(sets.flat())];
+      item.color=ids.length===1 && sets.every(ids=>ids.length) ? inspectionParentMark(state,ids[0]).color : color;
+    }
+    state.inspectionLinks=links.map(item=>({source:item.source.id,target:item.target.id,relation:item.relation,edgeId:item.edgeId,edgeIds:item.edgeIds,color:item.color}));
+    const buses=new Map(), consumed=new Set();
+    for (const item of state.inspectionOverview?[]:links) for (const incoming of [true,false]) {
+      const common=incoming?item.source:item.target;
+      const key=JSON.stringify([incoming,common.id,item.relation,item.color]);
+      if (!buses.has(key)) buses.set(key,{incoming,common,links:[],color:item.color});
+      buses.get(key).links.push(item);
+    }
+    const nodeShapes=cy.nodes().map(node=>inspectionBaseShape(state,node));
+    // Prefer the largest shared endpoint; each real link belongs to only one connector.
+    for (const candidate of [...buses.values()].sort((a,b)=>b.links.length-a.links.length)) {
+      const bus={...candidate,links:candidate.links.filter(item=>!consumed.has(item))};
+      if (bus.links.length<2) continue;
+      // Partial endpoints may leave their own frame, but never cross sibling nodes.
+      const endpoints=new Set(bus.links.flatMap(item=>[item.source.id,item.target.id]));
+      const closedGroups=state.inspectionGroups.filter(group=>!group.memberIds.some(id=>endpoints.has(id)));
+      const closedMembers=new Set(closedGroups.flatMap(group=>group.memberIds));
+      const busObstacles=nodeShapes.filter(shape=>!closedMembers.has(shape.id)).concat(
+        closedGroups.map(group=>groupShapes[state.inspectionGroups.indexOf(group)]));
+      const routes=inspectionBusRoutes(bus,busObstacles,zoom);
+      if (!routes) continue;
+      routes[0].links=bus.links.map(item=>({source:item.source.id,target:item.target.id,
+        relation:item.relation,edgeId:item.edgeId}));
+      parts.push(`<g data-parent-connector="" data-connector-common="${esc(bus.common.id)}">`);
+      for (const item of routes) {
+        state.inspectionRoutes.push({...item,color:bus.color});
+        drawRoute(item.route,true,'parent-connector',item.head,0,bus.color,item.source,item.target);
+      }
+      parts.push('</g>');
+      bus.links.forEach(item=>consumed.add(item));
+    }
+    for (const item of links) if (!consumed.has(item)) arrow(item.source,item.target,item.grouped,item.edgeId,item.edgeIds,item.color);
+    if (state.inspectionOrder?.memberships) {
+      cy.nodes().forEach(node=>{
+        const ids=state.inspectionOrder.parents.includes(node.id()) ? [node.id()] :
+          state.inspectionOrder.memberships.get(node.id()) || [];
+        if (!ids.length) return;
+        const box=inspectionBaseShape(state,node).box;
+        badges.push(`<g data-node-memberships="${esc(node.id())}">`);
+        marks(ids,node.position('x'),box.y1-13*(state.inspectionBadgeScale||1));
+        badges.push('</g>');
+      });
+    }
+    svg.innerHTML=`<g transform="${transform}">${parts.join('')}${badges.join('')}</g>`;
+    state.inspectionContourOverlay.innerHTML=`<g transform="${transform}">${contours.join('')}</g>`;
+    svg.__hoverMask=null;
+    state.inspectionContourOverlay.__hoverMask=null;
+    updateInspectionArrowEndpoints(state);
+    updateInspectionHoverMask(state);
+  }
+
+  function renderParentSummary(state, choice, visible) {
+    const summary = state.browser.querySelector('[data-relationship-parent-summary]');
+    if (!summary) return;
+    const beforePagination = new Set((state.focusGraph && state.focusGraph.nodes || []).map(node => node.id));
+    const counts = {visible: 0, dimmed: 0, filtered: 0, pages: 0, outside: 0};
+    const common=summary.querySelector('[data-parent-common]'), order=state.inspectionOrder;
+    common.parentElement.hidden=!order?.memberships;
+    common.textContent=String(order?.memberships ? choice.context_children
+      .filter(id=>order.memberships.get(id)?.length===order.parents.length).length : 0);
+    const members = new Set(choice.context_children);
+    for (const id of members) {
+      if (visible.has(id)) counts.visible++;
+      else if (beforePagination.has(id)) counts.pages++;
+      else if (!isNodeVisible(state.nodesById.get(id), state)) counts.filtered++;
+      else counts.outside++;
+    }
+    // Visible alternatives are dimmed, not removed by a filter.
+    const peers = contextParentEdges(state, choice.target)
+      .filter(edge => contextGroup(edge, state) === contextGroup(choice, state));
+    for (const id of new Set(peers.flatMap(edge => edge.context_children))) {
+      if (visible.has(id) && !members.has(id)) counts.dimmed++;
+    }
+    const parent = state.nodesById.get(choice.source);
+    const origin = state.nodesById.get(choice.target);
+    summary.setAttribute('aria-label', `${parent.label || parent.id} / ${origin.label || origin.id}`);
+    for (const [key, value] of Object.entries(counts)) {
+      const counter = summary.querySelector(`[data-parent-count="${key}"]`);
+      counter.textContent = String(value);
+      counter.parentElement.hidden = key !== 'visible' && !value;
+    }
+    summary.hidden = false;
+  }
+
+  function previewContextParent(state, parentId) {
+    clearParentPreview(state);
+    const graph = state.visibleGraph;
+    const choice = contextChoices(state).get(parentId);
+    if (!state.cy || !graph || graph.listMode || !choice) return;
+    // Traverse only drawn edges. Off-page paths are deliberately not inferred.
+    const visible = new Set(graph.nodes.map(node => node.id));
+    renderParentSummary(state, choice, visible);
+    const members = new Set(choice.context_children.filter(id => visible.has(id)));
+    const queue = [...members];
+    for (let i = 0; i < queue.length; i++) {
+      for (const edge of graph.edges) {
+        if (edge.source !== queue[i] || !contextTraversalEdge(edge) || members.has(edge.target)) continue;
+        members.add(edge.target);
+        queue.push(edge.target);
+      }
+    }
+    const paths = new Set([parentId, choice.target, ...members]);
+    for (let changed = true; changed; ) {
+      changed = false;
+      for (const edge of graph.edges) {
+        if (!state.model?.relation_types[edge.relation]?.hierarchy ||
+            !paths.has(edge.target) || paths.has(edge.source)) continue;
+        paths.add(edge.source);
+        changed = true;
+      }
+    }
+    for (const id of visibleAncestorPaths(state, parentId).ancestors) paths.add(id);
+    state.cy.batch(() => {
+      state.cy.nodes().forEach(node => {
+        if (!paths.has(node.id())) node.addClass('is-parent-preview-dim');
+        else node.addClass('is-parent-preview-member');
+      });
+      state.cy.edges().forEach(edge => edge.addClass(paths.has(edge.source().id()) && paths.has(edge.target().id())
+        ? 'is-parent-preview-member' : 'is-parent-preview-dim'));
+    });
+  }
+
+  function visibleAncestorPaths(state, childId) {
+    const incoming = new Map();
+    state.cy.edges().forEach(edge => {
+      const target = edge.target().id();
+      if (!incoming.has(target)) incoming.set(target, []);
+      incoming.get(target).push(edge);
+    });
+    const walk = (accept, paths) => {
+      const ancestors = new Set([childId]);
+      const queue = [childId];
+      for (let i = 0; i < queue.length; i++) {
+        for (const edge of incoming.get(queue[i]) || []) {
+          if (!accept(edge)) continue;
+          if (paths) paths.add(edge.id());
+          const parent = edge.source().id();
+          if (!ancestors.has(parent)) {
+            ancestors.add(parent);
+            queue.push(parent);
+          }
+        }
+      }
+      return ancestors;
+    };
+    // A drawn parent-to-topic edge alone does not establish membership.
+    // Check its explicit members against the child's visible ordinary ancestry.
+    const ordinary = walk(edge => !Array.isArray(edge.data('contextChildren')));
+    const paths = new Set();
+    const ancestors = walk(edge => {
+      const members = edge.data('contextChildren');
+      return !Array.isArray(members) || edge.target().id() === childId ||
+        edge.data('contextFocus') === childId || edge.data('contextFocuses')?.includes(childId) ||
+        members.some(id => ordinary.has(id));
+    }, paths);
+    return {ancestors, paths};
+  }
+
+  function previewChildAncestors(state, childId) {
+    clearParentPreview(state);
+    if (!state.cy || !state.visibleGraph || state.visibleGraph.listMode) return;
+    const {ancestors, paths} = visibleAncestorPaths(state, childId);
+    const outgoing = new Map();
+    state.cy.edges().forEach(edge => {
+      const source = edge.source().id();
+      if (!outgoing.has(source)) outgoing.set(source, []);
+      outgoing.get(source).push(edge);
+    });
+    const rank = typeRank(state.nodesById.get(childId));
+    const queue = [{id:childId, members:null}], visited = new Set();
+    for (let i=0;i<queue.length;i++) {
+      const item = queue[i];
+      const key = JSON.stringify([item.id,item.members]);
+      if (visited.has(key)) continue;
+      visited.add(key);
+      for (const edge of outgoing.get(item.id) || []) {
+        const target = edge.target().id();
+        const inherited=inspectionContextContinuation(state,edge.data('relation'),target,item.members);
+        if (inherited === undefined) continue;
+        paths.add(edge.id());
+        ancestors.add(target);
+        queue.push({id:target,members:edge.data('contextChildren') || inherited});
+      }
+    }
+    const levels = new Map();
+    state.cy.nodes().forEach(node => {
+      const level = typeRank(state.nodesById.get(node.id()));
+      if (level <= rank && outgoing.has(node.id())) levels.set(level, (levels.get(level) || 0) + 1);
+    });
+    const allPaths = paths.size > 0 && paths.size === state.cy.edges().length;
+    const dimAlternatives = childId !== state.selectedId && !allPaths && [...levels.values()].some(count => count > 1);
+    state.cy.batch(() => {
+      state.cy.nodes().forEach(node => {
+        if (ancestors.has(node.id())) node.addClass('is-parent-preview-member');
+        else if (dimAlternatives) node.addClass('is-parent-preview-dim');
+      });
+      state.cy.edges().forEach(edge => {
+        if (paths.has(edge.id())) edge.addClass('is-parent-preview-member');
+        else if (dimAlternatives) edge.addClass('is-parent-preview-dim');
+      });
+    });
   }
 
   function updateGraphCanvasHeight(browser) {
@@ -2822,9 +4588,15 @@ def _relationship_graph_script() -> str:
     }
     refreshGraphFocusState(browser, state);
     if (!state.cy) return;
-    state.cy.userZoomingEnabled(state.graphInteractive);
-    state.cy.userPanningEnabled(state.graphInteractive);
-    state.cy.autoungrabify(!state.graphInteractive);
+    state.cy.userZoomingEnabled(state.graphInteractive && !state.helpMode);
+    state.cy.userPanningEnabled(state.graphInteractive && !state.helpMode);
+    state.cy.autoungrabify(true);
+    if (!state.graphInteractive) {
+      clearNodeMagnification(state);
+      state.pendingTap = null;
+      state.cy.nodes().removeClass('is-pressed is-click-confirmed');
+      if (canvas) canvas.title = "";
+    }
   }
 
   function activateGraphFocus(browser, state) {
@@ -2864,9 +4636,9 @@ def _relationship_graph_script() -> str:
       if (count) {
         const rendered = page.rendered == null ? page.total || 0 : page.rendered;
         const start = page.start || 0;
-        const end = page.end || start + Math.max(rendered - 1, 0);
+        const end = page.end == null ? start + Math.max(rendered - 1, 0) : page.end;
         const nodeLabel = `${rendered} ${rendered === 1 ? "node" : "nodes"}`;
-        const elementLabel = `Element ${start}-${page.end || end}/${page.total}`;
+        const elementLabel = `Element ${start}-${end}/${page.total}`;
         count.textContent = page.enabled
           ? `Page ${page.page + 1}/${page.pageCount} | ${elementLabel} | ${nodeLabel}`
           : (page.total !== rendered ? `${nodeLabel} | ${elementLabel}` : nodeLabel);
@@ -2909,7 +4681,7 @@ def _relationship_graph_script() -> str:
     const page = graph.pagination
       ? `${graph.pagination.page}:${graph.pagination.start}:${graph.pagination.end}:${graph.pagination.total}`
       : "";
-    return `${graph.selectedId || ""}\u0003${graph.visualStatusField || ""}\u0003${graph.listMode ? "1" : "0"}\u0003${page}\u0003${layout}\u0004${nodes}\u0005${edges}`;
+    return `${graph.selectedId || ""}\u0003${graph.visualStatusField || ""}\u0003${graph.listMode ? "1" : "0"}\u0003${page}\u0003${layout}\u0004${nodes}\u0005${edges}\u0006${Array.from(graph.contextParentIds).sort().join(",")}`;
   }
 
   function graphSourceSignature(state) {
@@ -2954,20 +4726,22 @@ def _relationship_graph_script() -> str:
 
   function statusChipScopeGraphForState(state) {
     const signature = statusScopeSignature(state);
-    if (state.statusChipScopeCache && state.statusChipScopeCache.signature === signature) {
+    if (state.statusChipScopeCache && state.statusChipScopeCache.signature === signature &&
+        state.statusChipScopeCache.selectionView === state.selectionView) {
       return state.statusChipScopeCache.graph;
     }
-    const graph = buildStatusChipScopeGraph(state);
-    state.statusChipScopeCache = {signature, graph};
+    const graph = state.selectionView ? selectionViewGraph(state,true) : buildStatusChipScopeGraph(state);
+    state.statusChipScopeCache = {signature, graph, selectionView:state.selectionView};
     return graph;
   }
 
   function focusGraphForState(state, nodeVisible, contextNodeVisible, graphEdges, graphAdjacency) {
     const sourceSignature = graphSourceSignature(state);
-    if (state.focusGraphCache && state.focusGraphCache.signature === sourceSignature) {
+    if (state.focusGraphCache && state.focusGraphCache.signature === sourceSignature &&
+        state.focusGraphCache.selectionView === state.selectionView) {
       return state.focusGraphCache.graph;
     }
-    const graph = buildPlainListGraph(state) || buildTypeListGraph(state) || buildFocusedTypeListGraph(state) || buildNeighborhood(
+    let graph = state.selectionView ? selectionViewGraph(state) : addContextParents(buildTypeListGraph(state) || buildFocusedTypeListGraph(state) || buildNeighborhood(
       state.selectedId,
       state.nodesById,
       graphEdges,
@@ -2976,15 +4750,29 @@ def _relationship_graph_script() -> str:
       contextNodeVisible,
       activeTraversal(state),
       state.showSecondaryLinks
-    );
-    state.focusGraphCache = {signature: sourceSignature, graph};
+    ), state);
+    if (state.plainListMode) {
+      // Flatten the complete view, not the current page or the scoped catalog.
+      graph = Object.assign({}, graph, {
+        // A flat list represents only explicit type/filter choices. Contextual
+        // parents are useful in the graph but would otherwise survive after
+        // their type has been disabled.
+        nodes: graph.nodes
+          .filter((node) => isTypeEnabled(node, null, state.enabledTypes, state) && isSubfilterEnabled(node, state))
+          .sort(graphOrderComparator(state, statusOrderMap(state))),
+        edges: [], listMode: true, stickyContext: false, pageCache: null
+      });
+    }
+    state.focusGraphCache = {signature: sourceSignature, graph, selectionView:state.selectionView};
     return graph;
   }
 
   function renderGraph(browser, state) {
+    clearParentPreview(state);
     updateGraphCanvasHeight(browser);
     const canvas = browser.querySelector("[data-relationship-canvas]");
     if (!canvas || !state.selectedId) return;
+    installInspectionMenu(state,canvas);
     browser.classList.add("is-graph-ready");
     browser.setAttribute("data-relationship-graph-ready", "true");
     refreshGraphActivityState(browser, state);
@@ -2998,6 +4786,7 @@ def _relationship_graph_script() -> str:
     const graphEdges = stateGraphEdges(state);
     const graphAdjacency = stateGraphAdjacency(state);
     const focusGraph = focusGraphForState(state, nodeVisible, contextNodeVisible, graphEdges, graphAdjacency);
+    if (state.inspectionOrder && state.inspectionOrder.graph !== focusGraph) state.inspectionOrder = null;
     state.focusGraph = focusGraph;
     state.focusContent = focusContent(state);
     const graph = capGraph(focusGraph, state, 25, state.graphPage);
@@ -3010,6 +4799,11 @@ def _relationship_graph_script() -> str:
     graph.selectedId = state.selectedId;
     graph.activeId = state.activeId;
     graph.visualStatusField = state.visualStatusField || "";
+    graph.contextParentIds = new Set();
+    const parentChoices = [...contextChoices(state).values()];
+    graph.contextChoiceIds = new Set(parentChoices.map(edge => edge.source));
+    graph.filterableParentIds = new Set();
+    graph.mutedContextParentIds = new Set();
     state.visibleGraph = graph;
     state.visibleNodeIds = new Set(graph.nodes.map((node) => node.id));
     syncActiveSubfilterType(state);
@@ -3054,7 +4848,7 @@ def _relationship_graph_script() -> str:
         canvas.clientHeight || 520,
         state.selectedId,
         activeTraversal(state),
-        graphOrderComparator(state, statusOrderMap(state))
+        (left, right) => inspectionPriorityCompare(state, left, right) || graphOrderComparator(state, statusOrderMap(state))(left, right)
       );
     }
     const renderSignature = graphRenderSignature(graph);
@@ -3063,6 +4857,7 @@ def _relationship_graph_script() -> str:
       renderSelectionTable(browser, state);
       updateActiveTableRow(browser, state);
       syncGraphViewport(state);
+      if (state.inspectionOrder) inspectGraphNode(state, state.cy.getElementById(state.inspectionOrder.parentId));
       return;
     }
     state.graphRenderSignature = renderSignature;
@@ -3071,28 +4866,172 @@ def _relationship_graph_script() -> str:
       state.cy = null;
     }
     canvas.replaceChildren();
-    state.cy = cytoscape({
+    state.cy = createGraphRenderer({
       container: canvas,
       elements: cytoscapeElements(graph),
       style: cytoscapeStyle(),
-      wheelSensitivity: .18,
+      desktopTapThreshold: 6,
       minZoom: .25,
       maxZoom: 3,
       userZoomingEnabled: Boolean(state.graphInteractive),
       userPanningEnabled: Boolean(state.graphInteractive),
-      autoungrabify: !state.graphInteractive,
+      autoungrabify: true,
+      autounselectify: true,
       boxSelectionEnabled: false
-    });
+    }, failed=>recoverGraphRenderer(browser,state,failed));
     setGraphInteractive(browser, state, state.graphInteractive);
+    state.cy.nodes().panify();
     if (!state.canvasViewportListenersAttached) {
       canvas.addEventListener("pointerenter", () => syncGraphViewport(state), {passive: true});
       canvas.addEventListener("pointerdown", () => syncGraphViewport(state), {capture: true, passive: true});
+      const releasePressed = () => {
+        if (state.cy) state.cy.nodes().removeClass('is-pressed');
+      };
+      canvas.addEventListener("pointermove", event => {
+        if (!state.cy || !state.graphInteractive || state.inspectionSwap || state.helpMode || event.pointerType==='touch' || event.buttons) return;
+        const rect=canvas.getBoundingClientRect(), pan=state.cy.pan(), zoom=state.cy.zoom();
+        const node=inspectionNodeAt(state,{x:(event.clientX-rect.left-pan.x)/zoom,
+          y:(event.clientY-rect.top-pan.y)/zoom});
+        if (node) magnifyNode(state,node,false);
+        else clearNodeMagnification(state);
+      }, {passive:true});
+      canvas.addEventListener("pointerleave", () => { canvas.title = ""; releasePressed(); clearNodeMagnification(state); }, {passive: true});
+      window.addEventListener("pointerup", releasePressed, {passive: true});
+      window.addEventListener("pointercancel", releasePressed, {passive: true});
+      window.addEventListener("blur", releasePressed);
       state.canvasViewportListenersAttached = true;
     }
-    state.cy.on("tap", "node", (event) => {
+    state.cy.on("tapstart", event => {
+      if (event.originalEvent?.type) {
+        const node=event.position ? inspectionNodeAt(state,event.position) : null;
+        state.pendingNodeClick=node ? {id:node.id(),cy:state.cy} : null;
+        state.canvasClickPending=event.target===state.cy;
+        return;
+      }
+      // Polygon ray casting can miss a diamond's centre line at exact vertex x.
+      if (event.position && (event.target === state.cy || event.target.isEdge())) {
+        const diamond = state.cy.nodes().toArray().reverse().sort((a,b) => b.numericStyle('z-index')-a.numericStyle('z-index'))
+          .find(node => node.interactive() && node.style('shape') === 'diamond' &&
+            insideInspectionShape(event.position, inspectionShape(node)));
+        if (diamond) {
+          state.canvasClickPending = false;
+          diamond.emit({type:'tapstart', position:event.position, originalEvent:event.originalEvent});
+          return;
+        }
+      }
+      state.canvasClickPending = event.target === state.cy;
+    });
+    state.cy.on("pan", () => { state.canvasClickPending = false; state.pendingNodeClick=null; });
+    state.cy.on("position add remove", () => { state.inspectionGeometryDirty=true; });
+    state.cy.on("render", () => renderInspectionGroups(state));
+    state.cy.on("dbltap", event => {
+      if (event.target !== state.cy) return;
       activateGraphFocus(browser, state);
-      const nodeId = event.target.id();
-      selectNode(browser, state, nodeId, true);
+      clearInspectionSelection(state);
+      fitGraph(state, 40);
+    });
+    state.cy.on("tap", event => {
+      if (event.originalEvent?.type && event.position &&
+          (event.target===state.cy || event.target.isEdge())) {
+        const node=inspectionNodeAt(state,event.position);
+        if (node && state.pendingNodeClick?.id===node.id()) {
+          state.canvasClickPending=false;
+          node.emit({type:'tap',position:event.position,originalEvent:event.originalEvent});
+          return;
+        }
+      }
+      if (event.target !== state.cy || !state.canvasClickPending) return;
+      state.canvasClickPending = false;
+      clearInspectionSelection(state);
+      state.cy.nodes().removeClass('is-click-confirmed is-pressed');
+    });
+    state.cy.on("tapstart tap", "node", event => {
+      const original = event.originalEvent || {};
+      if (original.button != null && original.button !== 0) return;
+      // Keep the renderer alive throughout a native pointer gesture.
+      if (event.type==='tapstart' && original.type) {
+        event.target.addClass('is-pressed');
+        return;
+      }
+      activateGraphFocus(browser, state);
+      const clicked=event.originalEvent && event.position ? inspectionNodeAt(state,event.position) : event.target;
+      if (!clicked) return;
+      if (original.type) {
+        const pending=state.pendingNodeClick;
+        state.pendingNodeClick=null;
+        if (!pending || pending.cy!==state.cy || pending.id!==clicked.id()) return;
+      }
+      const nodeId = clicked.id();
+      const hovered=state.magnifiedNode?.id()===nodeId ? state.magnifications.get(nodeId)?.scale : null;
+      const hoverView=state.focusGraph, hoverFocus=state.selectedId;
+      // Inspection can rebuild Cytoscape; restore hover on the new node instance.
+      try {
+        stopInspectionSwap(state);
+        clearNodeMagnification(state);
+        const origin = {...clicked.position()};
+        state.cy.nodes().removeClass('is-click-confirmed is-pressed');
+        if ((original.ctrlKey || original.metaKey) && inspectionParentIds(state).has(nodeId)) {
+          state.inspectionBadgeScale=1/state.cy.zoom();
+          toggleInspectionParent(state,nodeId);
+          return;
+        }
+        state.ctrlInspection=false;
+        if (state.inspectionOrder?.memberships) {
+          clearInspectionSelection(state);
+          if (!state.cy.getElementById(nodeId).length) {
+            const cache=state.focusGraph.pageCache;
+            const index=cache.orderedNodes.findIndex(node=>node.id===nodeId);
+            if (index>=0) {
+              state.graphPage=Math.floor(index/cache.pageSize);
+              state.graphRenderSignature="";
+              renderGraph(browser,state);
+            }
+          }
+          orderForInspection(state,nodeId);
+          inspectGraphNode(state,state.cy.getElementById(nodeId));
+          animateInspectionSwap(state,nodeId,origin);
+          return;
+        }
+        if (state.inspectedNodeId !== nodeId) {
+          orderForInspection(state, nodeId);
+          const inspected = state.cy.getElementById(nodeId);
+          inspectGraphNode(state, inspected);
+          animateInspectionSwap(state,nodeId,origin);
+          return;
+        }
+        clicked.addClass('is-pressed');
+        if (graph.contextChoiceIds.has(nodeId) ||
+            (graph.contextIds?.has(nodeId) && state.isolatedNodeIds && !state.isolatedNodeIds.has(nodeId))) {
+          pushNavigationSnapshot(state);
+          setIsolatedRoot(state, "");
+          selectNode(browser, state, nodeId, false);
+        } else selectNode(browser, state, nodeId, true);
+      } finally {
+        const node=state.cy.getElementById(nodeId);
+        if (hovered!==null && state.focusGraph===hoverView && state.selectedId===hoverFocus &&
+            node.length) {
+          magnifyNode(state,node,false,hovered);
+        }
+      }
+    });
+    state.cy.on("mouseover", "node", event => {
+      const original = event.originalEvent || {};
+      if (event.originalEvent) return;
+      if (state.inspectionSwap || original.pointerType === 'touch' || original.sourceCapabilities?.firesTouchEvents) return;
+      magnifyNode(state,event.target,false);
+    });
+    state.cy.on("mouseout tapdragout", "node", event => {
+      canvas.title = "";
+      if (!event.originalEvent && state.magnifiedNode?.id() === event.target.id()) clearNodeMagnification(state);
+      event.target.removeClass('is-pressed');
+    });
+    state.cy.on("tapend", "node", event => event.target.removeClass('is-pressed'));
+    state.cy.on("zoom", () => {
+      if (state.magnifiedNode) {
+        const node=state.magnifiedNode;
+        state.magnifiedNode=null;
+        magnifyNode(state,node,false);
+      }
     });
     if (!graph.nodes.length) {
       canvas.setAttribute("data-empty-graph", "true");
@@ -3102,7 +5041,10 @@ def _relationship_graph_script() -> str:
     }
     canvas.removeAttribute("data-empty-graph");
     const hiddenByFilters = hiddenByFiltersCount(state);
-    if (graph.nodes.length <= 1 && hiddenByFilters > 0) {
+    if (state.contextEmpty) {
+      canvas.setAttribute('data-graph-message', contextEmptyMessage(state));
+      canvas.removeAttribute('data-graph-hint');
+    } else if (graph.nodes.length <= 1 && hiddenByFilters > 0) {
       canvas.setAttribute(
         "data-graph-message",
         `Only the focus is drawn: ${hiddenByFilters} nodes of the enabled layers are hidden by the status filter or the filter values.`
@@ -3151,6 +5093,7 @@ def _relationship_graph_script() -> str:
     if (selected.length) selected.select();
     renderSelectionTable(browser, state);
     fitGraph(state, 40);
+    if (state.inspectionOrder) inspectGraphNode(state, state.cy.getElementById(state.inspectionOrder.parentId));
   }
 
   function visibleGraphDegree(nodeId, graph) {
@@ -3165,6 +5108,7 @@ def _relationship_graph_script() -> str:
     const graph = state.visibleGraph || {nodes: [], edges: []};
     const nodes = [...(graph.nodes || [])].sort((left, right) =>
       typeRank(left) - typeRank(right) ||
+      inspectionPriorityCompare(state, left, right) ||
       String(left.label || left.id).localeCompare(String(right.label || right.id))
     );
     if (count) {
@@ -3242,6 +5186,7 @@ def _relationship_graph_script() -> str:
     if (!selected) return required;
     const rankOf = (node) => {
       if (!node) return 99;
+      if (nodeDefinitions.has(node)) return typeRank(node);
       const ranks = state.traversal && state.traversal.typeRanks || DEFAULT_TYPE_RANKS;
       const value = ranks[node.type || "entity"];
       return Number.isFinite(value) ? value : typeRank(node);
@@ -3293,29 +5238,27 @@ def _relationship_graph_script() -> str:
     const ranks = state && state.traversal && state.traversal.typeRanks || DEFAULT_TYPE_RANKS;
     const value = ranks[type || "entity"];
     if (Number.isFinite(value)) return value;
-    const index = TYPE_ORDER.indexOf(type || "entity");
-    return index === -1 ? 99 : index;
+    return 99;
   }
 
   function projectionRankGroups(state) {
     const byRank = new Map();
-    for (const type of stateGraphTypes(state)) {
-      const rank = typeRankValue(state, type);
-      if (!byRank.has(rank)) byRank.set(rank, []);
-      byRank.get(rank).push(type);
+    for (const node of stateGraphNodes(state)) {
+      const type = node.type || "entity";
+      const rank = typeRank(node);
+      if (!byRank.has(rank)) byRank.set(rank, new Map());
+      byRank.get(rank).set(type, nodeDefinitions.has(node) ? nodeTypeLabel(node) : typeLabel(type, state));
     }
     return Array.from(byRank.entries())
       .sort((left, right) => left[0] - right[0])
-      .map(([rank, types], index) => ({
+      .map(([rank, labels], index) => ({
         id: String(rank),
         rank,
         index,
         label: index === 0 ? "Start" : `Level ${index}`,
-        types: types.sort((left, right) => {
-          const leftOrder = TYPE_ORDER.indexOf(left);
-          const rightOrder = TYPE_ORDER.indexOf(right);
-          if (leftOrder !== -1 || rightOrder !== -1) return (leftOrder === -1 ? 999 : leftOrder) - (rightOrder === -1 ? 999 : rightOrder);
-          return String(TYPE_LABELS[left] || left).localeCompare(String(TYPE_LABELS[right] || right));
+        labels,
+        types: [...labels.keys()].sort((left, right) => {
+          return String(labels.get(left)).localeCompare(String(labels.get(right)));
         })
       }));
   }
@@ -3366,7 +5309,7 @@ def _relationship_graph_script() -> str:
     if (selected.size === group.types.length) return "All";
     const labels = group.types
       .filter((type) => selected.has(type))
-      .map((type) => TYPE_LABELS[type] || type);
+      .map((type) => group.labels.get(type));
     if (labels.length <= 2) return labels.join(" + ");
     return `${labels.length} selected`;
   }
@@ -3400,6 +5343,7 @@ def _relationship_graph_script() -> str:
   function applyProjectionSelections(browser, state) {
     const wasEmpty = state.enabledTypes && state.enabledTypes.size === 0;
     state.enabledTypes = projectionTypesFromSelections(state);
+    invalidateGraphCaches(state);
     if (wasEmpty && state.enabledTypes.size > 0 && state.statusFilter) {
       state.statusFilter.enabled = new Set(state.statusFilter.values || []);
     }
@@ -3409,10 +5353,10 @@ def _relationship_graph_script() -> str:
   function ensureFocusFilters(browser, state, nodeId) {
     const node = state.nodesById.get(nodeId);
     const type = node && (node.type || "entity");
-    if (!type || state.enabledTypes.has(type)) return false;
+    if (!type || isTypeEnabled(node, null, state.enabledTypes, state)) return false;
     state.enabledTypes.add(type);
     if (state.projectionMode === "custom") {
-      const group = projectionRankGroups(state).find((item) => item.types.includes(type));
+      const group = projectionRankGroups(state).find((item) => item.rank === typeRank(node) && item.types.includes(type));
       if (group) {
         const current = state.projectionSelections && state.projectionSelections[group.id] || "__all__";
         const selected = new Set(decodeProjectionChoice(current, group.types));
@@ -3474,6 +5418,7 @@ def _relationship_graph_script() -> str:
   }
 
   function resetGraphFilters(browser, state) {
+    state.selectionView = null;
     state.enabledTypes = new Set(stateGraphTypes(state));
     state.projectionMode = "auto";
     state.projectionSelections = defaultProjectionSelections(state);
@@ -3487,7 +5432,8 @@ def _relationship_graph_script() -> str:
     refreshGraphControlState(browser, state);
   }
 
-  function resetGraphFiltersToAll(browser, state) {
+  function resetGraphFiltersToAll(browser, state, preserveContext = false) {
+    state.inspectionOrder = null;
     const nodes = stateGraphNodes(state);
     state.enabledTypes = new Set(stateGraphTypes(state));
     state.projectionMode = "auto";
@@ -3537,7 +5483,8 @@ def _relationship_graph_script() -> str:
 
   function allEntityTypesEnabled(state) {
     const types = stateGraphTypes(state);
-    return types.length > 0 && types.every((type) => state.enabledTypes.has(type));
+    return types.length > 0 && types.every((type) => state.enabledTypes.has(type)) &&
+      projectionRankGroups(state).every(group => projectionSelectedTypesForGroup(state, group).size === group.types.length);
   }
 
   function allStatusesEnabled(state) {
@@ -3553,6 +5500,7 @@ def _relationship_graph_script() -> str:
 
   function graphViewIsActive(state) {
     return Boolean(
+      state.selectionView ||
       state.activeViewPinned ||
       state.plainListMode ||
       state.selectedId !== state.rootId ||
@@ -3589,14 +5537,20 @@ def _relationship_graph_script() -> str:
 
   function navigationSnapshot(state) {
     return {
+      selectionView: state.selectionView || null,
       selectedId: state.selectedId,
+      contextParentIds: Array.from(state.contextParentIds),
+      contextSelections: state.contextSelections.map(item => Object.assign({}, item)),
+      contextRootId: state.contextRootId,
+      contextPinnedChoices: state.contextPinnedChoices.map(item => Object.assign({}, item)),
+      contextOptionRootId: state.contextOptionRootId,
       activeId: state.activeId,
       enabledTypes: Array.from(state.enabledTypes),
       projectionMode: state.projectionMode || "auto",
       projectionSelections: projectionSelectionsSnapshot(state),
       subfilters: serializeSubfilters(state),
       statusFilter: serializeStatusFilter(state),
-      graphPage: state.graphPage,
+      graphPage: state.inspectionOrder ? state.inspectionOrder.basePage : state.graphPage,
       plainListMode: Boolean(state.plainListMode),
       visualStatusField: state.visualStatusField || "",
       activeViewNodeIds: state.activeViewNodeIds ? Array.from(state.activeViewNodeIds) : null,
@@ -3623,6 +5577,11 @@ def _relationship_graph_script() -> str:
     if (!state.nodesById.has(snapshot.selectedId)) return;
     if (state.isolatedNodeIds && !state.isolatedNodeIds.has(snapshot.selectedId)) return;
     state.selectedId = snapshot.selectedId;
+    state.selectionView = snapshot.selectionView || null;
+    state.inspectionOrder = null;
+    state.ctrlInspection = false;
+    state.contextPinnedChoices = (snapshot.contextPinnedChoices || []).map(item => Object.assign({}, item));
+    state.contextOptionRootId = snapshot.contextOptionRootId || "";
     state.activeId = state.nodesById.has(snapshot.activeId) ? snapshot.activeId : snapshot.selectedId;
     syncActiveSubfilterType(state);
     state.enabledTypes = new Set(Array.isArray(snapshot.enabledTypes) ? snapshot.enabledTypes : stateGraphTypes(state));
@@ -3728,12 +5687,13 @@ def _relationship_graph_script() -> str:
   }
 
   function renderDetail(browser, state) {
+    refreshProjectionLevelMarkers(browser,state);
     const detail = browser.querySelector("[data-relationship-detail]");
     const nodeId = state.activeId || state.selectedId;
     if (!detail || !nodeId) return;
     const node = state.nodesById.get(nodeId);
     if (!node) return;
-    if (!isNodeVisible(node, state)) {
+    if (!isNodeVisible(node, state) && !(state.visibleGraph && state.visibleGraph.nodes.some(item => item.id === nodeId))) {
       detail.innerHTML = "<p>No entity types selected. Enable at least one type or use All.</p>";
       return;
     }
@@ -3801,8 +5761,11 @@ def _relationship_graph_script() -> str:
   }
 
   function updateSelectedNodeState(browser, state, nodeId, recordHistory, options) {
+    nodeId = state.nodeAliases.get(nodeId) || nodeId;
     if (!state.nodesById.has(nodeId)) return;
-    if (state.isolatedNodeIds && !state.isolatedNodeIds.has(nodeId)) return;
+    const contextEntry = !(options && options.directEntry) && contextParentEdges(state, nodeId).find(edge =>
+      edge.source === state.selectedId && state.visibleGraph && state.visibleGraph.edges.includes(edge));
+    if (state.isolatedNodeIds && !state.isolatedNodeIds.has(nodeId) && !contextEntry) return;
     const resetTypes = Boolean(options && options.resetTypes);
     const preservePlainList = Boolean(options && options.preservePlainList);
     const preserveFilters = Boolean(options && options.preserveFilters);
@@ -3811,10 +5774,12 @@ def _relationship_graph_script() -> str:
     let preserveTypes = options && Object.prototype.hasOwnProperty.call(options, "preserveTypes")
       ? Boolean(options.preserveTypes)
       : (state.projectionMode || "auto") === "custom";
-    if (recordHistory && state.selectedId && state.selectedId !== nodeId) {
+    if (recordHistory && state.selectedId && (state.selectedId !== nodeId || state.selectionView)) {
       state.backStack.push(navigationSnapshot(state));
       state.forwardStack.length = 0;
     }
+    state.selectionView = null;
+    if (contextEntry) setIsolatedRoot(state, nodeId);
     if (resetFiltersToAll) {
       preserveTypes = true;
     } else if (resetTypes) {
@@ -3832,7 +5797,7 @@ def _relationship_graph_script() -> str:
       ensureFocusFilters(browser, state, nodeId);
     }
     if (resetFiltersToAll) {
-      resetGraphFiltersToAll(browser, state);
+      resetGraphFiltersToAll(browser, state, true);
       ensureFocusFilters(browser, state, nodeId);
     }
     return true;
@@ -3843,12 +5808,24 @@ def _relationship_graph_script() -> str:
     renderRelationshipState(browser, state);
   }
 
+  function selectSearchNode(browser, state, nodeId) {
+    const node = state.nodesById.get(nodeId);
+    if (!node) return;
+    pushNavigationSnapshot(state);
+    // Search is a new entry point, not navigation inside the current view.
+    setIsolatedRoot(state, isStandaloneScopeNode(node) ? nodeId : "");
+    state.activeViewPinned = false;
+    resetGraphFiltersToAll(browser, state);
+    selectNode(browser, state, nodeId, false, {directEntry: true, preserveTypes: true, preserveFilters: true});
+  }
+
   function selectTableNode(browser, state, nodeId) {
+    nodeId = state.nodeAliases.get(nodeId) || nodeId;
     if (!state.nodesById.has(nodeId)) return;
     if (state.selectedId !== nodeId || !allEntityTypesEnabled(state)) {
       pushNavigationSnapshot(state);
     }
-    resetGraphFiltersToAll(browser, state);
+    resetGraphFiltersToAll(browser, state, true);
     selectNode(browser, state, nodeId, false, {preserveTypes: true, preserveFilters: true});
   }
 
@@ -3887,10 +5864,10 @@ def _relationship_graph_script() -> str:
   }
 
   function graphTypes(nodes) {
-    const seen = new Set(nodes.map((node) => node.type || "entity"));
-    return TYPE_ORDER.filter((type) => seen.has(type)).concat(
-      Array.from(seen).filter((type) => !TYPE_ORDER.includes(type)).sort()
-    );
+    const examples = new Map(nodes.map(node => [node.type || "entity", node]));
+    return [...examples.keys()].sort((left, right) =>
+      typeRank(examples.get(left)) - typeRank(examples.get(right)) ||
+      nodeTypeLabel(examples.get(left)).localeCompare(nodeTypeLabel(examples.get(right))));
   }
 
   function escapeHtmlText(value) {
@@ -3986,7 +5963,7 @@ def _relationship_graph_script() -> str:
   function focusChoiceRank(node, state) {
     if (!node) return 9;
     if (node.id === state.selectedId) return 0;
-    if ((node.type || "entity") === "product") return 1;
+    if ((nodeDefinitions.get(node) || {}).root) return 1;
     const selected = state.nodesById.get(state.selectedId || "");
     if (selected && (node.type || "entity") === (selected.type || "entity")) return 2;
     const targetType = state.typeSearchType || "";
@@ -3998,7 +5975,7 @@ def _relationship_graph_script() -> str:
     const rank = focusChoiceRank(node, state);
     const degree = degrees && degrees.get(node.id) || 0;
     if (rank === 0) return "00:selected";
-    if (rank === 1) return "01:product";
+    if (rank === 1) return "01:root";
     if (rank === 2) return `02:${node.type || "entity"}`;
     if (rank === 3) return `03:${node.type || "entity"}`;
     return `04:${node.type || "entity"}:${degree ? "linked" : "isolated"}`;
@@ -4009,7 +5986,7 @@ def _relationship_graph_script() -> str:
     const degree = degrees && degrees.get(node.id) || 0;
     const suffix = `(${count || 0})`;
     if (rank === 0) return `Selected element ${suffix}`;
-    if (rank === 1) return `Product / root ${suffix}`;
+    if (rank === 1) return `${nodeTypeLabel(node)} / root ${suffix}`;
     if (rank === 2) return `${nodeTypeLabel(node)} · current focus type ${suffix}`;
     if (rank === 3) return `${nodeTypeLabel(node)} · focus target ${suffix}`;
     return `${nodeTypeLabel(node)} · ${degree ? "linked" : "no visible links"} ${suffix}`;
@@ -4018,7 +5995,7 @@ def _relationship_graph_script() -> str:
   function isPinnedFocusChoice(node, state, query) {
     if (!node || query) return false;
     if (node.id === state.selectedId) return true;
-    if ((node.type || "entity") === "product") return true;
+    if ((nodeDefinitions.get(node) || {}).root) return true;
     const selected = state.nodesById.get(state.selectedId || "");
     return Boolean(selected && (node.type || "entity") === (selected.type || "entity"));
   }
@@ -4102,7 +6079,7 @@ def _relationship_graph_script() -> str:
     const degreeMap = degrees || visibleNodeDegreeMap(state);
     const matcher = searchMatcher(state);
     if (!matcher) return [];
-    return stateGraphNodes(state)
+    return state.nodes
       .map((node) => {
         const label = nodeResultText(node, state, degreeMap);
         const searchText = nodeSearchText(node, state, degreeMap);
@@ -4218,10 +6195,11 @@ def _relationship_graph_script() -> str:
 
   function applySearchUpdate(browser, state, selectFirstMatch) {
     state.searchUpdateTimer = 0;
-    const matches = renderNodeSelect(browser, state);
+    renderNodeSelect(browser, state);
+    const matches = selectFirstMatch ? searchResultItems(state).map(item => item.node) : [];
     const normalized = String(state.searchQuery || "").trim();
     if (selectFirstMatch && normalized && matches.length && matches[0].id !== state.selectedId) {
-      selectNode(browser, state, matches[0].id, false);
+      selectSearchNode(browser, state, matches[0].id);
     } else {
       renderDetail(browser, state);
     }
@@ -4266,7 +6244,35 @@ def _relationship_graph_script() -> str:
     syncActiveSubfilterType(state);
   }
 
+  function refreshProjectionLevelMarkers(browser, state) {
+    const counts=new Map(), focus=state.nodesById.get(state.selectedId);
+    const groupsById = new Map(projectionRankGroups(state).map((group) => [group.id, group]));
+    for (const node of state.focusGraph?.nodes || []) {
+      const rank=typeRank(node);
+      counts.set(rank,(counts.get(rank)||0)+1);
+    }
+    const selected=state.inspectedNodeId ? state.inspectionOrder?.parents || [state.inspectedNodeId] : [];
+    const ranks=new Set(selected.map(id=>state.nodesById.get(id)).filter(Boolean).map(typeRank));
+    browser.querySelectorAll('[data-relationship-projection-level]').forEach(control=>{
+      const rank=Number(control.getAttribute('data-relationship-projection-level'));
+      const viewFocus=!!focus && typeRank(focus)===rank, inspected=ranks.has(rank), count=counts.get(rank)||0;
+      control.classList.toggle('is-view-focus-level',viewFocus);
+      control.classList.toggle('is-inspection-level',inspected);
+      control.classList.toggle('is-empty-view-level',!count);
+      control.dataset.viewCount=String(count);
+      const label=[`${count} objects in view`];
+      if (viewFocus) label.push('View focus');
+      if (inspected) label.push('Selected objects');
+      control.title=label.join(' - ');
+      const summary = control.querySelector("[data-relationship-projection-summary]");
+      const group = groupsById.get(String(rank));
+      if (summary && group) summary.textContent = count === 0 ? "No objects" : projectionSelectionLabel(state, group);
+    });
+  }
+
   function refreshTypeFilterState(container, state, types) {
+    const browser = container.closest && container.closest("[data-relationship-browser]") || container;
+    refreshProjectionLevelMarkers(browser,state);
     const groupsById = new Map(projectionRankGroups(state).map((group) => [group.id, group]));
     container.querySelectorAll("[data-relationship-projection-level]").forEach((control) => {
       const level = control.getAttribute("data-relationship-projection-level") || "";
@@ -4275,7 +6281,10 @@ def _relationship_graph_script() -> str:
       const selected = projectionSelectedTypesForGroup(state, group);
       const requiredType = requiredProjectionTypeForRank(state, group.rank);
       const summary = control.querySelector("[data-relationship-projection-summary]");
-      if (summary) summary.textContent = projectionSelectionLabel(state, group);
+      const viewCount = Number(control.dataset.viewCount || "0");
+      if (summary) {
+        summary.textContent = viewCount === 0 ? "No objects" : projectionSelectionLabel(state, group);
+      }
       const all = control.querySelector("[data-relationship-projection-all]");
       if (all) {
         all.checked = selected.size === group.types.length;
@@ -4290,7 +6299,6 @@ def _relationship_graph_script() -> str:
         if (checkbox.parentElement) checkbox.parentElement.classList.toggle("is-disabled", checkbox.disabled);
       });
     });
-    const browser = container.closest && container.closest("[data-relationship-browser]") || container;
     renderStatusFilter(browser, state);
     renderSubfilterPopover(container, state);
   }
@@ -4367,7 +6375,7 @@ def _relationship_graph_script() -> str:
     }
     const add = (node) => {
       if (!node) return;
-      if (node.id !== state.selectedId && !state.enabledTypes.has(node.type || "entity")) return;
+      if (!isTypeEnabled(node, state.selectedId, state.enabledTypes, state)) return;
       if (!isNonStatusSubfilterEnabled(node, state)) return;
       const value = fieldValue(node, "status");
       if (!value || !(state.statusFilter && state.statusFilter.values.includes(value))) return;
@@ -4452,14 +6460,13 @@ def _relationship_graph_script() -> str:
     plainCheckbox.addEventListener("change", () => {
       pushNavigationSnapshot(state);
       state.plainListMode = plainCheckbox.checked;
-      applyProjectionSelections(browser, state);
       state.graphPage = 0;
       renderRelationshipState(browser, state);
     });
     const plainText = document.createElement("span");
     plainText.textContent = "Plain list";
     plainLabel.append(plainCheckbox, plainText);
-    container.appendChild(plainLabel);
+    container.insertBefore(plainLabel, container.querySelector('.relationship-status-all'));
     for (const [value, count] of values) {
       const enabled = isStatusValueEnabled(state, value);
       const chip = document.createElement("button");
@@ -4484,6 +6491,7 @@ def _relationship_graph_script() -> str:
 
   function traversalRank(state, node) {
     if (!node) return 99;
+    if (nodeDefinitions.has(node)) return typeRank(node);
     const ranks = state.traversal && state.traversal.typeRanks || DEFAULT_TYPE_RANKS;
     const value = ranks[node.type || "entity"];
     return Number.isFinite(value) ? value : typeRank(node);
@@ -4596,7 +6604,7 @@ def _relationship_graph_script() -> str:
       const head = document.createElement("div");
       head.className = "relationship-subfilter-head";
       const title = document.createElement("strong");
-      title.textContent = `${TYPE_LABELS[type] || type} filters`;
+      title.textContent = `${typeLabel(type, state)} filters`;
       head.appendChild(title);
       const actions = document.createElement("span");
       const defaults = document.createElement("button");
@@ -4683,15 +6691,15 @@ def _relationship_graph_script() -> str:
     body.appendChild(popover);
   }
 
-  function projectionChoiceLabel(types) {
-    return types.map((type) => TYPE_LABELS[type] || type).join(" + ");
+  function projectionChoiceLabel(types, state) {
+    return types.map((type) => typeLabel(type, state)).join(" + ");
   }
 
   function requiredProjectionTypeForRank(state, rank) {
     if (state && state.plainListMode) return "";
     const selected = state.nodesById && state.nodesById.get(state.selectedId || "");
     if (!selected) return "";
-    const selectedRank = typeRankValue(state, selected.type || "entity");
+    const selectedRank = typeRank(selected);
     if (rank !== selectedRank) return "";
     return selected.type || "entity";
   }
@@ -4743,6 +6751,12 @@ def _relationship_graph_script() -> str:
         const nextHidden = !menu.hidden;
         closeProjectionMenus(menu);
         menu.hidden = nextHidden;
+        if (!menu.hidden) {
+          menu.style.left = "";
+          const bounds = menu.getBoundingClientRect();
+          const shift = Math.max(8 - bounds.left, Math.min(0, window.innerWidth - 8 - bounds.right));
+          menu.style.left = `${menu.offsetLeft + shift}px`;
+        }
         button.setAttribute("aria-expanded", menu.hidden ? "false" : "true");
       });
       control.addEventListener("click", (event) => event.stopPropagation());
@@ -4774,7 +6788,7 @@ def _relationship_graph_script() -> str:
         });
         optionLabel.appendChild(checkbox);
         const text = document.createElement("span");
-        text.textContent = TYPE_LABELS[type] || type;
+        text.textContent = group.labels.get(type);
         optionLabel.appendChild(text);
         menu.appendChild(optionLabel);
       }
@@ -4788,12 +6802,13 @@ def _relationship_graph_script() -> str:
     refreshTypeFilterState(container, state, stateGraphTypes(state));
   }
 
-  function initBrowser(browser, options) {
-    const graph = parseGraph(browser);
+  function initBrowser(browser, options, loadedGraph) {
+    const graph = loadedGraph || parseGraph(browser);
+    const typeDefinitions = prepareGraphDefinitions(graph);
     const nodesById = new Map(graph.nodes.map((node) => [node.id, node]));
     if (!nodesById.size) return;
     const preferred =
-      graph.nodes.find((node) => (node.type || "entity") === "product") ||
+      graph.nodes.find((node) => (nodeDefinitions.get(node) || {}).root) ||
       graph.nodes
         .slice()
         .sort((left, right) =>
@@ -4803,6 +6818,9 @@ def _relationship_graph_script() -> str:
       graph.nodes[0];
     const state = {
       nodes: graph.nodes,
+      nodeAliases: new Map(graph.nodes.flatMap(node => (node.aliases || []).map(alias => [alias, node.id]))),
+      model: graph.model,
+      typeDefinitions,
       edges: graph.edges,
       nodesById,
       adjacency: buildAdjacency(graph.edges),
@@ -4835,16 +6853,28 @@ def _relationship_graph_script() -> str:
       focusContent: null,
       isolatedRootId: "",
       isolatedNodeIds: null,
+      contextParentIds: new Set(),
+      contextSelections: [],
+      contextRootId: "",
+      contextOptionRootId: "",
+      contextPinnedChoices: [],
+      contextAllowedEdges: null,
+      contextPathEdges: [],
+      contextEmpty: false,
+      contextFocusExcluded: false,
+      contextEdgesByTarget: null,
+      contextAllowedIds: null,
       scopedEdgesCache: null,
       scopedAdjacencyCache: null,
       canvasViewportListenersAttached: false,
       showSecondaryLinks: false,
       activeViewPinned: false,
       activeViewNodeIds: null,
+      selectionView: null,
       visualStatusField: "",
       plainListMode: false,
       graphPage: 0,
-      traversal: traversalConfig(graph.traversal),
+      traversal: traversalConfig(graph.traversal, graph.model),
       projectionMode: "auto",
       projectionSelections: {},
       enabledTypes: new Set()
@@ -4888,15 +6918,129 @@ def _relationship_graph_script() -> str:
     const regex = browser.querySelector("[data-relationship-search-regex]");
     const searchHelp = browser.querySelector("[data-relationship-search-help]");
     const searchHelpPopover = browser.querySelector("[data-relationship-search-help-popover]");
-    const setSearchHelpOpen = (open) => {
-      if (!searchHelp || !searchHelpPopover) return;
-      searchHelpPopover.hidden = !open;
-      searchHelp.setAttribute("aria-expanded", open ? "true" : "false");
+    const helpRoot = browser.closest('[data-relationship-modal]') || browser;
+    let helpTarget=null, helpOutline=null, helpDescription=null, helpFrame=0;
+    const helpEntries=[
+      ['[data-relationship-search-help]', 'Graph help', 'Point to a control or graph object to explore it. Press Escape or select ? again to leave help mode.'],
+      ['[data-relationship-search]', 'Find an object', 'Global search across all graph objects, views and pages. Choose a result or press Enter to open its view and details.'],
+      ['[data-relationship-search-regex], .relationship-search-regex', 'Regular expressions', String.raw`Both modes ignore letter case.
+
+Regex on: matches "status · type · name · summary". Empty fields are omitted. Enter the expression without / delimiters.
+Failed MUST requirements: fail.*CDD.*MUST
+Passed Vulkan CTS modules: pass.*CTS.*Vulkan
+Audio or graphics: audio|graphics
+
+Regex off: finds a literal phrase in "type name summary". A type already at the start of the name is included once; separators (· : |) become spaces and repeated spaces collapse. Examples: CTS module, Bluetooth Audio, MUST implement.`],
+      ['[data-relationship-search-result]', 'Search result', 'Open this object as the view focus. Its details and related objects appear in the graph.'],
+      ['[data-relationship-plain-list], .relationship-plain-list', 'Plain list', 'Show the same complete set of objects in a flat list without arrows. Focus, parents and filters are preserved; other branches are not added.'],
+      ['[data-relationship-status-all], .relationship-status-all', 'All statuses', 'Include or exclude every available status. Focus and context objects needed to understand the view may still be shown.'],
+      ['[data-relationship-status-value]', 'Status filter', 'Include or exclude this status. The count describes available filter candidates across the view, not just this page. Object colors describe status; pink and blue outlines describe selection and focus.'],
+      ['[data-relationship-projection-level]', 'Hierarchy level', 'Choose the entity types shown at this level. All includes every type; None excludes them. Blue marks the view focus, pink marks the selection. Gray means no objects at this level in the entire view.'],
+      ['[data-relationship-secondary-links]', 'Shortcuts', 'Show additional shortcut connections for the current focus when available. These links supplement the hierarchy; they do not add evidence or change results.'],
+      ['[data-relationship-fit]', 'Fit', 'Fit the current page into the graph area. Double-click empty graph space to do the same.'],
+      ['[data-relationship-back]', 'Previous view', 'Return to the previous view with its filters and page.'],
+      ['[data-relationship-forward]', 'Next view', 'Restore the view you left with Back, including its filters and page.'],
+      ['[data-relationship-focus-badge]', 'Graph interaction', 'Click the graph to activate moving, zooming and object enlargement. Select Deactivate graph to scroll the surrounding page.'],
+      ['[data-relationship-page-controls]', 'Pages', 'Move between pages of the filtered view. The range and total cover the full set of objects, not only those currently drawn.'],
+      ['[data-inspection-open-view]', 'Selection view', 'Open only the selected objects and their highlighted connections. Exit selection view returns to the original view, filters and selection.'],
+      ['[data-relationship-selection-table]', 'Selection table', 'Inspect object labels, statuses, summaries and evidence links in table form.'],
+      ['[data-relationship-parent-summary]', 'Selected parents', 'Review the parent selection and the objects connected to it. Comparison combines the selected paths.'],
+      ['[data-relationship-detail]', 'Object details', 'Details for the inspected object, with its status, relationships and links to the underlying evidence.'],
+      ['[data-relationship-close]', 'Close graph', 'Close the graph window and return to the report.']
+    ];
+    const clearHelpTarget=()=>{
+      if (helpTarget) {
+        helpOutline?.classList.remove('relationship-help-target');
+        if (helpDescription===null) helpTarget.removeAttribute('aria-describedby');
+        else helpTarget.setAttribute('aria-describedby',helpDescription);
+      }
+      helpTarget=null;helpOutline=null;
     };
+    const showGraphHelp=(target,event)=>{
+      if (!state.helpMode || !searchHelpPopover || !(target instanceof Element)) return;
+      target=target.closest('label')?.querySelector('input') || target;
+      let entry=helpEntries.find(([selector])=>target.closest(selector)), anchor;
+      if (entry) anchor=target.closest(entry[0]);
+      else {
+        anchor=target.closest('[data-relationship-canvas]');
+        if (anchor) {
+          entry=['','Graph area','Click the graph to activate it. Drag to move and use the wheel to zoom. Double-click empty space to fit the current page. Click empty space to clear the selection. Right-click to open a selection view. Blue arrows show highlighted relationships; numbered colors identify comparison paths.'];
+          if (state.cy && event && Number.isFinite(event.clientX)) {
+            const rect=anchor.getBoundingClientRect(),scale=rect.width/state.cy.width(),pan=state.cy.pan(),zoom=state.cy.zoom();
+            const point={x:((event.clientX-rect.left)/scale-pan.x)/zoom,y:((event.clientY-rect.top)/scale-pan.y)/zoom};
+            const node=inspectionNodeAt(state,point);
+            if (node) entry=['','Graph object','Click once to inspect relationships and details; click again to open its view. Ctrl-click (Command-click on macOS) compares objects at the same level. Pink marks selection, blue marks the view focus.'];
+            else if (state.inspectionGroups?.some(g=>g.rects.some(r=>point.x>=r.x1&&point.x<=r.x2&&point.y>=r.y1&&point.y<=r.y2)))
+              entry=['','Related group','The frame combines related objects at one hierarchy level. Its connectors summarize their actual relationships. Numbers and matching colors identify comparison members and their paths.'];
+          }
+        }
+      }
+      if (!entry) {clearHelpTarget();searchHelpPopover.hidden=true;return;}
+      if (helpTarget!==target || helpOutline!==anchor) {
+        clearHelpTarget();helpTarget=target;helpOutline=anchor;
+        helpDescription=target.getAttribute('aria-describedby');
+        target.setAttribute('aria-describedby',[helpDescription,searchHelpPopover.id].filter(Boolean).join(' '));
+        anchor.classList.add('relationship-help-target');
+      }
+      searchHelpPopover.querySelector('[data-relationship-help-title]').textContent=entry[1];
+      searchHelpPopover.querySelector('[data-relationship-help-text]').textContent=entry[2];
+      searchHelpPopover.querySelector('[data-relationship-help-text]').style.whiteSpace='pre-line';
+      searchHelpPopover.hidden=false;
+      const rect=anchor.getBoundingClientRect(),box=searchHelpPopover.getBoundingClientRect();
+      const x=event && Number.isFinite(event.clientX) ? event.clientX : rect.left;
+      const y=event && Number.isFinite(event.clientY) ? event.clientY : rect.bottom;
+      searchHelpPopover.style.left=Math.max(12,Math.min(x+16,innerWidth-box.width-12))+'px';
+      searchHelpPopover.style.top=Math.max(12,y+16+box.height>innerHeight-12 ? y-box.height-16 : y+16)+'px';
+    };
+    if (searchHelp && searchHelpPopover) {
+      searchHelpPopover.id = 'relationship-help-' + Array.from(document.querySelectorAll('[data-relationship-search-help-popover]')).indexOf(searchHelpPopover);
+      searchHelp.setAttribute('aria-controls', searchHelpPopover.id);
+    }
+    const setSearchHelpOpen = (open, restoreFocus = false) => {
+      if (!searchHelp || !searchHelpPopover) return;
+      state.helpMode=open;
+      helpRoot.classList.toggle('relationship-help-mode',open);
+      searchHelp.setAttribute('aria-pressed',String(open));
+      clearHelpTarget();searchHelpPopover.hidden=true;
+      if (open) {
+        stopInspectionSwap(state);clearNodeMagnification(state);renderInspectionGroups(state);
+        state.cy?.userZoomingEnabled(false);state.cy?.userPanningEnabled(false);
+        searchHelp.focus({preventScroll:true});
+        showGraphHelp(searchHelp);
+      } else {
+        setGraphInteractive(browser,state,state.graphInteractive);
+        if (restoreFocus) searchHelp.focus({preventScroll:true});
+      }
+    };
+    state.closeGraphHelp=()=>setSearchHelpOpen(false);
+    helpRoot.addEventListener('pointermove',event=>{
+      if (!state.helpMode) return;
+      cancelAnimationFrame(helpFrame);
+      helpFrame=requestAnimationFrame(()=>showGraphHelp(event.target,event));
+    },{passive:true});
+    helpRoot.addEventListener('focusin',event=>showGraphHelp(event.target));
+    helpRoot.addEventListener('pointerleave',()=>{clearHelpTarget();if(searchHelpPopover)searchHelpPopover.hidden=true;});
+    for (const name of ['pointerdown','mousedown','touchstart','click','contextmenu','beforeinput']) helpRoot.addEventListener(name,event=>{
+      if (!state.helpMode || event.target.closest('[data-relationship-search-help], [data-relationship-close]')) return;
+      if (event.cancelable) event.preventDefault();
+      event.stopImmediatePropagation();showGraphHelp(event.target,event);
+    },{capture:true,passive:false});
+    helpRoot.addEventListener('keydown',event=>{
+      if (!state.helpMode || !['Enter',' ','ArrowUp','ArrowDown','ArrowLeft','ArrowRight','Home','End'].includes(event.key) || event.target.closest('[data-relationship-search-help], [data-relationship-close]')) return;
+      event.preventDefault();event.stopImmediatePropagation();showGraphHelp(event.target);
+    },true);
+    window.addEventListener('resize',()=>{if(state.helpMode)showGraphHelp(helpTarget||searchHelp);});
+    helpRoot.addEventListener('scroll',()=>{if(state.helpMode)showGraphHelp(helpTarget||searchHelp);},true);
+    document.addEventListener('keydown', event => {
+      if (event.key !== 'Escape' || !state.helpMode) return;
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      setSearchHelpOpen(false, true);
+    }, true);
     if (searchHelp) {
       searchHelp.addEventListener("click", (event) => {
         event.stopPropagation();
-        const open = searchHelp.getAttribute("aria-expanded") !== "true";
+        const open = !state.helpMode;
         setSearchHelpOpen(open);
       });
     }
@@ -4924,7 +7068,7 @@ def _relationship_graph_script() -> str:
         state.searchAnchorResultId = nodeId;
         state.searchAnchorScrollPending = false;
         state.searchResultsOpen = false;
-        selectNode(browser, state, nodeId, true);
+        selectSearchNode(browser, state, nodeId);
       });
     }
     if (search) {
@@ -4938,6 +7082,7 @@ def _relationship_graph_script() -> str:
         scheduleSearchUpdate(browser, state, false);
       });
       search.addEventListener("focus", () => {
+        if (state.helpMode) return;
         if (!String(search.value || "").trim()) return;
         const results = browser.querySelector("[data-relationship-search-results]");
         if (state.searchResultsOpen && results && !results.hidden) return;
@@ -4961,20 +7106,19 @@ def _relationship_graph_script() -> str:
           cancelSearchUpdate(state);
           applySearchUpdate(browser, state, false);
         }
-        const match = selectableNodes(state, false)[0];
+        const match = searchResultItems(state)[0]?.node;
         if (match) {
           event.preventDefault();
           state.searchAnchorResultId = match.id;
           state.searchAnchorScrollPending = false;
           state.searchResultsOpen = false;
-          selectNode(browser, state, match.id, true);
+          selectSearchNode(browser, state, match.id);
         }
       });
     }
     document.addEventListener("click", (event) => {
       const target = event.target instanceof Element ? event.target : null;
       if (target && target.closest(".relationship-search-controls")) return;
-      setSearchHelpOpen(false);
       if (!state.searchResultsOpen) return;
       state.searchResultsOpen = false;
       const results = browser.querySelector("[data-relationship-search-results]");
@@ -4996,6 +7140,7 @@ def _relationship_graph_script() -> str:
     const routeGraphFocusEvent = (event) => {
       const target = event.target;
       if (!(target instanceof Element)) return;
+      if (state.helpMode || target.closest('[data-relationship-search-help]')) return;
       if (target.closest("[data-relationship-focus-badge]")) {
         return;
       }
@@ -5018,9 +7163,11 @@ def _relationship_graph_script() -> str:
     const detail = browser.querySelector("[data-relationship-detail]");
     if (detail) {
       const releaseFromDetail = () => {
+        if (state.helpMode) return;
         releaseGraphFocus(browser, state);
       };
       const releaseFromBrowserDetail = (event) => {
+        if (state.helpMode) return;
         if (detail.contains(event.target)) {
           releaseGraphFocus(browser, state);
         }
@@ -5108,28 +7255,50 @@ def _relationship_graph_script() -> str:
     }
   }
 
-  function openRelationshipModal(modal, options) {
-    if (!modal) return;
+  async function openRelationshipModal(modal, options) {
+    if (!modal) return false;
+    const request = (modal.__relationshipOpenRequest || 0) + 1;
+    modal.__relationshipOpenRequest = request;
     modal.hidden = false;
     document.body.classList.add("relationship-modal-open");
     const browser = modal.querySelector("[data-relationship-browser]");
     if (browser && !browser.dataset.relationshipInitialized) {
-      initBrowser(browser, options);
-      browser.dataset.relationshipInitialized = "true";
+      if (!browser.__relationshipInitPromise) {
+        browser.setAttribute("aria-busy", "true");
+        const detail = browser.querySelector("[data-relationship-detail]");
+        if (detail) detail.textContent = "Loading graph...";
+        browser.__relationshipInitPromise = loadGraph(browser).then((graph) => {
+          initBrowser(browser, {deferRender: true}, graph);
+          browser.dataset.relationshipInitialized = "true";
+          return true;
+        }).catch((error) => {
+          if (detail) detail.innerHTML = '<p role="alert">' + esc(error.message || error) + '</p>';
+          return false;
+        }).finally(() => {
+          browser.removeAttribute("aria-busy");
+          browser.__relationshipInitPromise = null;
+        });
+      }
+      if (!await browser.__relationshipInitPromise || modal.__relationshipOpenRequest !== request) return false;
+      if (!(options && options.deferRender) && !modal.hidden) {
+        selectNode(browser, browser.__relationshipState, browser.__relationshipState.selectedId, false);
+      }
     } else if (browser && browser.__relationshipState && !(options && options.deferRender)) {
       fitGraph(browser.__relationshipState, 40);
     }
     const close = modal.querySelector("[data-relationship-close]");
-    if (close) close.focus({preventScroll: true});
+    if (close && !modal.hidden) close.focus({preventScroll: true});
+    return !modal.hidden;
   }
 
-  function openRelationshipFocus(trigger, nodeId) {
+  async function openRelationshipFocus(trigger, nodeId) {
     const section = trigger && trigger.closest ? trigger.closest(".report-root, body") : document;
     const modal = (section || document).querySelector("[data-relationship-modal]");
     if (!modal || !nodeId) return;
-    openRelationshipModal(modal, {deferRender: true});
+    if (!await openRelationshipModal(modal, {deferRender: true})) return;
     const browser = modal.querySelector("[data-relationship-browser]");
     const state = browser && browser.__relationshipState;
+    if (state) nodeId = state.nodeAliases.get(nodeId) || nodeId;
     if (state && state.nodesById.has(nodeId)) {
       selectTableNode(browser, state, nodeId);
       fitGraph(state, 40);
@@ -5162,9 +7331,9 @@ def _relationship_graph_script() -> str:
   }
 
   function applyRelationshipView(browser, state, view) {
-    const focusId = view && view.focus;
+    const focusId = state.nodeAliases.get(view && view.focus) || (view && view.focus);
     if (!focusId || !state.nodesById.has(focusId)) return;
-    const isolateRoot = view.isolate_root || "";
+    const isolateRoot = state.nodeAliases.get(view.isolate_root) || view.isolate_root || "";
     const isolatedNodeIds = isolatedIdsForRoot(state, isolateRoot);
     if (isolatedNodeIds && !isolatedNodeIds.has(focusId)) return;
     pushNavigationSnapshot(state);
@@ -5172,7 +7341,7 @@ def _relationship_graph_script() -> str:
     resetGraphFilters(browser, state);
     state.activeViewPinned = true;
     state.activeViewNodeIds = Array.isArray(view.node_ids)
-      ? new Set(view.node_ids.map(String).filter((id) => state.nodesById.has(id)))
+      ? new Set(view.node_ids.map(id => state.nodeAliases.get(String(id)) || String(id)).filter((id) => state.nodesById.has(id)))
       : null;
     const types = stateGraphTypes(state);
     const requested = Array.isArray(view.types) ? view.types.filter((type) => types.includes(type)) : [];
@@ -5191,7 +7360,7 @@ def _relationship_graph_script() -> str:
     if (search) search.value = "";
     state.plainListMode = Boolean(view.plain_list);
     state.visualStatusField = typeof view.color_by === "string" ? view.color_by : "";
-    updateSelectedNodeState(browser, state, focusId, false, {preserveTypes: true, preserveFilters: true, preservePlainList: Boolean(view.plain_list)});
+    updateSelectedNodeState(browser, state, focusId, false, {directEntry: true, preserveTypes: true, preserveFilters: true, preservePlainList: Boolean(view.plain_list)});
     const targetType = view.target_type || "";
     if (targetType && state.enabledTypes.has(targetType)) {
       state.activeSubfilterType = targetType;
@@ -5204,11 +7373,11 @@ def _relationship_graph_script() -> str:
     scrollRelationshipToGraph(browser);
   }
 
-  function openRelationshipView(trigger, view) {
+  async function openRelationshipView(trigger, view) {
     const section = trigger && trigger.closest ? trigger.closest(".report-root, body") : document;
     const modal = (section || document).querySelector("[data-relationship-modal]");
     if (!modal || !view || !view.focus) return;
-    openRelationshipModal(modal, {deferRender: true});
+    if (!await openRelationshipModal(modal, {deferRender: true})) return;
     const browser = modal.querySelector("[data-relationship-browser]");
     const state = browser && browser.__relationshipState;
     if (state) applyRelationshipView(browser, state, view);
@@ -5216,14 +7385,16 @@ def _relationship_graph_script() -> str:
 
   function closeRelationshipModal(modal) {
     if (!modal) return;
+    modal.querySelector('[data-relationship-browser]')?.__relationshipState?.closeGraphHelp?.();
+    modal.__relationshipOpenRequest = (modal.__relationshipOpenRequest || 0) + 1;
     modal.hidden = true;
     document.body.classList.remove("relationship-modal-open");
   }
 
   document.querySelectorAll("[data-relationship-open]").forEach((button) => {
-    button.addEventListener("click", () => {
+    button.addEventListener("click", async () => {
       const modal = button.closest(".report-relationship-section").querySelector("[data-relationship-modal]");
-      openRelationshipModal(modal);
+      if (!await openRelationshipModal(modal, {deferRender: true})) return;
       const browser = modal && modal.querySelector("[data-relationship-browser]");
       const state = browser && browser.__relationshipState;
       if (state) {
@@ -5231,6 +7402,15 @@ def _relationship_graph_script() -> str:
         setIsolatedRoot(state, "");
         resetGraphFiltersToAll(browser, state);
         state.activeViewPinned = false;
+        const root = state.nodes.find(node => (nodeDefinitions.get(node) || {}).root) ||
+          state.nodes.slice().sort((a, b) => typeRank(a) - typeRank(b) ||
+            String(a.label || a.id).localeCompare(String(b.label || b.id)))[0];
+        state.selectedId = root ? root.id : "";
+        state.activeId = state.selectedId;
+        state.searchQuery = "";
+        cancelSearchUpdate(state);
+        const search = browser.querySelector('[data-relationship-search]');
+        if (search) search.value = "";
         ensureSelectableFocus(state);
         renderGraph(browser, state);
         renderNodeSelect(browser, state);
@@ -5281,7 +7461,13 @@ def _relationship_graph_script() -> str:
     }
     document.querySelectorAll("[data-relationship-modal]:not([hidden])").forEach(closeRelationshipModal);
   });
-  document.querySelectorAll("[data-relationship-browser]:not([data-relationship-defer])").forEach(initBrowser);
+  document.addEventListener("click", (event) => {
+    const anchor = event.target.closest && event.target.closest('a[href^="/api/"]');
+    if (!anchor || window.__diffReportData || window.location.protocol !== "file:") return;
+    event.preventDefault();
+    window.alert("Open the self-contained report or serve it over HTTP to use database queries.");
+  });
+  document.querySelectorAll("[data-relationship-browser]:not([data-relationship-defer])").forEach((browser) => initBrowser(browser));
 })();
 </script>
 """
@@ -5429,7 +7615,7 @@ def _report_self_test_script() -> str:
 
   function preferredGraphMetric() {
     const candidates = graphMetricCandidates();
-    return candidates.find((item) => viewTargetStatus(item.view) === "not_failed")
+    return candidates.find((item) => viewTargetStatus(item.view) === "pass")
       || candidates[0]
       || null;
   }
@@ -5439,7 +7625,7 @@ def _report_self_test_script() -> str:
     return graph && graph.nodes && graph.nodes.find((node) => node.type === targetType);
   }
 
-  const SELF_TEST_SETTLE_MS = 300;
+  const SELF_TEST_SETTLE_MS = 120;
 
   function stats(values) {
     const numbers = values.map(Number).filter((value) => Number.isFinite(value));
@@ -5848,10 +8034,10 @@ def _report_self_test_script() -> str:
       if (searchHelpPopover.hidden) {
         errors.push("search help popup does not open");
       }
-      document.body.click();
+      searchHelp.click();
       await delay(SELF_TEST_SETTLE_MS);
       if (!searchHelpPopover.hidden) {
-        errors.push("search help popup does not close after outside click");
+        errors.push("graph help mode does not close when toggled off");
       }
     }
     const searchChoices = browser.__relationshipSearchChoices ? browser.__relationshipSearchChoices() : [];
@@ -5904,7 +8090,7 @@ def _report_self_test_script() -> str:
     if (results.hidden) {
       errors.push("search results do not reopen when focusing a non-empty search input");
     }
-    const plainStatusQuery = String(target.status || "not_failed");
+    const plainStatusQuery = String(target.status || "pass");
     search.value = plainStatusQuery;
     state.searchQuery = search.value;
     search.dispatchEvent(new Event("input", {bubbles: true}));
