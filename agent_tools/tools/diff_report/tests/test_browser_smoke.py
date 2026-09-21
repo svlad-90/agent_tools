@@ -53,6 +53,7 @@ class BrowserSmokeTests(unittest.TestCase):
                 output,
                 "window.__reportSelfTest.runAll()",
                 await_promise=True,
+                cdp_timeout=15,
             )
 
         self.assertIsInstance(result, dict)
@@ -1126,6 +1127,7 @@ def _evaluate_in_browser(
     *,
     await_promise: bool = False,
     viewport: dict[str, object] | None = None,
+    cdp_timeout: float = 5,
 ) -> object:
     browser = _browser()
     if not browser:
@@ -1152,6 +1154,7 @@ def _evaluate_in_browser(
         targets = _browser_json(port, "/json/list")
         target = next(item for item in targets if isinstance(item, dict) and item.get("type") == "page")
         with _CdpConnection(target["webSocketDebuggerUrl"]) as cdp:
+            cdp.set_timeout(cdp_timeout)
             cdp.call("Page.enable")
             cdp.call("Runtime.enable")
             cdp.call(
@@ -1238,6 +1241,11 @@ class _CdpConnection:
         if self.sock:
             self.sock.close()
             self.sock = None
+
+    def set_timeout(self, timeout: float) -> None:
+        if self.sock is None:
+            raise RuntimeError("websocket is not connected")
+        self.sock.settimeout(timeout)
 
     def call(self, method: str, params: dict[str, object] | None = None) -> dict[str, object]:
         message_id = self.next_id

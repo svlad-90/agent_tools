@@ -1,0 +1,60 @@
+--- cytoscape.umd.js
++++ cytoscape.umd.js
+@@ -26634,2 +26634,3 @@
+-        if (clamp && Math.abs(delta) > 5) {
+-          delta = signum(delta) * 5;
++        var initialWheelStep = e.deltaMode === 0 ? 15 : 5;
++        if (clamp && Math.abs(delta) > initialWheelStep) {
++          delta = signum(delta) * initialWheelStep;
+@@ -26640 +26641 @@
+-          diff *= 3;
++          diff *= e.deltaMode === 0 ? 15 : 3;
+@@ -31970,0 +31972 @@
++      if (node.pstyle('outline-width').pfValue > 0 && node.pstyle('outline-opacity').value > 0) return false;
+@@ -34632 +34634 @@
+-    if (r.data.canvasNeedsRedraw[r.NODE] || renderTarget.picking) {
++    if (r.data.canvasNeedsRedraw[r.NODE] || r.data.canvasNeedsRedraw[r.DRAG] || renderTarget.picking) {
+@@ -34664,2 +34666,4 @@
+-      r.data.canvasNeedsRedraw[r.NODE] = false;
+-      r.data.canvasNeedsRedraw[r.DRAG] = false;
++      if (renderTarget.screen) {
++        r.data.canvasNeedsRedraw[r.NODE] = false;
++        r.data.canvasNeedsRedraw[r.DRAG] = false;
++      }
+@@ -34701,0 +34706 @@
++    if (renderTarget.screen) r.cy.emit('render');
+@@ -35018,4 +35023 @@
+-    if (options.webgl) {
+-      CRp.CANVAS_LAYERS = r.CANVAS_LAYERS = 4;
+-      console.log('webgl rendering enabled');
+-    }
++    r.CANVAS_LAYERS = options.webgl ? 4 : 3;
+@@ -35023,3 +35025,3 @@
+-      canvases: new Array(CRp.CANVAS_LAYERS),
+-      contexts: new Array(CRp.CANVAS_LAYERS),
+-      canvasNeedsRedraw: new Array(CRp.CANVAS_LAYERS),
++      canvases: new Array(r.CANVAS_LAYERS),
++      contexts: new Array(r.CANVAS_LAYERS),
++      canvasNeedsRedraw: new Array(r.CANVAS_LAYERS),
+@@ -35027 +35029 @@
+-      bufferContexts: new Array(CRp.CANVAS_LAYERS)
++      bufferContexts: new Array(r.CANVAS_LAYERS)
+@@ -35051 +35053 @@
+-    for (var i = 0; i < CRp.CANVAS_LAYERS; i++) {
++    for (var i = 0; i < r.CANVAS_LAYERS; i++) {
+@@ -35063 +35065 @@
+-      canvas.style.zIndex = String(CRp.CANVAS_LAYERS - i);
++      canvas.style.zIndex = String(r.CANVAS_LAYERS - i);
+@@ -35513 +35515,11 @@
+-        RegistrantRenderer.apply(this, arguments);
++        try {
++          RegistrantRenderer.apply(this, arguments);
++        } catch (error) {
++          this.destroy();
++          var gl = this.data && this.data.contexts && this.data.contexts[this.WEBGL];
++          if (gl) {
++            var lose = gl.getExtension('WEBGL_lose_context');
++            if (lose) lose.loseContext();
++          }
++          throw error;
++        }
