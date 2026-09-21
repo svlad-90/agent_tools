@@ -1132,53 +1132,67 @@ def _evaluate_in_browser(
     browser = _browser()
     if not browser:
         raise unittest.SkipTest("Chrome-compatible browser is not available")
-    profile_dir = Path(tempfile.mkdtemp(prefix="diff-report-browser-test-"))
-    process = subprocess.Popen(
-        [
-            browser,
-            "--headless",
-            "--disable-gpu",
-            "--no-sandbox",
-            "--disable-crash-reporter",
-            "--disable-crashpad",
-            f"--user-data-dir={profile_dir}",
-            "--remote-debugging-port=0",
-            "about:blank",
-        ],
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-        text=True,
-    )
-    try:
-        port = _wait_for_debug_port(profile_dir)
-        targets = _browser_json(port, "/json/list")
-        target = next(item for item in targets if isinstance(item, dict) and item.get("type") == "page")
-        with _CdpConnection(target["webSocketDebuggerUrl"]) as cdp:
-            cdp.set_timeout(cdp_timeout)
-            cdp.call("Page.enable")
-            cdp.call("Runtime.enable")
-            cdp.call(
-                "Emulation.setDeviceMetricsOverride",
-                viewport or {"width": 1440, "height": 1000, "deviceScaleFactor": 1, "mobile": False},
-            )
-            cdp.call("Page.navigate", {"url": html.resolve().as_uri()})
-            _wait_for_page_ready(cdp)
-            result = cdp.call(
-                "Runtime.evaluate",
-                {"expression": expression, "awaitPromise": await_promise, "returnByValue": True},
-            )
-            value = result.get("result", {}).get("result", {})
-            if value.get("subtype") == "error":
-                raise AssertionError(value.get("description") or value)
-            return value.get("value")
-    finally:
-        process.terminate()
+    launch_failure: RuntimeError | None = None
+    for attempt in range(2):
+        profile_dir = Path(tempfile.mkdtemp(prefix="diff-report-browser-test-"))
+        process = subprocess.Popen(
+            [
+                browser,
+                "--headless",
+                "--disable-gpu",
+                "--no-sandbox",
+                "--disable-crash-reporter",
+                "--disable-crashpad",
+                f"--user-data-dir={profile_dir}",
+                "--remote-debugging-port=0",
+                "about:blank",
+            ],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
         try:
-            process.wait(timeout=5)
-        except subprocess.TimeoutExpired:
-            process.kill()
-            process.wait(timeout=5)
-        shutil.rmtree(profile_dir, ignore_errors=True)
+            port = _wait_for_debug_port(profile_dir)
+            targets = _browser_json(port, "/json/list")
+            target = next(item for item in targets if isinstance(item, dict) and item.get("type") == "page")
+            with _CdpConnection(target["webSocketDebuggerUrl"]) as cdp:
+                cdp.set_timeout(cdp_timeout)
+                cdp.call("Page.enable")
+                cdp.call("Runtime.enable")
+                cdp.call(
+                    "Emulation.setDeviceMetricsOverride",
+                    viewport or {"width": 1440, "height": 1000, "deviceScaleFactor": 1, "mobile": False},
+                )
+                cdp.call("Page.navigate", {"url": html.resolve().as_uri()})
+                _wait_for_page_ready(cdp)
+                result = cdp.call(
+                    "Runtime.evaluate",
+                    {"expression": expression, "awaitPromise": await_promise, "returnByValue": True},
+                )
+                value = result.get("result", {}).get("result", {})
+                if value.get("subtype") == "error":
+                    raise AssertionError(value.get("description") or value)
+                return value.get("value")
+        except RuntimeError as error:
+            if "DevTools port file" not in str(error):
+                raise
+            launch_failure = error
+        finally:
+            process.terminate()
+            try:
+                process.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                process.kill()
+                process.wait(timeout=5)
+            stderr = process.stderr.read().strip() if process.stderr else ""
+            if process.stderr:
+                process.stderr.close()
+            shutil.rmtree(profile_dir, ignore_errors=True)
+        if launch_failure and attempt == 1:
+            detail = f"; Chrome stderr: {stderr}" if stderr else ""
+            raise RuntimeError(f"{launch_failure}{detail}") from launch_failure
+
+    raise AssertionError("browser launch retry loop exited unexpectedly")
 
 
 def _wait_for_page_ready(cdp: "_CdpConnection") -> None:
@@ -1193,7 +1207,7 @@ def _wait_for_page_ready(cdp: "_CdpConnection") -> None:
 
 def _wait_for_debug_port(profile_dir: Path) -> int:
     port_file = profile_dir / "DevToolsActivePort"
-    deadline = time.monotonic() + 10
+    deadline = time.monotonic() + 15
     while time.monotonic() < deadline:
         if port_file.is_file():
             return int(port_file.read_text(encoding="utf-8").splitlines()[0])
