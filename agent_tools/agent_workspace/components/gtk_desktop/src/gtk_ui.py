@@ -3546,7 +3546,7 @@ class WorkspaceGtkGui:
         self._stop_diff_report_feedback_server()
 
     def _stop_diff_report_feedback_server(self) -> None:
-        server = self.diff_report_feedback_server
+        server = getattr(self, "diff_report_feedback_server", None)
         self.diff_report_feedback_server = None
         if server is not None:
             server.stop()
@@ -6936,7 +6936,7 @@ class WorkspaceGtkGui:
                 "system_prompt": self.system_prompt,
                 "model_system_prompts": getattr(self, "model_system_prompts", {}),
                 "inject_task_context_prompt": self.inject_task_context_prompt,
-                "diff_report_feedback_enabled": self.diff_report_feedback_enabled,
+                "diff_report_feedback_enabled": getattr(self, "diff_report_feedback_enabled", False),
                 "mcp_enabled_groups": list(mcp_enabled_groups),
                 "mcp_trusted": self.mcp_trusted,
                 "task_dictionary_auto_discovery": self.task_dictionary_auto_discovery,
