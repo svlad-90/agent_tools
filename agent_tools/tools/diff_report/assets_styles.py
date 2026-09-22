@@ -817,7 +817,7 @@ def stylesheet() -> str:
     .diagram-tools button { display: inline-flex; align-items: center; justify-content: center; min-width: 36px; height: 32px; padding: 0 10px; border: 1px solid var(--border); border-radius: 6px; background: var(--button-bg); color: var(--text); cursor: pointer; font: inherit; line-height: 1; }
     .diagram-tools button[hidden] { display: none !important; }
     .diagram-tools button:hover { border-color: var(--link); color: var(--link); }
-    .diagram-edit-status, .diagram-copy-status { min-width: 0; max-width: 180px; overflow: hidden; color: var(--muted); font-size: 12px; line-height: 1.2; text-overflow: ellipsis; white-space: nowrap; }
+    .diagram-edit-status { min-width: 0; max-width: 180px; overflow: hidden; color: var(--muted); font-size: 12px; line-height: 1.2; text-overflow: ellipsis; white-space: nowrap; }
     .diagram-scroll { position: relative; flex: 1; min-height: 0; overflow: auto; padding: 18px; background: var(--diagram-bg); }
     .asset-story-comment { position: fixed; left: 18px; top: 18px; z-index: 11; width: min(520px, calc(100% - 36px)); margin: 0; padding: 10px 12px 10px 48px; border: 1px solid var(--comment-panel-border); border-left: 4px solid var(--comment-border); border-radius: 6px; background: var(--comment-bg); color: var(--text); box-shadow: 0 8px 22px var(--shadow); opacity: 0; visibility: hidden; pointer-events: none; user-select: text; }
     .asset-story-comment.is-positioned { opacity: 1; visibility: visible; pointer-events: auto; }
@@ -863,7 +863,10 @@ def stylesheet() -> str:
     .diagram-scroll[data-mode="log"] .diagram-zoom-stage { width: 100%; max-width: 100%; min-width: 0; }
     .diagram-scroll.is-preparing-story-view .diagram-zoom-stage { visibility: hidden; }
     .diagram-zoom-stage svg { display: block; max-width: none; height: auto; filter: var(--diagram-svg-filter); }
-    .diagram-zoom-stage svg text, .diagram-zoom-stage svg tspan { cursor: text; user-select: text; }
+    .diagram-zoom-stage svg text,
+    .diagram-zoom-stage svg tspan,
+    .diagram-zoom-stage svg foreignObject,
+    .diagram-zoom-stage svg foreignObject * { cursor: text; user-select: text; }
 """ + plantuml_svg_styles() + """
     .log-view-text { width: 100%; max-width: 100%; min-width: 0; margin: 0; color: #e6edf3; background: #0d1117; padding: 14px; border-radius: 6px; font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: calc(20px * var(--asset-log-scale, 1)); line-height: 1.45; white-space: pre-wrap; overflow-wrap: anywhere; word-break: break-word; transition: font-size .16s ease; }
     .log-view-text * { max-width: 100%; white-space: pre-wrap; overflow-wrap: anywhere; word-break: break-word; }

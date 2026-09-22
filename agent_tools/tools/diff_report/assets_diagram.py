@@ -19,8 +19,6 @@ def diagram_script() -> str:
   const searchCount = document.getElementById("diagram-search-count");
   const exportButton = document.getElementById("diagram-export");
   const editButton = document.getElementById("diagram-edit");
-  const copyTextButton = document.getElementById("diagram-copy-text");
-  const copyTextStatus = document.getElementById("diagram-copy-status");
   const zoomTools = Array.from(document.querySelectorAll("[data-diagram-zoom-tool]"));
   let scale = 1;
   let initialScale = 1;
@@ -186,11 +184,6 @@ def diagram_script() -> str:
       exportButton.hidden = mode !== "diagram" && mode !== "log";
 	      exportButton.textContent = mode === "diagram" ? "Save as SVG" : "Save as HTML";
 	    }
-    if (copyTextButton) {
-      copyTextButton.hidden = mode !== "diagram";
-      copyTextButton.disabled = mode !== "diagram";
-    }
-    setCopyTextStatus("");
 	  }
 
 	  function requestExtraPaint(node) {
@@ -204,107 +197,6 @@ def diagram_script() -> str:
 	    });
 	  }
 
-  function setCopyTextStatus(text) {
-    if (copyTextStatus) {
-      copyTextStatus.textContent = text || "";
-    }
-  }
-
-  function normalizedDiagramText(value) {
-    return String(value || "")
-      .replace(/\\u00a0/g, " ")
-      .replace(/[ \\t\\r\\f\\v]+/g, " ")
-      .replace(/\\n[ \\t]+/g, "\\n")
-      .replace(/[ \\t]+\\n/g, "\\n")
-      .replace(/\\n{3,}/g, "\\n\\n")
-      .trim();
-  }
-
-  function diagramTextCandidates() {
-    const svg = content.querySelector(".diagram-zoom-stage svg");
-    if (!svg) {
-      return [];
-    }
-    const candidates = [];
-    for (const node of svg.querySelectorAll("foreignObject, text")) {
-      if (node.closest && node.closest(".diagram-note-layer, .diagram-code-link-layer")) {
-        continue;
-      }
-      if (node.classList && (
-        node.classList.contains("diagram-note-marker-text")
-        || node.classList.contains("diagram-code-link-badge-text")
-      )) {
-        continue;
-      }
-      const text = normalizedDiagramText(node.textContent || "");
-      if (text) {
-        candidates.push(text);
-      }
-    }
-    return candidates;
-  }
-
-  function openedDiagramText() {
-    const seen = new Set();
-    const lines = [];
-    for (const text of diagramTextCandidates()) {
-      const key = text.toLowerCase();
-      if (seen.has(key)) {
-        continue;
-      }
-      seen.add(key);
-      lines.push(text);
-    }
-    return lines.join("\\n");
-  }
-
-  async function writeClipboard(text) {
-    if (navigator.clipboard && window.isSecureContext) {
-      await navigator.clipboard.writeText(text);
-      return;
-    }
-    const textarea = document.createElement("textarea");
-    textarea.value = text;
-    textarea.setAttribute("readonly", "");
-    textarea.style.position = "fixed";
-    textarea.style.left = "-9999px";
-    textarea.style.top = "0";
-    document.body.appendChild(textarea);
-    textarea.select();
-    try {
-      if (!document.execCommand("copy")) {
-        throw new Error("copy command failed");
-      }
-    } finally {
-      textarea.remove();
-    }
-  }
-
-  async function copyOpenedDiagramText() {
-    if (mode !== "diagram") {
-      return;
-    }
-    const text = openedDiagramText();
-    if (!text) {
-      setCopyTextStatus("No text");
-      return;
-    }
-    if (copyTextButton) {
-      copyTextButton.disabled = true;
-    }
-    try {
-      await writeClipboard(text);
-      setCopyTextStatus("Copied");
-    } catch (error) {
-      setCopyTextStatus("Copy failed");
-      window.prompt("Copy diagram text", text);
-    } finally {
-      if (copyTextButton && mode === "diagram") {
-        copyTextButton.disabled = false;
-      }
-    }
-  }
-	
 	""" + diagram_export_helpers() + """  function clearSearch() {
     searchMatches = [];
     searchIndex = -1;
@@ -1592,10 +1484,6 @@ def diagram_script() -> str:
       }
       return;
     }
-    if (event.target.closest("[data-diagram-copy-text]")) {
-      copyOpenedDiagramText();
-      return;
-    }
     if (event.target.closest(".diagram-code-popover")) {
       event.stopPropagation();
       return;
@@ -1696,7 +1584,7 @@ def diagram_script() -> str:
     if (event.target.closest("button, input")) {
       return;
     }
-    if (event.target.closest("svg text, svg tspan")) {
+    if (event.target.closest("svg text, svg tspan, svg foreignObject")) {
       clearCodeLinkHover();
       return;
     }
