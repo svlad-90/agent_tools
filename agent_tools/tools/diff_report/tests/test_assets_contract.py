@@ -202,7 +202,7 @@ class AssetContractTests(unittest.TestCase):
             "--asset-log-scale",
             "color: var(--hunk-text);",
             ".diagram-zoom-stage { transform-origin: 0 0; width: max-content; min-width: 100%; }",
-            ".diagram-zoom-stage svg text, .diagram-zoom-stage svg tspan { cursor: text; user-select: text; }",
+            ".diagram-zoom-stage svg foreignObject * { cursor: text; user-select: text; }",
             ".diagram-scroll.is-preparing-story-view .diagram-zoom-stage",
             "transition: font-size .16s ease;",
             "svg .asset-focus-object",
@@ -541,8 +541,9 @@ class AssetContractTests(unittest.TestCase):
             "const heightScale = availableHeight > 0 ? availableHeight / size.height : 1",
 	            "initialScale = Math.min(3, widthScale)",
 	            "function requestExtraPaint(node)",
-	            "function parseZoom(value)",
+            "function parseZoom(value)",
             "function zoomAtPoint(nextScale, clientX, clientY)",
+            "event.target.closest(\"svg text, svg tspan, svg foreignObject\")",
             "const anchorX = (content.scrollLeft + offsetX) / scale;",
             "content.scrollLeft = Math.max(0, (anchorX * scale) - offsetX);",
             "function applyStoryObjectZoom(target, nextZoom)",
@@ -601,7 +602,7 @@ class AssetContractTests(unittest.TestCase):
 	            "function codeOverlayRoot()",
 	            "positionCodePopover(popover)",
             "requestExtraPaint(popover)",
-            'event.target.closest("svg text, svg tspan")',
+            'event.target.closest("svg text, svg tspan, svg foreignObject")',
             "clearCodeLinkHover();\n      return;",
         ]
         for fragment in expected_fragments:

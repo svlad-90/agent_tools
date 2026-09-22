@@ -196,7 +196,7 @@ def diagram_script() -> str:
 	      });
 	    });
 	  }
-	
+
 	""" + diagram_export_helpers() + """  function clearSearch() {
     searchMatches = [];
     searchIndex = -1;
@@ -1584,7 +1584,7 @@ def diagram_script() -> str:
     if (event.target.closest("button, input")) {
       return;
     }
-    if (event.target.closest("svg text, svg tspan")) {
+    if (event.target.closest("svg text, svg tspan, svg foreignObject")) {
       clearCodeLinkHover();
       return;
     }

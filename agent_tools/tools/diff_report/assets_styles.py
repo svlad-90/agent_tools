@@ -863,7 +863,10 @@ def stylesheet() -> str:
     .diagram-scroll[data-mode="log"] .diagram-zoom-stage { width: 100%; max-width: 100%; min-width: 0; }
     .diagram-scroll.is-preparing-story-view .diagram-zoom-stage { visibility: hidden; }
     .diagram-zoom-stage svg { display: block; max-width: none; height: auto; filter: var(--diagram-svg-filter); }
-    .diagram-zoom-stage svg text, .diagram-zoom-stage svg tspan { cursor: text; user-select: text; }
+    .diagram-zoom-stage svg text,
+    .diagram-zoom-stage svg tspan,
+    .diagram-zoom-stage svg foreignObject,
+    .diagram-zoom-stage svg foreignObject * { cursor: text; user-select: text; }
 """ + plantuml_svg_styles() + """
     .log-view-text { width: 100%; max-width: 100%; min-width: 0; margin: 0; color: #e6edf3; background: #0d1117; padding: 14px; border-radius: 6px; font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: calc(20px * var(--asset-log-scale, 1)); line-height: 1.45; white-space: pre-wrap; overflow-wrap: anywhere; word-break: break-word; transition: font-size .16s ease; }
     .log-view-text * { max-width: 100%; white-space: pre-wrap; overflow-wrap: anywhere; word-break: break-word; }
