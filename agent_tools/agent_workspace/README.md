@@ -129,6 +129,14 @@ trusted by writing Codex `default_tools_approval_mode = "approve"` for
 `agent_tools_workspace` and Claude Code `mcp__agent-tools__*` allow settings;
 clearing the checkbox reverts those approval entries.
 
+Agent Workspace can also run the local diff report feedback server used by
+HTML reports with editable draw.io diagrams. Diff reports include feedback
+probing by default; the feedback server makes the Edit control appear while it
+is available and writes saved `.drawio`/`.svg` artifacts only under
+`tasks/<task>/report/drawio/`. Render with CLI `--disable-drawio-editing` or
+MCP `enable_drawio_editing=false` for public/static artifacts that should not
+probe the local feedback server.
+
 The reset-session button forgets only the selected task's selected AI-agent
 session in `.agent-workspace-state.json`; it does not delete the underlying
 Codex or Claude Code conversation data, and it does not affect another agent

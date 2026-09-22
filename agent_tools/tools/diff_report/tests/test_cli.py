@@ -379,6 +379,51 @@ class CliTests(unittest.TestCase):
         self.assertEqual(f"{output_path}\n", stdout.getvalue())
         self.assertIn("<h1>CLI report</h1>", html)
         self.assertIn("CLI note", html)
+        self.assertIn("draw.io feedback", html)
+
+    def test_disable_drawio_editing_omits_feedback_runtime(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            diff_path = root / "change.patch"
+            comments_path = root / "comments.json"
+            output_path = root / "report.html"
+            diff_path.write_text(
+                textwrap.dedent(
+                    """\
+                    diff --git a/app.py b/app.py
+                    index 1111111..2222222 100644
+                    --- a/app.py
+                    +++ b/app.py
+                    @@ -1 +1,2 @@
+                     keep()
+                    +added()
+                    """
+                ),
+                encoding="utf-8",
+            )
+            comments_path.write_text(
+                json.dumps({"inline": [{"file": "app.py", "line": 2, "body": "Editable report"}]}),
+                encoding="utf-8",
+            )
+
+            with contextlib.redirect_stdout(io.StringIO()):
+                status = main(
+                    [
+                        "--diff-file",
+                        str(diff_path),
+                        "--comments",
+                        str(comments_path),
+                        "--output",
+                        str(output_path),
+                        "--disable-drawio-editing",
+                    ]
+                )
+
+            html = output_path.read_text(encoding="utf-8")
+
+        self.assertEqual(0, status)
+        self.assertNotIn("draw.io feedback", html)
+        self.assertNotIn("window.codexOpenDrawioEditor", html)
 
     def test_relative_paths_are_resolved_from_current_working_directory(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

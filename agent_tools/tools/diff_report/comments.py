@@ -356,6 +356,7 @@ def diagrams_from_payload(
         if not isinstance(raw, dict):
             raise DiffReportError(f"diagram entry must be an object: {diagram_key}")
         title = str(raw.get("title", diagram_key))
+        svg_path: Path | None = None
         if "svg_inline" in raw:
             svg = normalize_svg(str(raw["svg_inline"]), source=f"diagram {diagram_key}")
         elif "svg" in raw:
@@ -366,13 +367,74 @@ def diagrams_from_payload(
         else:
             raise DiffReportError(f"diagram entry is missing svg or svg_inline: {diagram_key}")
         code_links = diagram_code_links(raw, diagram_key)
+        source_ref = raw.get("source")
+        renderer = diagram_renderer(raw, source_ref)
+        if renderer not in {"plantuml", "drawio", "svg"}:
+            raise DiffReportError(f"diagram renderer must be plantuml, drawio, or svg: {diagram_key}")
+        source_task = None
+        source_path = None
+        if source_ref not in (None, ""):
+            source_file = Path(str(source_ref))
+            if not source_file.is_absolute() and base_dir is not None:
+                source_file = base_dir / source_file
+            source_task, source_path = drawio_artifact_address(source_file, diagram_key, "source", required=True)
+        svg_task = None
+        svg_artifact_path = None
+        if svg_path is not None:
+            svg_task, svg_artifact_path = drawio_artifact_address(svg_path, diagram_key, "svg", required=False)
         diagrams[diagram_key] = Diagram(
             diagram_id=diagram_key,
             title=title,
             svg=svg,
+            renderer=renderer,
+            source_task=source_task,
+            source_path=source_path,
+            svg_task=svg_task,
+            svg_path=svg_artifact_path,
             code_links=code_links,
         )
     return diagrams
+
+
+def diagram_renderer(raw: dict[str, Any], source_ref: object) -> str:
+    if "renderer" in raw:
+        return str(raw["renderer"])
+    if source_ref not in (None, "") and Path(str(source_ref)).suffix == ".drawio":
+        return "drawio"
+    return "plantuml"
+
+
+def drawio_artifact_address(
+    path: Path,
+    diagram_key: str,
+    field: str,
+    *,
+    required: bool,
+) -> tuple[str, str] | tuple[None, None]:
+    resolved = path.resolve()
+    parts = resolved.parts
+    try:
+        tasks_index = parts.index("tasks")
+    except ValueError as error:
+        if not required:
+            return None, None
+        raise DiffReportError(f"diagram {field} must be under tasks/<task>/report/drawio: {diagram_key}") from error
+    relative_parts = parts[tasks_index:]
+    if len(relative_parts) < 5 or relative_parts[0] != "tasks":
+        if not required:
+            return None, None
+        raise DiffReportError(f"diagram {field} must be under tasks/<task>/report/drawio: {diagram_key}")
+    task = Path(*relative_parts[:2]).as_posix()
+    artifact = Path(*relative_parts[2:]).as_posix()
+    if not artifact.startswith("report/drawio/"):
+        if not required:
+            return None, None
+        raise DiffReportError(f"diagram {field} must be under report/drawio: {diagram_key}")
+    if Path(artifact).suffix not in {".drawio", ".svg"}:
+        if not required:
+            return None, None
+        raise DiffReportError(f"diagram {field} must reference .drawio or .svg: {diagram_key}")
+    return task, artifact
 
 
 def diagram_code_links(raw: dict[str, Any], diagram_key: str) -> tuple[dict[str, Any], ...]:

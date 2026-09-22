@@ -18,6 +18,7 @@ def diagram_script() -> str:
   const searchInput = document.getElementById("diagram-search");
   const searchCount = document.getElementById("diagram-search-count");
   const exportButton = document.getElementById("diagram-export");
+  const editButton = document.getElementById("diagram-edit");
   const zoomTools = Array.from(document.querySelectorAll("[data-diagram-zoom-tool]"));
   let scale = 1;
   let initialScale = 1;
@@ -37,6 +38,21 @@ def diagram_script() -> str:
   let panStartTop = 0;
   let activeExportName = "asset";
   let scaleAnimation = 0;
+
+  function diagramFeedbackDetail(template, id, nextMode) {
+    if (!template || nextMode !== "diagram") {
+      return null;
+    }
+    return {
+      diagramId: id || "",
+      title: template.dataset.title || id || "Diagram",
+      renderer: template.dataset.diagramRenderer || "",
+      sourceTask: template.dataset.diagramSourceTask || "",
+      sourcePath: template.dataset.diagramSourcePath || "",
+      svgTask: template.dataset.diagramSvgTask || "",
+      svgPath: template.dataset.diagramSvgPath || "",
+    };
+  }
 
   function setScale(nextScale, options) {
     const targetScale = Math.max(0.25, Math.min(4, nextScale));
@@ -1307,6 +1323,14 @@ def diagram_script() -> str:
     if (searchInput) {
       searchInput.value = "";
     }
+    if (editButton) {
+      editButton.hidden = true;
+      editButton.disabled = true;
+      editButton.textContent = "Edit";
+    }
+    document.dispatchEvent(new CustomEvent("codex-review-diagram-opened", {
+      detail: diagramFeedbackDetail(template, id, nextMode),
+    }));
     setInitialDiagramScale();
     const focusTarget = applyFocusTerms(focusTerms || [], notes || []);
 	    applyCodeLinks(nextMode === "diagram" ? parseCodeLinks(template.dataset.codeLinks) : []);
@@ -1394,6 +1418,7 @@ def diagram_script() -> str:
     activeNotes = [];
     activeCodeLinks = [];
     activeExportName = "asset";
+    document.dispatchEvent(new CustomEvent("codex-review-diagram-closed"));
     closeCodePopover();
     clearSearch();
   }

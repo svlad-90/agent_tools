@@ -62,6 +62,8 @@ from ...agent_runtime.api import build_ai_agent_console_command
 from ...agent_runtime.api import prepare_ai_agent_launch_command
 from ...commands.api import task_action_shell_command
 from ...commands.api import task_check_shell_command
+from ...diff_report_feedback.api import DiffReportFeedbackServerHandle
+from ...diff_report_feedback.api import start_diff_report_feedback_server
 from ...harness_adapter.api import AgentType
 from ...harness_adapter.api import HarnessDebugEvent
 from ...harness_adapter.api import HarnessStatusEvent
@@ -335,6 +337,7 @@ class WorkspaceGtkGui:
         self.task_agent_session_marker_cache: dict[Path, tuple[str, ...]] = {}
         self.task_session_discovery = TaskSessionDiscoveryState()
         self.terminal_sessions: dict[int, TerminalSession] = {}
+        self.active_terminal_context_menus: list[Gtk.Menu] = []
         self.last_active_terminal_by_task: dict[Path, int] = {}
         self.last_active_console_page_by_task: dict[Path, str] = {}
         self.next_terminal_id = 1
@@ -357,6 +360,7 @@ class WorkspaceGtkGui:
         self.harness_debug_snapshot_signature: tuple[int, int] | None = None
         self.harness_debug_latest_by_task: dict[Path, HarnessDebugEvent] = {}
         self.workspace_ipc_server: WorkspaceIpcServer | None = None
+        self.diff_report_feedback_server: DiffReportFeedbackServerHandle | None = None
         self.active_main_page: Gtk.Widget | None = None
         settings = agent_workspace_runtime_settings(load_agent_workspace_settings(), default_font_size=13)
         self.text_font_size = settings.text_font_size
@@ -378,6 +382,7 @@ class WorkspaceGtkGui:
         self.system_prompt = settings.system_prompt
         self.model_system_prompts = dict(settings.model_system_prompts)
         self.inject_task_context_prompt = settings.inject_task_context_prompt
+        self.diff_report_feedback_enabled = settings.diff_report_feedback_enabled
         self.mcp_enabled_groups = settings.mcp_enabled_groups
         self.mcp_trusted = settings.mcp_trusted
         self.task_dictionary_auto_discovery = settings.task_dictionary_auto_discovery
@@ -430,6 +435,7 @@ class WorkspaceGtkGui:
         self.ai_debug_columns: dict[str, Gtk.TreeViewColumn] = {}
         self.ai_debug_last_signature: tuple[object, ...] = ()
         self.ai_debug_refresh_source_id: int | None = None
+        self.agent_status_animation_source_id: int | None = None
         self.actions_controls_box: Gtk.Box | None = None
         self.workspace_actions_box: Gtk.Box | None = None
         self.task_reorder_group: str | None = None
@@ -464,12 +470,13 @@ class WorkspaceGtkGui:
         self.window.connect("delete-event", self._on_window_delete_event)
         self.window.connect("destroy", self.close)
         self.workspace_ipc_server = start_workspace_ipc_server(self.workspace, self._on_workspace_ipc_event)
+        self._apply_diff_report_feedback_server_state()
         self._apply_window_geometry()
         self._build_ui()
         self._apply_css()
         self.refresh_tasks()
         self.ai_debug_refresh_source_id = GLib.timeout_add_seconds(1, self._refresh_ai_debug_if_visible)
-        GLib.timeout_add_seconds(1, self._animate_agent_status)
+        self.agent_status_animation_source_id = GLib.timeout_add_seconds(1, self._animate_agent_status)
 
     def _build_ui(self) -> None:
         root = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
@@ -2674,6 +2681,15 @@ class WorkspaceGtkGui:
         mark_gtk_widget(theme_combo, "settings.theme", "field", label_key="theme", widget_kind="select")
         language_combo = Gtk.ComboBoxText()
         mark_gtk_widget(language_combo, "settings.language", "field", label_key="language", widget_kind="select")
+        diff_report_feedback_check = Gtk.CheckButton(label="Enabled")
+        mark_gtk_widget(
+            diff_report_feedback_check,
+            "settings.diff_report_feedback_enabled",
+            "field",
+            label_key="diff_report_feedback_enabled",
+            widget_kind="checkbox",
+        )
+        diff_report_feedback_check.set_active(self.diff_report_feedback_enabled)
         default_agent_combo = Gtk.ComboBoxText()
         mark_gtk_widget(
             default_agent_combo,
@@ -3353,6 +3369,7 @@ class WorkspaceGtkGui:
                 (self._tr("button_font_size"), button_size),
                 (self._tr("theme"), theme_combo),
                 (self._tr("language"), language_combo),
+                ("Diff report feedback", diff_report_feedback_check),
             ],
         )
         add_settings_section(
@@ -3472,6 +3489,7 @@ class WorkspaceGtkGui:
             self.button_font_size = int(button_size.get_value())
             self.theme = theme_combo.get_active_text() or self.theme
             self.language = language_combo.get_active_text() or self.language
+            self.diff_report_feedback_enabled = diff_report_feedback_check.get_active()
             self.default_agent = normalize_agent(default_agent_combo.get_active_text())
             if codex_available:
                 self.default_codex_model = codex_model_combo.get_active_text() or ""
@@ -3510,10 +3528,28 @@ class WorkspaceGtkGui:
             if self.selected_task is None:
                 self._set_selected_agent(self.default_agent)
             self._apply_runtime_style()
+            self._apply_diff_report_feedback_server_state()
             self._apply_labels()
             self.refresh_tasks()
             self._save_settings()
         dialog.destroy()
+
+    def _apply_diff_report_feedback_server_state(self) -> None:
+        if self.diff_report_feedback_enabled:
+            if self.diff_report_feedback_server is None:
+                try:
+                    self.diff_report_feedback_server = start_diff_report_feedback_server(self.workspace)
+                except OSError as error:
+                    self.diff_report_feedback_enabled = False
+                    self._show_error(f"Diff report feedback server failed: {error}")
+            return
+        self._stop_diff_report_feedback_server()
+
+    def _stop_diff_report_feedback_server(self) -> None:
+        server = self.diff_report_feedback_server
+        self.diff_report_feedback_server = None
+        if server is not None:
+            server.stop()
 
     def run_selected_task_check(self, *_args: object) -> None:
         task = self._require_task()
@@ -5158,6 +5194,8 @@ class WorkspaceGtkGui:
         terminal.connect("popup-menu", self._on_terminal_popup_menu)
         terminal.connect("key-press-event", self._on_terminal_key_press)
         terminal.connect("child-exited", self._on_terminal_child_exited)
+        terminal.connect("unrealize", self._remove_codex_terminal_window_filter)
+        terminal.connect("destroy", self._remove_codex_terminal_window_filter)
         scrolled = Gtk.ScrolledWindow()
         scrolled.get_style_context().add_class("terminal-page")
         terminal_child: Gtk.Widget = terminal
@@ -5673,6 +5711,7 @@ class WorkspaceGtkGui:
             self._on_terminal_popup_menu,
             self._on_terminal_key_press,
             self._on_terminal_child_exited,
+            self._remove_codex_terminal_window_filter,
         ):
             try:
                 disconnect(callback)
@@ -5749,6 +5788,8 @@ class WorkspaceGtkGui:
         GLib.idle_add(self._finish_task_session_discovery, task.path)
 
     def _finish_task_session_discovery(self, task_path: Path) -> bool:
+        if getattr(self, "_closing", False):
+            return False
         self.task_session_discovery.finish(task_path)
         task = self._task_for_path(task_path)
         self._invalidate_task_session_marker_cache(task)
@@ -6079,9 +6120,9 @@ class WorkspaceGtkGui:
         select_all_item = Gtk.MenuItem(label=self._tr("select_all"))
         close_item = Gtk.MenuItem(label=self._tr("close"))
         copy_item.set_sensitive(True)
-        copy_item.connect("activate", lambda *_: _copy_terminal_selection(terminal))
-        paste_item.connect("activate", lambda *_: terminal.paste_clipboard())
-        select_all_item.connect("activate", lambda *_: terminal.select_all())
+        copy_item.connect("activate", lambda *_: self._schedule_terminal_menu_action(terminal, "copy"))
+        paste_item.connect("activate", lambda *_: self._schedule_terminal_menu_action(terminal, "paste"))
+        select_all_item.connect("activate", lambda *_: self._schedule_terminal_menu_action(terminal, "select_all"))
         session = self._session_for_terminal(terminal)
         close_item.set_sensitive(session is not None)
         close_item.connect("activate", lambda *_: self._close_console_session(session) if session is not None else None)
@@ -6091,8 +6132,40 @@ class WorkspaceGtkGui:
         menu.append(select_all_item)
         menu.append(Gtk.SeparatorMenuItem())
         menu.append(close_item)
+        self._hold_terminal_context_menu(menu)
         menu.show_all()
         return menu
+
+    def _hold_terminal_context_menu(self, menu: Gtk.Menu) -> None:
+        menus = getattr(self, "active_terminal_context_menus", None)
+        if menus is None:
+            menus = []
+            self.active_terminal_context_menus = menus
+        menus.append(menu)
+
+        def release_menu(*_args: object) -> None:
+            try:
+                menus.remove(menu)
+            except ValueError:
+                pass
+
+        menu.connect("deactivate", release_menu)
+        menu.connect("destroy", release_menu)
+
+    def _schedule_terminal_menu_action(self, terminal: Vte.Terminal, action: str) -> None:
+        GLib.idle_add(self._run_terminal_menu_action, terminal, action)
+
+    def _run_terminal_menu_action(self, terminal: Vte.Terminal, action: str) -> bool:
+        session = self._session_for_terminal(terminal)
+        if session is None or session.exited:
+            return False
+        if action == "copy":
+            _copy_terminal_selection(terminal)
+        elif action == "paste":
+            terminal.paste_clipboard()
+        elif action == "select_all":
+            terminal.select_all()
+        return False
 
     def _session_for_terminal(self, terminal: Vte.Terminal) -> TerminalSession | None:
         for session in self.terminal_sessions.values():
@@ -6822,10 +6895,15 @@ class WorkspaceGtkGui:
         if source_id is not None:
             GLib.source_remove(source_id)
             self.ai_debug_refresh_source_id = None
+        source_id = getattr(self, "agent_status_animation_source_id", None)
+        if source_id is not None:
+            GLib.source_remove(source_id)
+            self.agent_status_animation_source_id = None
         workspace_ipc_server = getattr(self, "workspace_ipc_server", None)
         if workspace_ipc_server is not None:
             workspace_ipc_server.close()
             self.workspace_ipc_server = None
+        self._stop_diff_report_feedback_server()
         if self.task_actions_monitor is not None:
             self.task_actions_monitor.cancel()
         self._close_all_terminal_sessions()
@@ -6858,6 +6936,7 @@ class WorkspaceGtkGui:
                 "system_prompt": self.system_prompt,
                 "model_system_prompts": getattr(self, "model_system_prompts", {}),
                 "inject_task_context_prompt": self.inject_task_context_prompt,
+                "diff_report_feedback_enabled": self.diff_report_feedback_enabled,
                 "mcp_enabled_groups": list(mcp_enabled_groups),
                 "mcp_trusted": self.mcp_trusted,
                 "task_dictionary_auto_discovery": self.task_dictionary_auto_discovery,

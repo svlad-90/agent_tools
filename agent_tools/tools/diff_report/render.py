@@ -2,9 +2,10 @@ from __future__ import annotations
 
 import base64
 import json
+import re
 from typing import Any
 
-from .assets import copy_selection_script, diagram_script, html_header, story_script, theme_script
+from .assets import copy_selection_script, diagram_script, feedback_script, html_header, story_script, theme_script
 from .assets_plantuml_svg import plantuml_preview_svg
 from .diff_source import diff_files, diff_stats
 from .html_utils import anchor as _anchor
@@ -27,6 +28,8 @@ def render_html_report(
     title: str,
     source: DiffSource,
     comments: ReviewComments,
+    *,
+    enable_drawio_editing: bool = True,
 ) -> str:
     comment_count = _comment_count(comments)
     commit_id = comments.commit_id or source.commit
@@ -93,6 +96,8 @@ def render_html_report(
     parts.append(copy_selection_script())
     parts.append(story_script())
     parts.append(theme_script())
+    if enable_drawio_editing:
+        parts.append(feedback_script())
     parts.append("</main>\n</body>\n</html>\n")
     return "".join(parts)
 
@@ -438,11 +443,16 @@ def _render_diagram_preview(
     safe_id = _anchor(diagram.diagram_id)
     focus_attr = _focus_attr("data-diagram-focus", focus_terms)
     notes_attr = _json_attr("data-diagram-notes", notes)
-    preview_src = _svg_data_uri(plantuml_preview_svg(diagram.svg, "light"))
-    dark_preview_src = _svg_data_uri(plantuml_preview_svg(diagram.svg, "dark"))
+    if diagram.renderer == "plantuml":
+        preview_src = _svg_data_uri(_plantuml_diagram_svg(plantuml_preview_svg(diagram.svg, "light")))
+        dark_preview_src = _svg_data_uri(_plantuml_diagram_svg(plantuml_preview_svg(diagram.svg, "dark")))
+    else:
+        preview_src = _svg_data_uri(diagram.svg)
+        dark_preview_src = preview_src
+    edit_attr = _diagram_edit_attrs(diagram)
     return (
         '<button type="button" class="diagram-preview" '
-        f'data-diagram-id="{_esc(safe_id)}"{focus_attr}{notes_attr} aria-label="Open diagram: {_esc(diagram.title)}">'
+        f'data-diagram-id="{_esc(safe_id)}"{focus_attr}{notes_attr}{edit_attr} aria-label="Open diagram: {_esc(diagram.title)}">'
         f'<span class="diagram-preview-title">{_esc(diagram.title)}</span>'
         f'<span class="diagram-preview-canvas"><img class="diagram-preview-img-light" src="{_esc(preview_src)}" alt="">'
         f'<img class="diagram-preview-img-dark" src="{_esc(dark_preview_src)}" alt=""></span>'
@@ -453,6 +463,30 @@ def _render_diagram_preview(
 def _svg_data_uri(svg: str) -> str:
     encoded = base64.b64encode(svg.encode("utf-8")).decode("ascii")
     return f"data:image/svg+xml;base64,{encoded}"
+
+
+def _plantuml_diagram_svg(svg: str) -> str:
+    return re.sub(r"(<svg\b(?![^>]*\bclass=))", r'\1 class="plantuml-diagram"', svg, count=1)
+
+
+def _template_diagram_svg(diagram: Diagram) -> str:
+    if diagram.renderer == "plantuml":
+        return _plantuml_diagram_svg(diagram.svg)
+    return diagram.svg
+
+
+def _diagram_edit_attrs(diagram: Diagram) -> str:
+    attrs = [f' data-diagram-renderer="{_esc(diagram.renderer)}"']
+    if diagram.source_task and diagram.source_path and diagram.svg_task and diagram.svg_path:
+        attrs.extend(
+            [
+                f' data-diagram-source-task="{_esc(diagram.source_task)}"',
+                f' data-diagram-source-path="{_esc(diagram.source_path)}"',
+                f' data-diagram-svg-task="{_esc(diagram.svg_task)}"',
+                f' data-diagram-svg-path="{_esc(diagram.svg_path)}"',
+            ]
+        )
+    return "".join(attrs)
 
 
 def _render_log_preview(log: LogAttachment, focus_terms: tuple[str, ...] = ()) -> str:
@@ -481,6 +515,11 @@ def _render_diagram_modal(comments: ReviewComments) -> str:
     parts.append('        <button type="button" data-diagram-search="next" aria-label="Next search match">Next</button>\n')
     parts.append("        </div>\n")
     parts.append('        <div class="diagram-action-tools">\n')
+    parts.append(
+        '        <button type="button" id="diagram-edit" data-diagram-edit '
+        'onclick="window.codexOpenDrawioEditor && window.codexOpenDrawioEditor(event)" hidden>Edit</button>\n'
+    )
+    parts.append('        <span class="diagram-edit-status" id="diagram-edit-status"></span>\n')
     parts.append('        <button type="button" id="diagram-export" data-asset-export hidden>Export</button>\n')
     parts.append('        <button type="button" data-diagram-zoom="out" data-diagram-zoom-tool aria-label="Zoom out">-</button>\n')
     parts.append(
@@ -507,7 +546,7 @@ def _render_diagram_modal(comments: ReviewComments) -> str:
         links_attr = _json_attr("data-code-links", diagram.code_links)
         parts.append(
             f'  <template id="diagram-template-{_esc(safe_id)}" '
-            f'data-title="{_esc(diagram.title)}"{links_attr}>{diagram.svg}</template>\n'
+            f'data-title="{_esc(diagram.title)}"{links_attr}{_diagram_edit_attrs(diagram)}>{_template_diagram_svg(diagram)}</template>\n'
         )
     for log in comments.logs.values():
         safe_id = _anchor(log.log_id)

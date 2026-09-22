@@ -492,6 +492,136 @@ class DiffReportBehaviorTests(unittest.TestCase):
         self.assertIn("attention=2", stdout.getvalue())
         self.assertFalse(output.exists())
 
+    def test_non_plantuml_diagram_keeps_its_own_svg_styles(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            diff_path = root / "change.patch"
+            comments_path = root / "comments.json"
+            output = root / "report.html"
+            diff_path.write_text(
+                textwrap.dedent(
+                    """\
+                    diff --git a/app.py b/app.py
+                    new file mode 100644
+                    index 0000000..2f9a147
+                    --- /dev/null
+                    +++ b/app.py
+                    @@ -0,0 +1 @@
+                    +print('new')
+                    """
+                ),
+                encoding="utf-8",
+            )
+            drawio_svg = (
+                '<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10">'
+                "<style>.line-red { stroke: #b91c1c; }</style>"
+                '<path class="line-red" d="M 0 0 L 10 10"/>'
+                "</svg>"
+            )
+            plantuml_svg = '<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10"><text>x</text></svg>'
+            comments_path.write_text(
+                json.dumps(
+                    {
+                        "summary_blocks": [
+                            {"type": "diagram", "diagram": "drawio"},
+                            {"type": "diagram", "diagram": "plantuml"},
+                        ],
+                        "diagrams": {
+                            "drawio": {
+                                "title": "Draw.io diagram",
+                                "renderer": "drawio",
+                                "svg_inline": drawio_svg,
+                            },
+                            "plantuml": {
+                                "title": "PlantUML diagram",
+                                "svg_inline": plantuml_svg,
+                            },
+                        },
+                    },
+                    indent=2,
+                ),
+                encoding="utf-8",
+            )
+
+            generate_report(
+                output_path=output,
+                title="Renderer report",
+                diff_file=diff_path,
+                comments_file=comments_path,
+            )
+
+            html = output.read_text(encoding="utf-8")
+
+        self.assertIn('id="diagram-template-drawio"', html)
+        self.assertIn(".line-red { stroke: #b91c1c; }", html)
+        self.assertNotIn('id="diagram-template-drawio" data-title="Draw.io diagram"><svg class="plantuml-diagram"', html)
+        self.assertIn('id="diagram-template-plantuml"', html)
+        self.assertIn('<svg class="plantuml-diagram"', html)
+
+    def test_drawio_source_defaults_to_drawio_renderer(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            task = root / "tasks" / "demo"
+            diff_dir = task / "report" / "diff"
+            drawio_dir = task / "report" / "drawio"
+            diff_dir.mkdir(parents=True)
+            drawio_dir.mkdir(parents=True)
+            diff_path = root / "change.patch"
+            comments_path = diff_dir / "comments.json"
+            output = diff_dir / "report.html"
+            source_path = drawio_dir / "pipeline.drawio"
+            svg_path = drawio_dir / "pipeline.svg"
+            diff_path.write_text(
+                textwrap.dedent(
+                    """\
+                    diff --git a/app.py b/app.py
+                    new file mode 100644
+                    index 0000000..2f9a147
+                    --- /dev/null
+                    +++ b/app.py
+                    @@ -0,0 +1 @@
+                    +print('new')
+                    """
+                ),
+                encoding="utf-8",
+            )
+            source_path.write_text("<mxfile />", encoding="utf-8")
+            svg_path.write_text(
+                '<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10"><text>x</text></svg>',
+                encoding="utf-8",
+            )
+            comments_path.write_text(
+                json.dumps(
+                    {
+                        "summary_blocks": [{"type": "diagram", "diagram": "pipeline"}],
+                        "diagrams": {
+                            "pipeline": {
+                                "title": "Pipeline",
+                                "source": "../drawio/pipeline.drawio",
+                                "svg": "../drawio/pipeline.svg",
+                            },
+                        },
+                    },
+                    indent=2,
+                ),
+                encoding="utf-8",
+            )
+
+            generate_report(
+                output_path=output,
+                title="Draw.io default report",
+                diff_file=diff_path,
+                comments_file=comments_path,
+            )
+
+            html = output.read_text(encoding="utf-8")
+
+        self.assertIn('data-diagram-renderer="drawio"', html)
+        self.assertIn('data-diagram-source-task="tasks/demo"', html)
+        self.assertIn('data-diagram-source-path="report/drawio/pipeline.drawio"', html)
+        self.assertIn('data-diagram-svg-path="report/drawio/pipeline.svg"', html)
+        self.assertNotIn('<svg class="plantuml-diagram"', html)
+
     def _git(self, repo: Path, *args: str) -> None:
         subprocess.run(
             ["git", "-C", str(repo), *args],

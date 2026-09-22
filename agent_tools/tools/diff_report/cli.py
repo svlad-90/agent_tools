@@ -48,6 +48,16 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="Inject report self-test automation hooks when rendering --report-json.",
     )
+    parser.add_argument(
+        "--enable-drawio-editing",
+        action="store_true",
+        help="Deprecated no-op; draw.io editing runtime is enabled by default.",
+    )
+    parser.add_argument(
+        "--disable-drawio-editing",
+        action="store_true",
+        help="Disable browser-side draw.io editing runtime and local feedback-server probing.",
+    )
     parser.add_argument("--title", default="PR Diff Review", help="Report title.")
     parser.add_argument("--context", type=int, default=80, help="Git diff context lines.")
     parser.add_argument(
@@ -65,6 +75,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--help-compact", action="store_true", help="Print compact CLI synopsis.")
 
     args = parser.parse_args(sys.argv[1:] if argv is None else argv)
+    enable_drawio_editing = not args.disable_drawio_editing
     if args.help_compact:
         print(compact_help())
         return 0
@@ -103,6 +114,7 @@ def main(argv: list[str] | None = None) -> int:
                     output_path=output,
                     title=args.title if args.title != "PR Diff Review" else None,
                     test_mode=args.report_test_mode,
+                    enable_drawio_editing=enable_drawio_editing,
                 )
                 print(str(output))
             if sqlite_output is not None:
@@ -182,6 +194,7 @@ def main(argv: list[str] | None = None) -> int:
                     context=args.context,
                     display_label=args.display_label,
                     refresh_targets=args.refresh_targets,
+                    enable_drawio_editing=enable_drawio_editing,
                 )
                 print(str(output))
             return 0
@@ -199,6 +212,7 @@ def main(argv: list[str] | None = None) -> int:
             context=args.context,
             display_label=args.display_label,
             refresh_targets=args.refresh_targets,
+            enable_drawio_editing=enable_drawio_editing,
         )
         print(str(output))
         return 0

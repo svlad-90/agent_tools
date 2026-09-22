@@ -23,7 +23,7 @@ from .render import (
     _render_summary_section,
     _render_to_top_button,
 )
-from .assets import copy_selection_script, html_header, story_script, theme_script
+from .assets import copy_selection_script, feedback_script, html_header, story_script, theme_script
 
 
 @dataclass(frozen=True)
@@ -184,7 +184,12 @@ def report_from_payload(
     )
 
 
-def render_report_json_html(report: GenericReport, test_mode: bool = False) -> str:
+def render_report_json_html(
+    report: GenericReport,
+    test_mode: bool = False,
+    *,
+    enable_drawio_editing: bool = True,
+) -> str:
     comments = report.comments
     parts: list[str] = []
     parts.append(html_header(report.title))
@@ -241,6 +246,8 @@ def render_report_json_html(report: GenericReport, test_mode: bool = False) -> s
             parts.append(_report_self_test_script())
     parts.append(story_script())
     parts.append(theme_script())
+    if enable_drawio_editing:
+        parts.append(feedback_script())
     parts.append("</main>\n</body>\n</html>\n")
     return "".join(parts)
 

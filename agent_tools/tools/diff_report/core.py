@@ -18,6 +18,7 @@ def compact_help() -> str:
             "diff_report --repo <git_repo> --range HEAD^..HEAD --output report.html [--comments comments.json]",
             "diff_report --diff-file diff.patch --output report.html [--comments comments.json]",
             "diff_report --diff-file diff.patch --output report.html --comments comments.json --refresh-targets",
+            "diff_report --diff-file diff.patch --output report.html --comments comments.json [--disable-drawio-editing]",
             "diff_report --diff-file diff.patch --init-comments comments.json",
             "diff_report --diff-file diff.patch --findings findings.json --output-comments comments.json",
             "diff_report --diff-file diff.patch --findings findings.json --output-comments comments.json --output report.html [--compose-report diagnostics.json]",
@@ -49,6 +50,7 @@ def generate_report(
     context: int = 80,
     display_label: str | None = None,
     refresh_targets: bool = False,
+    enable_drawio_editing: bool = True,
 ) -> None:
     source = load_diff_source(repo_path, rev_range, diff_file, context, display_label)
     comments = load_comments(comments_file)
@@ -66,7 +68,7 @@ def generate_report(
             base_dir=comments_output_path.parent,
         )
     output_path.write_text(
-        render_html_report(title, source, rendered_comments),
+        render_html_report(title, source, rendered_comments, enable_drawio_editing=enable_drawio_editing),
         encoding="utf-8",
     )
 
@@ -77,9 +79,13 @@ def generate_report_json(
     output_path: Path,
     title: str | None = None,
     test_mode: bool = False,
+    enable_drawio_editing: bool = True,
 ) -> None:
     report = load_report_json(report_file)
     if title is not None:
         report = replace(report, title=title)
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    output_path.write_text(render_report_json_html(report, test_mode=test_mode), encoding="utf-8")
+    output_path.write_text(
+        render_report_json_html(report, test_mode=test_mode, enable_drawio_editing=enable_drawio_editing),
+        encoding="utf-8",
+    )

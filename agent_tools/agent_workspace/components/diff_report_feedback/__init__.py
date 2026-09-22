@@ -1,0 +1,1 @@
+"""Diff report feedback component."""

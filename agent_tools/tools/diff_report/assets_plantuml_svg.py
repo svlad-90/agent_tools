@@ -39,74 +39,74 @@ def plantuml_svg_styles() -> str:
     """
     return """
     /* PlantUML SVG contract: PlantUML 1.2020.02, Graphviz dot 2.43.0, JAVA_TOOL_OPTIONS=-Djava.awt.headless=true. */
-    .diagram-preview-canvas svg,
-    .diagram-zoom-stage svg { background: var(--diagram-svg-bg) !important; }
-    .diagram-preview-canvas svg rect[fill="#FFFFFF"][style*="stroke-width: 2.0"],
-    .diagram-zoom-stage svg rect[fill="#FFFFFF"][style*="stroke-width: 2.0"] { fill: none !important; stroke: var(--diagram-svg-line) !important; }
-    .diagram-preview-canvas svg rect[fill="#FFFFFF"][style*="stroke: none"],
-    .diagram-zoom-stage svg rect[fill="#FFFFFF"][style*="stroke: none"] { fill: none !important; stroke: none !important; }
-    .diagram-preview-canvas svg text:not(.diagram-note-text):not(.diagram-note-marker-text):not(.diagram-code-link-badge-text):not(.asset-focus-match):not(.asset-focus-related-hover),
-    .diagram-zoom-stage svg text:not(.diagram-note-text):not(.diagram-note-marker-text):not(.diagram-code-link-badge-text):not(.asset-focus-match):not(.asset-focus-related-hover),
-    .diagram-preview-canvas svg tspan:not(.diagram-note-text):not(.diagram-note-marker-text):not(.asset-focus-match):not(.asset-focus-related-hover),
-    .diagram-zoom-stage svg tspan:not(.diagram-note-text):not(.diagram-note-marker-text):not(.asset-focus-match):not(.asset-focus-related-hover) { fill: var(--diagram-svg-text) !important; stroke: none !important; }
-    .diagram-preview-canvas svg line:not(.asset-focus-connector):not(.diagram-code-link-connector):not(.diagram-note-link),
-    .diagram-zoom-stage svg line:not(.asset-focus-connector):not(.diagram-code-link-connector):not(.diagram-note-link),
-    .diagram-preview-canvas svg path:not(.asset-focus-object):not(.asset-focus-connector):not(.diagram-note-box):not(.diagram-note-link):not(.diagram-code-link-connector),
-    .diagram-zoom-stage svg path:not(.asset-focus-object):not(.asset-focus-connector):not(.diagram-note-box):not(.diagram-note-link):not(.diagram-code-link-connector),
-    .diagram-preview-canvas svg polyline:not(.asset-focus-connector):not(.diagram-code-link-connector),
-    .diagram-zoom-stage svg polyline:not(.asset-focus-connector):not(.diagram-code-link-connector) { stroke: var(--diagram-svg-line) !important; }
-    .diagram-preview-canvas svg polygon:not(.asset-focus-connector):not(.asset-focus-object):not(.diagram-code-link-connector):not([fill="#FFFFFF"]):not([fill="#FEFECE"]):not([fill="#F5F5F5"]):not([fill="#F8FAFC"]):not([fill="#EEEEEE"]):not([fill="#ECECEC"]):not([fill="#2D2D30"]):not([fill="#252526"]):not([fill="#3B3216"]):not([fill="#FBFB77"]),
-    .diagram-zoom-stage svg polygon:not(.asset-focus-connector):not(.asset-focus-object):not(.diagram-code-link-connector):not([fill="#FFFFFF"]):not([fill="#FEFECE"]):not([fill="#F5F5F5"]):not([fill="#F8FAFC"]):not([fill="#EEEEEE"]):not([fill="#ECECEC"]):not([fill="#2D2D30"]):not([fill="#252526"]):not([fill="#3B3216"]):not([fill="#FBFB77"]) { fill: var(--diagram-svg-arrow) !important; stroke: var(--diagram-svg-arrow) !important; stroke-width: 1.4px !important; }
-    .diagram-preview-canvas svg polygon[fill="#FFFFFF"]:not(.asset-focus-object),
-    .diagram-zoom-stage svg polygon[fill="#FFFFFF"]:not(.asset-focus-object),
-    .diagram-preview-canvas svg polygon[fill="#FEFECE"]:not(.asset-focus-object),
-    .diagram-zoom-stage svg polygon[fill="#FEFECE"]:not(.asset-focus-object),
-    .diagram-preview-canvas svg polygon[fill="#F5F5F5"]:not(.asset-focus-object),
-    .diagram-zoom-stage svg polygon[fill="#F5F5F5"]:not(.asset-focus-object),
-    .diagram-preview-canvas svg polygon[fill="#F8FAFC"]:not(.asset-focus-object),
-    .diagram-zoom-stage svg polygon[fill="#F8FAFC"]:not(.asset-focus-object),
-    .diagram-preview-canvas svg polygon[fill="#EEEEEE"]:not(.asset-focus-object),
-    .diagram-zoom-stage svg polygon[fill="#EEEEEE"]:not(.asset-focus-object),
-    .diagram-preview-canvas svg polygon[fill="#2D2D30"]:not(.asset-focus-object),
-    .diagram-zoom-stage svg polygon[fill="#2D2D30"]:not(.asset-focus-object),
-    .diagram-preview-canvas svg polygon[fill="#252526"]:not(.asset-focus-object),
-    .diagram-zoom-stage svg polygon[fill="#252526"]:not(.asset-focus-object),
-    .diagram-preview-canvas svg path[fill="#FFFFFF"]:not(.asset-focus-object),
-    .diagram-zoom-stage svg path[fill="#FFFFFF"]:not(.asset-focus-object),
-    .diagram-preview-canvas svg path[fill="#FEFECE"]:not(.asset-focus-object),
-    .diagram-zoom-stage svg path[fill="#FEFECE"]:not(.asset-focus-object),
-    .diagram-preview-canvas svg path[fill="#F5F5F5"]:not(.asset-focus-object),
-    .diagram-zoom-stage svg path[fill="#F5F5F5"]:not(.asset-focus-object),
-    .diagram-preview-canvas svg path[fill="#2D2D30"]:not(.asset-focus-object),
-    .diagram-zoom-stage svg path[fill="#2D2D30"]:not(.asset-focus-object),
-    .diagram-preview-canvas svg rect:not(.diagram-export-background):not(.diagram-note-box):not(.diagram-code-link-badge-box):not([fill="#ECECEC"]):not([fill="#FBFB77"]):not([fill="#3B3216"]):not([style*="stroke-width: 2.0"]):not([style*="stroke: none"]),
-    .diagram-zoom-stage svg rect:not(.diagram-export-background):not(.diagram-note-box):not(.diagram-code-link-badge-box):not([fill="#ECECEC"]):not([fill="#FBFB77"]):not([fill="#3B3216"]):not([style*="stroke-width: 2.0"]):not([style*="stroke: none"]),
-    .diagram-preview-canvas svg ellipse[fill="#FFFFFF"]:not(.asset-focus-object),
-    .diagram-zoom-stage svg ellipse[fill="#FFFFFF"]:not(.asset-focus-object),
-    .diagram-preview-canvas svg circle:not(.asset-focus-object),
-    .diagram-zoom-stage svg circle:not(.asset-focus-object) { fill: var(--diagram-svg-box-bg) !important; stroke: var(--diagram-svg-line) !important; }
-    .diagram-preview-canvas svg ellipse[fill="#D4D4D4"]:not(.asset-focus-object),
-    .diagram-zoom-stage svg ellipse[fill="#D4D4D4"]:not(.asset-focus-object),
-    .diagram-preview-canvas svg polygon[fill="#D4D4D4"]:not(.asset-focus-object),
-    .diagram-zoom-stage svg polygon[fill="#D4D4D4"]:not(.asset-focus-object) { fill: var(--diagram-svg-arrow) !important; stroke: var(--diagram-svg-arrow) !important; }
-    .diagram-preview-canvas svg path[fill="#FBFB77"]:not(.asset-focus-object),
-    .diagram-zoom-stage svg path[fill="#FBFB77"]:not(.asset-focus-object),
-    .diagram-preview-canvas svg polygon[fill="#FBFB77"]:not(.asset-focus-object),
-    .diagram-zoom-stage svg polygon[fill="#FBFB77"]:not(.asset-focus-object),
-    .diagram-preview-canvas svg rect[fill="#FBFB77"]:not(.asset-focus-object),
-    .diagram-zoom-stage svg rect[fill="#FBFB77"]:not(.asset-focus-object),
-    .diagram-preview-canvas svg path[fill="#ECECEC"]:not(.asset-focus-object),
-    .diagram-zoom-stage svg path[fill="#ECECEC"]:not(.asset-focus-object),
-    .diagram-preview-canvas svg polygon[fill="#ECECEC"]:not(.asset-focus-object),
-    .diagram-zoom-stage svg polygon[fill="#ECECEC"]:not(.asset-focus-object),
-    .diagram-preview-canvas svg rect[fill="#ECECEC"]:not(.asset-focus-object),
-    .diagram-zoom-stage svg rect[fill="#ECECEC"]:not(.asset-focus-object),
-    .diagram-preview-canvas svg path[fill="#3B3216"]:not(.asset-focus-object),
-    .diagram-zoom-stage svg path[fill="#3B3216"]:not(.asset-focus-object),
-    .diagram-preview-canvas svg polygon[fill="#3B3216"]:not(.asset-focus-object),
-    .diagram-zoom-stage svg polygon[fill="#3B3216"]:not(.asset-focus-object),
-    .diagram-preview-canvas svg rect[fill="#3B3216"]:not(.asset-focus-object),
-    .diagram-zoom-stage svg rect[fill="#3B3216"]:not(.asset-focus-object) { fill: var(--diagram-svg-note-bg) !important; stroke: var(--comment-border) !important; }
+    .diagram-preview-canvas svg.plantuml-diagram,
+    .diagram-zoom-stage svg.plantuml-diagram { background: var(--diagram-svg-bg) !important; }
+    .diagram-preview-canvas svg.plantuml-diagram rect[fill="#FFFFFF"][style*="stroke-width: 2.0"],
+    .diagram-zoom-stage svg.plantuml-diagram rect[fill="#FFFFFF"][style*="stroke-width: 2.0"] { fill: none !important; stroke: var(--diagram-svg-line) !important; }
+    .diagram-preview-canvas svg.plantuml-diagram rect[fill="#FFFFFF"][style*="stroke: none"],
+    .diagram-zoom-stage svg.plantuml-diagram rect[fill="#FFFFFF"][style*="stroke: none"] { fill: none !important; stroke: none !important; }
+    .diagram-preview-canvas svg.plantuml-diagram text:not(.diagram-note-text):not(.diagram-note-marker-text):not(.diagram-code-link-badge-text):not(.asset-focus-match):not(.asset-focus-related-hover),
+    .diagram-zoom-stage svg.plantuml-diagram text:not(.diagram-note-text):not(.diagram-note-marker-text):not(.diagram-code-link-badge-text):not(.asset-focus-match):not(.asset-focus-related-hover),
+    .diagram-preview-canvas svg.plantuml-diagram tspan:not(.diagram-note-text):not(.diagram-note-marker-text):not(.asset-focus-match):not(.asset-focus-related-hover),
+    .diagram-zoom-stage svg.plantuml-diagram tspan:not(.diagram-note-text):not(.diagram-note-marker-text):not(.asset-focus-match):not(.asset-focus-related-hover) { fill: var(--diagram-svg-text) !important; stroke: none !important; }
+    .diagram-preview-canvas svg.plantuml-diagram line:not(.asset-focus-connector):not(.diagram-code-link-connector):not(.diagram-note-link),
+    .diagram-zoom-stage svg.plantuml-diagram line:not(.asset-focus-connector):not(.diagram-code-link-connector):not(.diagram-note-link),
+    .diagram-preview-canvas svg.plantuml-diagram path:not(.asset-focus-object):not(.asset-focus-connector):not(.diagram-note-box):not(.diagram-note-link):not(.diagram-code-link-connector),
+    .diagram-zoom-stage svg.plantuml-diagram path:not(.asset-focus-object):not(.asset-focus-connector):not(.diagram-note-box):not(.diagram-note-link):not(.diagram-code-link-connector),
+    .diagram-preview-canvas svg.plantuml-diagram polyline:not(.asset-focus-connector):not(.diagram-code-link-connector),
+    .diagram-zoom-stage svg.plantuml-diagram polyline:not(.asset-focus-connector):not(.diagram-code-link-connector) { stroke: var(--diagram-svg-line) !important; }
+    .diagram-preview-canvas svg.plantuml-diagram polygon:not(.asset-focus-connector):not(.asset-focus-object):not(.diagram-code-link-connector):not([fill="#FFFFFF"]):not([fill="#FEFECE"]):not([fill="#F5F5F5"]):not([fill="#F8FAFC"]):not([fill="#EEEEEE"]):not([fill="#ECECEC"]):not([fill="#2D2D30"]):not([fill="#252526"]):not([fill="#3B3216"]):not([fill="#FBFB77"]),
+    .diagram-zoom-stage svg.plantuml-diagram polygon:not(.asset-focus-connector):not(.asset-focus-object):not(.diagram-code-link-connector):not([fill="#FFFFFF"]):not([fill="#FEFECE"]):not([fill="#F5F5F5"]):not([fill="#F8FAFC"]):not([fill="#EEEEEE"]):not([fill="#ECECEC"]):not([fill="#2D2D30"]):not([fill="#252526"]):not([fill="#3B3216"]):not([fill="#FBFB77"]) { fill: var(--diagram-svg-arrow) !important; stroke: var(--diagram-svg-arrow) !important; stroke-width: 1.4px !important; }
+    .diagram-preview-canvas svg.plantuml-diagram polygon[fill="#FFFFFF"]:not(.asset-focus-object),
+    .diagram-zoom-stage svg.plantuml-diagram polygon[fill="#FFFFFF"]:not(.asset-focus-object),
+    .diagram-preview-canvas svg.plantuml-diagram polygon[fill="#FEFECE"]:not(.asset-focus-object),
+    .diagram-zoom-stage svg.plantuml-diagram polygon[fill="#FEFECE"]:not(.asset-focus-object),
+    .diagram-preview-canvas svg.plantuml-diagram polygon[fill="#F5F5F5"]:not(.asset-focus-object),
+    .diagram-zoom-stage svg.plantuml-diagram polygon[fill="#F5F5F5"]:not(.asset-focus-object),
+    .diagram-preview-canvas svg.plantuml-diagram polygon[fill="#F8FAFC"]:not(.asset-focus-object),
+    .diagram-zoom-stage svg.plantuml-diagram polygon[fill="#F8FAFC"]:not(.asset-focus-object),
+    .diagram-preview-canvas svg.plantuml-diagram polygon[fill="#EEEEEE"]:not(.asset-focus-object),
+    .diagram-zoom-stage svg.plantuml-diagram polygon[fill="#EEEEEE"]:not(.asset-focus-object),
+    .diagram-preview-canvas svg.plantuml-diagram polygon[fill="#2D2D30"]:not(.asset-focus-object),
+    .diagram-zoom-stage svg.plantuml-diagram polygon[fill="#2D2D30"]:not(.asset-focus-object),
+    .diagram-preview-canvas svg.plantuml-diagram polygon[fill="#252526"]:not(.asset-focus-object),
+    .diagram-zoom-stage svg.plantuml-diagram polygon[fill="#252526"]:not(.asset-focus-object),
+    .diagram-preview-canvas svg.plantuml-diagram path[fill="#FFFFFF"]:not(.asset-focus-object),
+    .diagram-zoom-stage svg.plantuml-diagram path[fill="#FFFFFF"]:not(.asset-focus-object),
+    .diagram-preview-canvas svg.plantuml-diagram path[fill="#FEFECE"]:not(.asset-focus-object),
+    .diagram-zoom-stage svg.plantuml-diagram path[fill="#FEFECE"]:not(.asset-focus-object),
+    .diagram-preview-canvas svg.plantuml-diagram path[fill="#F5F5F5"]:not(.asset-focus-object),
+    .diagram-zoom-stage svg.plantuml-diagram path[fill="#F5F5F5"]:not(.asset-focus-object),
+    .diagram-preview-canvas svg.plantuml-diagram path[fill="#2D2D30"]:not(.asset-focus-object),
+    .diagram-zoom-stage svg.plantuml-diagram path[fill="#2D2D30"]:not(.asset-focus-object),
+    .diagram-preview-canvas svg.plantuml-diagram rect:not(.diagram-export-background):not(.diagram-note-box):not(.diagram-code-link-badge-box):not([fill="#ECECEC"]):not([fill="#FBFB77"]):not([fill="#3B3216"]):not([style*="stroke-width: 2.0"]):not([style*="stroke: none"]),
+    .diagram-zoom-stage svg.plantuml-diagram rect:not(.diagram-export-background):not(.diagram-note-box):not(.diagram-code-link-badge-box):not([fill="#ECECEC"]):not([fill="#FBFB77"]):not([fill="#3B3216"]):not([style*="stroke-width: 2.0"]):not([style*="stroke: none"]),
+    .diagram-preview-canvas svg.plantuml-diagram ellipse[fill="#FFFFFF"]:not(.asset-focus-object),
+    .diagram-zoom-stage svg.plantuml-diagram ellipse[fill="#FFFFFF"]:not(.asset-focus-object),
+    .diagram-preview-canvas svg.plantuml-diagram circle:not(.asset-focus-object),
+    .diagram-zoom-stage svg.plantuml-diagram circle:not(.asset-focus-object) { fill: var(--diagram-svg-box-bg) !important; stroke: var(--diagram-svg-line) !important; }
+    .diagram-preview-canvas svg.plantuml-diagram ellipse[fill="#D4D4D4"]:not(.asset-focus-object),
+    .diagram-zoom-stage svg.plantuml-diagram ellipse[fill="#D4D4D4"]:not(.asset-focus-object),
+    .diagram-preview-canvas svg.plantuml-diagram polygon[fill="#D4D4D4"]:not(.asset-focus-object),
+    .diagram-zoom-stage svg.plantuml-diagram polygon[fill="#D4D4D4"]:not(.asset-focus-object) { fill: var(--diagram-svg-arrow) !important; stroke: var(--diagram-svg-arrow) !important; }
+    .diagram-preview-canvas svg.plantuml-diagram path[fill="#FBFB77"]:not(.asset-focus-object),
+    .diagram-zoom-stage svg.plantuml-diagram path[fill="#FBFB77"]:not(.asset-focus-object),
+    .diagram-preview-canvas svg.plantuml-diagram polygon[fill="#FBFB77"]:not(.asset-focus-object),
+    .diagram-zoom-stage svg.plantuml-diagram polygon[fill="#FBFB77"]:not(.asset-focus-object),
+    .diagram-preview-canvas svg.plantuml-diagram rect[fill="#FBFB77"]:not(.asset-focus-object),
+    .diagram-zoom-stage svg.plantuml-diagram rect[fill="#FBFB77"]:not(.asset-focus-object),
+    .diagram-preview-canvas svg.plantuml-diagram path[fill="#ECECEC"]:not(.asset-focus-object),
+    .diagram-zoom-stage svg.plantuml-diagram path[fill="#ECECEC"]:not(.asset-focus-object),
+    .diagram-preview-canvas svg.plantuml-diagram polygon[fill="#ECECEC"]:not(.asset-focus-object),
+    .diagram-zoom-stage svg.plantuml-diagram polygon[fill="#ECECEC"]:not(.asset-focus-object),
+    .diagram-preview-canvas svg.plantuml-diagram rect[fill="#ECECEC"]:not(.asset-focus-object),
+    .diagram-zoom-stage svg.plantuml-diagram rect[fill="#ECECEC"]:not(.asset-focus-object),
+    .diagram-preview-canvas svg.plantuml-diagram path[fill="#3B3216"]:not(.asset-focus-object),
+    .diagram-zoom-stage svg.plantuml-diagram path[fill="#3B3216"]:not(.asset-focus-object),
+    .diagram-preview-canvas svg.plantuml-diagram polygon[fill="#3B3216"]:not(.asset-focus-object),
+    .diagram-zoom-stage svg.plantuml-diagram polygon[fill="#3B3216"]:not(.asset-focus-object),
+    .diagram-preview-canvas svg.plantuml-diagram rect[fill="#3B3216"]:not(.asset-focus-object),
+    .diagram-zoom-stage svg.plantuml-diagram rect[fill="#3B3216"]:not(.asset-focus-object) { fill: var(--diagram-svg-note-bg) !important; stroke: var(--comment-border) !important; }
     svg .asset-focus-connector { stroke: var(--diagram-focus) !important; stroke-width: 3px !important; opacity: .95; filter: none; }
     svg line.asset-focus-connector, svg path.asset-focus-connector, svg polyline.asset-focus-connector { stroke-dasharray: 8 8; stroke-linecap: round; animation: focus-dash-flow 2.4s linear infinite; }
     svg line.asset-focus-connector-reverse, svg path.asset-focus-connector-reverse, svg polyline.asset-focus-connector-reverse { animation-name: focus-dash-flow-reverse; }
@@ -124,14 +124,14 @@ def plantuml_svg_styles() -> str:
     svg polygon[fill="#3B3216"].asset-focus-object,
     svg rect[fill="#3B3216"].asset-focus-object { fill: var(--diagram-svg-note-bg) !important; fill-opacity: 1 !important; stroke: var(--diagram-focus) !important; stroke-width: 4px !important; stroke-dasharray: 8 8; stroke-linecap: round; stroke-linejoin: round; vector-effect: non-scaling-stroke; filter: drop-shadow(0 0 4px var(--diagram-focus-glow)); animation: focus-dash-flow 2.4s linear infinite; pointer-events: none; }
     svg .asset-focus-match { fill: var(--diagram-focus) !important; stroke: none !important; filter: none; animation: none; }
-    .diagram-preview-canvas svg text.asset-focus-match,
-    .diagram-zoom-stage svg text.asset-focus-match,
-    .diagram-preview-canvas svg tspan.asset-focus-match,
-    .diagram-zoom-stage svg tspan.asset-focus-match { fill: var(--diagram-focus) !important; stroke: none !important; }
-    .diagram-preview-canvas svg text.asset-focus-contained-text,
-    .diagram-zoom-stage svg text.asset-focus-contained-text,
-    .diagram-preview-canvas svg tspan.asset-focus-contained-text,
-    .diagram-zoom-stage svg tspan.asset-focus-contained-text { fill: var(--diagram-svg-text) !important; fill-opacity: 1 !important; stroke: none !important; filter: none; }
+    .diagram-preview-canvas svg.plantuml-diagram text.asset-focus-match,
+    .diagram-zoom-stage svg.plantuml-diagram text.asset-focus-match,
+    .diagram-preview-canvas svg.plantuml-diagram tspan.asset-focus-match,
+    .diagram-zoom-stage svg.plantuml-diagram tspan.asset-focus-match { fill: var(--diagram-focus) !important; stroke: none !important; }
+    .diagram-preview-canvas svg.plantuml-diagram text.asset-focus-contained-text,
+    .diagram-zoom-stage svg.plantuml-diagram text.asset-focus-contained-text,
+    .diagram-preview-canvas svg.plantuml-diagram tspan.asset-focus-contained-text,
+    .diagram-zoom-stage svg.plantuml-diagram tspan.asset-focus-contained-text { fill: var(--diagram-svg-text) !important; fill-opacity: 1 !important; stroke: none !important; filter: none; }
     svg .diagram-note-panel { opacity: 0; pointer-events: none; transition: opacity .12s ease; }
     svg .diagram-note-hover .diagram-note-panel, svg .diagram-note-hotspot:hover .diagram-note-panel { opacity: 1; pointer-events: auto; }
     svg .diagram-note-box { fill: var(--diagram-note-bg); stroke: var(--diagram-note-link); stroke-width: 1.8px; rx: 6px; ry: 6px; filter: drop-shadow(0 2px 4px rgba(15,23,42,.22)); }

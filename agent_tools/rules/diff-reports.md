@@ -34,6 +34,14 @@ directories.
    `logs` objects in the comments JSON. Keep task-owned PlantUML sources and
    rendered adjacent SVG files under `report/puml/`, and keep task-owned
    runtime logs under the task's `report/` tree.
+   Draw.io diagrams that should be editable from the HTML report must keep both
+   source `.drawio` and rendered `.svg` artifacts under the same task's
+   `report/drawio/` tree. Generated reports include draw.io editing support by
+   default and show Edit controls dynamically only when the local feedback
+   server is running and the opened diagram has writable draw.io artifact
+   paths. Use CLI `--disable-drawio-editing` or MCP
+   `enable_drawio_editing=false` only for public/static artifacts that should
+   not probe the local feedback server.
 8. Non-trivial reports should use `summary_blocks` for evidence-led summaries
    and a top-level `story` array when the reader needs a guided route through
    the diff.

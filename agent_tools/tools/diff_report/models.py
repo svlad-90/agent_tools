@@ -23,6 +23,11 @@ class Diagram:
     diagram_id: str
     title: str
     svg: str
+    renderer: str = "plantuml"
+    source_task: str | None = None
+    source_path: str | None = None
+    svg_task: str | None = None
+    svg_path: str | None = None
     code_links: tuple[dict[str, Any], ...] = ()
 
 
