@@ -76,6 +76,7 @@ def _diff_report_render(context: ToolContext, arguments: JsonObject) -> ToolResu
             context=int_arg(arguments, "context_lines", 80),
             display_label=optional_string_arg(arguments, "display_label"),
             refresh_targets=bool_arg(arguments, "refresh_targets", False),
+            enable_drawio_editing=bool_arg(arguments, "enable_drawio_editing", True),
         )
     except (DiffReportError, OSError, json.JSONDecodeError, ValueError) as error:
         return _error_result(error)
@@ -93,6 +94,7 @@ def _diff_report_render_json(context: ToolContext, arguments: JsonObject) -> Too
             report_file=report_json,
             output_path=output_path,
             title=optional_string_arg(arguments, "title"),
+            enable_drawio_editing=bool_arg(arguments, "enable_drawio_editing", True),
         )
     except (DiffReportError, OSError, json.JSONDecodeError, ValueError) as error:
         return _error_result(error)
@@ -144,6 +146,7 @@ def _diff_report_compose_findings(context: ToolContext, arguments: JsonObject) -
                 context=int_arg(arguments, "context_lines", 80),
                 display_label=optional_string_arg(arguments, "display_label"),
                 refresh_targets=bool_arg(arguments, "refresh_targets", False),
+                enable_drawio_editing=bool_arg(arguments, "enable_drawio_editing", True),
             )
     except (DiffReportError, OSError, json.JSONDecodeError, ValueError) as error:
         return _error_result(error)
@@ -244,6 +247,13 @@ def _render_input_schema() -> JsonObject:
                 "description": "Refresh comment target metadata beside the rendered report.",
                 "default": False,
             },
+            "enable_drawio_editing": {
+                "type": "boolean",
+                "description": (
+                    "Enable browser-side draw.io editing controls and local feedback-server probing."
+                ),
+                "default": True,
+            },
         }
     )
     return {
@@ -269,6 +279,13 @@ def _render_json_input_schema() -> JsonObject:
             "title": {
                 "type": "string",
                 "description": "Optional HTML report title override.",
+            },
+            "enable_drawio_editing": {
+                "type": "boolean",
+                "description": (
+                    "Enable browser-side draw.io editing controls and local feedback-server probing."
+                ),
+                "default": True,
             },
         },
         "required": ["report_json", "output"],
@@ -319,6 +336,14 @@ def _compose_findings_input_schema() -> JsonObject:
                 "type": "boolean",
                 "description": "Refresh comment target metadata beside the rendered report.",
                 "default": False,
+            },
+            "enable_drawio_editing": {
+                "type": "boolean",
+                "description": (
+                    "Enable browser-side draw.io editing controls and local feedback-server probing "
+                    "when output is requested."
+                ),
+                "default": True,
             },
         }
     )

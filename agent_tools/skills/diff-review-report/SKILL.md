@@ -32,6 +32,9 @@ story blocks, and reviewer prose.
    `diff_report_init_comments`, or `diff_report_compose_findings` when
    available. Otherwise run `python -m agent_tools.tools.diff_report` from the
    workspace root.
+   Draw.io editing support is included by default. Pass MCP
+   `enable_drawio_editing=false` or CLI `--disable-drawio-editing` only for
+   public/static artifacts that should not probe the local feedback server.
 5. Verify the generated HTML contains the expected title, files, and comment
    count with `rg`.
 6. When the source diff changes, regenerate with the existing comments JSON
@@ -58,6 +61,17 @@ python -m agent_tools.tools.diff_report \
   --comments task/report/diff/01-change.json \
   --output task/report/diff/01-change.html \
   --title "Commit 01 Review"
+```
+
+Static report without draw.io feedback probing:
+
+```sh
+python -m agent_tools.tools.diff_report \
+  --diff-file task/report/diff/01-change.patch \
+  --comments task/report/diff/01-change.json \
+  --output task/report/diff/01-change.html \
+  --title "Commit 01 Review" \
+  --disable-drawio-editing
 ```
 
 ## Checks

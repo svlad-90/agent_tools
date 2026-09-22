@@ -2455,15 +2455,89 @@ def test_gtk_close_disposes_terminal_sessions_before_quit(monkeypatch: object, t
     gui._save_settings = lambda: None  # type: ignore[method-assign]
     gui._task_for_path = lambda task_path: summary  # type: ignore[method-assign]
     gui._update_codex_button_state = lambda: None  # type: ignore[method-assign]
+    gui.ai_debug_refresh_source_id = 101
+    gui.agent_status_animation_source_id = 102
+    removed_sources: list[int] = []
     main_quit_called = []
+    monkeypatch.setattr(gtk_ui_module.GLib, "source_remove", lambda source_id: removed_sources.append(source_id))
     monkeypatch.setattr(gtk_ui_module.Gtk, "main_quit", lambda: main_quit_called.append(True))
 
     gui.close()
 
+    assert removed_sources == [101, 102]
+    assert gui.ai_debug_refresh_source_id is None
+    assert gui.agent_status_animation_source_id is None
     assert session.session_id not in gui.terminal_sessions
     assert page.destroyed
     assert terminal.disconnected
     assert main_quit_called == [True]
+
+
+def test_gtk_finish_task_session_discovery_skips_after_close(tmp_path: Path) -> None:
+    task = tmp_path / "tasks" / "sample-task"
+    task.mkdir(parents=True)
+    summary = discover_tasks_with_context(task, tmp_path)
+    gui = WorkspaceGtkGui.__new__(WorkspaceGtkGui)
+    gui._closing = True
+    gui.task_session_discovery = TaskSessionDiscoveryState(pending={summary.path})
+    gui._task_for_path = lambda _task_path: (_ for _ in ()).throw(AssertionError("closed UI should not touch tasks"))
+
+    assert not gui._finish_task_session_discovery(summary.path)
+    assert gui.task_session_discovery.is_pending(summary)
+
+
+def test_gtk_terminal_context_menu_reference_released_on_deactivate() -> None:
+    class FakeMenu:
+        def __init__(self) -> None:
+            self.callbacks: dict[str, object] = {}
+
+        def connect(self, signal_name: str, callback: object) -> None:
+            self.callbacks[signal_name] = callback
+
+    gui = WorkspaceGtkGui.__new__(WorkspaceGtkGui)
+    gui.active_terminal_context_menus = []
+    menu = FakeMenu()
+
+    gui._hold_terminal_context_menu(menu)  # type: ignore[arg-type]
+
+    assert gui.active_terminal_context_menus == [menu]
+
+    menu.callbacks["deactivate"]()
+
+    assert gui.active_terminal_context_menus == []
+
+
+def test_gtk_terminal_context_menu_copy_runs_after_popup_closes(monkeypatch: pytest.MonkeyPatch) -> None:
+    task = Path("/tmp/task")
+    terminal = object()
+    session = TerminalSession(1, task, "shell", terminal, object())
+    idle_calls: list[tuple[object, tuple[object, ...]]] = []
+    copied: list[object] = []
+    gui = WorkspaceGtkGui.__new__(WorkspaceGtkGui)
+    gui.terminal_sessions = {session.session_id: session}
+    monkeypatch.setattr(gtk_ui_module.GLib, "idle_add", lambda callback, *args: idle_calls.append((callback, args)) or 77)
+    monkeypatch.setattr(gtk_ui_module, "_copy_terminal_selection", lambda selected: copied.append(selected))
+
+    gui._schedule_terminal_menu_action(terminal, "copy")  # type: ignore[arg-type]
+
+    assert copied == []
+    callback, args = idle_calls[0]
+    assert callback(*args) is False
+    assert copied == [terminal]
+
+
+def test_gtk_terminal_context_menu_copy_ignores_closed_session(monkeypatch: pytest.MonkeyPatch) -> None:
+    task = Path("/tmp/task")
+    terminal = object()
+    session = TerminalSession(1, task, "shell", terminal, object(), exited=True)
+    copied: list[object] = []
+    gui = WorkspaceGtkGui.__new__(WorkspaceGtkGui)
+    gui.terminal_sessions = {session.session_id: session}
+    monkeypatch.setattr(gtk_ui_module, "_copy_terminal_selection", lambda selected: copied.append(selected))
+
+    assert gui._run_terminal_menu_action(terminal, "copy") is False  # type: ignore[arg-type]
+
+    assert copied == []
 
 
 def test_gtk_save_settings_persists_mcp_options(monkeypatch: object, tmp_path: Path) -> None:

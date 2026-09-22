@@ -30,6 +30,7 @@ def test_agent_workspace_settings_persist_font_size(tmp_path: Path) -> None:
             "limited_bash_heartbeat_tokens": 700,
             "system_prompt": "Prefer short, concrete answers.\nKeep task state durable.",
             "inject_task_context_prompt": False,
+            "diff_report_feedback_enabled": True,
             "mcp_enabled_groups": ["search", "python", "task_context"],
             "mcp_trusted": True,
             "task_dictionary_auto_discovery": False,
@@ -68,6 +69,7 @@ def test_agent_workspace_settings_persist_font_size(tmp_path: Path) -> None:
         "limited_bash_heartbeat_tokens": 700,
         "system_prompt": "Prefer short, concrete answers.\nKeep task state durable.",
         "inject_task_context_prompt": False,
+        "diff_report_feedback_enabled": True,
         "mcp_enabled_groups": (
             "search",
             "python",
@@ -143,6 +145,7 @@ def test_agent_workspace_runtime_settings_disables_agent_animations_by_default()
     assert settings.limited_bash_tail_tokens == AGENT_WORKSPACE_DEFAULT_LIMITED_BASH_TAIL_TOKENS
     assert settings.limited_bash_heartbeat_seconds == AGENT_WORKSPACE_DEFAULT_LIMITED_BASH_HEARTBEAT_SECONDS
     assert settings.limited_bash_heartbeat_tokens == AGENT_WORKSPACE_DEFAULT_LIMITED_BASH_HEARTBEAT_TOKENS
+    assert settings.diff_report_feedback_enabled is False
     assert settings.mcp_enabled_groups == tuple(group_id for group_id, _label in workspace_mcp_tool_groups())
     assert workspace_mcp_enabled_groups_for_runtime(settings.mcp_enabled_groups) is None
     assert settings.mcp_trusted is False
@@ -219,6 +222,7 @@ def test_agent_workspace_runtime_settings_normalizes_ui_defaults() -> None:
                 "opus": 42,
             },
             "inject_task_context_prompt": False,
+            "diff_report_feedback_enabled": True,
             "mcp_enabled_groups": ["search", "unknown", "validation"],
             "mcp_trusted": True,
             "task_dictionary_auto_discovery": False,
@@ -258,6 +262,7 @@ def test_agent_workspace_runtime_settings_normalizes_ui_defaults() -> None:
         "sonnet": "Use Claude-specific steering.",
     }
     assert settings.inject_task_context_prompt is False
+    assert settings.diff_report_feedback_enabled is True
     assert settings.mcp_enabled_groups == (
         "search",
         "task_context",
@@ -322,6 +327,7 @@ def test_agent_workspace_runtime_settings_falls_back_for_invalid_values() -> Non
     assert settings.system_prompt == ""
     assert settings.model_system_prompts == {}
     assert settings.inject_task_context_prompt is True
+    assert settings.diff_report_feedback_enabled is False
     assert settings.task_dictionary_auto_discovery is True
     assert settings.task_dictionary_min_occurrences == 1
     assert settings.task_dictionary_min_saving == 0

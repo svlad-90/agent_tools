@@ -76,6 +76,28 @@ statically into the page, and the browser does not load JSON at runtime.
 Use the same-basename JSON as the editable source for the next regeneration.
 For example, `review.html` should be paired with `review.json`.
 
+## Draw.io editing
+
+Diff reports can embed draw.io diagrams when a diagram entry has
+`"renderer": "drawio"`, a `source` `.drawio` file, and an `svg` file under the
+same task's `report/drawio/` tree. Browser-side editing support is included by
+default:
+
+```sh
+python -m agent_tools.tools.diff_report \
+  --diff-file change.patch \
+  --comments comments.json \
+  --output review.html
+```
+
+The generated report still works as a static HTML file. The page lightly probes
+the local Agent Workspace diff report feedback server and shows the Edit button
+only when that server is available and the opened diagram has writable draw.io
+source/SVG artifact paths. Saving from the embedded diagrams.net editor writes
+both the `.drawio` source and `.svg` preview back through that local feedback
+server. Use `--disable-drawio-editing` for public/static artifacts that should
+not include local feedback-server probing.
+
 To reduce manual anchor lookup before writing review notes, initialize a starter
 comments JSON from the diff:
 

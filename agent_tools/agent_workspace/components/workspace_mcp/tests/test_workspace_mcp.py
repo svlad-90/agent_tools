@@ -148,6 +148,8 @@ def test_workspace_mcp_lists_agent_search_tools(tmp_path: Path) -> None:
         "yocto_diag_analyze_graph",
         "yocto_diag_command",
     ]
+    render_tool = next(tool for tool in tools if tool["name"] == "diff_report_render")
+    assert "enable_drawio_editing" in render_tool["inputSchema"]["properties"]
     assert tools[0]["inputSchema"]["type"] == "object"
 
 
@@ -1630,7 +1632,9 @@ def test_workspace_mcp_diff_report_renders_and_composes_reports(tmp_path: Path) 
 
     assert rendered["result"]["isError"] is False
     assert rendered["result"]["structuredContent"]["output"] == str(tmp_path / "report.html")
-    assert "MCP note" in (tmp_path / "report.html").read_text(encoding="utf-8")
+    rendered_html = (tmp_path / "report.html").read_text(encoding="utf-8")
+    assert "MCP note" in rendered_html
+    assert "draw.io feedback" in rendered_html
     assert initialized["result"]["isError"] is False
     template = json.loads((tmp_path / "template.json").read_text(encoding="utf-8"))
     assert template["inline"] == []

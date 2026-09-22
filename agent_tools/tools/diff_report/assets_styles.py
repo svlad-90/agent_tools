@@ -233,6 +233,7 @@ def stylesheet() -> str:
     .report-brand-subtitle { color: var(--muted); font-size: var(--brand-subtitle-size); white-space: nowrap; }
     body.has-diagram-open .report-brand { z-index: 9; }
     .settings-launcher { position: fixed; right: max(8px, calc(var(--floating-content-gutter) - var(--floating-control-size) - var(--floating-control-gap))); bottom: calc(var(--story-nav-height) + var(--floating-bottom-gap)); z-index: 32; width: auto; opacity: 1; visibility: visible; pointer-events: auto; transform: translateY(0) scale(1); transition: opacity .18s ease, transform .18s ease, visibility 0s linear .18s, border-color .12s ease, box-shadow .12s ease; }
+    .feedback-status { position: fixed; right: max(8px, calc(var(--floating-content-gutter) - var(--floating-control-size) - var(--floating-control-gap))); bottom: calc(var(--story-nav-height) + var(--floating-bottom-gap) + var(--floating-control-size) + 10px); z-index: 32; max-width: 180px; padding: 7px 10px; border: 1px solid var(--border); border-radius: 999px; background: var(--button-bg); color: var(--link); box-shadow: 0 10px 28px var(--shadow); cursor: default; font: 800 12px/1.2 var(--font-stack); }
     .settings-toggle { display: inline-flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; width: var(--floating-control-size); height: var(--floating-control-size); padding: 0; border: 1px solid var(--border); border-radius: 999px; background: var(--button-bg); color: var(--link); box-shadow: 0 10px 28px var(--shadow); cursor: pointer; font: 800 18px/1 ui-monospace, SFMono-Regular, Consolas, monospace; }
     .settings-toggle span, .settings-toggle::before, .settings-toggle::after { content: ""; display: block; width: 18px; height: 2px; border-radius: 99px; background: currentColor; }
     .settings-toggle:hover { border-color: var(--link); box-shadow: 0 12px 32px rgba(9,105,218,.22); }
@@ -796,6 +797,15 @@ def stylesheet() -> str:
     .diagram-modal { position: fixed; inset: 0; z-index: 10; }
     .diagram-backdrop { position: absolute; inset: 0; background: rgba(31,35,40,.55); }
     .diagram-dialog { position: absolute; left: clamp(28px, 5vw, 92px); right: clamp(28px, 5vw, 92px); top: calc(min(var(--story-offset, 0px), 24vh) + 10px); bottom: calc(var(--story-nav-height) + clamp(8px, 2vh, 24px)); display: flex; flex-direction: column; min-width: 0; min-height: 0; background: var(--panel); border: 1px solid var(--border); border-radius: 8px; box-shadow: 0 16px 48px rgba(31,35,40,.28); }
+    .drawio-editor-shell[hidden] { display: none; }
+    .drawio-editor-shell { position: fixed; inset: 0; z-index: 40; }
+    .drawio-editor-backdrop { position: absolute; inset: 0; background: rgba(31,35,40,.62); }
+    .drawio-editor-dialog { position: absolute; inset: clamp(10px, 2vh, 24px) clamp(10px, 2vw, 28px); display: flex; flex-direction: column; min-width: 0; min-height: 0; overflow: hidden; background: var(--panel); border: 1px solid var(--border); border-radius: 8px; box-shadow: 0 18px 60px rgba(31,35,40,.36); }
+    .drawio-editor-toolbar { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 12px; align-items: center; padding: 8px 12px; border-bottom: 1px solid var(--border); background: var(--header-bg); }
+    .drawio-editor-toolbar h2 { min-width: 0; margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 15px; line-height: 1.2; }
+    .drawio-editor-actions { display: inline-flex; gap: 10px; align-items: center; }
+    .drawio-editor-status { color: var(--muted); font-size: 12px; white-space: nowrap; }
+    .drawio-editor-frame { flex: 1 1 auto; width: 100%; min-width: 0; min-height: 0; border: 0; background: #fff; }
     .diagram-toolbar { display: grid; grid-template-columns: minmax(180px, 1fr) minmax(0, auto); align-items: center; gap: 10px 12px; padding: 10px 12px; border-bottom: 1px solid var(--border); background: var(--header-bg); }
     .diagram-toolbar h2 { min-width: 0; margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 16px; }
     .diagram-tools { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 6px 8px; min-width: 0; }
@@ -805,7 +815,9 @@ def stylesheet() -> str:
     .diagram-tools input { width: clamp(160px, 24vw, 260px); height: 32px; border: 1px solid var(--border); border-radius: 6px; padding: 0 9px; font: inherit; }
     .diagram-search-count { min-width: 54px; color: var(--muted); font-size: 13px; text-align: center; }
     .diagram-tools button { display: inline-flex; align-items: center; justify-content: center; min-width: 36px; height: 32px; padding: 0 10px; border: 1px solid var(--border); border-radius: 6px; background: var(--button-bg); color: var(--text); cursor: pointer; font: inherit; line-height: 1; }
+    .diagram-tools button[hidden] { display: none !important; }
     .diagram-tools button:hover { border-color: var(--link); color: var(--link); }
+    .diagram-edit-status { min-width: 0; max-width: 180px; overflow: hidden; color: var(--muted); font-size: 12px; line-height: 1.2; text-overflow: ellipsis; white-space: nowrap; }
     .diagram-scroll { position: relative; flex: 1; min-height: 0; overflow: auto; padding: 18px; background: var(--diagram-bg); }
     .asset-story-comment { position: fixed; left: 18px; top: 18px; z-index: 11; width: min(520px, calc(100% - 36px)); margin: 0; padding: 10px 12px 10px 48px; border: 1px solid var(--comment-panel-border); border-left: 4px solid var(--comment-border); border-radius: 6px; background: var(--comment-bg); color: var(--text); box-shadow: 0 8px 22px var(--shadow); opacity: 0; visibility: hidden; pointer-events: none; user-select: text; }
     .asset-story-comment.is-positioned { opacity: 1; visibility: visible; pointer-events: auto; }

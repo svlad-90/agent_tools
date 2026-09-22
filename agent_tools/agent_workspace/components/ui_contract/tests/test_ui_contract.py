@@ -337,6 +337,7 @@ def test_settings_general_contract_matches_runtime_section_order() -> None:
         "settings.button_font_size",
         "settings.theme",
         "settings.language",
+        "settings.diff_report_feedback_enabled",
         "settings.default_agent",
         "settings.system_prompt",
         "settings.codex_model",
