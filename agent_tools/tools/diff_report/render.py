@@ -520,6 +520,8 @@ def _render_diagram_modal(comments: ReviewComments) -> str:
         'onclick="window.codexOpenDrawioEditor && window.codexOpenDrawioEditor(event)" hidden>Edit</button>\n'
     )
     parts.append('        <span class="diagram-edit-status" id="diagram-edit-status"></span>\n')
+    parts.append('        <button type="button" id="diagram-copy-text" data-diagram-copy-text hidden>Copy text</button>\n')
+    parts.append('        <span class="diagram-copy-status" id="diagram-copy-status"></span>\n')
     parts.append('        <button type="button" id="diagram-export" data-asset-export hidden>Export</button>\n')
     parts.append('        <button type="button" data-diagram-zoom="out" data-diagram-zoom-tool aria-label="Zoom out">-</button>\n')
     parts.append(

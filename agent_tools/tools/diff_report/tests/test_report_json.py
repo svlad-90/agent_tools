@@ -426,6 +426,8 @@ class ReportJsonTests(unittest.TestCase):
             "Product architecture",
             'data-diagram-id="flow"',
             'id="diagram-template-flow"',
+            'id="diagram-copy-text"',
+            'data-diagram-copy-text',
             'id="log-template-status"',
             "security risk",
             'data-story-diagram="flow"',
