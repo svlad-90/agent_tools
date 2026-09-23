@@ -18,14 +18,14 @@ These rules apply to every task directory under the workspace root.
    deliberately:
 
    - Use `tool_search` before falling back to a CLI wrapper for workspace
-     utility workflows such as task context, repo registry, diff reports, code
+     utility workflows such as task context, repo guard repositories, diff reports, code
      maps, YAML maps, rules sync, commit-message formatting, task checks,
      plugin/app operations, and connected document/site control.
    - Search by capability, not only by guessed tool name. Try a short
      workflow query first, such as `task context query`, `diff report render`,
-     `repo registry add`, `cpp code map symbol`, or `rules sync check`.
+     `repo guard repos add`, `cpp code map symbol`, or `rules sync check`.
      If that misses, try one broader family query, such as `task_context`,
-     `diff_report`, `repo_registry`, `cpp_code_map`, `yaml_map`, or
+     `diff_report`, `repo_guard`, `repo_registry`, `cpp_code_map`, `yaml_map`, or
      `rules_sync`.
    - Treat one empty or irrelevant `tool_search` result as inconclusive when a
      rule or skill names an MCP family. Refine once before declaring it
@@ -78,17 +78,17 @@ These rules apply to every task directory under the workspace root.
      rely on recursive discovery through large `dev/` trees.
      When an agent identifies a git repository root from inspected files,
      `git rev-parse --show-toplevel`, or user input, the agent updates this
-     registry itself. Prefer the MCP `repo_registry_add`,
-     `repo_registry_remove`, `repo_registry_list`, and
-     `repo_registry_validate` tools when available. Use the guarded CLI as the
-     fallback:
+     registry itself. Prefer the MCP or CLI surface owned by `repo_guard`
+     when available. The older `repo_registry_*` MCP tools and
+     `agent_tools.tools.repo_registry` CLI remain compatibility backends, not
+     the primary user-facing workflow. Use the guarded CLI fallback:
 
      ```sh
-     python3 -m agent_tools.tools.repo_registry add \
-       --task <task-dir> --workspace <workspace> --repo <repo-root> \
+     python3 -m agent_tools.tools.repo_guard repos add \
+       --task-dir <task-dir> --workspace <workspace> --repo <repo-root> \
        --role task-dev
-     python3 -m agent_tools.tools.repo_registry remove \
-       --task <task-dir> --workspace <workspace> --repo <repo-root>
+     python3 -m agent_tools.tools.repo_guard repos remove \
+       --task-dir <task-dir> --workspace <workspace> --repo <repo-root>
      ```
      Use `remove` to delete stale entries for repositories that are no longer
      used by the task or whose paths disappeared.
