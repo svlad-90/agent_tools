@@ -327,6 +327,23 @@ def test_validate_includes_dirty_worktree_paths(tmp_path: Path) -> None:
     assert "debug.zip" in compact_report(result)
 
 
+def test_validate_writes_compatibility_receipt_when_requested(tmp_path: Path, capsys: object) -> None:
+    repo = tmp_path / "repo"
+    _init_repo(repo)
+    (repo / "tracked.txt").write_text("ok\n", encoding="utf-8")
+    commit = _commit(repo)
+    receipt = tmp_path / "receipt.json"
+
+    status = main(["validate", "--repo", str(repo), "--receipt", str(receipt)])
+
+    assert status == 0
+    payload = json.loads(receipt.read_text(encoding="utf-8"))
+    assert payload["commit"] == commit
+    assert payload["status"] == "pass"
+    assert [command["name"] for command in payload["commands"]] == ["guard changed files"]
+    assert "repo_guard validate: pass" in capsys.readouterr().out
+
+
 def test_validate_parse_check_skips_deleted_python_paths(tmp_path: Path) -> None:
     repo = tmp_path / "repo"
     _init_repo(repo)

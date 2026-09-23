@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Sequence
 
 from .policy import policy_summary
+from . import legacy_validate
 from .runner import compact_report
 from .runner import pre_push
 from .runner import pre_push_dry_run
@@ -23,6 +24,15 @@ def main(argv: Sequence[str] | None = None) -> int:
     validate_parser = subparsers.add_parser("validate", help="Run repo_guard checks.")
     _add_common_args(validate_parser)
     validate_parser.add_argument("--include-heavy", action="store_true")
+    validate_parser.add_argument(
+        "--receipt",
+        help="Write a compatibility changed/task validation receipt instead of a repo_guard policy receipt.",
+    )
+    validate_parser.add_argument(
+        "--mark-push-guard",
+        action="store_true",
+        help="Record push_guard success after writing a passing compatibility receipt.",
+    )
     validate_parser.set_defaults(func=_validate_command)
 
     status_parser = subparsers.add_parser("status", help="Show resolved repo_guard policy.")
@@ -58,6 +68,22 @@ def _add_common_args(parser: argparse.ArgumentParser) -> None:
 
 
 def _validate_command(args: argparse.Namespace) -> int:
+    if args.receipt or args.mark_push_guard:
+        repo = Path(args.repo).expanduser().resolve()
+        receipt = Path(args.receipt).expanduser().resolve() if args.receipt else None
+        task_dir = _task_dir(args)
+        if task_dir is not None:
+            return legacy_validate.validate_task(
+                repo,
+                task_dir,
+                receipt=receipt,
+                mark_push_guard=bool(args.mark_push_guard),
+            )
+        return legacy_validate.validate_changed(
+            repo,
+            receipt=receipt,
+            mark_push_guard=bool(args.mark_push_guard),
+        )
     result = validate(
         Path(args.repo).expanduser().resolve(),
         task_dir=_task_dir(args),

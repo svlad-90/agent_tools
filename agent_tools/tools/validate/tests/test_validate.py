@@ -5,7 +5,7 @@ from pathlib import Path
 import sys
 
 import yaml
-from agent_tools.tools import validate as validate_module
+from agent_tools.tools.repo_guard import legacy_validate as validate_module
 from agent_tools.tools.validate import _run_validation
 from agent_tools.tools.validate import _changed_files
 from agent_tools.tools.validate import _guard_changed_files
