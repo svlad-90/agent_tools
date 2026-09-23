@@ -1,4 +1,9 @@
-"""Task context repository registry helpers."""
+"""Compatibility CLI for task repository registry helpers.
+
+Prefer ``python -m agent_tools.tools.repo_guard repos ...`` for user-facing
+repository registry workflows. This module remains as the backend and
+transition CLI for existing callers.
+"""
 
 from __future__ import annotations
 
@@ -38,7 +43,10 @@ class RepoRegistryEntry:
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description=__doc__)
+    parser = argparse.ArgumentParser(
+        description=__doc__,
+        epilog="Compatibility CLI: prefer python -m agent_tools.tools.repo_guard repos ...",
+    )
     subparsers = parser.add_subparsers(dest="command_name", required=True)
 
     list_parser = subparsers.add_parser("list", help="List registered repositories.")
