@@ -100,6 +100,49 @@ class DiffReportBehaviorTests(unittest.TestCase):
         self.assertIn('href="#deep-path-tests-test_app.py">test_app.py</a>', html)
         self.assertIn("review-nav-node review-nav-file", html)
 
+    def test_diff_report_orders_diff_body_like_sidebar_tree(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            diff_path = root / "change.patch"
+            output = root / "report.html"
+            diff_path.write_text(
+                textwrap.dedent(
+                    """\
+                    diff --git a/yocto/a.txt b/yocto/a.txt
+                    --- a/yocto/a.txt
+                    +++ b/yocto/a.txt
+                    @@ -1 +1 @@
+                    +a
+                    diff --git a/layers/x.txt b/layers/x.txt
+                    --- a/layers/x.txt
+                    +++ b/layers/x.txt
+                    @@ -1 +1 @@
+                    +x
+                    diff --git a/yocto/b.txt b/yocto/b.txt
+                    --- a/yocto/b.txt
+                    +++ b/yocto/b.txt
+                    @@ -1 +1 @@
+                    +b
+                    """
+                ),
+                encoding="utf-8",
+            )
+
+            generate_report(
+                output_path=output,
+                title="Grouped diff report",
+                diff_file=diff_path,
+            )
+
+            html = output.read_text(encoding="utf-8")
+
+        body_order = [
+            html.index('<div class="file-header">yocto/a.txt</div>'),
+            html.index('<div class="file-header">yocto/b.txt</div>'),
+            html.index('<div class="file-header">layers/x.txt</div>'),
+        ]
+        self.assertEqual(body_order, sorted(body_order))
+
     def test_empty_diff_report_omits_diff_stats(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)

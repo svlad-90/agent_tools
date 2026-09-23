@@ -76,6 +76,49 @@ class RenderDiffTests(unittest.TestCase):
         self.assertIn('<tr class="comment-row comment-row-add"><td colspan="3">', html)
         self.assertIn('<em>Line note</em>', html)
 
+    def test_render_diff_orders_file_blocks_by_sidebar_tree_order(self) -> None:
+        diff_text = "\n".join(
+            [
+                "diff --git a/yocto/a.txt b/yocto/a.txt",
+                "--- a/yocto/a.txt",
+                "+++ b/yocto/a.txt",
+                "@@ -1 +1 @@",
+                "+a",
+                "diff --git a/layers/x.txt b/layers/x.txt",
+                "--- a/layers/x.txt",
+                "+++ b/layers/x.txt",
+                "@@ -1 +1 @@",
+                "+x",
+                "diff --git a/yocto/b.txt b/yocto/b.txt",
+                "--- a/yocto/b.txt",
+                "+++ b/yocto/b.txt",
+                "@@ -1 +1 @@",
+                "+b",
+                "",
+            ]
+        )
+
+        html = render_diff(
+            diff_text,
+            ReviewComments(
+                summary="",
+                diagrams={},
+                logs={},
+                story=[],
+                file_comments={},
+                file_diagrams={},
+                file_logs={},
+                file_diagram_focus={},
+                file_log_focus={},
+                file_diagram_notes={},
+                inline_comments={},
+            ),
+            file_order=["yocto/a.txt", "yocto/b.txt", "layers/x.txt"],
+        )
+
+        self.assertLess(html.index("yocto/a.txt"), html.index("yocto/b.txt"))
+        self.assertLess(html.index("yocto/b.txt"), html.index("layers/x.txt"))
+
     def test_render_diff_rejects_inline_comment_without_rendered_target_line(self) -> None:
         comments = ReviewComments(
             summary="",

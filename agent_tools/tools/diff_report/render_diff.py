@@ -22,10 +22,13 @@ def render_diff(
     comments: ReviewComments,
     render_file_comment_assets: FileCommentAssetsRenderer | None = None,
     render_inline_comment_assets: InlineCommentAssetsRenderer | None = None,
+    file_order: list[str] | None = None,
 ) -> str:
     file_comment_assets = render_file_comment_assets or _empty_file_comment_assets
     inline_comment_assets = render_inline_comment_assets or _empty_inline_comment_assets
     diff_lines = list(iter_diff_lines(diff_text))
+    if file_order is not None:
+        diff_lines = _sort_diff_lines_by_file_order(diff_lines, file_order)
     _validate_inline_comment_targets(diff_lines, comments)
     parts: list[str] = []
     current_file: str | None = None
@@ -140,6 +143,34 @@ def render_diff(
 
     close_file()
     return "".join(parts)
+
+
+def _sort_diff_lines_by_file_order(diff_lines: list[DiffLine], file_order: list[str]) -> list[DiffLine]:
+    order = {file_path: index for index, file_path in enumerate(file_order)}
+    prefix: list[DiffLine] = []
+    blocks: list[tuple[int, int, list[DiffLine]]] = []
+    current_block: list[DiffLine] | None = None
+    current_file: str | None = None
+
+    for line in diff_lines:
+        if line.kind == "file":
+            if current_block is not None:
+                blocks.append((order.get(current_file or "", len(order)), len(blocks), current_block))
+            current_file = line.file_path
+            current_block = [line]
+            continue
+        if current_block is None:
+            prefix.append(line)
+        else:
+            current_block.append(line)
+
+    if current_block is not None:
+        blocks.append((order.get(current_file or "", len(order)), len(blocks), current_block))
+
+    sorted_lines = list(prefix)
+    for _, _, block in sorted(blocks, key=lambda item: (item[0], item[1])):
+        sorted_lines.extend(block)
+    return sorted_lines
 
 
 def _validate_inline_comment_targets(diff_lines: list[DiffLine], comments: ReviewComments) -> None:
