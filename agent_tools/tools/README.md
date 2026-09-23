@@ -36,7 +36,7 @@ MCP coverage currently maps to these tool groups:
   composition.
 - `task_context_*`: durable task slots, dictionary terms, and journal flow.
 - `repo_guard repos`: user-facing task repository registry workflow.
-  `repo_registry_*` remains a compatibility/backend MCP family.
+  `repo_registry_*` remains hidden compatibility/backend aliases.
 - `task_actualize` and `task_actions_*`: task infrastructure actualization plus
   task action inspection and editing.
 - `commit_msg_format`: commit message validation and shell-safe `git commit`

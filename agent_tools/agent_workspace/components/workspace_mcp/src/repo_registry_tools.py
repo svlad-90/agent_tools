@@ -15,19 +15,19 @@ from .registry import resolve_workspace_path, string_arg
 def repo_registry_tools() -> list[McpTool]:
     return [
         McpTool(
-            name="repo_registry_list",
-            title="Repo Registry List",
+            name="repo_guard_repos_list",
+            title="Repo Guard Repositories List",
             description=(
                 "Use instead of reading repo-registry YAML by hand. Lists the "
-                "repositories a task has explicitly declared for hook installation "
-                "and validation."
+                "repositories a task has explicitly declared for repo_guard hook "
+                "installation and validation."
             ),
             input_schema=_task_input_schema(),
             handler=_repo_registry_list,
         ),
         McpTool(
-            name="repo_registry_validate",
-            title="Repo Registry Validate",
+            name="repo_guard_repos_validate",
+            title="Repo Guard Repositories Validate",
             description=(
                 "Use before relying on repo-registry entries. Validates that every "
                 "recorded path is under the workspace and resolves to a git "
@@ -37,8 +37,8 @@ def repo_registry_tools() -> list[McpTool]:
             handler=_repo_registry_validate,
         ),
         McpTool(
-            name="repo_registry_add",
-            title="Repo Registry Add",
+            name="repo_guard_repos_add",
+            title="Repo Guard Repositories Add",
             description=(
                 "Use when an agent has identified a repository root. Verifies the "
                 "workspace path and git root before writing the task repo-registry "
@@ -48,8 +48,8 @@ def repo_registry_tools() -> list[McpTool]:
             handler=_repo_registry_add,
         ),
         McpTool(
-            name="repo_registry_remove",
-            title="Repo Registry Remove",
+            name="repo_guard_repos_remove",
+            title="Repo Guard Repositories Remove",
             description=(
                 "Use when a task no longer works with a repository. Removes the "
                 "workspace-validated path from the repo-registry slot without "
@@ -57,6 +57,38 @@ def repo_registry_tools() -> list[McpTool]:
             ),
             input_schema=_remove_input_schema(),
             handler=_repo_registry_remove,
+        ),
+        McpTool(
+            name="repo_registry_list",
+            title="Repo Registry List (Legacy)",
+            description="Deprecated compatibility alias for repo_guard_repos_list.",
+            input_schema=_task_input_schema(),
+            handler=_repo_registry_list,
+            visible=False,
+        ),
+        McpTool(
+            name="repo_registry_validate",
+            title="Repo Registry Validate (Legacy)",
+            description="Deprecated compatibility alias for repo_guard_repos_validate.",
+            input_schema=_task_input_schema(),
+            handler=_repo_registry_validate,
+            visible=False,
+        ),
+        McpTool(
+            name="repo_registry_add",
+            title="Repo Registry Add (Legacy)",
+            description="Deprecated compatibility alias for repo_guard_repos_add.",
+            input_schema=_add_input_schema(),
+            handler=_repo_registry_add,
+            visible=False,
+        ),
+        McpTool(
+            name="repo_registry_remove",
+            title="Repo Registry Remove (Legacy)",
+            description="Deprecated compatibility alias for repo_guard_repos_remove.",
+            input_schema=_remove_input_schema(),
+            handler=_repo_registry_remove,
+            visible=False,
         ),
     ]
 

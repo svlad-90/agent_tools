@@ -114,10 +114,10 @@ def test_workspace_mcp_lists_agent_search_tools(tmp_path: Path) -> None:
         "push_guard_install_hook",
         "push_guard_mark_success",
         "push_guard_status",
-        "repo_registry_add",
-        "repo_registry_list",
-        "repo_registry_remove",
-        "repo_registry_validate",
+        "repo_guard_repos_add",
+        "repo_guard_repos_list",
+        "repo_guard_repos_remove",
+        "repo_guard_repos_validate",
         "task_actions_add",
         "task_actions_delete",
         "task_actions_list",
@@ -182,7 +182,8 @@ def test_workspace_mcp_filters_tools_by_enabled_groups(tmp_path: Path) -> None:
     assert response is not None
     names = [tool["name"] for tool in response["result"]["tools"]]
     assert "task_context_query" in names
-    assert "repo_registry_list" in names
+    assert "repo_guard_repos_list" in names
+    assert "repo_registry_list" not in names
     assert "agent_search_text" not in names
     assert "code_map_map" not in names
 
@@ -625,10 +626,10 @@ with tempfile.TemporaryDirectory() as workspace_text:
         "push_guard_install_hook",
         "push_guard_mark_success",
         "push_guard_status",
-        "repo_registry_add",
-        "repo_registry_list",
-        "repo_registry_remove",
-        "repo_registry_validate",
+        "repo_guard_repos_add",
+        "repo_guard_repos_list",
+        "repo_guard_repos_remove",
+        "repo_guard_repos_validate",
         "task_actions_add",
         "task_actions_delete",
         "task_actions_list",
@@ -1888,10 +1889,16 @@ def test_workspace_mcp_lists_high_level_repo_guard_tools(tmp_path: Path) -> None
     assert response is not None
     tools = {tool["name"] for tool in response["result"]["tools"]}
     assert {
+        "repo_guard_repos_add",
+        "repo_guard_repos_list",
+        "repo_guard_repos_remove",
+        "repo_guard_repos_validate",
         "workspace_validate",
         "workspace_validation_policy",
         "workspace_validation_status",
     }.issubset(tools)
+    assert "repo_registry_add" not in tools
+    assert "repo_registry_list" not in tools
     assert "workspace_validation_commit_message" not in tools
     assert "workspace_validation_receipt_writer" not in tools
 
@@ -1917,7 +1924,7 @@ def test_workspace_mcp_repo_guard_policy_and_validate(tmp_path: Path) -> None:
     assert "repo_guard: pass" in validate_response["result"]["content"][0]["text"]
 
 
-def test_workspace_mcp_repo_registry_adds_validates_and_removes(tmp_path: Path) -> None:
+def test_workspace_mcp_repo_guard_repos_adds_validates_and_removes(tmp_path: Path) -> None:
     task_dir = tmp_path / "tasks" / "sample"
     repo = task_dir / "dev" / "repo"
     repo.mkdir(parents=True)
@@ -1926,20 +1933,20 @@ def test_workspace_mcp_repo_registry_adds_validates_and_removes(tmp_path: Path) 
 
     add_response = _mcp_call(
         server,
-        "repo_registry_add",
+        "repo_guard_repos_add",
         {
             "task": "tasks/sample",
             "repo": "tasks/sample/dev/repo",
             "role": "task-dev",
         },
     )
-    list_response = _mcp_call(server, "repo_registry_list", {"task": "tasks/sample"})
-    validate_response = _mcp_call(server, "repo_registry_validate", {"task": "tasks/sample"})
+    list_response = _mcp_call(server, "repo_guard_repos_list", {"task": "tasks/sample"})
+    validate_response = _mcp_call(server, "repo_guard_repos_validate", {"task": "tasks/sample"})
     rename_target = task_dir / "dev" / "repo-removed"
     repo.rename(rename_target)
     remove_response = _mcp_call(
         server,
-        "repo_registry_remove",
+        "repo_guard_repos_remove",
         {"task": "tasks/sample", "repo": "tasks/sample/dev/repo"},
     )
 
@@ -1953,13 +1960,43 @@ def test_workspace_mcp_repo_registry_adds_validates_and_removes(tmp_path: Path) 
     assert remove_response["result"]["content"][0]["text"].strip() == "repositories: []"
 
 
-def test_workspace_mcp_repo_registry_rejects_non_task_path(tmp_path: Path) -> None:
+def test_workspace_mcp_repo_guard_repos_rejects_non_task_path(tmp_path: Path) -> None:
     server = build_workspace_mcp_server(tmp_path)
 
-    response = _mcp_call(server, "repo_registry_list", {"task": "."})
+    response = _mcp_call(server, "repo_guard_repos_list", {"task": "."})
 
     assert response["result"]["isError"] is True
     assert "workspace tasks/" in response["result"]["content"][0]["text"]
+
+
+def test_workspace_mcp_repo_registry_legacy_alias_is_hidden_but_callable(tmp_path: Path) -> None:
+    task_dir = tmp_path / "tasks" / "sample"
+    repo = task_dir / "dev" / "repo"
+    repo.mkdir(parents=True)
+    _git(repo, "init")
+    server = build_workspace_mcp_server(tmp_path)
+
+    tools_response = server.handle_message({"jsonrpc": "2.0", "id": 1, "method": "tools/list"})
+    assert tools_response is not None
+    tool_names = {tool["name"] for tool in tools_response["result"]["tools"]}
+
+    assert "repo_registry_add" not in tool_names
+    assert "repo_guard_repos_add" in tool_names
+
+    add_response = _mcp_call(
+        server,
+        "repo_registry_add",
+        {
+            "task": "tasks/sample",
+            "repo": "tasks/sample/dev/repo",
+            "role": "task-dev",
+        },
+    )
+
+    assert add_response["result"]["isError"] is False
+    assert add_response["result"]["structuredContent"]["repositories"] == [
+        {"path": "tasks/sample/dev/repo", "role": "task-dev"}
+    ]
 
 
 def test_workspace_mcp_calls_task_context_query(tmp_path: Path) -> None:

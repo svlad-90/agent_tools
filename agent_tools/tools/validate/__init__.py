@@ -16,6 +16,9 @@ from agent_tools.tools.repo_guard.legacy_validate import ValidationCommand
 from agent_tools.tools.repo_guard.legacy_validate import ValidationResult
 from agent_tools.tools.repo_guard.legacy_validate import _changed_files
 from agent_tools.tools.repo_guard.legacy_validate import _guard_changed_files
+from agent_tools.tools.repo_guard.legacy_validate import _git
+from agent_tools.tools.repo_guard.legacy_validate import _repo_root
+from agent_tools.tools.repo_guard.legacy_validate import _run_command
 from agent_tools.tools.repo_guard.legacy_validate import _run_validation
 from agent_tools.tools.repo_guard.legacy_validate import _validation_commands
 

@@ -124,7 +124,7 @@ Diff reports -> diff_report_*
 Commit message formatting -> commit_msg_format
 Task actions -> task_actions_*
 Task context -> task_context_*
-Task repo registry -> repo_guard repos, with repo_registry_* as legacy fallback
+Task repo registry -> repo_guard repos, with repo_registry_* as hidden legacy fallback
 Push validation stamps/hooks -> push_guard_* and workspace_validate
 Repository validation policy -> workspace_validate, validate_changed,
 validate_task, workspace_validation_policy, workspace_validation_status

@@ -45,8 +45,8 @@ WORKSPACE_MCP_TOOL_GROUPS: tuple[tuple[str, str, str, tuple[str, ...]], ...] = (
     (
         "task_context",
         "Task context",
-        "Required workspace infrastructure: use instead of SQLite/YAML shell commands for task slots and repo registry.",
-        ("task_context_", "repo_registry_"),
+        "Required workspace infrastructure: use instead of SQLite/YAML shell commands for task slots and repo_guard repos.",
+        ("task_context_", "repo_guard_repos_"),
     ),
     (
         "task_actions",
