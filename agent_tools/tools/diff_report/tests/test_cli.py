@@ -4,9 +4,11 @@ import contextlib
 import io
 import json
 import os
+import sys
 import tempfile
 import textwrap
 import unittest
+from unittest import mock
 from pathlib import Path
 
 from agent_tools.tools.diff_report.cli import main
@@ -21,6 +23,42 @@ class CliTests(unittest.TestCase):
 
         self.assertEqual(0, status)
         self.assertIn("diff_report --repo", stdout.getvalue())
+
+    def test_check_drawio_reports_missing_cli_without_requiring_output(self) -> None:
+        stdout = io.StringIO()
+
+        with mock.patch.dict(os.environ, {"PATH": ""}):
+            with contextlib.redirect_stdout(stdout):
+                status = main(["--check-drawio"])
+
+        self.assertEqual(1, status)
+        self.assertIn("drawio CLI not found", stdout.getvalue())
+
+    def test_check_drawio_reports_available_cli_without_requiring_output(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            bin_dir = root / "bin"
+            bin_dir.mkdir()
+            fake_drawio = bin_dir / "drawio"
+            fake_drawio.write_text(
+                textwrap.dedent(
+                    f"""\
+                    #!{sys.executable}
+                    print("31.4.5")
+                    """
+                ),
+                encoding="utf-8",
+            )
+            fake_drawio.chmod(0o755)
+            stdout = io.StringIO()
+
+            with mock.patch.dict(os.environ, {"PATH": str(bin_dir)}):
+                with contextlib.redirect_stdout(stdout):
+                    status = main(["--check-drawio"])
+
+        self.assertEqual(0, status)
+        self.assertIn("drawio CLI ok", stdout.getvalue())
+        self.assertIn("31.4.5", stdout.getvalue())
 
     def test_report_json_renders_without_diff_source(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

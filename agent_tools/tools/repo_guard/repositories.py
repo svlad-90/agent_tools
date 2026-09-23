@@ -1,13 +1,10 @@
-"""Task context repository registry helpers."""
+"""Task repository registry backend for repo_guard."""
 
 from __future__ import annotations
 
-import argparse
 from dataclasses import dataclass
-import json
 from pathlib import Path
 import subprocess
-import sys
 from typing import Any
 
 import yaml
@@ -35,41 +32,6 @@ class RepoRegistryEntry:
         if self.role:
             result["role"] = self.role
         return result
-
-
-def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description=__doc__)
-    subparsers = parser.add_subparsers(dest="command_name", required=True)
-
-    list_parser = subparsers.add_parser("list", help="List registered repositories.")
-    _add_common_args(list_parser)
-    list_parser.add_argument("--json", action="store_true", help="Render JSON.")
-    list_parser.set_defaults(func=_main_list)
-
-    validate_parser = subparsers.add_parser("validate", help="Validate registered repositories.")
-    _add_common_args(validate_parser)
-    validate_parser.add_argument("--json", action="store_true", help="Render JSON.")
-    validate_parser.set_defaults(func=_main_validate)
-
-    add_parser = subparsers.add_parser("add", help="Add a verified repository to repo-registry.")
-    _add_common_args(add_parser)
-    add_parser.add_argument("--repo", required=True, help="Git repository root to register.")
-    add_parser.add_argument("--role", default="", help="Optional repository role.")
-    add_parser.add_argument("--json", action="store_true", help="Render JSON.")
-    add_parser.set_defaults(func=_main_add)
-
-    remove_parser = subparsers.add_parser("remove", help="Remove a repository from repo-registry.")
-    _add_common_args(remove_parser)
-    remove_parser.add_argument("--repo", required=True, help="Git repository root to unregister.")
-    remove_parser.add_argument("--json", action="store_true", help="Render JSON.")
-    remove_parser.set_defaults(func=_main_remove)
-
-    args = parser.parse_args(sys.argv[1:] if argv is None else argv)
-    try:
-        return int(args.func(args))
-    except ValueError as error:
-        print(f"repo_registry: error: {error}", file=sys.stderr)
-        return 1
 
 
 def add_repository(
@@ -205,77 +167,6 @@ def _repo_registry_entry_path(entry: Any) -> str:
         if isinstance(path, str):
             return path.strip()
     return ""
-
-
-def _main_list(args: argparse.Namespace) -> int:
-    task_dir, workspace = _resolved_common_args(args)
-    entries = repo_registry_entry_objects(_repo_registry_content(task_dir))
-    if args.json:
-        print(json.dumps([entry.as_dict() for entry in entries], indent=2, sort_keys=True))
-    else:
-        print(render_repo_registry(entries) if entries else "repositories: []")
-    return 0
-
-
-def _main_validate(args: argparse.Namespace) -> int:
-    task_dir, workspace = _resolved_common_args(args)
-    validation = validate_repo_registry(task_dir, workspace=workspace)
-    if args.json:
-        print(
-            json.dumps(
-                {
-                    "repositories": [str(path) for path in validation.repositories],
-                    "errors": list(validation.errors),
-                },
-                indent=2,
-                sort_keys=True,
-            )
-        )
-    else:
-        for path in validation.repositories:
-            print(f"PASS {path}")
-        for error in validation.errors:
-            print(f"FAIL {error}")
-        if not validation.repositories and not validation.errors:
-            print("WARN repo-registry is empty")
-    return 1 if validation.errors else 0
-
-
-def _main_add(args: argparse.Namespace) -> int:
-    task_dir, workspace = _resolved_common_args(args)
-    entries = add_repository(task_dir, workspace=workspace, repo=Path(args.repo), role=args.role)
-    if args.json:
-        print(json.dumps([entry.as_dict() for entry in entries], indent=2, sort_keys=True))
-    else:
-        print(render_repo_registry(entries))
-    return 0
-
-
-def _main_remove(args: argparse.Namespace) -> int:
-    task_dir, workspace = _resolved_common_args(args)
-    entries = remove_repository(task_dir, workspace=workspace, repo=Path(args.repo))
-    if args.json:
-        print(json.dumps([entry.as_dict() for entry in entries], indent=2, sort_keys=True))
-    else:
-        print(render_repo_registry(entries) if entries else "repositories: []")
-    return 0
-
-
-def _add_common_args(parser: argparse.ArgumentParser) -> None:
-    parser.add_argument("--task", required=True, help="Task directory.")
-    parser.add_argument(
-        "--workspace",
-        default=".",
-        help="Workspace root. Default: current directory.",
-    )
-
-
-def _resolved_common_args(args: argparse.Namespace) -> tuple[Path, Path]:
-    workspace = Path(args.workspace).expanduser().resolve()
-    task_dir = Path(args.task).expanduser()
-    if not task_dir.is_absolute():
-        task_dir = workspace / task_dir
-    return task_dir.resolve(), workspace
 
 
 def _repo_registry_content(task_dir: Path) -> str:

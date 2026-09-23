@@ -41,8 +41,9 @@ python3 install-agent-tools.py
 
 When run from a terminal without flags, the installer opens a small console
 wizard. Choose the UI profile (`web`, `tk`, or `gtk`) and whether to install
-common system tools such as PlantUML/Graphviz or Docker support. System package
-installation may ask for `sudo` on Linux.
+common system tools such as PlantUML/Graphviz, optional draw.io/diagrams.net
+desktop CLI support for editable diff-report diagrams, or Docker support.
+System package installation may ask for `sudo` on Linux.
 
 At this stage, `gtk` is the only fully supported UI profile. The `web` and
 `tk` profiles remain useful for compatibility work and focused testing, but

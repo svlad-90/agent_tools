@@ -1308,6 +1308,9 @@ def diagram_script() -> str:
     }
     const stage = document.createElement("div");
     stage.className = "diagram-zoom-stage";
+    if (template.dataset.diagramRenderer) {
+      stage.dataset.diagramRenderer = template.dataset.diagramRenderer;
+    }
     stage.appendChild(template.content.cloneNode(true));
     content.appendChild(stage);
     modal.hidden = false;

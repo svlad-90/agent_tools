@@ -118,7 +118,12 @@ def _is_generated_markdown(path: Path) -> bool:
 
 def _is_tool_reference_markdown(path: Path) -> bool:
     # Tool README files are on-demand manuals, not default agent context.
-    return path.parts[:2] == ("agent_tools", "tools") and path.name == "README.md"
+    if path.parts[:2] != ("agent_tools", "tools"):
+        return False
+    return path.name == "README.md" or path in {
+        Path("agent_tools/tools/diff_report/GRAPH_MODEL.md"),
+        Path("agent_tools/tools/diff_report/SQLITE.md"),
+    }
 
 
 def _markdown_entries(paths: Iterable[Path]) -> list[MarkdownEntry]:

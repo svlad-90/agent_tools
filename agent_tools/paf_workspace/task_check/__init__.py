@@ -21,7 +21,7 @@ from agent_tools.tools.task_context import ensure_database as ensure_task_contex
 from agent_tools.tools.task_context import load_slots as load_task_context_slots
 from agent_tools.tools.task_actualize import actualize_task
 from agent_tools.tools import push_guard
-from agent_tools.tools.repo_registry import validate_repo_registry
+from agent_tools.tools.repo_guard.repositories import validate_repo_registry
 from agent_tools.validation.policy import load_validation_policy
 
 

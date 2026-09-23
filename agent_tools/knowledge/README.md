@@ -33,3 +33,22 @@ Each finding should include:
 
 If no existing topic fits, create `topics/<topic>.md` and add a routing entry
 above.
+
+## Local Knowledge Database
+
+The markdown topic files remain the reviewable public knowledge source. The
+`agent_tools.tools.knowledge` CLI also supports a local SQLite database for
+more structured private findings:
+
+```sh
+python -m agent_tools.tools.knowledge db-init
+python -m agent_tools.tools.knowledge db-add agent_tools "repo_guard owns validation policy" --tag validation
+python -m agent_tools.tools.knowledge db-search validation
+python -m agent_tools.tools.knowledge db-get 1
+python -m agent_tools.tools.knowledge db-topics
+```
+
+By default the database lives under `knowledge/private/knowledge.sqlite3`,
+which is intentionally private workspace state. Set `AGENT_TOOLS_KNOWLEDGE_DB`
+to use another path. Use `--scope public` only for entries that can safely be
+promoted to tracked markdown later.

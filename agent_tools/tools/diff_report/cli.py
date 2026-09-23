@@ -10,6 +10,7 @@ from .comments_compose import compose_comments_payload_with_diagnostics
 from .comments_template import build_comments_template
 from .core import compact_help, generate_report, generate_report_json
 from .diff_source import load_diff_source
+from .drawio_graph import check_drawio_cli
 from .models import DiffReportError
 from .report_json import load_report_json
 from .sqlite_runtime import build_single_html
@@ -73,12 +74,21 @@ def main(argv: list[str] | None = None) -> int:
         help="Human-facing diff source label, for example 'Commit 01'.",
     )
     parser.add_argument("--help-compact", action="store_true", help="Print compact CLI synopsis.")
+    parser.add_argument(
+        "--check-drawio",
+        action="store_true",
+        help="Check optional local draw.io/diagrams.net CLI support for drawio_graph layout/export.",
+    )
 
     args = parser.parse_args(sys.argv[1:] if argv is None else argv)
     enable_drawio_editing = not args.disable_drawio_editing
     if args.help_compact:
         print(compact_help())
         return 0
+    if args.check_drawio:
+        ok, message = check_drawio_cli()
+        print(message)
+        return 0 if ok else 1
     if args.report_json and (args.repo or args.diff_file or args.init_comments or args.findings or args.output_comments):
         parser.error("--report-json cannot be combined with diff, init-comments, or findings modes")
     if args.findings and not args.output_comments:

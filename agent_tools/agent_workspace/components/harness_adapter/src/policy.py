@@ -19,7 +19,7 @@ from agent_tools.agent_workspace.components.settings.api import load_agent_works
 from agent_tools.agent_workspace.components.settings.api import system_prompt_for_model
 from agent_tools.paf_workspace.task_check import check_task
 from agent_tools.paf_workspace.task_check import render_text
-from agent_tools.tools.repo_registry import validate_repo_registry
+from agent_tools.tools.repo_guard.repositories import validate_repo_registry
 from agent_tools.tools.task_context import agent_visible_slots
 from agent_tools.tools.task_context import database_path
 from agent_tools.tools.task_context import ensure_database

@@ -114,12 +114,12 @@ build commands, PAF scenarios, and direct human use. Current MCP tool groups
 include compact search (`agent_search_*`), Python maps and guarded edits
 (`code_map_*`), C/C++ structural and build-backed maps (`cpp_light_*` and
 `cpp_code_map_*`), YAML maps and edits (`yaml_map_*`), diff reports
-(`diff_report_*`), task context and repo registry (`task_context_*` and
-`repo_registry_*`), task actualization (`task_actualize`), task action editing
+(`diff_report_*`), task context (`task_context_*`), task repositories
+(`repo_guard_repos_*`), task actualization (`task_actualize`), task action editing
 (`task_actions_*`), commit message formatting (`commit_msg_format`), push
 validation (`push_guard_*`), workspace validation (`workspace_validate`,
-`validate_changed`, `validate_task`, `workspace_validation_policy`, and
-`workspace_validation_status`), and Yocto diagnostics (`yocto_diag_*`). Active
+`workspace_validation_policy`, and `workspace_validation_status`), and Yocto
+diagnostics (`yocto_diag_*`). Active
 MCP clients may need to be restarted after an Agent Workspace upgrade so they
 reload the updated tool schema. Rule synchronization and workspace knowledge
 remain file/CLI infrastructure rather than agent-facing MCP tools.

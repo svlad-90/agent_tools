@@ -106,7 +106,7 @@ Multi-stage validation orchestration -> PAF plus xen-qemu-harness
 Moulin CI or local workflow validation -> moulin-local-validation
 Diff or patch review reports -> diff-review-report
 Commit message formatting -> commit-message-format
-Task layout and workflow metadata checks -> validate_task or task action
+Task layout and workflow metadata checks -> task_check or task action
 Task context, handoff notes, decisions, blockers, validation notes, or context
 compaction -> task-context-journal
 Mirroring rules/skills into another coding agent's native conventions ->
@@ -124,10 +124,10 @@ Diff reports -> diff_report_*
 Commit message formatting -> commit_msg_format
 Task actions -> task_actions_*
 Task context -> task_context_*
-Task repo registry -> repo_registry_*
+Task repo registry -> repo_guard repos
 Push validation stamps/hooks -> push_guard_* and workspace_validate
-Repository validation policy -> workspace_validate, validate_changed,
-validate_task, workspace_validation_policy, workspace_validation_status
+Repository validation policy -> workspace_validate, workspace_validation_policy,
+workspace_validation_status
 Compact workspace search -> agent_search_*
 ```
 

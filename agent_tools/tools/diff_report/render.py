@@ -38,6 +38,7 @@ def render_html_report(
     subject = source.subject or commit_subject
     stats = diff_stats(source.diff_text)
     diff_file_order = diff_files(source.diff_text)
+    tree_file_order = _tree_file_order(diff_file_order)
     parts: list[str] = []
     parts.append(html_header(title))
     parts.append(
@@ -86,6 +87,7 @@ def render_html_report(
                 comment.log_focus,
                 comment.diagram_notes,
             ),
+            file_order=tree_file_order,
         )
     )
     parts.append(_render_settings_launcher(" report-settings-launcher"))
@@ -194,16 +196,7 @@ def _render_comments_index(
         ]
         for file_path in file_paths
     }
-    tree: dict[str, Any] = {"__items__": []}
-    for file_path in file_paths:
-        node = tree
-        parts_path = file_path.split("/")
-        for path_part in parts_path[:-1]:
-            if path_part not in node:
-                node[path_part] = {"__items__": []}
-                node["__items__"].append(("dir", path_part))
-            node = node[path_part]
-        node["__items__"].append(("file", file_path))
+    tree = _build_file_tree(file_paths)
 
     def collapsed_dir_label(dirname: str, child: dict[str, Any]) -> tuple[str, dict[str, Any]]:
         label_parts = [dirname]
@@ -275,6 +268,35 @@ def _render_comments_index(
     parts.append('    <div class="review-nav-resizer" aria-hidden="true"></div>\n')
     parts.append("  </section>\n")
     return "".join(parts)
+
+
+def _tree_file_order(file_paths: list[str]) -> list[str]:
+    tree = _build_file_tree(file_paths)
+    ordered: list[str] = []
+
+    def walk(node: dict[str, Any]) -> None:
+        for item_kind, item_value in node.get("__items__", ()):
+            if item_kind == "dir":
+                walk(node[item_value])
+            elif item_kind == "file":
+                ordered.append(item_value)
+
+    walk(tree)
+    return ordered
+
+
+def _build_file_tree(file_paths: list[str]) -> dict[str, Any]:
+    tree: dict[str, Any] = {"__items__": []}
+    for file_path in file_paths:
+        node = tree
+        parts_path = file_path.split("/")
+        for path_part in parts_path[:-1]:
+            if path_part not in node:
+                node[path_part] = {"__items__": []}
+                node["__items__"].append(("dir", path_part))
+            node = node[path_part]
+        node["__items__"].append(("file", file_path))
+    return tree
 
 
 def _render_story_section(comments: ReviewComments) -> str:

@@ -1,8 +1,7 @@
-"""Run workspace validation checks and write a compact receipt."""
+"""Changed/task receipt validation backend for repo_guard."""
 
 from __future__ import annotations
 
-import argparse
 import json
 import shutil
 import subprocess
@@ -10,18 +9,18 @@ import sys
 import time
 from dataclasses import asdict
 from dataclasses import dataclass
-from datetime import UTC
 from datetime import datetime
+from datetime import timezone
 from pathlib import Path
 from typing import Sequence
 
-from agent_tools.validation.policy import CheckConfig
-from agent_tools.validation.policy import load_validation_policy
 from agent_tools.tools.push_guard import FORBIDDEN_ARTIFACT_SUFFIXES
 from agent_tools.tools.push_guard import FORBIDDEN_PUSH_PATH_PREFIXES
 from agent_tools.tools.push_guard import LARGE_FILE_LIMIT_BYTES
 from agent_tools.tools.push_guard import SECRET_PATTERNS
 from agent_tools.tools.push_guard import SECRET_SCAN_LIMIT_BYTES
+from agent_tools.validation.policy import CheckConfig
+from agent_tools.validation.policy import load_validation_policy
 
 
 @dataclass(frozen=True)
@@ -43,50 +42,33 @@ class ValidationResult:
     stderr_tail: str
 
 
-def main(argv: Sequence[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description=__doc__)
-    subparsers = parser.add_subparsers(dest="command_name", required=True)
-
-    changed_parser = subparsers.add_parser("changed", help="Validate changed files in the repository.")
-    _add_common_args(changed_parser)
-    changed_parser.set_defaults(func=validate_changed)
-
-    task_parser = subparsers.add_parser("task", help="Validate changed files and one task directory.")
-    task_parser.add_argument("task_dir")
-    _add_common_args(task_parser)
-    task_parser.set_defaults(func=validate_task)
-
-    args = parser.parse_args(argv)
-    return int(args.func(args))
-
-
-def _add_common_args(parser: argparse.ArgumentParser) -> None:
-    parser.add_argument("--repo", default=".", help="Repository root or path inside it. Default: current directory.")
-    parser.add_argument(
-        "--receipt",
-        help="Receipt output path. Default: <task>/report/validation/latest.json or report/validation/latest.json.",
-    )
-    parser.add_argument("--mark-push-guard", action="store_true", help="Record push_guard success when checks pass.")
-
-
-def validate_changed(args: argparse.Namespace) -> int:
-    repo = _repo_root(Path(args.repo).expanduser().resolve())
+def run_changed_receipt(
+    repo: Path,
+    *,
+    receipt: Path | None = None,
+    mark_push_guard: bool = False,
+    label: str = "repo_guard validate",
+) -> int:
+    repo = _repo_root(repo.expanduser().resolve())
     changed = _changed_files(repo)
-    receipt = Path(args.receipt).expanduser().resolve() if args.receipt else repo / "report" / "validation" / "latest.json"
-    return _run_validation(repo, changed, None, receipt, mark_push_guard=args.mark_push_guard)
+    output = receipt or repo / "report" / "validation" / "latest.json"
+    return _run_validation(repo, changed, None, output, mark_push_guard=mark_push_guard, label=label)
 
 
-def validate_task(args: argparse.Namespace) -> int:
-    repo = _repo_root(Path(args.repo).expanduser().resolve())
-    task_arg = Path(args.task_dir).expanduser()
-    task_dir = task_arg.resolve() if task_arg.is_absolute() else (repo / task_arg).resolve()
+def run_task_receipt(
+    repo: Path,
+    task_dir: Path,
+    *,
+    receipt: Path | None = None,
+    mark_push_guard: bool = False,
+    label: str = "repo_guard validate",
+) -> int:
+    repo = _repo_root(repo.expanduser().resolve())
+    task = task_dir.expanduser()
+    task = task.resolve() if task.is_absolute() else (repo / task).resolve()
     changed = _changed_files(repo)
-    receipt = (
-        Path(args.receipt).expanduser().resolve()
-        if args.receipt
-        else task_dir / "report" / "validation" / "latest.json"
-    )
-    return _run_validation(repo, changed, task_dir, receipt, mark_push_guard=args.mark_push_guard)
+    output = receipt or task / "report" / "validation" / "latest.json"
+    return _run_validation(repo, changed, task, output, mark_push_guard=mark_push_guard, label=label)
 
 
 def _run_validation(
@@ -96,6 +78,7 @@ def _run_validation(
     receipt: Path,
     *,
     mark_push_guard: bool,
+    label: str = "repo_guard validate",
 ) -> int:
     commands = _validation_commands(repo, changed, task_dir)
     results = [_guard_changed_files(repo, changed), *[_run_command(command) for command in commands]]
@@ -107,11 +90,11 @@ def _run_validation(
         "task_dir": str(task_dir) if task_dir is not None else None,
         "changed_files": [str(path) for path in changed],
         "commands": [asdict(result) for result in results],
-        "recorded_at": datetime.now(UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z"),
+        "recorded_at": datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z"),
     }
     receipt.parent.mkdir(parents=True, exist_ok=True)
     receipt.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-    print(f"validate: {status}: {receipt}")
+    print(f"{label}: {status}: {receipt}")
     for result in results:
         print(f"  {result.status}\t{result.name}\t{result.duration_sec:.2f}s")
     if status != "pass":
@@ -143,14 +126,26 @@ def _validation_commands(repo: Path, changed: list[Path], task_dir: Path | None)
             commands.append(
                 ValidationCommand(
                     f"parse-check {path}",
-                    [sys.executable, "-m", "agent_tools.tools.code_map", "parse-check", str(path.relative_to("agent_tools"))],
+                    [
+                        sys.executable,
+                        "-m",
+                        "agent_tools.tools.code_map",
+                        "parse-check",
+                        str(path.relative_to("agent_tools")),
+                    ],
                     repo,
                 )
             )
         elif path.suffix == ".sh":
             commands.append(ValidationCommand(f"bash -n {path}", ["bash", "-n", str(path)], repo))
         elif path.suffix == ".desktop" and shutil.which("desktop-file-validate"):
-            commands.append(ValidationCommand(f"desktop-file-validate {path}", ["desktop-file-validate", str(path)], repo))
+            commands.append(
+                ValidationCommand(
+                    f"desktop-file-validate {path}",
+                    ["desktop-file-validate", str(path)],
+                    repo,
+                )
+            )
     if any(path.parts[:2] == ("agent_tools", "agent_workspace") for path in changed):
         commands.append(
             ValidationCommand(
@@ -328,7 +323,3 @@ def _git(args: Sequence[str], *, cwd: Path) -> str:
 
 def _tail(text: str, *, limit: int = 4000) -> str:
     return text[-limit:]
-
-
-if __name__ == "__main__":
-    raise SystemExit(main())

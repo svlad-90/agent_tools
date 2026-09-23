@@ -5,6 +5,7 @@ import re
 from pathlib import Path
 from typing import Any
 
+from .drawio_graph import drawio_graph_artifacts
 from .models import (
     Diagram,
     DiffReportError,
@@ -359,13 +360,19 @@ def diagrams_from_payload(
         svg_path: Path | None = None
         if "svg_inline" in raw:
             svg = normalize_svg(str(raw["svg_inline"]), source=f"diagram {diagram_key}")
+        elif "drawio_graph" in raw:
+            source_xml, svg = drawio_graph_artifacts(raw["drawio_graph"], diagram_key=diagram_key)
+            if "svg" in raw:
+                svg_path = _resolve_diagram_path(raw["svg"], base_dir=base_dir)
+                write_diagram_artifact(svg_path, svg)
+            if "source" in raw:
+                source_file = _resolve_diagram_path(raw["source"], base_dir=base_dir)
+                write_diagram_artifact(source_file, source_xml)
         elif "svg" in raw:
-            svg_path = Path(str(raw["svg"]))
-            if not svg_path.is_absolute() and base_dir is not None:
-                svg_path = base_dir / svg_path
+            svg_path = _resolve_diagram_path(raw["svg"], base_dir=base_dir)
             svg = read_svg_file(svg_path)
         else:
-            raise DiffReportError(f"diagram entry is missing svg or svg_inline: {diagram_key}")
+            raise DiffReportError(f"diagram entry is missing svg, svg_inline, or drawio_graph: {diagram_key}")
         code_links = diagram_code_links(raw, diagram_key)
         source_ref = raw.get("source")
         renderer = diagram_renderer(raw, source_ref)
@@ -374,9 +381,7 @@ def diagrams_from_payload(
         source_task = None
         source_path = None
         if source_ref not in (None, ""):
-            source_file = Path(str(source_ref))
-            if not source_file.is_absolute() and base_dir is not None:
-                source_file = base_dir / source_file
+            source_file = _resolve_diagram_path(source_ref, base_dir=base_dir)
             source_task, source_path = drawio_artifact_address(source_file, diagram_key, "source", required=True)
         svg_task = None
         svg_artifact_path = None
@@ -396,9 +401,23 @@ def diagrams_from_payload(
     return diagrams
 
 
+def _resolve_diagram_path(value: object, *, base_dir: Path | None) -> Path:
+    path = Path(str(value))
+    if not path.is_absolute() and base_dir is not None:
+        path = base_dir / path
+    return path
+
+
+def write_diagram_artifact(path: Path, text: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(text, encoding="utf-8")
+
+
 def diagram_renderer(raw: dict[str, Any], source_ref: object) -> str:
     if "renderer" in raw:
         return str(raw["renderer"])
+    if "drawio_graph" in raw:
+        return "drawio"
     if source_ref not in (None, "") and Path(str(source_ref)).suffix == ".drawio":
         return "drawio"
     return "plantuml"

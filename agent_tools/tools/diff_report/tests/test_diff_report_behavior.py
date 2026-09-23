@@ -3,13 +3,19 @@ from __future__ import annotations
 import contextlib
 import io
 import json
+import os
+import shutil
 import subprocess
 import tempfile
 import textwrap
 import unittest
+from unittest import mock
 from pathlib import Path
 
 from agent_tools.tools.diff_report.core import generate_report
+from agent_tools.tools.diff_report.drawio_graph import drawio_graph_artifacts
+from agent_tools.tools.diff_report.drawio_graph import drawio_graph_svg
+from agent_tools.tools.diff_report.drawio_graph import drawio_graph_xml
 from agent_tools.tools.diff_report.models import DiffReportError
 
 
@@ -93,6 +99,49 @@ class DiffReportBehaviorTests(unittest.TestCase):
         self.assertIn('href="#deep-path-app.py">app.py</a>', html)
         self.assertIn('href="#deep-path-tests-test_app.py">test_app.py</a>', html)
         self.assertIn("review-nav-node review-nav-file", html)
+
+    def test_diff_report_orders_diff_body_like_sidebar_tree(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            diff_path = root / "change.patch"
+            output = root / "report.html"
+            diff_path.write_text(
+                textwrap.dedent(
+                    """\
+                    diff --git a/yocto/a.txt b/yocto/a.txt
+                    --- a/yocto/a.txt
+                    +++ b/yocto/a.txt
+                    @@ -1 +1 @@
+                    +a
+                    diff --git a/layers/x.txt b/layers/x.txt
+                    --- a/layers/x.txt
+                    +++ b/layers/x.txt
+                    @@ -1 +1 @@
+                    +x
+                    diff --git a/yocto/b.txt b/yocto/b.txt
+                    --- a/yocto/b.txt
+                    +++ b/yocto/b.txt
+                    @@ -1 +1 @@
+                    +b
+                    """
+                ),
+                encoding="utf-8",
+            )
+
+            generate_report(
+                output_path=output,
+                title="Grouped diff report",
+                diff_file=diff_path,
+            )
+
+            html = output.read_text(encoding="utf-8")
+
+        body_order = [
+            html.index('<div class="file-header">yocto/a.txt</div>'),
+            html.index('<div class="file-header">yocto/b.txt</div>'),
+            html.index('<div class="file-header">layers/x.txt</div>'),
+        ]
+        self.assertEqual(body_order, sorted(body_order))
 
     def test_empty_diff_report_omits_diff_stats(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -621,6 +670,379 @@ class DiffReportBehaviorTests(unittest.TestCase):
         self.assertIn('data-diagram-source-path="report/drawio/pipeline.drawio"', html)
         self.assertIn('data-diagram-svg-path="report/drawio/pipeline.svg"', html)
         self.assertNotIn('<svg class="plantuml-diagram"', html)
+
+    def test_drawio_graph_renders_with_layered_layout(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            diff_path = root / "change.patch"
+            comments_path = root / "comments.json"
+            output = root / "report.html"
+            diff_path.write_text(
+                textwrap.dedent(
+                    """\
+                    diff --git a/app.py b/app.py
+                    new file mode 100644
+                    index 0000000..2f9a147
+                    --- /dev/null
+                    +++ b/app.py
+                    @@ -0,0 +1 @@
+                    +print('new')
+                    """
+                ),
+                encoding="utf-8",
+            )
+            comments_path.write_text(
+                json.dumps(
+                    {
+                        "summary_blocks": [{"type": "diagram", "diagram": "pipeline"}],
+                        "diagrams": {
+                            "pipeline": {
+                                "title": "Generated draw.io graph",
+                                "drawio_graph": {
+                                    "nodes": [
+                                        {"id": "input", "label": "Input", "rank": 0, "lane": 0},
+                                        {"id": "parser", "label": "Parser", "rank": 1, "lane": 0},
+                                        {"id": "normalizer", "label": "Normalizer", "rank": 1, "lane": 1},
+                                        {"id": "writer", "label": "Writer", "rank": 2, "lane": 0},
+                                    ],
+                                    "edges": [
+                                        {"from": "input", "to": "parser", "label": "reads"},
+                                        {"from": "parser", "to": "normalizer", "label": "normalizes"},
+                                        {"from": "normalizer", "to": "writer", "label": "emits"},
+                                    ],
+                                },
+                            },
+                        },
+                    },
+                    indent=2,
+                ),
+                encoding="utf-8",
+            )
+
+            with mock.patch(
+                "agent_tools.tools.diff_report.drawio_graph._drawio_export_executable",
+                return_value=None,
+            ):
+                generate_report(
+                    output_path=output,
+                    title="Generated draw.io graph report",
+                    diff_file=diff_path,
+                    comments_file=comments_path,
+                )
+
+            html = output.read_text(encoding="utf-8")
+
+        self.assertIn('data-diagram-renderer="drawio"', html)
+        self.assertIn('id="diagram-template-pipeline"', html)
+        self.assertIn("Parser", html)
+        self.assertIn("emits", html)
+        self.assertIn('marker-end="url(#drawio-graph-arrow)"', html)
+        self.assertIn('<path d="M 192.0 224.0 L 240.0 224.0"/>', html)
+        self.assertIn('<rect x="175.0" y="205.0" width="82" height="18"', html)
+        self.assertNotIn('<svg class="plantuml-diagram"', html)
+
+    def test_drawio_graph_can_delegate_layout_to_graphviz(self) -> None:
+        if shutil.which("dot") is None:
+            self.skipTest("Graphviz dot is not available")
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            diff_path = root / "change.patch"
+            comments_path = root / "comments.json"
+            output = root / "report.html"
+            diff_path.write_text(
+                textwrap.dedent(
+                    """\
+                    diff --git a/app.py b/app.py
+                    new file mode 100644
+                    index 0000000..2f9a147
+                    --- /dev/null
+                    +++ b/app.py
+                    @@ -0,0 +1 @@
+                    +print('new')
+                    """
+                ),
+                encoding="utf-8",
+            )
+            comments_path.write_text(
+                json.dumps(
+                    {
+                        "summary_blocks": [{"type": "diagram", "diagram": "pipeline"}],
+                        "diagrams": {
+                            "pipeline": {
+                                "title": "Graphviz draw.io graph",
+                                "drawio_graph": {
+                                    "layout_engine": "graphviz",
+                                    "nodes": [
+                                        {"id": "input", "label": "Input", "rank": 0, "lane": 0},
+                                        {"id": "parser", "label": "Parser", "rank": 1, "lane": 0},
+                                        {"id": "writer", "label": "Writer", "rank": 2, "lane": 0},
+                                    ],
+                                    "edges": [
+                                        {"from": "input", "to": "parser", "label": "reads"},
+                                        {"from": "parser", "to": "writer", "label": "emits"},
+                                    ],
+                                },
+                            },
+                        },
+                    },
+                    indent=2,
+                ),
+                encoding="utf-8",
+            )
+
+            with mock.patch(
+                "agent_tools.tools.diff_report.drawio_graph._drawio_export_executable",
+                return_value=None,
+            ):
+                generate_report(
+                    output_path=output,
+                    title="Graphviz draw.io graph report",
+                    diff_file=diff_path,
+                    comments_file=comments_path,
+                )
+
+            html = output.read_text(encoding="utf-8")
+
+        self.assertIn('data-diagram-renderer="drawio"', html)
+        self.assertIn('marker-end="url(#drawio-graph-arrow)"', html)
+        self.assertIn("Parser", html)
+        self.assertIn("emits", html)
+        self.assertNotIn("Generated by graphviz", html)
+
+    def test_drawio_graph_writes_editable_artifacts_when_paths_are_declared(self) -> None:
+        if shutil.which("dot") is None:
+            self.skipTest("Graphviz dot is not available")
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            task = root / "tasks" / "demo"
+            diff_dir = task / "report" / "diff"
+            diff_dir.mkdir(parents=True)
+            diff_path = root / "change.patch"
+            comments_path = diff_dir / "comments.json"
+            output = diff_dir / "report.html"
+            diff_path.write_text(
+                textwrap.dedent(
+                    """\
+                    diff --git a/app.py b/app.py
+                    new file mode 100644
+                    index 0000000..2f9a147
+                    --- /dev/null
+                    +++ b/app.py
+                    @@ -0,0 +1 @@
+                    +print('new')
+                    """
+                ),
+                encoding="utf-8",
+            )
+            comments_path.write_text(
+                json.dumps(
+                    {
+                        "summary_blocks": [{"type": "diagram", "diagram": "pipeline"}],
+                        "diagrams": {
+                            "pipeline": {
+                                "title": "Editable graph",
+                                "source": "../drawio/pipeline.drawio",
+                                "svg": "../drawio/pipeline.svg",
+                                "drawio_graph": {
+                                    "layout_engine": "graphviz",
+                                    "nodes": [
+                                        {"id": "input", "label": "Input", "rank": 0, "lane": 0},
+                                        {"id": "parser", "label": "Parser", "rank": 1, "lane": 0},
+                                    ],
+                                    "edges": [{"from": "input", "to": "parser", "label": "reads"}],
+                                },
+                            },
+                        },
+                    },
+                    indent=2,
+                ),
+                encoding="utf-8",
+            )
+
+            with mock.patch(
+                "agent_tools.tools.diff_report.drawio_graph._drawio_export_executable",
+                return_value=None,
+            ):
+                generate_report(
+                    output_path=output,
+                    title="Editable generated draw.io graph report",
+                    diff_file=diff_path,
+                    comments_file=comments_path,
+                )
+
+            html = output.read_text(encoding="utf-8")
+            source = task / "report" / "drawio" / "pipeline.drawio"
+            svg = task / "report" / "drawio" / "pipeline.svg"
+            source_exists = source.is_file()
+            svg_exists = svg.is_file()
+            source_text = source.read_text(encoding="utf-8") if source_exists else ""
+            svg_text = svg.read_text(encoding="utf-8") if svg_exists else ""
+
+        self.assertTrue(source_exists)
+        self.assertTrue(svg_exists)
+        self.assertIn("<mxfile>", source_text)
+        self.assertIn('marker-end="url(#drawio-graph-arrow)"', svg_text)
+        self.assertNotIn("Generated by graphviz", svg_text)
+        self.assertIn('data-diagram-source-task="tasks/demo"', html)
+        self.assertIn('data-diagram-source-path="report/drawio/pipeline.drawio"', html)
+        self.assertIn('data-diagram-svg-path="report/drawio/pipeline.svg"', html)
+
+    def test_drawio_graph_xml_uses_graphviz_geometry(self) -> None:
+        if shutil.which("dot") is None:
+            self.skipTest("Graphviz dot is not available")
+        xml = drawio_graph_xml(
+            {
+                "layout_engine": "graphviz",
+                "nodes": [
+                    {"id": "input", "label": "Input", "rank": 0, "lane": 0},
+                    {"id": "parser", "label": "Parser", "rank": 1, "lane": 0},
+                    {"id": "writer", "label": "Writer", "rank": 2, "lane": 0},
+                ],
+                "edges": [
+                    {"from": "input", "to": "parser", "label": "reads"},
+                    {"from": "parser", "to": "writer", "label": "emits"},
+                ],
+            },
+            diagram_key="pipeline",
+        )
+
+        self.assertIn('<mxCell id="node-parser"', xml)
+        self.assertIn('x="0" y="132"', xml)
+        self.assertIn("exitX=0.500;exitY=1.000", xml)
+        self.assertIn("entryX=0.500;entryY=0.000", xml)
+        self.assertNotIn('x="32" y="188"', xml)
+
+    def test_drawio_graph_xml_can_hide_nonessential_edges(self) -> None:
+        xml = drawio_graph_xml(
+            {
+                "nodes": [
+                    {"id": "input", "label": "Input", "rank": 0, "lane": 0},
+                    {"id": "writer", "label": "Writer", "rank": 1, "lane": 0},
+                    {"id": "audit", "label": "Audit", "rank": 2, "lane": 0},
+                ],
+                "edges": [
+                    {"from": "input", "to": "writer", "label": "writes"},
+                    {"from": "writer", "to": "audit", "label": "noisy feedback", "render": False},
+                ],
+            },
+            diagram_key="pipeline",
+        )
+
+        self.assertIn("writes", xml)
+        self.assertNotIn("noisy feedback", xml)
+
+    def test_drawio_graph_xml_can_hide_edge_label_without_hiding_edge(self) -> None:
+        xml = drawio_graph_xml(
+            {
+                "nodes": [
+                    {"id": "input", "label": "Input", "rank": 0, "lane": 0},
+                    {"id": "writer", "label": "Writer", "rank": 1, "lane": 0},
+                ],
+                "edges": [{"from": "input", "to": "writer", "label": "noisy label", "show_label": False}],
+            },
+            diagram_key="pipeline",
+        )
+
+        self.assertIn('edge="1"', xml)
+        self.assertIn('source="node-input"', xml)
+        self.assertNotIn("noisy label", xml)
+
+    def test_drawio_graph_svg_prefers_drawio_cli_export_when_available(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            bin_dir = root / "bin"
+            bin_dir.mkdir()
+            fake_drawio = bin_dir / "drawio"
+            fake_drawio.write_text(
+                textwrap.dedent(
+                    """\
+                    #!/usr/bin/env python3
+                    import pathlib
+                    import sys
+
+                    output = pathlib.Path(sys.argv[sys.argv.index("--output") + 1])
+                    source = pathlib.Path(sys.argv[-1])
+                    assert source.read_text(encoding="utf-8").startswith("<mxfile>")
+                    fmt = sys.argv[sys.argv.index("--format") + 1]
+                    if fmt == "xml":
+                        output.write_text(source.read_text(encoding="utf-8"), encoding="utf-8")
+                    else:
+                        output.write_text(
+                            '<svg xmlns="http://www.w3.org/2000/svg"><text>exported by drawio</text></svg>',
+                            encoding="utf-8",
+                        )
+                    """
+                ),
+                encoding="utf-8",
+            )
+            fake_drawio.chmod(0o755)
+            path = str(bin_dir) + os.pathsep + os.environ.get("PATH", "")
+
+            with mock.patch.dict(os.environ, {"PATH": path}):
+                svg = drawio_graph_svg(
+                    {
+                        "nodes": [
+                            {"id": "input", "label": "Input", "rank": 0, "lane": 0},
+                            {"id": "writer", "label": "Writer", "rank": 1, "lane": 0},
+                        ],
+                        "edges": [{"from": "input", "to": "writer", "label": "writes"}],
+                    },
+                    diagram_key="pipeline",
+                )
+
+        self.assertIn("exported by drawio", svg)
+        self.assertNotIn("drawio-graph-arrow", svg)
+
+    def test_drawio_graph_artifacts_use_drawio_cli_layout_xml_when_available(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            bin_dir = root / "bin"
+            bin_dir.mkdir()
+            fake_drawio = bin_dir / "drawio"
+            fake_drawio.write_text(
+                textwrap.dedent(
+                    """\
+                    #!/usr/bin/env python3
+                    import pathlib
+                    import sys
+
+                    output = pathlib.Path(sys.argv[sys.argv.index("--output") + 1])
+                    source = pathlib.Path(sys.argv[-1])
+                    fmt = sys.argv[sys.argv.index("--format") + 1]
+                    if fmt == "xml":
+                        xml = source.read_text(encoding="utf-8").replace(
+                            "<mxfile>",
+                            '<mxfile host="fake-drawio">',
+                            1,
+                        )
+                        output.write_text(xml, encoding="utf-8")
+                    else:
+                        assert 'host="fake-drawio"' in source.read_text(encoding="utf-8")
+                        output.write_text(
+                            '<svg xmlns="http://www.w3.org/2000/svg"><text>laid out source</text></svg>',
+                            encoding="utf-8",
+                        )
+                    """
+                ),
+                encoding="utf-8",
+            )
+            fake_drawio.chmod(0o755)
+            path = str(bin_dir) + os.pathsep + os.environ.get("PATH", "")
+
+            with mock.patch.dict(os.environ, {"PATH": path}):
+                source_xml, svg = drawio_graph_artifacts(
+                    {
+                        "nodes": [
+                            {"id": "input", "label": "Input", "rank": 0, "lane": 0},
+                            {"id": "writer", "label": "Writer", "rank": 1, "lane": 0},
+                        ],
+                        "edges": [{"from": "input", "to": "writer", "label": "writes"}],
+                    },
+                    diagram_key="pipeline",
+                )
+
+        self.assertIn('host="fake-drawio"', source_xml)
+        self.assertIn("laid out source", svg)
 
     def _git(self, repo: Path, *args: str) -> None:
         subprocess.run(

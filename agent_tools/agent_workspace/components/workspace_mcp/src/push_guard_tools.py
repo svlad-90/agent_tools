@@ -27,8 +27,7 @@ def push_guard_tools() -> list[McpTool]:
             title="Push Guard Mark Success",
             description=(
                 "Use after an explicit successful validation run to stamp a commit "
-                "for push_guard. Prefer validate_changed/validate_task with "
-                "mark_push_guard when running checks now."
+                "for push_guard. Prefer workspace_validate when running checks now."
             ),
             input_schema=_mark_success_input_schema(),
             handler=_push_guard_mark_success,

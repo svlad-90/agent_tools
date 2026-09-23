@@ -98,6 +98,58 @@ both the `.drawio` source and `.svg` preview back through that local feedback
 server. Use `--disable-drawio-editing` for public/static artifacts that should
 not include local feedback-server probing.
 
+Reports may also declare a generated draw.io-style graph with `drawio_graph`.
+This is a structured intermediate format for simple layered diagrams. The
+renderer computes node positions from `rank` and optional `lane` values, then
+emits both the editable draw.io source and an SVG preview from the same
+geometry. If a `drawio`, `diagrams.net`, or `diagramsnet` executable is
+available on `PATH`, the report generator asks that local diagrams.net CLI to
+lay out the generated `.drawio` source and export the preview SVG from the same
+laid-out source. Otherwise the report generator falls back to its built-in SVG
+renderer:
+
+```sh
+python -m agent_tools.tools.diff_report --check-drawio
+```
+
+Install diagrams.net/draw.io desktop CLI locally when exact editable-source and
+preview parity matters. On Linux, `sudo snap install drawio` is the simplest
+path when Snap is available; otherwise install the official `.deb` from the
+`jgraph/drawio-desktop` releases. This dependency is optional: reports still
+render without it, but generated draw.io graph previews use the fallback
+renderer and may be less polished.
+
+```json
+{
+  "diagrams": {
+    "pipeline": {
+      "title": "Pipeline",
+      "drawio_graph": {
+        "layout_engine": "graphviz",
+        "nodes": [
+          {"id": "input", "label": "Input", "rank": 0, "lane": 0},
+          {"id": "parser", "label": "Parser", "rank": 1, "lane": 0},
+          {"id": "writer", "label": "Writer", "rank": 2, "lane": 0}
+        ],
+        "edges": [
+          {"from": "input", "to": "parser", "label": "reads"},
+          {"from": "parser", "to": "writer", "label": "emits"}
+        ]
+      }
+    }
+  }
+}
+```
+
+`rank` controls vertical order and `lane` controls left-to-right order within a
+rank. Node `width` and `height`, plus graph-level `rank_gap`, `lane_gap`,
+`margin_x`, and `margin_y`, may be supplied when the default spacing is too
+tight. Set `"layout_engine": "graphviz"` for more complex graphs when the
+`dot` executable is available; Graphviz is used only to compute coordinates and
+edge waypoints. This generated form is intended for predictable AI-authored
+drafts; add explicit `source` and `svg` artifacts under `report/drawio/` when
+the diagram must be manually edited in diagrams.net from the report.
+
 To reduce manual anchor lookup before writing review notes, initialize a starter
 comments JSON from the diff:
 

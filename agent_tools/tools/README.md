@@ -17,6 +17,7 @@ python -m agent_tools.tools.yaml_map
 python -m agent_tools.tools.diff_report
 python -m agent_tools.tools.task_context
 python -m agent_tools.tools.task_actions
+python -m agent_tools.tools.repo_guard
 python -m agent_tools.tools.commit_msg
 python -m agent_tools.tools.push_guard
 python -m agent_tools.agent_workspace
@@ -33,15 +34,15 @@ MCP coverage currently maps to these tool groups:
 - `yaml_map_*`: YAML structure maps and guarded path edits.
 - `diff_report_*`: report initialization, rendering, refresh, and finding
   composition.
-- `task_context_*` and `repo_registry_*`: durable task slots, dictionary terms,
-  journal flow, and task repository registry.
+- `task_context_*`: durable task slots, dictionary terms, and journal flow.
+- `repo_guard repos`: user-facing task repository registry workflow.
 - `task_actualize` and `task_actions_*`: task infrastructure actualization plus
   task action inspection and editing.
 - `commit_msg_format`: commit message validation and shell-safe `git commit`
   command generation.
-- `push_guard_*`, `workspace_validate`, `validate_changed`, `validate_task`,
-  `workspace_validation_policy`, and `workspace_validation_status`: push guard
-  hooks, stamps, and validation policy checks.
+- `push_guard_*`, `workspace_validate`, `workspace_validation_policy`, and
+  `workspace_validation_status`: push guard hooks, stamps, and validation
+  policy checks.
 - `yocto_diag_*`: Yocto diagnostics.
 
 Rule mirror checks and recurring knowledge remain CLI/file infrastructure.

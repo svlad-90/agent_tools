@@ -3,12 +3,12 @@ from __future__ import annotations
 from pathlib import Path
 import subprocess
 
-from agent_tools.tools.repo_registry import add_repository
-from agent_tools.tools.repo_registry import main
-from agent_tools.tools.repo_registry import remove_repository
-from agent_tools.tools.repo_registry import repo_registry_entry_objects
-from agent_tools.tools.repo_registry import repo_registry_paths
-from agent_tools.tools.repo_registry import validate_repo_registry
+from agent_tools.tools.repo_guard import main
+from agent_tools.tools.repo_guard.repositories import add_repository
+from agent_tools.tools.repo_guard.repositories import remove_repository
+from agent_tools.tools.repo_guard.repositories import repo_registry_entry_objects
+from agent_tools.tools.repo_guard.repositories import repo_registry_paths
+from agent_tools.tools.repo_guard.repositories import validate_repo_registry
 from agent_tools.tools.task_context import ensure_database
 from agent_tools.tools.task_context import load_slots
 from agent_tools.tools.task_context import set_slot
@@ -95,7 +95,7 @@ def test_remove_repository_reports_missing_entry(tmp_path: Path) -> None:
         raise AssertionError("missing repo removal was accepted")
 
 
-def test_repo_registry_cli_add_remove_and_validate(tmp_path: Path, capsys) -> None:
+def test_repo_guard_repos_cli_add_remove_and_validate(tmp_path: Path, capsys) -> None:
     workspace = tmp_path / "workspace"
     task_dir = workspace / "tasks" / "sample-task"
     repo = task_dir / "dev" / "repo"
@@ -104,23 +104,25 @@ def test_repo_registry_cli_add_remove_and_validate(tmp_path: Path, capsys) -> No
     ensure_database(task_dir)
 
     add_args = [
+        "repos",
         "add",
         "--workspace",
         str(workspace),
-        "--task",
+        "--task-dir",
         str(task_dir),
         "--repo",
         str(repo),
     ]
     assert main(add_args) == 0
     assert "tasks/sample-task/dev/repo" in capsys.readouterr().out
-    assert main(["validate", "--workspace", str(workspace), "--task", str(task_dir)]) == 0
+    assert main(["repos", "validate", "--workspace", str(workspace), "--task-dir", str(task_dir)]) == 0
     assert "PASS" in capsys.readouterr().out
     remove_args = [
+        "repos",
         "remove",
         "--workspace",
         str(workspace),
-        "--task",
+        "--task-dir",
         str(task_dir),
         "--repo",
         str(repo),

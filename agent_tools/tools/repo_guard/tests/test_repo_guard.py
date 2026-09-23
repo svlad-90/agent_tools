@@ -277,6 +277,94 @@ def test_pre_push_dry_run_command_installs_registered_hooks(tmp_path: Path) -> N
     assert (repo / ".git" / "hooks" / "pre-commit").is_file()
 
 
+def test_repos_commands_manage_task_repo_registry(tmp_path: Path, capsys: object) -> None:
+    workspace = tmp_path / "workspace"
+    task_dir = workspace / "tasks" / "sample"
+    repo = task_dir / "dev" / "repo"
+    repo.parent.mkdir(parents=True)
+    _init_repo(repo)
+
+    add_status = main(
+        [
+            "repos",
+            "add",
+            "--workspace",
+            str(workspace),
+            "--task-dir",
+            str(task_dir),
+            "--repo",
+            str(repo),
+            "--role",
+            "task-dev",
+        ]
+    )
+
+    assert add_status == 0
+    assert "tasks/sample/dev/repo" in capsys.readouterr().out
+
+    assert main(["repos", "list", "--workspace", str(workspace), "--task-dir", str(task_dir)]) == 0
+    listed = capsys.readouterr().out
+    assert "role: task-dev" in listed
+
+    assert main(["repos", "validate", "--workspace", str(workspace), "--task-dir", str(task_dir)]) == 0
+    assert "PASS" in capsys.readouterr().out
+
+    remove_status = main(
+        [
+            "repos",
+            "remove",
+            "--workspace",
+            str(workspace),
+            "--task-dir",
+            str(task_dir),
+            "--repo",
+            str(repo),
+        ]
+    )
+
+    assert remove_status == 0
+    assert capsys.readouterr().out.strip() == "repositories: []"
+
+
+def test_repos_commands_resolve_relative_task_dir_against_workspace(
+    tmp_path: Path,
+    monkeypatch: object,
+    capsys: object,
+) -> None:
+    workspace = tmp_path / "workspace"
+    task_dir = workspace / "tasks" / "sample"
+    task_dir.mkdir(parents=True)
+    set_slot(task_dir, "repo-registry", "repositories:\n  - path: tasks/sample/dev/repo\n")
+    other_cwd = tmp_path / "other"
+    other_cwd.mkdir()
+    monkeypatch.chdir(other_cwd)
+
+    status = main(
+        [
+            "repos",
+            "list",
+            "--workspace",
+            str(workspace),
+            "--task-dir",
+            "tasks/sample",
+        ]
+    )
+
+    assert status == 0
+    assert "tasks/sample/dev/repo" in capsys.readouterr().out
+
+
+def test_repos_commands_report_registry_errors(tmp_path: Path, capsys: object) -> None:
+    task_dir = tmp_path / "tasks" / "sample"
+    task_dir.mkdir(parents=True)
+    set_slot(task_dir, "repo-registry", "repositories: broken: yaml:")
+
+    status = main(["repos", "validate", "--task-dir", str(task_dir)])
+
+    assert status == 1
+    assert "FAIL" in capsys.readouterr().out
+
+
 def test_command_backend_reports_compact_failure(tmp_path: Path) -> None:
     repo = tmp_path / "repo"
     _init_repo(repo)
@@ -325,6 +413,23 @@ def test_validate_includes_dirty_worktree_paths(tmp_path: Path) -> None:
 
     assert result.status == "fail"
     assert "debug.zip" in compact_report(result)
+
+
+def test_validate_writes_compatibility_receipt_when_requested(tmp_path: Path, capsys: object) -> None:
+    repo = tmp_path / "repo"
+    _init_repo(repo)
+    (repo / "tracked.txt").write_text("ok\n", encoding="utf-8")
+    commit = _commit(repo)
+    receipt = tmp_path / "receipt.json"
+
+    status = main(["validate", "--repo", str(repo), "--receipt", str(receipt)])
+
+    assert status == 0
+    payload = json.loads(receipt.read_text(encoding="utf-8"))
+    assert payload["commit"] == commit
+    assert payload["status"] == "pass"
+    assert [command["name"] for command in payload["commands"]] == ["guard changed files"]
+    assert "repo_guard validate: pass" in capsys.readouterr().out
 
 
 def test_validate_parse_check_skips_deleted_python_paths(tmp_path: Path) -> None:
