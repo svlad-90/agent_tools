@@ -1,4 +1,9 @@
-"""Run workspace validation checks and write a compact receipt."""
+"""Deprecated compatibility CLI for changed-file validation receipts.
+
+Use ``python -m agent_tools.tools.repo_guard validate`` for repository policy
+validation. This module remains as a transition wrapper for the older
+``validate changed`` and ``validate task`` receipt format.
+"""
 
 from __future__ import annotations
 
@@ -44,7 +49,10 @@ class ValidationResult:
 
 
 def main(argv: Sequence[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description=__doc__)
+    parser = argparse.ArgumentParser(
+        description=__doc__,
+        epilog="Deprecated: prefer python -m agent_tools.tools.repo_guard validate for policy checks.",
+    )
     subparsers = parser.add_subparsers(dest="command_name", required=True)
 
     changed_parser = subparsers.add_parser("changed", help="Validate changed files in the repository.")

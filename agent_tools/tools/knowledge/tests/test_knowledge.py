@@ -3,6 +3,11 @@ from __future__ import annotations
 from pathlib import Path
 
 from agent_tools.tools.knowledge import get_topic
+from agent_tools.tools.knowledge import db_add
+from agent_tools.tools.knowledge import db_get
+from agent_tools.tools.knowledge import db_search
+from agent_tools.tools.knowledge import db_topics
+from agent_tools.tools.knowledge import init_db
 from agent_tools.tools.knowledge import list_topics
 from agent_tools.tools.knowledge import search_topics
 from agent_tools.tools.knowledge import set_topic
@@ -49,3 +54,49 @@ def test_list_and_search_topics(monkeypatch: object, tmp_path: Path, capsys: obj
     assert search_topics(Args(scope="private", query="token")) == 0
     searched = capsys.readouterr().out
     assert "private:secrets:3" in searched
+
+
+def test_sqlite_knowledge_db_add_search_get_and_topics(tmp_path: Path, capsys: object) -> None:
+    db_path = tmp_path / "knowledge.sqlite3"
+
+    assert init_db(Args(db=str(db_path))) == 0
+    assert db_add(
+        Args(
+            db=str(db_path),
+            scope="private",
+            status="active",
+            topic="agent_tools",
+            text="repo_guard owns validation policy",
+            source="test",
+            tag=["validation", "validation", "repo"],
+        )
+    ) == 0
+    added = capsys.readouterr().out
+    assert "knowledge: added #1 private:agent_tools" in added
+
+    assert db_search(Args(db=str(db_path), scope="private", status="active", query="policy")) == 0
+    searched = capsys.readouterr().out
+    assert "#1\tprivate:agent_tools\tactive\trepo_guard owns validation policy" in searched
+
+    assert db_get(Args(db=str(db_path), finding_id=1)) == 0
+    fetched = capsys.readouterr().out
+    assert "tags:\trepo, validation" in fetched
+    assert "source:\ttest" in fetched
+
+    assert db_topics(Args(db=str(db_path), scope="all")) == 0
+    topics = capsys.readouterr().out
+    assert "private\tagent_tools\t1" in topics
+
+
+def test_sqlite_knowledge_db_respects_scope_filter(tmp_path: Path, capsys: object) -> None:
+    db_path = tmp_path / "knowledge.sqlite3"
+    common = {"db": str(db_path), "status": "active", "topic": "agent_tools", "source": "", "tag": []}
+
+    assert db_add(Args(**common, scope="public", text="public finding")) == 0
+    assert db_add(Args(**common, scope="private", text="private finding")) == 0
+    capsys.readouterr()
+
+    assert db_search(Args(db=str(db_path), scope="public", status="active", query="finding")) == 0
+    public_output = capsys.readouterr().out
+    assert "public finding" in public_output
+    assert "private finding" not in public_output
