@@ -22,7 +22,7 @@ from agent_tools.tools.push_guard import check
 from agent_tools.tools.push_guard import install_registered_hooks
 from agent_tools.tools.push_guard import main
 from agent_tools.tools.push_guard import PushedFileFinding
-from agent_tools.tools.repo_registry import repo_registry_paths
+from agent_tools.tools.repo_guard.repositories import repo_registry_paths
 from agent_tools.tools.task_context import ensure_database
 from agent_tools.tools.task_context import set_slot
 
@@ -171,7 +171,7 @@ def test_guarded_findings_print_validation_command_when_workspace_env_is_set(
     _print_guarded_findings([PushedFileFinding("debug-output.deb", "blocked")], action="commit")
 
     err = capsys.readouterr().err
-    assert "PYTHONPATH=/workspace/tools python3 -m agent_tools.tools.validate changed" in err
+    assert "PYTHONPATH=/workspace/tools python3 -m agent_tools.tools.repo_guard validate" in err
 
 
 def test_task_check_report_is_required_for_repositories_inside_tasks(

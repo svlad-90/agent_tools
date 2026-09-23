@@ -30,7 +30,6 @@ class McpTool:
     description: str
     input_schema: JsonObject
     handler: ToolHandler
-    visible: bool = True
 
     def descriptor(self) -> JsonObject:
         return {
@@ -53,11 +52,7 @@ class WorkspaceMcpRegistry:
         self._tools[tool.name] = tool
 
     def tool_descriptors(self) -> list[JsonObject]:
-        return [
-            self._tools[name].descriptor()
-            for name in sorted(self._tools)
-            if self._tools[name].visible
-        ]
+        return [self._tools[name].descriptor() for name in sorted(self._tools)]
 
     def has_tool(self, name: str) -> bool:
         return name in self._tools

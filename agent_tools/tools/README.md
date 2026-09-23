@@ -36,14 +36,13 @@ MCP coverage currently maps to these tool groups:
   composition.
 - `task_context_*`: durable task slots, dictionary terms, and journal flow.
 - `repo_guard repos`: user-facing task repository registry workflow.
-  `repo_registry_*` remains hidden compatibility/backend aliases.
 - `task_actualize` and `task_actions_*`: task infrastructure actualization plus
   task action inspection and editing.
 - `commit_msg_format`: commit message validation and shell-safe `git commit`
   command generation.
-- `push_guard_*`, `workspace_validate`, `validate_changed`, `validate_task`,
-  `workspace_validation_policy`, and `workspace_validation_status`: push guard
-  hooks, stamps, and validation policy checks.
+- `push_guard_*`, `workspace_validate`, `workspace_validation_policy`, and
+  `workspace_validation_status`: push guard hooks, stamps, and validation
+  policy checks.
 - `yocto_diag_*`: Yocto diagnostics.
 
 Rule mirror checks and recurring knowledge remain CLI/file infrastructure.

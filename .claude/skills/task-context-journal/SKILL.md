@@ -53,8 +53,6 @@ clear or shrink `legacy`.
 - `task_context_migrate_legacy` imports old JSONL context.
 - `repo_guard repos list`, `repo_guard repos validate`, `repo_guard repos add`,
   and `repo_guard repos remove` maintain the `repo-registry` slot.
-  `repo_registry_add`, `repo_registry_remove`, `repo_registry_list`, and
-  `repo_registry_validate` are legacy fallback surfaces.
 
 ## CLI Fallback
 

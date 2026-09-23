@@ -404,7 +404,7 @@ def _print_guarded_findings(findings: Sequence[PushedFileFinding], *, action: st
     if workspace_root:
         print(
             "After fixing the files, run validation with:\n"
-            f"  PYTHONPATH={workspace_root} python3 -m agent_tools.tools.validate changed",
+            f"  PYTHONPATH={workspace_root} python3 -m agent_tools.tools.repo_guard validate",
             file=sys.stderr,
         )
 
@@ -475,7 +475,7 @@ def check(args: argparse.Namespace) -> int:
         "  agent_tools/paf_workspace/run-paf.sh <scenario-file> <scenario> "
         "--parameter PUSH_GUARD_REPO=<target-repo>\n"
         "or record an already successful external validation with:\n"
-        f"  {_pythonpath_prefix()}python3 -m agent_tools.tools.validate changed --mark-push-guard\n"
+        f"  {_pythonpath_prefix()}python3 -m agent_tools.tools.repo_guard validate --mark-push-guard\n"
         "or:\n"
         f"  {_pythonpath_prefix()}python3 -m agent_tools.tools.push_guard mark-success "
         "--repo <target-repo> --receipt <validation-receipt.json>",
@@ -553,7 +553,7 @@ def missing_repo_hooks(repo: Path) -> tuple[Path, ...]:
 
 
 def install_registered_hooks(args: argparse.Namespace) -> int:
-    from agent_tools.tools.repo_registry import validate_repo_registry
+    from agent_tools.tools.repo_guard.repositories import validate_repo_registry
 
     workspace = Path(args.workspace).expanduser().resolve()
     task_dir = Path(args.task_dir).expanduser().resolve()

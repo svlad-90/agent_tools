@@ -1,8 +1,4 @@
-"""Compatibility receipt validation backend for repo_guard.
-
-This module owns the older ``agent_tools.tools.validate`` changed/task receipt
-workflow while callers migrate to repo_guard policy receipts.
-"""
+"""Changed/task receipt validation backend for repo_guard."""
 
 from __future__ import annotations
 
@@ -46,7 +42,7 @@ class ValidationResult:
     stderr_tail: str
 
 
-def validate_changed(
+def run_changed_receipt(
     repo: Path,
     *,
     receipt: Path | None = None,
@@ -59,7 +55,7 @@ def validate_changed(
     return _run_validation(repo, changed, None, output, mark_push_guard=mark_push_guard, label=label)
 
 
-def validate_task(
+def run_task_receipt(
     repo: Path,
     task_dir: Path,
     *,

@@ -148,12 +148,11 @@ class WorkspaceMcpServer:
         from .java_code_map_tools import java_code_map_tools
         from .java_light_code_map_tools import java_light_code_map_tools
         from .push_guard_tools import push_guard_tools
-        from .repo_registry_tools import repo_registry_tools
         from .repo_guard_tools import repo_guard_tools
+        from .repo_guard_repos_tools import repo_guard_repos_tools
         from .task_actualize_tools import task_actualize_tools
         from .task_actions_tools import task_actions_tools
         from .task_context_tools import task_context_tools
-        from .validate_tools import validate_tools
         from .yaml_map_tools import yaml_map_tools
         from .yocto_diag_tools import yocto_diag_tools
 
@@ -166,12 +165,11 @@ class WorkspaceMcpServer:
             java_code_map_tools(),
             java_light_code_map_tools(),
             push_guard_tools(),
-            repo_registry_tools(),
             repo_guard_tools(),
+            repo_guard_repos_tools(),
             task_actualize_tools(),
             task_actions_tools(),
             task_context_tools(),
-            validate_tools(),
             yaml_map_tools(),
             yocto_diag_tools(),
         ):

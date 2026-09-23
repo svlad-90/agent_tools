@@ -21,17 +21,14 @@ python3 -m agent_tools.tools.repo_guard pre-push --repo . origin <url>
 
 `policy` and `status` print the resolved policy without running checks.
 `validate` runs policy checks and writes receipts under the repository Git
-metadata. When `--receipt` or `--mark-push-guard` is provided, `validate` uses
-the compatibility changed/task receipt backend that replaced the older
-`agent_tools.tools.validate` implementation. `repos list`, `repos validate`,
-`repos add`, and `repos remove` are the public repo_guard surface for a task's
-registered repositories; the older `agent_tools.tools.repo_registry` module is
-kept as the backend and compatibility CLI. `pre-push-dry-run` builds a
-pre-push-like commit range from the current branch and its upstream. When a task
-directory is provided, it also installs or updates hooks for the repositories
-listed in that task's `repo-registry` slot. `pre-push` accepts normal Git
-pre-push stdin, runs non-heavy checks, and requires current receipts for heavy
-checks.
+metadata. When `--receipt` or `--mark-push-guard` is provided, `validate`
+writes the changed/task receipt format used by push_guard stamps. `repos list`,
+`repos validate`, `repos add`, and `repos remove` are the repo_guard surface for
+a task's registered repositories. `pre-push-dry-run` builds a pre-push-like
+commit range from the current branch and its upstream. When a task directory is
+provided, it also installs or updates hooks for the repositories listed in that
+task's `repo-registry` slot. `pre-push` accepts normal Git pre-push stdin, runs
+non-heavy checks, and requires current receipts for heavy checks.
 
 ## Policy
 

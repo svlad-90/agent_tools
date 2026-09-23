@@ -66,7 +66,6 @@ WORKSPACE_MCP_TOOL_GROUPS: tuple[tuple[str, str, str, tuple[str, ...]], ...] = (
         "Required workspace infrastructure: run policy-aware validation and push guard receipt checks instead of manual command bundles.",
         (
             "push_guard_",
-            "validate_",
             "workspace_validate",
             "workspace_validation_",
         ),

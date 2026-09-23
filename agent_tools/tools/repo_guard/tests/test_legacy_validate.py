@@ -6,10 +6,10 @@ import sys
 
 import yaml
 from agent_tools.tools.repo_guard import legacy_validate as validate_module
-from agent_tools.tools.validate import _run_validation
-from agent_tools.tools.validate import _changed_files
-from agent_tools.tools.validate import _guard_changed_files
-from agent_tools.tools.validate import _validation_commands
+from agent_tools.tools.repo_guard.legacy_validate import _changed_files
+from agent_tools.tools.repo_guard.legacy_validate import _guard_changed_files
+from agent_tools.tools.repo_guard.legacy_validate import _run_validation
+from agent_tools.tools.repo_guard.legacy_validate import _validation_commands
 
 
 def test_validation_commands_follow_changed_file_types(tmp_path: Path) -> None:

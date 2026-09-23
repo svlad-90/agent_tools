@@ -133,8 +133,6 @@ def test_workspace_mcp_lists_agent_search_tools(tmp_path: Path) -> None:
         "task_context_migrate_legacy",
         "task_context_query",
         "task_context_set_slot",
-        "validate_changed",
-        "validate_task",
         "workspace_validate",
         "workspace_validation_policy",
         "workspace_validation_status",
@@ -645,8 +643,6 @@ with tempfile.TemporaryDirectory() as workspace_text:
         "task_context_migrate_legacy",
         "task_context_query",
         "task_context_set_slot",
-        "validate_changed",
-        "validate_task",
         "workspace_validate",
         "workspace_validation_policy",
         "workspace_validation_status",
@@ -1796,91 +1792,6 @@ def test_workspace_mcp_yaml_map_inspects_and_edits_with_hash_guard(tmp_path: Pat
     assert "- two" in source.read_text(encoding="utf-8")
 
 
-def test_workspace_mcp_validate_changed_writes_receipt_and_marks_push_guard(
-    tmp_path: Path, monkeypatch: Any
-) -> None:
-    monkeypatch.delenv("AGENT_TOOLS_WORKSPACE_ROOT", raising=False)
-    repo = tmp_path / "repo"
-    repo.mkdir()
-    _git(repo, "init")
-    _git(repo, "config", "user.name", "Example Author")
-    _git(repo, "config", "user.email", "author@example.com")
-    (repo / "README.md").write_text("base\n", encoding="utf-8")
-    _git(repo, "add", "README.md")
-    _git(repo, "commit", "-m", "Initial")
-    (repo / "README.md").write_text("base\nchanged\n", encoding="utf-8")
-    server = build_workspace_mcp_server(tmp_path)
-
-    response = _mcp_call(
-        server,
-        "validate_changed",
-        {
-            "repo": "repo",
-            "receipt": "report/validation/latest.json",
-            "mark_push_guard": True,
-        },
-    )
-
-    result = response["result"]
-    payload = result["structuredContent"]
-    assert result["isError"] is False
-    assert payload["status"] == "pass"
-    assert payload["changed_files"] == ["README.md"]
-    assert payload["push_guard_marked"] is True
-    assert (tmp_path / "report" / "validation" / "latest.json").is_file()
-    assert not (repo / "report" / "validation" / "latest.json").exists()
-
-
-def test_workspace_mcp_validate_changed_reports_guard_failures(tmp_path: Path) -> None:
-    repo = tmp_path / "repo"
-    repo.mkdir()
-    _git(repo, "init")
-    _git(repo, "config", "user.name", "Example Author")
-    _git(repo, "config", "user.email", "author@example.com")
-    (repo / "README.md").write_text("base\n", encoding="utf-8")
-    _git(repo, "add", "README.md")
-    _git(repo, "commit", "-m", "Initial")
-    (repo / "debug.zip").write_text("artifact\n", encoding="utf-8")
-    server = build_workspace_mcp_server(tmp_path)
-
-    response = _mcp_call(server, "validate_changed", {"repo": "repo"})
-
-    result = response["result"]
-    assert result["isError"] is True
-    assert result["structuredContent"]["status"] == "fail"
-    assert "artifact-like file suffix '.zip' is blocked" in result["content"][0]["text"]
-
-
-def test_workspace_mcp_validate_task_writes_task_receipt(
-    tmp_path: Path, monkeypatch: Any
-) -> None:
-    from agent_tools.tools import validate as validate_tool
-
-    repo = tmp_path / "repo"
-    task_dir = repo / "tasks" / "sample"
-    task_dir.mkdir(parents=True)
-    _git(repo, "init")
-    _git(repo, "config", "user.name", "Example Author")
-    _git(repo, "config", "user.email", "author@example.com")
-    (repo / "README.md").write_text("base\n", encoding="utf-8")
-    _git(repo, "add", "README.md")
-    _git(repo, "commit", "-m", "Initial")
-    monkeypatch.setattr(validate_tool, "_changed_files", lambda _repo: [])
-    monkeypatch.setattr(validate_tool, "_validation_commands", lambda _repo, _changed, _task: [])
-    server = build_workspace_mcp_server(tmp_path)
-
-    response = _mcp_call(
-        server,
-        "validate_task",
-        {"repo": "repo", "task_dir": "tasks/sample"},
-    )
-
-    result = response["result"]
-    assert result["isError"] is False
-    assert result["structuredContent"]["task_dir"] == str(task_dir.resolve())
-    assert (task_dir / "report" / "validation" / "latest.json").is_file()
-
-
 def test_workspace_mcp_lists_high_level_repo_guard_tools(tmp_path: Path) -> None:
     server = build_workspace_mcp_server(tmp_path)
 
@@ -1899,6 +1810,8 @@ def test_workspace_mcp_lists_high_level_repo_guard_tools(tmp_path: Path) -> None
     }.issubset(tools)
     assert "repo_registry_add" not in tools
     assert "repo_registry_list" not in tools
+    assert "validate_changed" not in tools
+    assert "validate_task" not in tools
     assert "workspace_validation_commit_message" not in tools
     assert "workspace_validation_receipt_writer" not in tools
 
@@ -1967,36 +1880,6 @@ def test_workspace_mcp_repo_guard_repos_rejects_non_task_path(tmp_path: Path) ->
 
     assert response["result"]["isError"] is True
     assert "workspace tasks/" in response["result"]["content"][0]["text"]
-
-
-def test_workspace_mcp_repo_registry_legacy_alias_is_hidden_but_callable(tmp_path: Path) -> None:
-    task_dir = tmp_path / "tasks" / "sample"
-    repo = task_dir / "dev" / "repo"
-    repo.mkdir(parents=True)
-    _git(repo, "init")
-    server = build_workspace_mcp_server(tmp_path)
-
-    tools_response = server.handle_message({"jsonrpc": "2.0", "id": 1, "method": "tools/list"})
-    assert tools_response is not None
-    tool_names = {tool["name"] for tool in tools_response["result"]["tools"]}
-
-    assert "repo_registry_add" not in tool_names
-    assert "repo_guard_repos_add" in tool_names
-
-    add_response = _mcp_call(
-        server,
-        "repo_registry_add",
-        {
-            "task": "tasks/sample",
-            "repo": "tasks/sample/dev/repo",
-            "role": "task-dev",
-        },
-    )
-
-    assert add_response["result"]["isError"] is False
-    assert add_response["result"]["structuredContent"]["repositories"] == [
-        {"path": "tasks/sample/dev/repo", "role": "task-dev"}
-    ]
 
 
 def test_workspace_mcp_calls_task_context_query(tmp_path: Path) -> None:

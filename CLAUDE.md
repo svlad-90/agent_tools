@@ -223,11 +223,7 @@ These rules apply to every task directory under the workspace root.
      rely on recursive discovery through large `dev/` trees.
      When an agent identifies a git repository root from inspected files,
      `git rev-parse --show-toplevel`, or user input, the agent updates this
-     registry itself. Prefer the MCP or CLI surface owned by `repo_guard`
-     when available. The older `repo_registry_*` MCP aliases and
-     `agent_tools.tools.repo_registry` CLI remain hidden compatibility
-     backends, not the primary user-facing workflow. Use the guarded CLI
-     fallback:
+     registry itself. Use the MCP or CLI surface owned by `repo_guard`:
 
      ```sh
      python3 -m agent_tools.tools.repo_guard repos add \

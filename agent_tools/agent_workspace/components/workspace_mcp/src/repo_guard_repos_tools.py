@@ -2,17 +2,17 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from agent_tools.tools.repo_registry import add_repository
-from agent_tools.tools.repo_registry import remove_repository
-from agent_tools.tools.repo_registry import repo_registry_entry_objects
-from agent_tools.tools.repo_registry import render_repo_registry
-from agent_tools.tools.repo_registry import validate_repo_registry
+from agent_tools.tools.repo_guard.repositories import add_repository
+from agent_tools.tools.repo_guard.repositories import remove_repository
+from agent_tools.tools.repo_guard.repositories import repo_registry_entry_objects
+from agent_tools.tools.repo_guard.repositories import render_repo_registry
+from agent_tools.tools.repo_guard.repositories import validate_repo_registry
 
 from .registry import JsonObject, McpTool, ToolContext, ToolResult
 from .registry import resolve_workspace_path, string_arg
 
 
-def repo_registry_tools() -> list[McpTool]:
+def repo_guard_repos_tools() -> list[McpTool]:
     return [
         McpTool(
             name="repo_guard_repos_list",
@@ -23,7 +23,7 @@ def repo_registry_tools() -> list[McpTool]:
                 "installation and validation."
             ),
             input_schema=_task_input_schema(),
-            handler=_repo_registry_list,
+            handler=_repo_guard_repos_list,
         ),
         McpTool(
             name="repo_guard_repos_validate",
@@ -34,7 +34,7 @@ def repo_registry_tools() -> list[McpTool]:
                 "repository root."
             ),
             input_schema=_task_input_schema(),
-            handler=_repo_registry_validate,
+            handler=_repo_guard_repos_validate,
         ),
         McpTool(
             name="repo_guard_repos_add",
@@ -45,7 +45,7 @@ def repo_registry_tools() -> list[McpTool]:
                 "slot."
             ),
             input_schema=_add_input_schema(),
-            handler=_repo_registry_add,
+            handler=_repo_guard_repos_add,
         ),
         McpTool(
             name="repo_guard_repos_remove",
@@ -56,44 +56,12 @@ def repo_registry_tools() -> list[McpTool]:
                 "manual YAML editing."
             ),
             input_schema=_remove_input_schema(),
-            handler=_repo_registry_remove,
-        ),
-        McpTool(
-            name="repo_registry_list",
-            title="Repo Registry List (Legacy)",
-            description="Deprecated compatibility alias for repo_guard_repos_list.",
-            input_schema=_task_input_schema(),
-            handler=_repo_registry_list,
-            visible=False,
-        ),
-        McpTool(
-            name="repo_registry_validate",
-            title="Repo Registry Validate (Legacy)",
-            description="Deprecated compatibility alias for repo_guard_repos_validate.",
-            input_schema=_task_input_schema(),
-            handler=_repo_registry_validate,
-            visible=False,
-        ),
-        McpTool(
-            name="repo_registry_add",
-            title="Repo Registry Add (Legacy)",
-            description="Deprecated compatibility alias for repo_guard_repos_add.",
-            input_schema=_add_input_schema(),
-            handler=_repo_registry_add,
-            visible=False,
-        ),
-        McpTool(
-            name="repo_registry_remove",
-            title="Repo Registry Remove (Legacy)",
-            description="Deprecated compatibility alias for repo_guard_repos_remove.",
-            input_schema=_remove_input_schema(),
-            handler=_repo_registry_remove,
-            visible=False,
+            handler=_repo_guard_repos_remove,
         ),
     ]
 
 
-def _repo_registry_list(context: ToolContext, arguments: JsonObject) -> ToolResult:
+def _repo_guard_repos_list(context: ToolContext, arguments: JsonObject) -> ToolResult:
     task_dir = _resolve_task_dir(context.workspace, string_arg(arguments, "task"))
     entries = repo_registry_entry_objects(_repo_registry_content(task_dir))
     payload = {
@@ -104,7 +72,7 @@ def _repo_registry_list(context: ToolContext, arguments: JsonObject) -> ToolResu
     return ToolResult(text=text + "\n", structured_content=payload)
 
 
-def _repo_registry_validate(context: ToolContext, arguments: JsonObject) -> ToolResult:
+def _repo_guard_repos_validate(context: ToolContext, arguments: JsonObject) -> ToolResult:
     task_dir = _resolve_task_dir(context.workspace, string_arg(arguments, "task"))
     validation = validate_repo_registry(task_dir, workspace=context.workspace)
     payload = {
@@ -120,7 +88,7 @@ def _repo_registry_validate(context: ToolContext, arguments: JsonObject) -> Tool
     )
 
 
-def _repo_registry_add(context: ToolContext, arguments: JsonObject) -> ToolResult:
+def _repo_guard_repos_add(context: ToolContext, arguments: JsonObject) -> ToolResult:
     task_dir = _resolve_task_dir(context.workspace, string_arg(arguments, "task"))
     repo = _resolve_repo_path(context.workspace, string_arg(arguments, "repo"))
     role = string_arg(arguments, "role", "")
@@ -135,7 +103,7 @@ def _repo_registry_add(context: ToolContext, arguments: JsonObject) -> ToolResul
     )
 
 
-def _repo_registry_remove(context: ToolContext, arguments: JsonObject) -> ToolResult:
+def _repo_guard_repos_remove(context: ToolContext, arguments: JsonObject) -> ToolResult:
     task_dir = _resolve_task_dir(context.workspace, string_arg(arguments, "task"))
     repo = _resolve_repo_path(context.workspace, string_arg(arguments, "repo"))
     entries = remove_repository(task_dir, workspace=context.workspace, repo=repo)
