@@ -144,13 +144,7 @@ class AssetContractTests(unittest.TestCase):
             "--diagram-svg-bg:",
             "--diagram-svg-arrow:",
             "PlantUML SVG contract: PlantUML 1.2020.02",
-            ".diagram-preview-canvas svg.plantuml-diagram,\n    .diagram-zoom-stage svg.plantuml-diagram { background: var(--diagram-svg-bg) !important; }",
-            ".diagram-preview-canvas svg.plantuml-diagram text:not(.diagram-note-text):not(.diagram-note-marker-text):not(.diagram-code-link-badge-text):not(.asset-focus-match):not(.asset-focus-related-hover)",
-            ".diagram-preview-canvas svg.plantuml-diagram line:not(.asset-focus-connector):not(.diagram-code-link-connector):not(.diagram-note-link)",
-            ".diagram-preview-canvas svg.plantuml-diagram path:not(.asset-focus-object):not(.asset-focus-connector):not(.diagram-note-box):not(.diagram-note-link):not(.diagram-code-link-connector)",
-            ".diagram-preview-canvas svg.plantuml-diagram polyline:not(.asset-focus-connector):not(.diagram-code-link-connector)",
-            ".diagram-preview-canvas svg.plantuml-diagram polygon:not(.asset-focus-connector):not(.asset-focus-object):not(.diagram-code-link-connector)",
-            "fill: var(--diagram-svg-arrow) !important; stroke: var(--diagram-svg-arrow) !important; stroke-width: 1.4px !important;",
+            ".diagram-preview-canvas svg.plantuml-diagram,\n    .diagram-zoom-stage svg.plantuml-diagram { background: #fff !important; }",
             "svg .asset-focus-connector { stroke: var(--diagram-focus) !important; stroke-width: 3px !important; opacity: .95; filter: none; }",
             "svg polygon.asset-focus-connector { fill: var(--diagram-focus) !important; opacity: .95; filter: none; animation: none; }",
             "svg line.asset-focus-connector, svg path.asset-focus-connector, svg polyline.asset-focus-connector { stroke-dasharray: 8 8; stroke-linecap: round; animation: focus-dash-flow 2.4s linear infinite; }",
@@ -208,19 +202,6 @@ class AssetContractTests(unittest.TestCase):
             "svg .asset-focus-object",
             ".diagram-code-popover { position: fixed;",
             "width: min(1120px, calc(100vw - 32px)); height: min(86vh, calc(100vh - 32px));",
-            'polygon[fill="#FFFFFF"]',
-            'path[fill="#FFFFFF"]',
-            'path[fill="#FEFECE"]',
-            'polygon[fill="#F5F5F5"]',
-            'path[fill="#F5F5F5"]',
-            'polygon[fill="#F8FAFC"]',
-            'path[fill="#ECECEC"]',
-            'polygon[fill="#2D2D30"]',
-            'path[fill="#3B3216"]',
-            'ellipse[fill="#FFFFFF"]',
-            'ellipse[fill="#D4D4D4"]',
-            'polygon[fill="#D4D4D4"]',
-            'polygon[fill="#FBFB77"]',
             ".summary-artifact-preview .diagram-preview { width: min(760px, 100%); }",
             "body:has(.general-report) { --brand-height: 110px;",
             ".asset-search-match",
@@ -687,7 +668,7 @@ class AssetContractTests(unittest.TestCase):
             with self.subTest(fragment=fragment):
                 self.assertIn(fragment, script)
 
-    def test_plantuml_preview_svg_embeds_theme_specific_overrides(self) -> None:
+    def test_plantuml_preview_svg_preserves_source_paint(self) -> None:
         source = (
             '<svg style="background:#1F1F1F;">'
             '<text fill="#D4D4D4">title</text>'
@@ -701,12 +682,9 @@ class AssetContractTests(unittest.TestCase):
         light = plantuml_preview_svg(source, "light")
         dark = plantuml_preview_svg(source, "dark")
 
-        self.assertIn("svg { background: #ffffff !important; }", light)
-        self.assertIn("fill: #111827 !important; stroke: none !important;", light)
-        self.assertIn("fill: #ffffff !important; stroke: #475569 !important;", light)
-        self.assertIn("fill: #fff8c5 !important; stroke: #ca5010 !important;", light)
-        self.assertIn("svg { background: #1f1f1f !important; }", dark)
-        self.assertIn("fill: #d4d4d4 !important; stroke: none !important;", dark)
+        self.assertEqual(source, light)
+        self.assertEqual(source, dark)
+        self.assertNotIn("<style>", light)
 
 
 if __name__ == "__main__":

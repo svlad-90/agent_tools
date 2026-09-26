@@ -76,6 +76,18 @@ statically into the page, and the browser does not load JSON at runtime.
 Use the same-basename JSON as the editable source for the next regeneration.
 For example, `review.html` should be paired with `review.json`.
 
+## Diagram format choice
+
+Use PlantUML as the default for AI-authored report diagrams. PlantUML owns the
+layout and SVG rendering, so generated diagrams stay repeatable and avoid
+manual geometry work. Keep PlantUML sources under the task's `report/puml/`
+tree and reference the rendered adjacent SVG from the report JSON.
+
+Use draw.io only when the user explicitly wants to edit or polish the diagram
+manually from the HTML report or in diagrams.net. In that case, keep the
+editable `.drawio` source and rendered `.svg` preview together under the task's
+`report/drawio/` tree.
+
 ## Draw.io editing
 
 Diff reports can embed draw.io diagrams when a diagram entry has
@@ -98,15 +110,16 @@ both the `.drawio` source and `.svg` preview back through that local feedback
 server. Use `--disable-drawio-editing` for public/static artifacts that should
 not include local feedback-server probing.
 
-Reports may also declare a generated draw.io-style graph with `drawio_graph`.
-This is a structured intermediate format for simple layered diagrams. The
-renderer computes node positions from `rank` and optional `lane` values, then
-emits both the editable draw.io source and an SVG preview from the same
-geometry. If a `drawio`, `diagrams.net`, or `diagramsnet` executable is
-available on `PATH`, the report generator asks that local diagrams.net CLI to
-lay out the generated `.drawio` source and export the preview SVG from the same
-laid-out source. Otherwise the report generator falls back to its built-in SVG
-renderer:
+Reports may also declare a generated draw.io-style graph with `drawio_graph`
+when a draw.io editing workflow is specifically needed. This is a structured
+intermediate format for simple layered diagrams, not the default for generated
+report diagrams. The renderer computes node positions from `rank` and optional
+`lane` values, then emits both the editable draw.io source and an SVG preview
+from the same geometry. If a `drawio`, `diagrams.net`, or `diagramsnet`
+executable is available on `PATH`, the report generator asks that local
+diagrams.net CLI to lay out the generated `.drawio` source and export the
+preview SVG from the same laid-out source. Otherwise the report generator falls
+back to its built-in SVG renderer:
 
 ```sh
 python -m agent_tools.tools.diff_report --check-drawio
@@ -146,9 +159,10 @@ rank. Node `width` and `height`, plus graph-level `rank_gap`, `lane_gap`,
 `margin_x`, and `margin_y`, may be supplied when the default spacing is too
 tight. Set `"layout_engine": "graphviz"` for more complex graphs when the
 `dot` executable is available; Graphviz is used only to compute coordinates and
-edge waypoints. This generated form is intended for predictable AI-authored
-drafts; add explicit `source` and `svg` artifacts under `report/drawio/` when
-the diagram must be manually edited in diagrams.net from the report.
+edge waypoints. Prefer PlantUML for generated diagrams unless the review
+artifact needs draw.io/manual-edit round-tripping; add explicit `source` and
+`svg` artifacts under `report/drawio/` when the diagram must be manually edited
+in diagrams.net from the report.
 
 To reduce manual anchor lookup before writing review notes, initialize a starter
 comments JSON from the diff:
@@ -655,6 +669,10 @@ modal supports zoom buttons, a live zoom percentage, `Ctrl` + mouse wheel zoom
 over the diagram, drag-to-pan with the mouse, scrolling at larger scales,
 local `Ctrl` + `F` search over visible SVG text, close by backdrop click, close
 by the toolbar button, and close by `Esc`.
+
+For generated review diagrams, prefer PlantUML sources rendered to SVG under
+`report/puml/`. Use draw.io entries only when the user needs editable
+diagrams.net artifacts and the report should expose the local Edit workflow.
 
 Use `diagram_focus` on a specific file-level or inline comment link when the
 same reusable diagram should open with context-specific SVG text highlighted.

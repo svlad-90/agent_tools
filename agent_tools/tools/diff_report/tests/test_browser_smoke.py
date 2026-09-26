@@ -159,7 +159,7 @@ class BrowserSmokeTests(unittest.TestCase):
         self.assertTrue(result.get("pass"), result)
         self.assertEqual("xMidYMid meet", result.get("preserveAspectRatio"), result)
         self.assertTrue(result.get("hasViewBox"), result)
-        self.assertEqual("rgb(31, 31, 31)", result.get("backgroundFill"), result)
+        self.assertEqual("rgb(255, 255, 255)", result.get("backgroundFill"), result)
         self.assertIn("fill:", result.get("backgroundStyle", ""), result)
         self.assertIn("stroke: none", result.get("backgroundStyle", ""), result)
         self.assertTrue(result.get("lineStroke"), result)
@@ -176,8 +176,7 @@ class BrowserSmokeTests(unittest.TestCase):
         self.assertIn("fill:", result.get("textStyle", ""), result)
         self.assertNotIn("svg text:not", result.get("exportedStyleText", ""), result)
         self.assertNotIn("svg rect:not", result.get("exportedStyleText", ""), result)
-        self.assertNotIn("fill:", result.get("exportedStyleText", ""), result)
-        self.assertNotIn("stroke:", result.get("exportedStyleText", ""), result)
+        self.assertNotIn("var(--diagram-svg", result.get("exportedStyleText", ""), result)
         self.assertTrue(result.get("arrowStroke"), result)
         self.assertIn("fill:", result.get("arrowStyle", ""), result)
 

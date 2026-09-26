@@ -467,7 +467,7 @@ def _render_diagram_preview(
     notes_attr = _json_attr("data-diagram-notes", notes)
     if diagram.renderer == "plantuml":
         preview_src = _svg_data_uri(_plantuml_diagram_svg(plantuml_preview_svg(diagram.svg, "light")))
-        dark_preview_src = _svg_data_uri(_plantuml_diagram_svg(plantuml_preview_svg(diagram.svg, "dark")))
+        dark_preview_src = preview_src
     else:
         preview_src = _svg_data_uri(diagram.svg)
         dark_preview_src = preview_src

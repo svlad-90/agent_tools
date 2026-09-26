@@ -786,7 +786,8 @@ def stylesheet() -> str:
     .diagram-preview:hover { border-color: var(--link); box-shadow: 0 0 0 2px rgba(9,105,218,.12); }
     .diagram-preview-title { display: block; padding: 7px 9px; border-bottom: 1px solid var(--border); background: var(--header-bg); font-weight: 700; }
     .diagram-preview-canvas { display: flex; align-items: center; justify-content: center; height: 180px; padding: 10px; overflow: hidden; background: var(--diagram-bg); }
-    .diagram-preview[data-diagram-renderer="drawio"] .diagram-preview-canvas { background: #fff; }
+    .diagram-preview[data-diagram-renderer="drawio"] .diagram-preview-canvas,
+    .diagram-preview[data-diagram-renderer="plantuml"] .diagram-preview-canvas { background: #fff; }
     .diagram-preview-canvas img { display: block; max-width: 100%; max-height: 100%; width: auto; height: auto; }
     .diagram-preview-img-dark { display: none !important; }
     :root[data-theme="dark"] .diagram-preview-img-light { display: none !important; }
