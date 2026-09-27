@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import time
+
 from agent_tools.agent_workspace.components.test_support.src.helpers import *
 
 
@@ -561,6 +563,54 @@ def test_task_agent_selection_with_resumable_fallback_prefers_saved_session_agen
     save_task_agent_session(summary, "codex", session_id=codex_session_id)
 
     assert task_agent_selection_with_resumable_fallback(summary, workspace, "claude", home=home) == "codex"
+
+
+def test_codex_resume_removes_stale_thread_writer_lock(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace = tmp_path / "workspace"
+    task = workspace / "tasks" / "sample-task"
+    task.mkdir(parents=True)
+    summary = discover_tasks_with_context(task, workspace)
+    home = tmp_path / "home"
+    session_id = "019feba2-e25e-76e1-9468-aa399758268f"
+    session_file = home / ".codex" / "sessions" / f"{session_id}.jsonl"
+    session_file.parent.mkdir(parents=True)
+    session_file.write_text("{}", encoding="utf-8")
+    lock_path = home / ".codex" / "thread-writer-locks" / f"{session_id}.lock"
+    lock_path.parent.mkdir(parents=True)
+    lock_path.write_text("", encoding="utf-8")
+    stale_time = time.time() - 60
+    os.utime(lock_path, (stale_time, stale_time))
+    monkeypatch.setattr("agent_tools.agent_workspace.components.task_sessions.src.sessions._path_is_open_by_process", lambda _path: False)
+    save_task_agent_session(summary, "codex", session_id=session_id)
+
+    assert find_task_agent_session_id(summary, workspace, "codex", home=home) == session_id
+    assert not lock_path.exists()
+
+
+def test_codex_resume_skips_live_thread_writer_lock(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace = tmp_path / "workspace"
+    task = workspace / "tasks" / "sample-task"
+    task.mkdir(parents=True)
+    summary = discover_tasks_with_context(task, workspace)
+    home = tmp_path / "home"
+    session_id = "019feba2-e25e-76e1-9468-aa399758268f"
+    session_file = home / ".codex" / "sessions" / f"{session_id}.jsonl"
+    session_file.parent.mkdir(parents=True)
+    session_file.write_text("{}", encoding="utf-8")
+    lock_path = home / ".codex" / "thread-writer-locks" / f"{session_id}.lock"
+    lock_path.parent.mkdir(parents=True)
+    lock_path.write_text("", encoding="utf-8")
+    monkeypatch.setattr("agent_tools.agent_workspace.components.task_sessions.src.sessions._path_is_open_by_process", lambda _path: True)
+    save_task_agent_session(summary, "codex", session_id=session_id)
+
+    assert find_task_agent_session_id(summary, workspace, "codex", home=home) is None
+    assert lock_path.exists()
 
 
 def test_claude_resume_flag_uses_latest_matching_local_session(tmp_path: Path) -> None:

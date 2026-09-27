@@ -268,8 +268,11 @@ def handle_adapter_event(
         )
         return None
 
-    ensure_database(task_dir)
-    _ensure_adapter_schema(task_dir)
+    try:
+        ensure_database(task_dir)
+    except sqlite3.Error as exc:
+        if not _sqlite_database_is_busy(exc):
+            raise
     tool_name = _request_tool_name(request)
     tool_detail = _request_tool_detail(request)
 
@@ -504,15 +507,10 @@ def _workspace_system_prompt_message() -> str:
 
 
 def _workspace_system_prompt_model(settings: dict[str, Any], model_prompts: dict[str, object]) -> str:
-    for value in (
-        os.environ.get("AGENT_TOOLS_AGENT_MODEL", ""),
-        settings.get("default_codex_model", ""),
-    ):
-        if isinstance(value, str) and value.strip() in model_prompts:
-            return value.strip()
-    prompt_models = [model.strip() for model in model_prompts if isinstance(model, str) and model.strip()]
-    if len(prompt_models) == 1:
-        return prompt_models[0]
+    _ = settings
+    value = os.environ.get("AGENT_TOOLS_AGENT_MODEL", "")
+    if isinstance(value, str) and value.strip() in model_prompts:
+        return value.strip()
     return ""
 
 
@@ -598,51 +596,69 @@ def _refresh_task_context_update_flag(task_dir: Path, agent_type: AgentType, ses
 
 
 def _ensure_adapter_schema(task_dir: Path) -> None:
-    with sqlite3.connect(database_path(task_dir), timeout=10) as connection:
-        connection.execute(
-            """
-            CREATE TABLE IF NOT EXISTS harness_adapter_state (
-                agent_type TEXT NOT NULL,
-                session_id TEXT NOT NULL,
-                last_event TEXT NOT NULL DEFAULT '',
-                last_user_prompt_at TEXT NOT NULL DEFAULT '',
-                work_observed_since_prompt INTEGER NOT NULL DEFAULT 0,
-                journal_updated_since_prompt INTEGER NOT NULL DEFAULT 0,
-                session_active INTEGER NOT NULL DEFAULT 0,
-                context_fingerprint_at_prompt TEXT NOT NULL DEFAULT '',
-                updated_at TEXT NOT NULL,
-                PRIMARY KEY(agent_type, session_id)
-            )
-            """
-        )
-        columns = {
-            row[1]
-            for row in connection.execute("PRAGMA table_info(harness_adapter_state)").fetchall()
-        }
-        if "context_fingerprint_at_prompt" not in columns:
+    try:
+        with sqlite3.connect(database_path(task_dir), timeout=10) as connection:
             connection.execute(
-                "ALTER TABLE harness_adapter_state "
-                "ADD COLUMN context_fingerprint_at_prompt TEXT NOT NULL DEFAULT ''"
+                """
+                CREATE TABLE IF NOT EXISTS harness_adapter_state (
+                    agent_type TEXT NOT NULL,
+                    session_id TEXT NOT NULL,
+                    last_event TEXT NOT NULL DEFAULT '',
+                    last_user_prompt_at TEXT NOT NULL DEFAULT '',
+                    work_observed_since_prompt INTEGER NOT NULL DEFAULT 0,
+                    journal_updated_since_prompt INTEGER NOT NULL DEFAULT 0,
+                    session_active INTEGER NOT NULL DEFAULT 0,
+                    context_fingerprint_at_prompt TEXT NOT NULL DEFAULT '',
+                    updated_at TEXT NOT NULL,
+                    PRIMARY KEY(agent_type, session_id)
+                )
+                """
             )
-        connection.execute(
-            "DROP TABLE IF EXISTS harness_debug_events"
-        )
+            columns = {
+                row[1]
+                for row in connection.execute("PRAGMA table_info(harness_adapter_state)").fetchall()
+            }
+            if "context_fingerprint_at_prompt" not in columns:
+                connection.execute(
+                    "ALTER TABLE harness_adapter_state "
+                    "ADD COLUMN context_fingerprint_at_prompt TEXT NOT NULL DEFAULT ''"
+                )
+    except sqlite3.Error as exc:
+        if not _sqlite_database_is_busy(exc):
+            raise
 
 
-def _load_adapter_state(task_dir: Path, agent_type: AgentType, session_id: str | None) -> dict[str, Any]:
-    _ensure_adapter_schema(task_dir)
+def _sqlite_database_is_busy(exc: sqlite3.Error) -> bool:
+    message = str(exc).casefold()
+    return "database is locked" in message or "database is busy" in message
+
+
+def _load_adapter_state(
+    task_dir: Path,
+    agent_type: AgentType,
+    session_id: str | None,
+    *,
+    ensure_schema: bool = True,
+) -> dict[str, Any]:
+    if ensure_schema:
+        _ensure_adapter_schema(task_dir)
     key = _session_key(session_id)
-    with sqlite3.connect(database_path(task_dir), timeout=10) as connection:
-        row = connection.execute(
-            """
-            SELECT last_event, last_user_prompt_at, work_observed_since_prompt,
-                   journal_updated_since_prompt, session_active,
-                   context_fingerprint_at_prompt, updated_at
-            FROM harness_adapter_state
-            WHERE agent_type = ? AND session_id = ?
-            """,
-            (agent_type.value, key),
-        ).fetchone()
+    try:
+        with sqlite3.connect(database_path(task_dir), timeout=10) as connection:
+            row = connection.execute(
+                """
+                SELECT last_event, last_user_prompt_at, work_observed_since_prompt,
+                       journal_updated_since_prompt, session_active,
+                       context_fingerprint_at_prompt, updated_at
+                FROM harness_adapter_state
+                WHERE agent_type = ? AND session_id = ?
+                """,
+                (agent_type.value, key),
+            ).fetchone()
+    except sqlite3.Error as exc:
+        if not _sqlite_database_is_busy(exc):
+            raise
+        row = None
     if row is None:
         return {
             "last_event": "",
@@ -676,8 +692,13 @@ def _update_adapter_state(
     session_active: bool | None = None,
     context_fingerprint_at_prompt: str | None = None,
 ) -> None:
-    _ensure_adapter_schema(task_dir)
-    state = _load_adapter_state(task_dir, agent_type, session_id)
+    try:
+        _ensure_adapter_schema(task_dir)
+        state = _load_adapter_state(task_dir, agent_type, session_id, ensure_schema=False)
+    except sqlite3.Error as exc:
+        if not _sqlite_database_is_busy(exc):
+            raise
+        return
     values = {
         "last_event": state["last_event"] if last_event is None else last_event,
         "last_user_prompt_at": state["last_user_prompt_at"] if last_user_prompt_at is None else last_user_prompt_at,
@@ -698,36 +719,40 @@ def _update_adapter_state(
             else context_fingerprint_at_prompt
         ),
     }
-    with sqlite3.connect(database_path(task_dir), timeout=10) as connection:
-        connection.execute(
-            """
-            INSERT INTO harness_adapter_state (
-                agent_type, session_id, last_event, last_user_prompt_at,
-                work_observed_since_prompt, journal_updated_since_prompt,
-                session_active, context_fingerprint_at_prompt, updated_at
+    try:
+        with sqlite3.connect(database_path(task_dir), timeout=10) as connection:
+            connection.execute(
+                """
+                INSERT INTO harness_adapter_state (
+                    agent_type, session_id, last_event, last_user_prompt_at,
+                    work_observed_since_prompt, journal_updated_since_prompt,
+                    session_active, context_fingerprint_at_prompt, updated_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(agent_type, session_id) DO UPDATE SET
+                    last_event = excluded.last_event,
+                    last_user_prompt_at = excluded.last_user_prompt_at,
+                    work_observed_since_prompt = excluded.work_observed_since_prompt,
+                    journal_updated_since_prompt = excluded.journal_updated_since_prompt,
+                    session_active = excluded.session_active,
+                    context_fingerprint_at_prompt = excluded.context_fingerprint_at_prompt,
+                    updated_at = excluded.updated_at
+                """,
+                (
+                    agent_type.value,
+                    _session_key(session_id),
+                    values["last_event"],
+                    values["last_user_prompt_at"],
+                    int(values["work_observed_since_prompt"]),
+                    int(values["journal_updated_since_prompt"]),
+                    int(values["session_active"]),
+                    values["context_fingerprint_at_prompt"],
+                    _now(),
+                ),
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-            ON CONFLICT(agent_type, session_id) DO UPDATE SET
-                last_event = excluded.last_event,
-                last_user_prompt_at = excluded.last_user_prompt_at,
-                work_observed_since_prompt = excluded.work_observed_since_prompt,
-                journal_updated_since_prompt = excluded.journal_updated_since_prompt,
-                session_active = excluded.session_active,
-                context_fingerprint_at_prompt = excluded.context_fingerprint_at_prompt,
-                updated_at = excluded.updated_at
-            """,
-            (
-                agent_type.value,
-                _session_key(session_id),
-                values["last_event"],
-                values["last_user_prompt_at"],
-                int(values["work_observed_since_prompt"]),
-                int(values["journal_updated_since_prompt"]),
-                int(values["session_active"]),
-                values["context_fingerprint_at_prompt"],
-                _now(),
-            ),
-        )
+    except sqlite3.Error as exc:
+        if not _sqlite_database_is_busy(exc):
+            raise
 
 
 def _emit(

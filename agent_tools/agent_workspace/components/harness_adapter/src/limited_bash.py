@@ -874,7 +874,36 @@ def _active_log_bases(log_dir: Path) -> set[str]:
     active_dir = log_dir / ACTIVE_LOG_DIR
     if not active_dir.is_dir():
         return set()
-    return {path.name for path in active_dir.iterdir() if path.is_file()}
+    active: set[str] = set()
+    for path in active_dir.iterdir():
+        if not path.is_file():
+            continue
+        if _active_log_marker_is_live(path):
+            active.add(path.name)
+            continue
+        try:
+            path.unlink(missing_ok=True)
+        except OSError:
+            pass
+    _cleanup_empty_active_log_dir(active_dir)
+    return active
+
+
+def _active_log_marker_is_live(path: Path) -> bool:
+    values = _read_key_value_file(path)
+    try:
+        pid = int(values["pid"])
+    except (KeyError, ValueError):
+        return False
+    if pid <= 0:
+        return False
+    try:
+        os.kill(pid, 0)
+    except PermissionError:
+        return True
+    except OSError:
+        return False
+    return True
 
 
 def _recent_completed_log_runs(log_dir: Path, active: set[str]) -> set[str]:
