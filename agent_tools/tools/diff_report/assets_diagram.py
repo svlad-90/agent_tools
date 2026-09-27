@@ -290,8 +290,43 @@ def diagram_script() -> str:
     }
   }
 
+  function markPlantUmlFocusedNote(labelNode) {
+    const shape = closestSvgObjectShape(labelNode);
+    if (!shape || !isPlantUmlNoteShape(shape)) {
+      return;
+    }
+    shape.classList.add("asset-focus-object");
+    markRelatedPlantUmlNoteShapes(shape);
+  }
+
   function markRelatedPlantUmlNoteShapes(shape) {
-    return;
+    if (!shape || !shape.ownerSVGElement || !isPlantUmlNoteShape(shape)) {
+      return;
+    }
+    const shapeBox = safeBBox(shape);
+    if (!shapeBox) {
+      return;
+    }
+    const shapeRight = shapeBox.x + shapeBox.width;
+    const shapeBottom = shapeBox.y + shapeBox.height;
+    for (const candidate of shape.ownerSVGElement.querySelectorAll("path, polygon, rect")) {
+      if (candidate === shape || !isPlantUmlNoteShape(candidate)) {
+        continue;
+      }
+      const candidateBox = safeBBox(candidate);
+      if (!candidateBox) {
+        continue;
+      }
+      const candidateRight = candidateBox.x + candidateBox.width;
+      const candidateBottom = candidateBox.y + candidateBox.height;
+      const overlaps = candidateBox.x <= shapeRight
+        && candidateRight >= shapeBox.x
+        && candidateBox.y <= shapeBottom
+        && candidateBottom >= shapeBox.y;
+      if (overlaps) {
+        candidate.classList.add("asset-focus-object");
+      }
+    }
   }
 
   function isPlantUmlNoteShape(node) {
@@ -725,6 +760,8 @@ def diagram_script() -> str:
             focusedLabels.add(labelLine);
             if (paintFocus) {
               markSvgFocusMatch(labelLine);
+            } else {
+              markPlantUmlFocusedNote(labelLine);
             }
           }
           if (paintFocus) {
