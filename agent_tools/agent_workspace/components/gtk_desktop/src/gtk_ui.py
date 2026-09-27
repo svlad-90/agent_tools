@@ -138,6 +138,7 @@ from ...localization.api import AGENT_STATUS_MANUAL_MENU_LABEL
 from ...localization.api import AGENT_STATUS_MANUAL_TITLE
 from ...process_runtime.api import abort_agent_workspace_with_stack_dump
 from ...process_runtime.api import acquire_agent_workspace_lock
+from ...process_runtime.api import agent_workspace_crash_log_path
 from ...settings.api import agent_executable
 from ...settings.api import agent_install_command
 from ...settings.api import agent_label
@@ -357,6 +358,7 @@ class WorkspaceGtkGui:
         self.profiling_refresh_source_id: int | None = None
         self.profiling_paused_for_settings = False
         self.settings_update_running = False
+        self.task_init_running = False
         self.harness_debug_snapshot_signature: tuple[int, int] | None = None
         self.harness_debug_latest_by_task: dict[Path, HarnessDebugEvent] = {}
         self.workspace_ipc_server: WorkspaceIpcServer | None = None
@@ -383,6 +385,7 @@ class WorkspaceGtkGui:
         self.model_system_prompts = dict(settings.model_system_prompts)
         self.inject_task_context_prompt = settings.inject_task_context_prompt
         self.diff_report_feedback_enabled = settings.diff_report_feedback_enabled
+        self.gtk_breadcrumbs_enabled = settings.gtk_breadcrumbs_enabled
         self.mcp_enabled_groups = settings.mcp_enabled_groups
         self.mcp_trusted = settings.mcp_trusted
         self.task_dictionary_auto_discovery = settings.task_dictionary_auto_discovery
@@ -475,8 +478,18 @@ class WorkspaceGtkGui:
         self._build_ui()
         self._apply_css()
         self.refresh_tasks()
-        self.ai_debug_refresh_source_id = GLib.timeout_add_seconds(1, self._refresh_ai_debug_if_visible)
-        self.agent_status_animation_source_id = GLib.timeout_add_seconds(1, self._animate_agent_status)
+        self.ai_debug_refresh_source_id = GLib.timeout_add_seconds(
+            1,
+            self._run_gtk_breadcrumb,
+            "refresh-ai-debug",
+            self._refresh_ai_debug_if_visible,
+        )
+        self.agent_status_animation_source_id = GLib.timeout_add_seconds(
+            1,
+            self._run_gtk_breadcrumb,
+            "animate-agent-status",
+            self._animate_agent_status,
+        )
 
     def _build_ui(self) -> None:
         root = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
@@ -715,6 +728,7 @@ class WorkspaceGtkGui:
         self._profile_widget("workspace-actions-box", self.workspace_actions_box)
 
         self.task_actions_box = self._add_framed_action_group(controls_box, self._s("actions.group"), expand=False)
+        self.task_actions_box.connect("map", self._on_task_actions_box_map)
         self.task_actions_box.connect("size-allocate", self._on_task_actions_box_size_allocate)
         self._connect_task_reorder_box(self.task_actions_box, "action")
         self._profile_widget("task-actions-box", self.task_actions_box)
@@ -1861,6 +1875,8 @@ class WorkspaceGtkGui:
         return True
 
     def add_task(self, *_args: object) -> None:
+        if getattr(self, "task_init_running", False):
+            return
         request = self._prompt_task_name()
         if request is None:
             return
@@ -1871,18 +1887,44 @@ class WorkspaceGtkGui:
         if task_path.exists():
             self._show_error(f"{self._tr('task_already_exists')}: {task_path}")
             return
-        result = subprocess.run(
-            _task_init_command(self.workspace, task_path, privacy=request.privacy),
-            cwd=self.workspace,
-            text=True,
-            capture_output=True,
-            check=False,
-        )
-        if result.returncode != 0:
-            self._show_error((result.stderr or result.stdout or "task init failed").strip())
-            return
-        self.selected_task = TaskSummary(task_path.name, task_path, False, False, 0, 0, False)
-        self.refresh_tasks()
+        self.task_init_running = True
+        self._set_status_message(f"Creating task {task_path.name}...")
+
+        def worker() -> None:
+            result: subprocess.CompletedProcess[str] | None = None
+            error: Exception | None = None
+            try:
+                result = subprocess.run(
+                    _task_init_command(self.workspace, task_path, privacy=request.privacy),
+                    cwd=self.workspace,
+                    text=True,
+                    capture_output=True,
+                    check=False,
+                )
+            except Exception as caught:
+                error = caught
+
+            def apply_result() -> bool:
+                if getattr(self, "_closing", False):
+                    return False
+                self.task_init_running = False
+                if error is not None:
+                    self._set_status_message("")
+                    self._show_error(f"task init failed: {type(error).__name__}: {error}")
+                    return False
+                assert result is not None
+                if result.returncode != 0:
+                    self._set_status_message("")
+                    self._show_error((result.stderr or result.stdout or "task init failed").strip())
+                    return False
+                self.selected_task = TaskSummary(task_path.name, task_path, False, False, 0, 0, False)
+                self._set_status_message("")
+                self.refresh_tasks()
+                return False
+
+            GLib.idle_add(self._run_gtk_breadcrumb, "task-init-result", apply_result)
+
+        threading.Thread(target=worker, daemon=True).start()
 
     def delete_selected_task(self, *_args: object) -> None:
         task = self._require_task()
@@ -2371,6 +2413,26 @@ class WorkspaceGtkGui:
     def _abort_with_stack_dump(self) -> None:
         abort_agent_workspace_with_stack_dump(self.workspace, "gtk")
 
+    def _write_gtk_breadcrumb(self, event: str) -> None:
+        if not getattr(self, "gtk_breadcrumbs_enabled", False):
+            return
+        try:
+            log_path = agent_workspace_crash_log_path(self.workspace)
+            with log_path.open("a", encoding="utf-8") as stream:
+                timestamp = time.strftime("%Y-%m-%dT%H:%M:%S")
+                stream.write(f"[{timestamp}] gtk-breadcrumb {event} pid={os.getpid()}\n")
+                stream.flush()
+                os.fsync(stream.fileno())
+        except OSError:
+            return
+
+    def _run_gtk_breadcrumb(self, name: str, callback: Callable[..., object], *args: object) -> object:
+        self._write_gtk_breadcrumb(f"enter {name}")
+        try:
+            return callback(*args)
+        finally:
+            self._write_gtk_breadcrumb(f"leave {name}")
+
     def _refresh_profiling_tick(self) -> bool:
         if self._closing or not self.profiling_enabled or self.profiling_paused_for_settings:
             self.profiling_refresh_source_id = None
@@ -2608,6 +2670,15 @@ class WorkspaceGtkGui:
             widget_kind="checkbox",
         )
         profiling_enabled.set_active(self.profiling_enabled)
+        gtk_breadcrumbs = Gtk.CheckButton(label=self._tr("settings_gtk_breadcrumbs_enable"))
+        mark_gtk_widget(
+            gtk_breadcrumbs,
+            "settings.gtk_breadcrumbs_enabled",
+            "field",
+            label_key="settings_gtk_breadcrumbs_enable",
+            widget_kind="checkbox",
+        )
+        gtk_breadcrumbs.set_active(self.gtk_breadcrumbs_enabled)
         profiling_clear = Gtk.Button(label=self._tr("settings_profiling_clear"))
         mark_gtk_widget(
             profiling_clear,
@@ -2625,6 +2696,7 @@ class WorkspaceGtkGui:
             widget_kind="button",
         )
         profiling_controls.pack_start(profiling_enabled, False, False, 0)
+        profiling_controls.pack_start(gtk_breadcrumbs, False, False, 0)
         profiling_controls.pack_start(profiling_clear, False, False, 0)
         profiling_controls.pack_start(profiling_crash, False, False, 0)
         profiling_output = _text_view(self.text_font_size, editable=False)
@@ -3475,7 +3547,7 @@ class WorkspaceGtkGui:
                     )
                     return False
 
-                GLib.idle_add(apply_codex_models)
+                GLib.idle_add(self._run_gtk_breadcrumb, "refresh-codex-models", apply_codex_models)
 
             threading.Thread(target=refresh_codex_models, daemon=True).start()
         text_size.grab_focus()
@@ -3490,6 +3562,7 @@ class WorkspaceGtkGui:
             self.theme = theme_combo.get_active_text() or self.theme
             self.language = language_combo.get_active_text() or self.language
             self.diff_report_feedback_enabled = diff_report_feedback_check.get_active()
+            self.gtk_breadcrumbs_enabled = gtk_breadcrumbs.get_active()
             self.default_agent = normalize_agent(default_agent_combo.get_active_text())
             if codex_available:
                 self.default_codex_model = codex_model_combo.get_active_text() or ""
@@ -3667,13 +3740,24 @@ class WorkspaceGtkGui:
         self.task_action_reflow_width = width
         self._schedule_task_action_reflow()
 
+    def _on_task_actions_box_map(self, _widget: Gtk.Widget) -> None:
+        self.task_action_reflow_layout = None
+        self._schedule_task_action_reflow()
+
     def _schedule_task_action_reflow(self) -> None:
         if self.task_action_reflow_source_id is None:
-            self.task_action_reflow_source_id = GLib.idle_add(self._reflow_task_action_buttons)
+            self.task_action_reflow_source_id = GLib.idle_add(
+                self._run_gtk_breadcrumb,
+                "task-action-reflow",
+                self._reflow_task_action_buttons,
+            )
 
     def _reflow_task_action_buttons(self) -> bool:
         self.task_action_reflow_source_id = None
         if not hasattr(self, "task_actions_box"):
+            return False
+        if hasattr(self.task_actions_box, "get_mapped") and not self.task_actions_box.get_mapped():
+            self.task_action_reflow_layout = None
             return False
         width = max(1, self.task_actions_box.get_allocated_width() - self.task_actions_box.get_border_width() * 2)
         layout_rows: list[tuple[str, ...]] = []
@@ -5785,7 +5869,12 @@ class WorkspaceGtkGui:
             resolve_task_agent_sessions(task, self.workspace)
         except Exception as exc:  # pragma: no cover - defensive UI background path
             log_agent_workspace_exception(self.workspace, "gtk-session-discovery", type(exc), exc, exc.__traceback__)
-        GLib.idle_add(self._finish_task_session_discovery, task.path)
+        GLib.idle_add(
+            self._run_gtk_breadcrumb,
+            "finish-task-session-discovery",
+            self._finish_task_session_discovery,
+            task.path,
+        )
 
     def _finish_task_session_discovery(self, task_path: Path) -> bool:
         if getattr(self, "_closing", False):
@@ -6937,6 +7026,7 @@ class WorkspaceGtkGui:
                 "model_system_prompts": getattr(self, "model_system_prompts", {}),
                 "inject_task_context_prompt": self.inject_task_context_prompt,
                 "diff_report_feedback_enabled": getattr(self, "diff_report_feedback_enabled", False),
+                "gtk_breadcrumbs_enabled": getattr(self, "gtk_breadcrumbs_enabled", False),
                 "mcp_enabled_groups": list(mcp_enabled_groups),
                 "mcp_trusted": self.mcp_trusted,
                 "task_dictionary_auto_discovery": self.task_dictionary_auto_discovery,

@@ -223,6 +223,7 @@ def test_agent_workspace_runtime_settings_normalizes_ui_defaults() -> None:
             },
             "inject_task_context_prompt": False,
             "diff_report_feedback_enabled": True,
+            "gtk_breadcrumbs_enabled": True,
             "mcp_enabled_groups": ["search", "unknown", "validation"],
             "mcp_trusted": True,
             "task_dictionary_auto_discovery": False,
@@ -263,6 +264,7 @@ def test_agent_workspace_runtime_settings_normalizes_ui_defaults() -> None:
     }
     assert settings.inject_task_context_prompt is False
     assert settings.diff_report_feedback_enabled is True
+    assert settings.gtk_breadcrumbs_enabled is True
     assert settings.mcp_enabled_groups == (
         "search",
         "task_context",
@@ -328,6 +330,7 @@ def test_agent_workspace_runtime_settings_falls_back_for_invalid_values() -> Non
     assert settings.model_system_prompts == {}
     assert settings.inject_task_context_prompt is True
     assert settings.diff_report_feedback_enabled is False
+    assert settings.gtk_breadcrumbs_enabled is False
     assert settings.task_dictionary_auto_discovery is True
     assert settings.task_dictionary_min_occurrences == 1
     assert settings.task_dictionary_min_saving == 0
