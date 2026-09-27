@@ -28,6 +28,9 @@ class Diagram:
     source_path: str | None = None
     svg_task: str | None = None
     svg_path: str | None = None
+    comments_task: str | None = None
+    comments_path: str | None = None
+    comments_diagram: str | None = None
     code_links: tuple[dict[str, Any], ...] = ()
 
 

@@ -51,6 +51,9 @@ def diagram_script() -> str:
       sourcePath: template.dataset.diagramSourcePath || "",
       svgTask: template.dataset.diagramSvgTask || "",
       svgPath: template.dataset.diagramSvgPath || "",
+      commentsTask: template.dataset.diagramCommentsTask || "",
+      commentsPath: template.dataset.diagramCommentsPath || "",
+      commentsDiagram: template.dataset.diagramCommentsDiagram || "",
     };
   }
 
@@ -145,13 +148,7 @@ def diagram_script() -> str:
     const availableWidth = Math.max(0, content.clientWidth - 36);
     const availableHeight = Math.max(0, content.clientHeight - 36);
     const widthScale = availableWidth > 0 ? availableWidth / size.width : 1;
-    const heightScale = availableHeight > 0 ? availableHeight / size.height : 1;
-    if (size.height > availableHeight || size.width > availableWidth) {
-      initialScale = Math.min(3, widthScale);
-      setScale(initialScale);
-      return;
-    }
-    initialScale = Math.min(3, widthScale, heightScale);
+    initialScale = Math.min(3, widthScale);
     setScale(initialScale);
   }
 
@@ -225,7 +222,7 @@ def diagram_script() -> str:
       node.remove();
     }
     for (const node of content.querySelectorAll(".asset-focus-connector")) {
-      node.classList.remove("asset-focus-connector", "asset-focus-connector-reverse");
+      node.classList.remove("asset-focus-connector");
     }
     for (const node of content.querySelectorAll(".asset-focus-object")) {
       node.classList.remove("asset-focus-object");
@@ -294,30 +291,7 @@ def diagram_script() -> str:
   }
 
   function markRelatedPlantUmlNoteShapes(shape) {
-    if (!isPlantUmlNoteShape(shape)) {
-      return;
-    }
-    const shapeBox = safeBBox(shape);
-    const parent = shape.parentNode;
-    if (!shapeBox || !parent || !parent.querySelectorAll) {
-      return;
-    }
-    const expanded = {
-      x: shapeBox.x - 2,
-      y: shapeBox.y - 2,
-      width: shapeBox.width + 4,
-      height: shapeBox.height + 4,
-    };
-    for (const candidate of parent.querySelectorAll("rect, polygon, path")) {
-      if (!isPlantUmlNoteShape(candidate)) {
-        continue;
-      }
-      const candidateBox = safeBBox(candidate);
-      if (!candidateBox || !svgBoxContains(expanded, candidateBox)) {
-        continue;
-      }
-      candidate.classList.add("asset-focus-object");
-    }
+    return;
   }
 
   function isPlantUmlNoteShape(node) {
@@ -384,29 +358,41 @@ def diagram_script() -> str:
     const sourceArea = Math.max(box.width * box.height, 1);
     let best = null;
     let bestArea = Infinity;
-    for (const candidate of parent.querySelectorAll("rect, polygon, path")) {
-      if (candidate.classList.contains("diagram-note-box")
-        || candidate.classList.contains("diagram-code-link-badge-box")) {
+    const roots = [parent];
+    if (labelNode.ownerSVGElement && labelNode.ownerSVGElement !== parent) {
+      roots.push(labelNode.ownerSVGElement);
+    }
+    for (const root of roots) {
+      if (!root.querySelectorAll) {
         continue;
       }
-      const candidateBox = safeBBox(candidate);
-      if (!candidateBox || candidateBox.width < box.width || candidateBox.height < box.height) {
-        continue;
+      for (const candidate of root.querySelectorAll("rect, polygon, path")) {
+        if (candidate.classList.contains("diagram-note-box")
+          || candidate.classList.contains("diagram-code-link-badge-box")) {
+          continue;
+        }
+        const candidateBox = safeBBox(candidate);
+        if (!candidateBox || candidateBox.width < box.width || candidateBox.height < box.height) {
+          continue;
+        }
+        const area = candidateBox.width * candidateBox.height;
+        if (area > Math.max(65000, sourceArea * 28)) {
+          continue;
+        }
+        const containsCenter = center.x >= candidateBox.x
+          && center.x <= candidateBox.x + candidateBox.width
+          && center.y >= candidateBox.y
+          && center.y <= candidateBox.y + candidateBox.height;
+        if (!containsCenter) {
+          continue;
+        }
+        if (area < bestArea) {
+          best = candidate;
+          bestArea = area;
+        }
       }
-      const area = candidateBox.width * candidateBox.height;
-      if (area > Math.max(65000, sourceArea * 28)) {
-        continue;
-      }
-      const containsCenter = center.x >= candidateBox.x
-        && center.x <= candidateBox.x + candidateBox.width
-        && center.y >= candidateBox.y
-        && center.y <= candidateBox.y + candidateBox.height;
-      if (!containsCenter) {
-        continue;
-      }
-      if (area < bestArea) {
-        best = candidate;
-        bestArea = area;
+      if (best) {
+        break;
       }
     }
     return best;
@@ -457,14 +443,8 @@ def diagram_script() -> str:
 
   function addSvgFocusConnector(node) {
     const connectors = connectorsForText(node);
-    const arrowhead = connectors.find(function (connector) {
-      return connector.tagName && connector.tagName.toLowerCase() === "polygon";
-    });
     for (const connector of connectors) {
       connector.classList.add("asset-focus-connector");
-      if (isReverseConnector(connector, arrowhead)) {
-        connector.classList.add("asset-focus-connector-reverse");
-      }
     }
   }
 
@@ -480,76 +460,6 @@ def diagram_script() -> str:
       inspected += 1;
     }
     return connectors;
-  }
-
-  function isReverseConnector(node, arrowhead) {
-    const tag = node.tagName.toLowerCase();
-    const points = connectorEndpoints(node, tag);
-    if (!points) {
-      return false;
-    }
-    if (arrowhead && node !== arrowhead) {
-      const arrowCenter = connectorCenter(arrowhead, "polygon");
-      if (arrowCenter) {
-        const startDistance = distance(points.start, arrowCenter);
-        const endDistance = distance(points.end, arrowCenter);
-        return startDistance < endDistance;
-      }
-    }
-    const dx = points.end.x - points.start.x;
-    const dy = points.end.y - points.start.y;
-    if (Math.abs(dx) >= Math.abs(dy)) {
-      return dx < 0;
-    }
-    return dy < 0;
-  }
-
-  function connectorEndpoints(node, tag) {
-    if (tag === "line") {
-      return {
-        start: { x: numberAttr(node, "x1"), y: numberAttr(node, "y1") },
-        end: { x: numberAttr(node, "x2"), y: numberAttr(node, "y2") },
-      };
-    }
-    if (tag === "polyline" || tag === "polygon") {
-      return endpointsFromNumbers((node.getAttribute("points") || "").match(/-?\\d+(?:\\.\\d+)?/g));
-    }
-    if (tag === "path") {
-      return endpointsFromNumbers((node.getAttribute("d") || "").match(/-?\\d+(?:\\.\\d+)?/g));
-    }
-    return null;
-  }
-
-  function endpointsFromNumbers(rawNumbers) {
-    if (!rawNumbers || rawNumbers.length < 4) {
-      return null;
-    }
-    const numbers = rawNumbers.map(Number);
-    return {
-      start: { x: numbers[0], y: numbers[1] },
-      end: { x: numbers[numbers.length - 2], y: numbers[numbers.length - 1] },
-    };
-  }
-
-  function connectorCenter(node, tag) {
-    const endpoints = connectorEndpoints(node, tag);
-    if (!endpoints) {
-      return null;
-    }
-    return {
-      x: (endpoints.start.x + endpoints.end.x) / 2,
-      y: (endpoints.start.y + endpoints.end.y) / 2,
-    };
-  }
-
-  function distance(a, b) {
-    const dx = a.x - b.x;
-    const dy = a.y - b.y;
-    return Math.sqrt(dx * dx + dy * dy);
-  }
-
-  function numberAttr(node, name) {
-    return Number(node.getAttribute(name) || 0);
   }
 
   function updateSearch(resetIndex) {
@@ -801,6 +711,7 @@ def diagram_script() -> str:
     let focusTarget = null;
     if (mode === "diagram") {
       const focused = [];
+      const paintFocus = !activeDiagramIsPlantUml();
       const textNodes = content.querySelectorAll("svg text, svg tspan");
       const focusedLabels = new Set();
       for (const node of textNodes) {
@@ -812,9 +723,13 @@ def diagram_script() -> str:
           const labelLines = svgLabelLineGroup(labelNode);
           for (const labelLine of labelLines) {
             focusedLabels.add(labelLine);
-            markSvgFocusMatch(labelLine);
+            if (paintFocus) {
+              markSvgFocusMatch(labelLine);
+            }
           }
-          addSvgFocusConnector(labelNode);
+          if (paintFocus) {
+            addSvgFocusConnector(labelNode);
+          }
           focused.push(labelNode);
         }
       }
@@ -830,6 +745,11 @@ def diagram_script() -> str:
       }
     }
     return focusTarget;
+  }
+
+  function activeDiagramIsPlantUml() {
+    const stage = content.querySelector(".diagram-zoom-stage");
+    return Boolean(stage && stage.dataset.diagramRenderer === "plantuml");
   }
 
   function applyStoryObjectZoom(target, nextZoom) {
@@ -1049,8 +969,8 @@ def diagram_script() -> str:
     for (const node of content.querySelectorAll(".diagram-code-link-badge")) {
       node.remove();
     }
-    for (const node of content.querySelectorAll(".diagram-code-link-target, .diagram-code-link-connector, .diagram-code-link-hover, .diagram-code-link-active")) {
-      node.classList.remove("diagram-code-link-target", "diagram-code-link-connector", "diagram-code-link-hover", "diagram-code-link-active");
+    for (const node of content.querySelectorAll(".diagram-code-link-target, .diagram-code-link-hover, .diagram-code-link-active")) {
+      node.classList.remove("diagram-code-link-target", "diagram-code-link-hover", "diagram-code-link-active");
       delete node.dataset.codeLinkTarget;
       delete node.dataset.codeLinkInstance;
     }
@@ -1083,17 +1003,10 @@ def diagram_script() -> str:
   function decorateCodeLinkTarget(node, link, instanceKey) {
     node = svgTextLabelNode(node);
     const targetKey = String(link.target || "");
-    const connectors = connectorsForText(node);
     node.classList.add("diagram-code-link-target");
     node.dataset.codeLinkTarget = targetKey;
     node.dataset.codeLinkInstance = instanceKey;
     attachCodeLinkHover(node, targetKey, instanceKey);
-    for (const connector of connectors) {
-      connector.classList.add("diagram-code-link-connector");
-      connector.dataset.codeLinkTarget = targetKey;
-      connector.dataset.codeLinkInstance = instanceKey;
-      attachCodeLinkHover(connector, targetKey, instanceKey);
-    }
     addCodeLinkBadge(node, targetKey, instanceKey);
   }
 

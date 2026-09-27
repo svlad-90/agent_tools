@@ -83,6 +83,115 @@ layout and SVG rendering, so generated diagrams stay repeatable and avoid
 manual geometry work. Keep PlantUML sources under the task's `report/puml/`
 tree and reference the rendered adjacent SVG from the report JSON.
 
+When an agent should describe the diagram semantically instead of authoring raw
+PlantUML, use `agent_diagram`. It is a small structured subset that compiles to
+PlantUML and then renders through the local `plantuml` executable. The first
+supported profiles are:
+
+- `component_graph`: nodes, groups/packages, typed nodes, labeled edges, and
+  notes. It defaults to a top-to-bottom layout to keep edge labels away from
+  group headers; set `"direction": "right"` for a horizontal graph.
+- `sequence_flow`: participants, messages, notes, activation, and core
+  combined fragments: `alt`/`else`, `opt`, `loop`, `par`, and `group`.
+- `class_model`: classes, interfaces, enums, fields, methods, and common
+  relationships such as inheritance, implementation, dependency, association,
+  aggregation, and composition.
+
+`agent_diagram` is intended for generated report diagrams and semantic
+highlighting workflows. Raw PlantUML remains a render-only escape hatch when a
+diagram needs PlantUML features outside this subset.
+Use `focus` inside `agent_diagram` when the diagram itself should call out a
+specific node, participant, class, or relationship. The compiler emits
+PlantUML-native styling, so the resulting SVG keeps the same visual language as
+the rest of the diagram. `diagram_focus` remains a viewer navigation aid for
+scrolling to text in already-rendered artifacts; prefer DSL-level `focus` for
+visible emphasis in generated PlantUML diagrams.
+Generated diagrams can also attach code navigation directly to structured
+elements with a `code` object. The report compiler converts those objects to the
+same interactive code-link buttons used by hand-authored `code_links`, so the
+navigation remains a viewer overlay while the diagram styling stays native to
+PlantUML.
+
+When one comment or story step needs a different callout on the same structured
+diagram, add another diagram entry with `variant_of`. The variant inherits the
+base `agent_diagram`, can replace `focus`, can append `notes`, and renders a
+separate PlantUML SVG. Point the comment or story step at the variant id.
+
+```json
+{
+  "diagrams": {
+    "task-create": {
+      "title": "Task creation",
+      "source": "../puml/task-create.puml",
+      "svg": "../puml/task-create.svg",
+      "agent_diagram": {
+        "type": "sequence_flow",
+        "participants": [
+          {"id": "ui", "label": "GTK UI", "kind": "boundary"},
+          {
+            "id": "svc",
+            "label": "Workspace service",
+            "kind": "control",
+            "code": {
+              "file": "agent_tools/tools/diff_report/comments.py",
+              "line": 344,
+              "title": "Open diagram loader"
+            }
+          },
+          {"id": "ctx", "label": "Task context", "kind": "database"}
+        ],
+        "focus": [
+          "svc",
+          {"from": "svc", "to": "ctx", "message": "init slots"}
+        ],
+        "steps": [
+          {"from": "ui", "to": "svc", "message": "create_task()"},
+          {
+            "alt": [
+              {
+                "condition": "valid request",
+                "steps": [{"from": "svc", "to": "ctx", "message": "init slots"}]
+              },
+              {
+                "condition": "validation failed",
+                "steps": [{"from": "svc", "to": "ui", "message": "show error"}]
+              }
+            ]
+          }
+        ]
+      }
+    },
+    "task-create-comment-1": {
+      "variant_of": "task-create",
+      "title": "Task creation - context write",
+      "source": "../puml/task-create-comment-1.puml",
+      "svg": "../puml/task-create-comment-1.svg",
+      "focus": [
+        "ctx",
+        {"from": "svc", "to": "ctx", "message": "init slots"}
+      ],
+      "notes": [
+        {
+          "of": "ctx",
+          "position": "right",
+          "text": "This variant is rendered for one review comment."
+        }
+      ]
+    }
+  }
+}
+```
+
+Task-local `agent_diagram` entries can be edited from the generated HTML report
+when the local Agent Workspace diff report feedback server is running. The
+viewer exposes an `Edit JSON` button for `agent_diagram` and `variant_of`
+entries declared in the task's `report/diff/*.json` comments file. Saving
+patches that diagram entry in the comments JSON, recompiles the structured JSON
+to PlantUML, writes the generated `.puml` and `.svg` artifacts under
+`report/puml/`, and updates the opened SVG preview. Raw PlantUML remains
+render-only; edit the structured JSON when the diagram is managed by the
+report generator.
+
 Use draw.io only when the user explicitly wants to edit or polish the diagram
 manually from the HTML report or in diagrams.net. In that case, keep the
 editable `.drawio` source and rendered `.svg` preview together under the task's

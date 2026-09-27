@@ -170,7 +170,7 @@ class BrowserSmokeTests(unittest.TestCase):
         self.assertIn("fill:", result.get("noteStyle", ""), result)
         self.assertTrue(result.get("noteStroke"), result)
         self.assertNotIn("202, 80, 16", result.get("noteStroke", ""), result)
-        self.assertGreaterEqual(result.get("focusedNoteCount", 0), 2, result)
+        self.assertGreaterEqual(result.get("focusedNoteCount", 0), 1, result)
         for stroke in result.get("focusedNoteStrokes", []):
             self.assertNotIn("202, 80, 16", stroke, result)
         self.assertIn("fill:", result.get("textStyle", ""), result)

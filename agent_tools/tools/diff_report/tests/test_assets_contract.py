@@ -5,6 +5,7 @@ import unittest
 from agent_tools.tools.diff_report.assets import (
     copy_selection_script,
     diagram_script,
+    feedback_script,
     html_header,
     story_script,
     theme_script,
@@ -147,8 +148,8 @@ class AssetContractTests(unittest.TestCase):
             ".diagram-preview-canvas svg.plantuml-diagram,\n    .diagram-zoom-stage svg.plantuml-diagram { background: #fff !important; }",
             "svg .asset-focus-connector { stroke: var(--diagram-focus) !important; stroke-width: 3px !important; opacity: .95; filter: none; }",
             "svg polygon.asset-focus-connector { fill: var(--diagram-focus) !important; opacity: .95; filter: none; animation: none; }",
-            "svg line.asset-focus-connector, svg path.asset-focus-connector, svg polyline.asset-focus-connector { stroke-dasharray: 8 8; stroke-linecap: round; animation: focus-dash-flow 2.4s linear infinite; }",
-            "svg .asset-focus-object,\n    svg .asset-focus-match.asset-focus-object { fill: var(--diagram-focus) !important; fill-opacity: .08 !important; stroke: var(--diagram-focus) !important; stroke-width: 4px !important; stroke-dasharray: 8 8; stroke-linecap: round; stroke-linejoin: round; vector-effect: non-scaling-stroke; filter: drop-shadow(0 0 4px var(--diagram-focus-glow)); animation: focus-dash-flow 2.4s linear infinite; pointer-events: none; }",
+            "svg line.asset-focus-connector, svg path.asset-focus-connector, svg polyline.asset-focus-connector { stroke-linecap: round; }",
+            "svg .asset-focus-object,\n    svg .asset-focus-match.asset-focus-object { stroke: var(--diagram-focus) !important; stroke-width: 4px !important; stroke-linecap: round; stroke-linejoin: round; vector-effect: non-scaling-stroke; filter: none; animation: none; pointer-events: none; }",
             "svg path.asset-focus-object, svg polyline.asset-focus-object, svg line.asset-focus-object { fill: none !important; fill-opacity: 0 !important; pointer-events: none; }",
             'svg path[fill="#ECECEC"].asset-focus-object',
             "fill: var(--diagram-svg-note-bg) !important; fill-opacity: 1 !important; stroke: var(--diagram-focus) !important;",
@@ -157,7 +158,7 @@ class AssetContractTests(unittest.TestCase):
             "svg text.asset-focus-related-hover, svg tspan.asset-focus-related-hover { fill: var(--diagram-focus) !important; fill-opacity: 1 !important; stroke: none !important; }",
             ".diagram-preview-canvas svg.plantuml-diagram text.asset-focus-contained-text",
             "asset-focus-contained-text { fill: var(--diagram-svg-text) !important; fill-opacity: 1 !important; stroke: none !important; filter: none; }",
-            "svg .diagram-note-box.asset-focus-object { fill: var(--diagram-note-bg) !important; fill-opacity: 1 !important; stroke: var(--diagram-focus) !important; stroke-width: 4px !important; stroke-dasharray: 8 8; stroke-linecap: round; stroke-linejoin: round; vector-effect: non-scaling-stroke; filter: none; animation: focus-dash-flow 2.4s linear infinite; }",
+            "svg .diagram-note-box.asset-focus-object { fill: var(--diagram-note-bg) !important; fill-opacity: 1 !important; stroke: var(--diagram-focus) !important; stroke-width: 4px !important; stroke-linecap: round; stroke-linejoin: round; vector-effect: non-scaling-stroke; filter: none; animation: none; }",
             "svg .diagram-note-link { fill: none; stroke: var(--diagram-focus); stroke-width: 1.4px; opacity: 0; filter: none; animation: none; }",
             "svg .diagram-note-hover .diagram-note-link, svg .diagram-note-hotspot:hover .diagram-note-link { stroke: var(--diagram-focus); stroke-width: 1.4px; opacity: 0; filter: none; animation: none; }",
             "svg .diagram-note-hover .diagram-note-box.asset-focus-object",
@@ -267,6 +268,47 @@ class AssetContractTests(unittest.TestCase):
             "contextmenu",
             "navigator.clipboard.writeText",
             "```diff",
+        ]
+        for fragment in expected_fragments:
+            with self.subTest(fragment=fragment):
+                self.assertIn(fragment, script)
+
+    def test_feedback_script_exposes_drawio_and_agent_diagram_editors(self) -> None:
+        script = feedback_script()
+
+        expected_fragments = [
+            'return feedbackHas("agent_diagram");',
+            "function openAgentDiagramEditor()",
+            "function saveAgentDiagramEditor()",
+            "function readAgentDiagram(diagram)",
+            "function writeAgentDiagram(diagram, value)",
+            "function previewAgentDiagram(diagram, value)",
+            "function previewAgentDiagramEditor()",
+            "function resolvePlantumlPreviewTrace(target, svg)",
+            "function selectPlantumlSourceTrace(trace)",
+            "function highlightPlantumlPreviewFromCursor()",
+            "function plantumlTraceFromSourceLine(line)",
+            "function extractPlantumlErrorLine(message)",
+            "function extractPlantumlErrorSourceLine(message)",
+            "function selectPlantumlSourceLine(lineNumber)",
+            "function selectPlantumlSourceLineText(lineText)",
+            "error.svg",
+            "plantuml-source-match",
+            "window.codexOpenDiagramEditor",
+            "openDiagramEditor();",
+            "plantuml-editor-workspace",
+            "plantuml-editor-source",
+            "data-plantuml-preview",
+            "/api/v1/agent-diagram/preview",
+            "agent_diagram_preview",
+            "Preview endpoint is not available; restart Agent Workspace",
+            "agent-diagram-json-toolbar",
+            "function validateAgentDiagramEntry(entry)",
+            "function addAgentDiagramSnippet(kind)",
+            "/api/v1/agent-diagram/source",
+            "agent_diagram_plantuml",
+            "feedback server is too old for PlantUML editing",
+            "Edit agent_diagram PlantUML",
         ]
         for fragment in expected_fragments:
             with self.subTest(fragment=fragment):
@@ -519,7 +561,6 @@ class AssetContractTests(unittest.TestCase):
             "searchInput.select()",
             "activeCodeLinks",
             "const widthScale = availableWidth > 0 ? availableWidth / size.width : 1",
-            "const heightScale = availableHeight > 0 ? availableHeight / size.height : 1",
 	            "initialScale = Math.min(3, widthScale)",
 	            "function requestExtraPaint(node)",
             "function parseZoom(value)",

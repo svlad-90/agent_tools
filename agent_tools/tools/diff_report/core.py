@@ -66,6 +66,7 @@ def generate_report(
         rendered_comments = comments_from_payload(
             comments_payload,
             base_dir=comments_output_path.parent,
+            comments_file=comments_output_path,
         )
     output_path.write_text(
         render_html_report(title, source, rendered_comments, enable_drawio_editing=enable_drawio_editing),

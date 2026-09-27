@@ -234,6 +234,10 @@ def stylesheet() -> str:
     body.has-diagram-open .report-brand { z-index: 9; }
     .settings-launcher { position: fixed; right: max(8px, calc(var(--floating-content-gutter) - var(--floating-control-size) - var(--floating-control-gap))); bottom: calc(var(--story-nav-height) + var(--floating-bottom-gap)); z-index: 32; width: auto; opacity: 1; visibility: visible; pointer-events: auto; transform: translateY(0) scale(1); transition: opacity .18s ease, transform .18s ease, visibility 0s linear .18s, border-color .12s ease, box-shadow .12s ease; }
     .feedback-status { position: fixed; right: max(8px, calc(var(--floating-content-gutter) - var(--floating-control-size) - var(--floating-control-gap))); bottom: calc(var(--story-nav-height) + var(--floating-bottom-gap) + var(--floating-control-size) + 10px); z-index: 32; max-width: 180px; padding: 7px 10px; border: 1px solid var(--border); border-radius: 999px; background: var(--button-bg); color: var(--link); box-shadow: 0 10px 28px var(--shadow); cursor: default; font: 800 12px/1.2 var(--font-stack); }
+    body.has-plantuml-editor-open .settings-launcher,
+    body.has-plantuml-editor-open .feedback-status,
+    body.has-drawio-editor-open .settings-launcher,
+    body.has-drawio-editor-open .feedback-status { opacity: 0; visibility: hidden; pointer-events: none; transform: translateY(8px) scale(.96); }
     .settings-toggle { display: inline-flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; width: var(--floating-control-size); height: var(--floating-control-size); padding: 0; border: 1px solid var(--border); border-radius: 999px; background: var(--button-bg); color: var(--link); box-shadow: 0 10px 28px var(--shadow); cursor: pointer; font: 800 18px/1 ui-monospace, SFMono-Regular, Consolas, monospace; }
     .settings-toggle span, .settings-toggle::before, .settings-toggle::after { content: ""; display: block; width: 18px; height: 2px; border-radius: 99px; background: currentColor; }
     .settings-toggle:hover { border-color: var(--link); box-shadow: 0 12px 32px rgba(9,105,218,.22); }
@@ -808,6 +812,38 @@ def stylesheet() -> str:
     .drawio-editor-actions { display: inline-flex; gap: 10px; align-items: center; }
     .drawio-editor-status { color: var(--muted); font-size: 12px; white-space: nowrap; }
     .drawio-editor-frame { flex: 1 1 auto; width: 100%; min-width: 0; min-height: 0; border: 0; background: #fff; }
+    .plantuml-editor-shell[hidden] { display: none; }
+    .plantuml-editor-shell { position: fixed; inset: 0; z-index: 1300; }
+    .plantuml-editor-backdrop { position: absolute; inset: 0; background: rgba(31,35,40,.62); }
+    .plantuml-editor-dialog { position: absolute; inset: clamp(18px, 4vh, 52px) clamp(18px, 6vw, 92px); display: flex; flex-direction: column; min-width: 0; min-height: 0; overflow: hidden; background: var(--panel); border: 1px solid var(--border); border-radius: 8px; box-shadow: 0 18px 60px rgba(31,35,40,.36); }
+    .plantuml-editor-toolbar { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 12px; align-items: center; padding: 8px 12px; border-bottom: 1px solid var(--border); background: var(--header-bg); }
+    .plantuml-editor-toolbar h2 { min-width: 0; margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 15px; line-height: 1.2; }
+    .plantuml-editor-actions { display: inline-flex; gap: 10px; align-items: center; }
+    .plantuml-editor-status { color: var(--muted); font-size: 12px; white-space: nowrap; }
+    .plantuml-editor-workspace { flex: 1 1 auto; display: flex; min-width: 0; min-height: 0; overflow: hidden; }
+    .plantuml-editor-source { flex: 1 1 auto; width: 100%; min-width: 0; min-height: 0; padding: 14px; border: 0; border-radius: 0; resize: none; outline: none; background: #0d1117; color: #e6edf3; font: 14px/1.5 ui-monospace, SFMono-Regular, Consolas, monospace; tab-size: 2; }
+    .plantuml-editor-preview[hidden] { display: none; }
+    .plantuml-editor-preview { flex: 0 0 min(46%, 720px); min-width: min(360px, 44vw); min-height: 0; overflow: auto; padding: 10px; border-left: 1px solid var(--border); background: #fff; color: #111827; }
+    .plantuml-editor-preview svg { display: block; max-width: 100%; height: auto; margin: 0 auto; }
+    .plantuml-editor-preview svg * { cursor: pointer; }
+    .plantuml-editor-preview svg .plantuml-source-match-edge:not(text):not(tspan) { stroke: #b45309 !important; stroke-width: 4px !important; filter: drop-shadow(0 0 6px rgba(180,83,9,.5)); }
+    .plantuml-editor-preview svg text.plantuml-source-match,
+    .plantuml-editor-preview svg tspan.plantuml-source-match { fill: #78350f !important; stroke: #fffbeb !important; stroke-width: 4px !important; paint-order: stroke fill; font-weight: 800; }
+    .plantuml-editor-preview svg .plantuml-source-overlay:not(.is-alias-overlay) { display: none; }
+    .plantuml-editor-preview svg .plantuml-source-overlay.is-alias-overlay { pointer-events: none; fill: rgba(251,191,36,.26); stroke: #f59e0b; stroke-width: 5px; vector-effect: non-scaling-stroke; filter: drop-shadow(0 0 8px rgba(245,158,11,.55)); }
+    .plantuml-editor-preview.is-pending { display: grid; place-items: center; color: var(--muted); font: 13px/1.45 var(--font-stack); }
+    .plantuml-editor-preview.is-error { background: var(--del-bg); color: var(--stat-del); font: 13px/1.45 ui-monospace, SFMono-Regular, Consolas, monospace; white-space: pre-wrap; }
+    .agent-diagram-editor-form { flex: 0 0 auto; display: grid; gap: 8px; padding: 10px 12px; border-bottom: 1px solid var(--border); background: color-mix(in srgb, var(--panel) 92%, var(--header-bg)); }
+    .agent-diagram-json-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+    .agent-diagram-json-toolbar button, .plantuml-editor-actions button { border: 1px solid var(--border); border-radius: 6px; background: var(--button-bg); color: var(--text); cursor: pointer; font: inherit; padding: 5px 9px; }
+    .agent-diagram-json-toolbar button:hover, .plantuml-editor-actions button:hover { border-color: var(--link); color: var(--link); }
+    .agent-diagram-schema-badge { display: inline-flex; align-items: center; min-height: 28px; padding: 0 8px; border: 1px solid var(--border); border-radius: 999px; color: var(--muted); font: 12px/1.2 ui-monospace, SFMono-Regular, Consolas, monospace; }
+    .agent-diagram-validation { min-height: 18px; color: var(--stat-add); font-size: 12px; line-height: 1.35; }
+    .agent-diagram-validation.is-error { color: var(--stat-del); }
+    @media (max-width: 900px) {
+      .plantuml-editor-workspace { flex-direction: column; }
+      .plantuml-editor-preview { flex: 0 0 38%; min-width: 0; border-left: 0; border-top: 1px solid var(--border); }
+    }
     .diagram-toolbar { display: grid; grid-template-columns: minmax(180px, 1fr) minmax(0, auto); align-items: center; gap: 10px 12px; padding: 10px 12px; border-bottom: 1px solid var(--border); background: var(--header-bg); }
     .diagram-toolbar h2 { min-width: 0; margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 16px; }
     .diagram-tools { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 6px 8px; min-width: 0; }
@@ -833,6 +869,8 @@ def stylesheet() -> str:
     .asset-story-comment-body { color: var(--text); font-size: clamp(17px, calc(var(--scaled-code-font) * 1.12), 21px); line-height: 1.48; white-space: pre-line; overflow-wrap: anywhere; }
     .diagram-story-nav { position: fixed; left: 0; right: 0; bottom: 0; z-index: 1004; display: grid; grid-template-columns: minmax(0, 240px) 58px minmax(0, 240px); justify-content: center; gap: 14px; width: auto; min-height: var(--story-nav-height); padding: 12px max(78px, calc(env(safe-area-inset-right) + 78px)) calc(12px + env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left)); border: 0; border-top: 1px solid var(--story-step-active-border); border-radius: 0; background: color-mix(in srgb, var(--panel) 90%, var(--story-step-active-bg)); box-shadow: 0 -16px 36px rgba(1, 4, 9, .42), 0 -1px 0 color-mix(in srgb, var(--story-step-active-border) 34%, transparent); transition: opacity .18s ease, transform .18s ease, visibility 0s; }
     body.story-nav-hidden .diagram-story-nav { opacity: 0; visibility: hidden; pointer-events: none; transform: translateY(calc(100% + env(safe-area-inset-bottom))); transition: opacity .18s ease, transform .18s ease, visibility 0s; }
+    body.has-plantuml-editor-open .diagram-story-nav,
+    body.has-drawio-editor-open .diagram-story-nav { opacity: 0; visibility: hidden; pointer-events: none; transform: translateY(calc(100% + env(safe-area-inset-bottom))); }
     .diagram-story-nav button { display: inline-flex; align-items: center; justify-content: center; width: 100%; min-width: 0; height: 50px; padding: 0 18px; overflow: hidden; border: 1px solid var(--story-step-active-border); border-radius: 6px; background: var(--story-step-active-bg); color: var(--text); cursor: pointer; font: 800 clamp(18px, var(--scaled-body-font), 22px)/1.08 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; white-space: nowrap; text-overflow: ellipsis; box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--story-step-active-border) 22%, transparent); }
     .diagram-story-nav button:hover { border-color: var(--link); color: var(--link); background: var(--button-hover-bg); }
     .diagram-story-nav .story-slide-toggle { position: relative; justify-self: center; width: 50px; padding: 0; overflow: visible; border-radius: 999px; background: radial-gradient(circle at 35% 28%, color-mix(in srgb, var(--button-hover-bg) 74%, white) 0 22%, transparent 23%), linear-gradient(145deg, color-mix(in srgb, var(--story-step-active-bg) 86%, white), color-mix(in srgb, var(--button-bg) 62%, var(--story-step-active-bg))); color: var(--story-step-active-border); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--story-step-active-border) 26%, transparent), 0 8px 20px rgba(9,105,218,.24); }

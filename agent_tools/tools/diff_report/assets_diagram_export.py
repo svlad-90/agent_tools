@@ -375,7 +375,6 @@ def diagram_export_helpers() -> str:
     for (const node of svg.querySelectorAll("[data-code-link-instance], [data-code-link-target]")) {
       node.classList.remove(
         "diagram-code-link-target",
-        "diagram-code-link-connector",
         "diagram-code-link-hover",
         "diagram-code-link-active"
       );

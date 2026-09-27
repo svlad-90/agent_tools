@@ -55,6 +55,58 @@
           }
         }
       ]
+    },
+    "generated-agent-diagram-id": {
+      "title": "Agent-authored PlantUML diagram",
+      "source": "../puml/generated-agent-diagram.puml",
+      "svg": "../puml/generated-agent-diagram.svg",
+      "agent_diagram": {
+        "type": "component_graph",
+        "nodes": [
+          {"id": "comments", "label": "comments JSON"},
+          {
+            "id": "renderer",
+            "label": "diff_report renderer",
+            "kind": "service",
+            "code": {
+              "file": "agent_tools/tools/diff_report/comments.py",
+              "line": 344,
+              "title": "Open diagram loader"
+            }
+          }
+        ],
+        "edges": [
+          {
+            "from": "comments",
+            "to": "renderer",
+            "label": "declares",
+            "focus": true,
+            "code": {
+              "file": "agent_tools/tools/diff_report/agent_diagram.py",
+              "line": 38,
+              "title": "Open agent_diagram compiler"
+            }
+          }
+        ],
+        "focus": ["renderer"]
+      }
+    },
+    "generated-agent-diagram-comment-id": {
+      "variant_of": "generated-agent-diagram-id",
+      "title": "Agent-authored PlantUML diagram - comment focus",
+      "source": "../puml/generated-agent-diagram-comment.puml",
+      "svg": "../puml/generated-agent-diagram-comment.svg",
+      "focus": [
+        "renderer",
+        {"from": "comments", "to": "renderer", "label": "declares"}
+      ],
+      "notes": [
+        {
+          "of": "renderer",
+          "position": "right",
+          "text": "This variant can be linked from one review comment or story step."
+        }
+      ]
     }
   },
   "logs": {

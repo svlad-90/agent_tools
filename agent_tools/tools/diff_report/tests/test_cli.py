@@ -417,7 +417,7 @@ class CliTests(unittest.TestCase):
         self.assertEqual(f"{output_path}\n", stdout.getvalue())
         self.assertIn("<h1>CLI report</h1>", html)
         self.assertIn("CLI note", html)
-        self.assertIn("draw.io feedback", html)
+        self.assertIn("diagram feedback", html)
 
     def test_disable_drawio_editing_omits_feedback_runtime(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -460,7 +460,8 @@ class CliTests(unittest.TestCase):
             html = output_path.read_text(encoding="utf-8")
 
         self.assertEqual(0, status)
-        self.assertNotIn("draw.io feedback", html)
+        self.assertNotIn("diagram feedback", html)
+        self.assertNotIn("window.codexOpenDiagramEditor", html)
         self.assertNotIn("window.codexOpenDrawioEditor", html)
 
     def test_relative_paths_are_resolved_from_current_working_directory(self) -> None:
