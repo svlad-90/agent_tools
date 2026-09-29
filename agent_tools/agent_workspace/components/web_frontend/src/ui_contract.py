@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from ...settings.api import workspace_mcp_configurable_tool_groups
+from ...settings.api import workspace_mcp_required_tool_groups
 from ...ui_contract.api import UiNode
 from ...ui_contract.api import UiTree
 
@@ -161,46 +163,13 @@ def web_settings_ui_tree() -> UiTree:
                 "tab",
                 children=(
                     "settings.mcp_trusted",
-                    "settings.mcp_group_search",
-                    "settings.mcp_group_python",
-                    "settings.mcp_group_task_context",
-                    "settings.mcp_group_task_actions",
-                    "settings.mcp_group_commit_messages",
-                    "settings.mcp_group_validation",
-                    "settings.mcp_group_repo_guard",
-                    "settings.mcp_group_paf",
-                    "settings.mcp_group_paf_env",
-                    "settings.mcp_group_yocto",
+                    *_mcp_group_node_ids(),
                 ),
                 label_key="settings_mcp",
                 layout="vertical",
             ),
             UiNode("settings.mcp_trusted", "field", label_key="settings_mcp_trusted", widget="checkbox"),
-            UiNode("settings.mcp_group_search", "field", label_key="settings_mcp_group_search", widget="checkbox"),
-            UiNode("settings.mcp_group_python", "field", label_key="settings_mcp_group_python", widget="checkbox"),
-            UiNode(
-                "settings.mcp_group_task_context",
-                "field",
-                label_key="settings_mcp_group_task_context",
-                widget="checkbox",
-            ),
-            UiNode(
-                "settings.mcp_group_task_actions",
-                "field",
-                label_key="settings_mcp_group_task_actions",
-                widget="checkbox",
-            ),
-            UiNode(
-                "settings.mcp_group_commit_messages",
-                "field",
-                label_key="settings_mcp_group_commit_messages",
-                widget="checkbox",
-            ),
-            UiNode("settings.mcp_group_validation", "field", label_key="settings_mcp_group_validation", widget="checkbox"),
-            UiNode("settings.mcp_group_repo_guard", "field", label_key="settings_mcp_group_repo_guard", widget="checkbox"),
-            UiNode("settings.mcp_group_paf", "field", label_key="settings_mcp_group_paf", widget="checkbox"),
-            UiNode("settings.mcp_group_paf_env", "field", label_key="settings_mcp_group_paf_env", widget="checkbox"),
-            UiNode("settings.mcp_group_yocto", "field", label_key="settings_mcp_group_yocto", widget="checkbox"),
+            *_mcp_group_nodes(),
             UiNode(
                 "settings.updates",
                 "tab",
@@ -220,6 +189,7 @@ def web_settings_ui_tree() -> UiTree:
                 "tab",
                 children=(
                     "settings.profiling_enabled",
+                    "settings.gtk_breadcrumbs_enabled",
                     "settings.profiling_clear",
                     "settings.profiling_crash_dump",
                     "settings.profiling_note",
@@ -234,6 +204,12 @@ def web_settings_ui_tree() -> UiTree:
                 label_key="settings_profiling_enable",
                 widget="checkbox",
             ),
+            UiNode(
+                "settings.gtk_breadcrumbs_enabled",
+                "field",
+                label_key="settings_gtk_breadcrumbs_enable",
+                widget="checkbox",
+            ),
             UiNode("settings.profiling_clear", "action", label_key="settings_profiling_clear", widget="button"),
             UiNode(
                 "settings.profiling_crash_dump",
@@ -244,6 +220,27 @@ def web_settings_ui_tree() -> UiTree:
             UiNode("settings.profiling_note", "text", label_key="settings_profiling_note", widget="text"),
             UiNode("settings.profiling_output", "text", widget="text_area", hexpand=True, vexpand=True),
         ),
+    )
+
+
+def _mcp_group_ids() -> tuple[str, ...]:
+    groups = (*workspace_mcp_required_tool_groups(), *workspace_mcp_configurable_tool_groups())
+    return tuple(group_id for group_id, _label in groups)
+
+
+def _mcp_group_node_ids() -> tuple[str, ...]:
+    return tuple(f"settings.mcp_group_{group_id}" for group_id in _mcp_group_ids())
+
+
+def _mcp_group_nodes() -> tuple[UiNode, ...]:
+    return tuple(
+        UiNode(
+            f"settings.mcp_group_{group_id}",
+            "field",
+            label_key=f"settings_mcp_group_{group_id}",
+            widget="checkbox",
+        )
+        for group_id in _mcp_group_ids()
     )
 
 

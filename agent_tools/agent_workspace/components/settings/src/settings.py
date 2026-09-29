@@ -46,6 +46,7 @@ AGENT_WORKSPACE_DEFAULT_LIMITED_BASH_TAIL_TOKENS = 2_000
 AGENT_WORKSPACE_DEFAULT_LIMITED_BASH_HEARTBEAT_SECONDS = 30
 AGENT_WORKSPACE_DEFAULT_LIMITED_BASH_HEARTBEAT_TOKENS = 1_000
 AGENT_WORKSPACE_DEFAULT_DIFF_REPORT_FEEDBACK_ENABLED = False
+AGENT_WORKSPACE_DEFAULT_GTK_BREADCRUMBS_ENABLED = False
 AGENT_WORKSPACE_CODEX_MODEL_FALLBACKS = (
     "gpt-5.6-sol",
     "gpt-5.6-sol-wm",
@@ -104,6 +105,7 @@ class AgentWorkspaceRuntimeSettings:
     model_system_prompts: dict[str, str]
     inject_task_context_prompt: bool
     diff_report_feedback_enabled: bool
+    gtk_breadcrumbs_enabled: bool
     mcp_enabled_groups: tuple[str, ...]
     mcp_trusted: bool
     task_dictionary_auto_discovery: bool
@@ -590,6 +592,11 @@ def agent_workspace_runtime_settings(
             "diff_report_feedback_enabled",
             AGENT_WORKSPACE_DEFAULT_DIFF_REPORT_FEEDBACK_ENABLED,
         ),
+        gtk_breadcrumbs_enabled=_bool_setting(
+            settings,
+            "gtk_breadcrumbs_enabled",
+            AGENT_WORKSPACE_DEFAULT_GTK_BREADCRUMBS_ENABLED,
+        ),
         mcp_enabled_groups=_mcp_enabled_groups_setting(settings, "mcp_enabled_groups"),
         mcp_trusted=_bool_setting(settings, "mcp_trusted", AGENT_WORKSPACE_DEFAULT_MCP_TRUSTED),
         task_dictionary_auto_discovery=_bool_setting(
@@ -726,6 +733,7 @@ def load_agent_workspace_settings(path: Path | None = None) -> dict[str, AgentWo
         limited_bash_tail_tokens = limited_bash_output_tokens
     inject_task_context_prompt = data.get("inject_task_context_prompt")
     diff_report_feedback_enabled = data.get("diff_report_feedback_enabled")
+    gtk_breadcrumbs_enabled = data.get("gtk_breadcrumbs_enabled")
     task_dictionary_auto_discovery = data.get("task_dictionary_auto_discovery")
     mcp_enabled_groups = data.get("mcp_enabled_groups")
     mcp_trusted = data.get("mcp_trusted")
@@ -778,6 +786,8 @@ def load_agent_workspace_settings(path: Path | None = None) -> dict[str, AgentWo
         settings["inject_task_context_prompt"] = inject_task_context_prompt
     if isinstance(diff_report_feedback_enabled, bool):
         settings["diff_report_feedback_enabled"] = diff_report_feedback_enabled
+    if isinstance(gtk_breadcrumbs_enabled, bool):
+        settings["gtk_breadcrumbs_enabled"] = gtk_breadcrumbs_enabled
     if isinstance(mcp_enabled_groups, list) and all(isinstance(item, str) for item in mcp_enabled_groups):
         settings["mcp_enabled_groups"] = _valid_mcp_enabled_groups(tuple(mcp_enabled_groups))
     if isinstance(mcp_trusted, bool):

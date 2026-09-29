@@ -23,6 +23,7 @@ AGENT_EXTERNAL_ACTIVE_MARKER = "×"
 CODEX_SESSION_ID_RE = re.compile(
     r"([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})"
 )
+CODEX_THREAD_LOCK_GRACE_SECONDS = 5.0
 
 
 @dataclass(frozen=True)
@@ -332,6 +333,8 @@ def find_task_agent_session_id(
     agent = normalize_agent(agent)
     session = load_task_agent_session(task, agent)
     if session.session_id is not None:
+        if agent == "codex" and _codex_session_resume_is_locked(session.session_id, home=home):
+            return None
         return session.session_id
     if agent == "codex" and session.resume:
         return find_latest_codex_session_id(task, workspace, home=home)
@@ -579,6 +582,54 @@ def _claude_session_id_from_file(path: Path) -> str | None:
     if CODEX_SESSION_ID_RE.fullmatch(path.stem):
         return path.stem
     return None
+
+
+def _codex_session_resume_is_locked(session_id: str, home: Path | None = None) -> bool:
+    lock_path = _codex_thread_lock_path(session_id, home=home)
+    if not lock_path.is_file():
+        return False
+    if _path_is_open_by_process(lock_path):
+        return True
+    try:
+        age_seconds = time.time() - lock_path.stat().st_mtime
+    except OSError:
+        return False
+    if age_seconds < CODEX_THREAD_LOCK_GRACE_SECONDS:
+        return True
+    try:
+        lock_path.unlink()
+    except OSError:
+        return True
+    return False
+
+
+def _codex_thread_lock_path(session_id: str, home: Path | None = None) -> Path:
+    return (home or Path.home()) / ".codex" / "thread-writer-locks" / f"{session_id}.lock"
+
+
+def _path_is_open_by_process(path: Path) -> bool:
+    proc = Path("/proc")
+    if not proc.is_dir():
+        return False
+    try:
+        target = path.resolve()
+    except OSError:
+        return False
+    for process_dir in proc.iterdir():
+        if not process_dir.name.isdigit():
+            continue
+        fd_dir = process_dir / "fd"
+        try:
+            descriptors = tuple(fd_dir.iterdir())
+        except OSError:
+            continue
+        for descriptor in descriptors:
+            try:
+                if descriptor.resolve() == target:
+                    return True
+            except OSError:
+                continue
+    return False
 
 
 def _process_cmdline(pid: int) -> list[str]:

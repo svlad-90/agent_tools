@@ -467,7 +467,7 @@ def _render_diagram_preview(
     notes_attr = _json_attr("data-diagram-notes", notes)
     if diagram.renderer == "plantuml":
         preview_src = _svg_data_uri(_plantuml_diagram_svg(plantuml_preview_svg(diagram.svg, "light")))
-        dark_preview_src = _svg_data_uri(_plantuml_diagram_svg(plantuml_preview_svg(diagram.svg, "dark")))
+        dark_preview_src = preview_src
     else:
         preview_src = _svg_data_uri(diagram.svg)
         dark_preview_src = preview_src
@@ -508,6 +508,14 @@ def _diagram_edit_attrs(diagram: Diagram) -> str:
                 f' data-diagram-svg-path="{_esc(diagram.svg_path)}"',
             ]
         )
+    if diagram.comments_task and diagram.comments_path and diagram.comments_diagram:
+        attrs.extend(
+            [
+                f' data-diagram-comments-task="{_esc(diagram.comments_task)}"',
+                f' data-diagram-comments-path="{_esc(diagram.comments_path)}"',
+                f' data-diagram-comments-diagram="{_esc(diagram.comments_diagram)}"',
+            ]
+        )
     return "".join(attrs)
 
 
@@ -539,7 +547,7 @@ def _render_diagram_modal(comments: ReviewComments) -> str:
     parts.append('        <div class="diagram-action-tools">\n')
     parts.append(
         '        <button type="button" id="diagram-edit" data-diagram-edit '
-        'onclick="window.codexOpenDrawioEditor && window.codexOpenDrawioEditor(event)" hidden>Edit</button>\n'
+        'onclick="window.codexOpenDiagramEditor && window.codexOpenDiagramEditor(event)" hidden>Edit</button>\n'
     )
     parts.append('        <span class="diagram-edit-status" id="diagram-edit-status"></span>\n')
     parts.append('        <button type="button" id="diagram-export" data-asset-export hidden>Export</button>\n')

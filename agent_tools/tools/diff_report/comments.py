@@ -5,6 +5,7 @@ import re
 from pathlib import Path
 from typing import Any
 
+from .agent_diagram import agent_diagram_artifacts, agent_diagram_code_links, merge_agent_diagram_variant
 from .drawio_graph import drawio_graph_artifacts
 from .models import (
     Diagram,
@@ -21,13 +22,14 @@ from .models import (
 def load_comments(comments_file: Path | None) -> ReviewComments:
     payload = load_comments_payload(comments_file)
     base_dir = comments_file.parent if comments_file is not None else None
-    return comments_from_payload(payload, base_dir=base_dir)
+    return comments_from_payload(payload, base_dir=base_dir, comments_file=comments_file)
 
 
 def comments_from_payload(
     payload: dict[str, Any],
     *,
     base_dir: Path | None = None,
+    comments_file: Path | None = None,
 ) -> ReviewComments:
     if not isinstance(payload, dict):
         raise DiffReportError("Comments JSON must be an object")
@@ -66,7 +68,7 @@ def comments_from_payload(
         else:
             file_comments[path_key] = str(value)
 
-    diagrams = diagrams_from_payload(payload, base_dir=base_dir)
+    diagrams = diagrams_from_payload(payload, base_dir=base_dir, comments_file=comments_file)
     logs = logs_from_payload(payload, base_dir=base_dir)
 
     grouped: dict[tuple[str, int], list[InlineComment]] = {}
@@ -344,6 +346,7 @@ def diagrams_from_payload(
     payload: dict[str, Any],
     *,
     base_dir: Path | None,
+    comments_file: Path | None = None,
 ) -> dict[str, Diagram]:
     raw_diagrams = payload.get("diagrams", {})
     if raw_diagrams in ({}, None):
@@ -352,14 +355,27 @@ def diagrams_from_payload(
         raise DiffReportError("comments.diagrams must be an object")
 
     diagrams: dict[str, Diagram] = {}
+    agent_diagrams: dict[str, dict[str, Any]] = {}
     for diagram_id, raw in raw_diagrams.items():
         diagram_key = str(diagram_id)
         if not isinstance(raw, dict):
             raise DiffReportError(f"diagram entry must be an object: {diagram_key}")
+        if "variant_of" in raw:
+            continue
         title = str(raw.get("title", diagram_key))
         svg_path: Path | None = None
         if "svg_inline" in raw:
             svg = normalize_svg(str(raw["svg_inline"]), source=f"diagram {diagram_key}")
+        elif "agent_diagram" in raw:
+            agent_raw = raw["agent_diagram"]
+            source_text, svg = agent_diagram_artifacts(agent_raw, diagram_key=diagram_key)
+            agent_diagrams[diagram_key] = agent_raw
+            if "svg" in raw:
+                svg_path = _resolve_diagram_path(raw["svg"], base_dir=base_dir)
+                write_diagram_artifact(svg_path, svg)
+            if "source" in raw:
+                source_file = _resolve_diagram_path(raw["source"], base_dir=base_dir)
+                write_diagram_artifact(source_file, source_text)
         elif "drawio_graph" in raw:
             source_xml, svg = drawio_graph_artifacts(raw["drawio_graph"], diagram_key=diagram_key)
             if "svg" in raw:
@@ -373,20 +389,33 @@ def diagrams_from_payload(
             svg = read_svg_file(svg_path)
         else:
             raise DiffReportError(f"diagram entry is missing svg, svg_inline, or drawio_graph: {diagram_key}")
-        code_links = diagram_code_links(raw, diagram_key)
+        code_links = (*diagram_code_links(raw, diagram_key), *_agent_diagram_code_links(raw, diagram_key))
         source_ref = raw.get("source")
         renderer = diagram_renderer(raw, source_ref)
         if renderer not in {"plantuml", "drawio", "svg"}:
             raise DiffReportError(f"diagram renderer must be plantuml, drawio, or svg: {diagram_key}")
         source_task = None
         source_path = None
-        if source_ref not in (None, ""):
+        can_edit_source = renderer == "drawio"
+        if can_edit_source and source_ref not in (None, ""):
             source_file = _resolve_diagram_path(source_ref, base_dir=base_dir)
-            source_task, source_path = drawio_artifact_address(source_file, diagram_key, "source", required=True)
+            source_task, source_path = diagram_artifact_address(
+                source_file,
+                diagram_key,
+                "source",
+                renderer=renderer,
+                required=True,
+            )
         svg_task = None
         svg_artifact_path = None
-        if svg_path is not None:
-            svg_task, svg_artifact_path = drawio_artifact_address(svg_path, diagram_key, "svg", required=False)
+        if can_edit_source and svg_path is not None:
+            svg_task, svg_artifact_path = diagram_artifact_address(
+                svg_path,
+                diagram_key,
+                "svg",
+                renderer=renderer,
+                required=True,
+            )
         diagrams[diagram_key] = Diagram(
             diagram_id=diagram_key,
             title=title,
@@ -396,6 +425,50 @@ def diagrams_from_payload(
             source_path=source_path,
             svg_task=svg_task,
             svg_path=svg_artifact_path,
+            comments_task=_comments_task_path(comments_file, diagram_key)[0] if "agent_diagram" in raw else None,
+            comments_path=_comments_task_path(comments_file, diagram_key)[1] if "agent_diagram" in raw else None,
+            comments_diagram=diagram_key if "agent_diagram" in raw and comments_file is not None else None,
+            code_links=code_links,
+        )
+    for diagram_id, raw in raw_diagrams.items():
+        diagram_key = str(diagram_id)
+        if not isinstance(raw, dict) or "variant_of" not in raw:
+            continue
+        parent_id = str(raw["variant_of"])
+        if parent_id not in agent_diagrams:
+            raise DiffReportError(f"agent_diagram variant references unknown structured diagram: {diagram_key}")
+        parent_raw = raw_diagrams[parent_id]
+        if not isinstance(parent_raw, dict):
+            raise DiffReportError(f"agent_diagram variant parent must be an object: {diagram_key}")
+        agent_raw = merge_agent_diagram_variant(
+            agent_diagrams[parent_id],
+            raw,
+            diagram_key=diagram_key,
+        )
+        title = str(raw.get("title", parent_raw.get("title", diagram_key)))
+        source_text, svg = agent_diagram_artifacts(agent_raw, diagram_key=diagram_key)
+        svg_path: Path | None = None
+        if "svg" in raw:
+            svg_path = _resolve_diagram_path(raw["svg"], base_dir=base_dir)
+            write_diagram_artifact(svg_path, svg)
+        if "source" in raw:
+            source_file = _resolve_diagram_path(raw["source"], base_dir=base_dir)
+            write_diagram_artifact(source_file, source_text)
+        code_links = (
+            *diagram_code_links(parent_raw, parent_id),
+            *diagram_code_links(raw, diagram_key),
+            *agent_diagram_code_links(agent_raw, diagram_key=diagram_key),
+        )
+        diagrams[diagram_key] = Diagram(
+            diagram_id=diagram_key,
+            title=title,
+            svg=svg,
+            renderer="plantuml",
+            comments_task=_comments_task_path(comments_file, diagram_key)[0],
+            comments_path=_comments_task_path(comments_file, diagram_key)[1],
+            comments_diagram=diagram_key if comments_file is not None else None,
+            svg_task=None,
+            svg_path=None,
             code_links=code_links,
         )
     return diagrams
@@ -423,13 +496,25 @@ def diagram_renderer(raw: dict[str, Any], source_ref: object) -> str:
     return "plantuml"
 
 
-def drawio_artifact_address(
+def diagram_artifact_address(
     path: Path,
     diagram_key: str,
     field: str,
     *,
+    renderer: str,
     required: bool,
 ) -> tuple[str, str] | tuple[None, None]:
+    if renderer == "drawio":
+        artifact_root = "report/drawio"
+        allowed_suffixes = {".drawio"} if field == "source" else {".svg"}
+    elif renderer == "plantuml":
+        artifact_root = "report/puml"
+        allowed_suffixes = {".puml"} if field == "source" else {".svg"}
+    else:
+        if not required:
+            return None, None
+        raise DiffReportError(f"diagram {field} cannot be editable for renderer {renderer}: {diagram_key}")
+
     resolved = path.resolve()
     parts = resolved.parts
     try:
@@ -437,22 +522,61 @@ def drawio_artifact_address(
     except ValueError as error:
         if not required:
             return None, None
-        raise DiffReportError(f"diagram {field} must be under tasks/<task>/report/drawio: {diagram_key}") from error
+        raise DiffReportError(f"diagram {field} must be under tasks/<task>/{artifact_root}: {diagram_key}") from error
     relative_parts = parts[tasks_index:]
     if len(relative_parts) < 5 or relative_parts[0] != "tasks":
         if not required:
             return None, None
-        raise DiffReportError(f"diagram {field} must be under tasks/<task>/report/drawio: {diagram_key}")
+        raise DiffReportError(f"diagram {field} must be under tasks/<task>/{artifact_root}: {diagram_key}")
     task = Path(*relative_parts[:2]).as_posix()
     artifact = Path(*relative_parts[2:]).as_posix()
-    if not artifact.startswith("report/drawio/"):
+    if not artifact.startswith(f"{artifact_root}/"):
         if not required:
             return None, None
-        raise DiffReportError(f"diagram {field} must be under report/drawio: {diagram_key}")
-    if Path(artifact).suffix not in {".drawio", ".svg"}:
+        raise DiffReportError(f"diagram {field} must be under {artifact_root}: {diagram_key}")
+    if Path(artifact).suffix not in allowed_suffixes:
         if not required:
             return None, None
-        raise DiffReportError(f"diagram {field} must reference .drawio or .svg: {diagram_key}")
+        suffix_list = " or ".join(sorted(allowed_suffixes))
+        raise DiffReportError(f"diagram {field} must reference {suffix_list}: {diagram_key}")
+    return task, artifact
+
+
+def drawio_artifact_address(
+    path: Path,
+    diagram_key: str,
+    field: str,
+    *,
+    required: bool,
+) -> tuple[str, str] | tuple[None, None]:
+    return diagram_artifact_address(
+        path,
+        diagram_key,
+        field,
+        renderer="drawio",
+        required=required,
+    )
+
+
+def _comments_task_path(
+    comments_file: Path | None,
+    diagram_key: str,
+) -> tuple[str | None, str | None]:
+    if comments_file is None:
+        return None, None
+    resolved = comments_file.resolve()
+    parts = resolved.parts
+    try:
+        tasks_index = parts.index("tasks")
+    except ValueError:
+        return None, None
+    relative_parts = parts[tasks_index:]
+    if len(relative_parts) < 5 or relative_parts[0] != "tasks":
+        return None, None
+    task = Path(*relative_parts[:2]).as_posix()
+    artifact = Path(*relative_parts[2:]).as_posix()
+    if not artifact.startswith("report/diff/") or Path(artifact).suffix != ".json":
+        return None, None
     return task, artifact
 
 
@@ -488,6 +612,12 @@ def diagram_code_links(raw: dict[str, Any], diagram_key: str) -> tuple[dict[str,
             link["target_info"] = raw_link["target_info"]
         links.append(link)
     return tuple(links)
+
+
+def _agent_diagram_code_links(raw: dict[str, Any], diagram_key: str) -> tuple[dict[str, Any], ...]:
+    if "agent_diagram" not in raw:
+        return ()
+    return agent_diagram_code_links(raw["agent_diagram"], diagram_key=diagram_key)
 
 
 def read_svg_file(svg_path: Path) -> str:

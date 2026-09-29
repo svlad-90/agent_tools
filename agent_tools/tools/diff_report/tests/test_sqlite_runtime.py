@@ -83,3 +83,24 @@ class SQLiteRuntimeTests(unittest.TestCase):
                 "--report-json", str(report), "--output", str(html),
                 "--sqlite-output", str(database), "--single-html-output", str(single_html),
             ]))
+
+    def test_cli_disable_drawio_editing_omits_feedback_runtime_from_single_html(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            report = root / "report.json"
+            html = root / "report.html"
+            database = root / "report.sqlite3"
+            single_html = root / "report.single.html"
+            report.write_text(json.dumps(sample_report()), encoding="utf-8")
+
+            status = main([
+                "--report-json", str(report), "--output", str(html),
+                "--sqlite-output", str(database), "--single-html-output", str(single_html),
+                "--disable-drawio-editing",
+            ])
+
+            self.assertEqual(0, status)
+            document = single_html.read_text(encoding="utf-8")
+            self.assertNotIn("diagram feedback", document)
+            self.assertNotIn("window.codexOpenDiagramEditor", document)
+            self.assertNotIn("window.codexOpenDrawioEditor", document)

@@ -1110,14 +1110,19 @@ def test_gtk_task_action_size_allocate_skips_unchanged_width(monkeypatch: pytest
     gui.task_action_reflow_width = None
     gui.task_action_reflow_layout = None
     gui.task_action_reflow_source_id = None
-    idle_callbacks: list[object] = []
-    monkeypatch.setattr(gtk_ui_module.GLib, "idle_add", lambda callback: idle_callbacks.append(callback) or 77)
+    idle_callbacks: list[tuple[object, tuple[object, ...]]] = []
+
+    def idle_add(callback: object, *args: object) -> int:
+        idle_callbacks.append((callback, args))
+        return 77
+
+    monkeypatch.setattr(gtk_ui_module.GLib, "idle_add", idle_add)
 
     gui._on_task_actions_box_size_allocate(gui.task_actions_box, FakeAllocation(100))
 
     assert gui.task_action_reflow_width == 100
     assert gui.task_action_reflow_source_id == 77
-    assert idle_callbacks == [gui._reflow_task_action_buttons]
+    assert idle_callbacks == [(gui._run_gtk_breadcrumb, ("task-action-reflow", gui._reflow_task_action_buttons))]
 
     gui.task_action_reflow_source_id = None
     gui.task_action_reflow_layout = (100, (("a",),))
@@ -1684,6 +1689,28 @@ def test_gtk_abort_with_stack_dump_uses_workspace(monkeypatch: pytest.MonkeyPatc
     assert calls == [(tmp_path, "gtk")]
 
 
+def test_gtk_breadcrumb_writer_uses_crash_log(tmp_path: Path) -> None:
+    gui = WorkspaceGtkGui.__new__(WorkspaceGtkGui)
+    gui.workspace = tmp_path
+    gui.gtk_breadcrumbs_enabled = True
+
+    gui._write_gtk_breadcrumb("enter sample")
+
+    text = (tmp_path / "agent-workspace-crash.log").read_text(encoding="utf-8")
+    assert "gtk-breadcrumb enter sample" in text
+    assert "pid=" in text
+
+
+def test_gtk_breadcrumb_writer_skips_when_disabled(tmp_path: Path) -> None:
+    gui = WorkspaceGtkGui.__new__(WorkspaceGtkGui)
+    gui.workspace = tmp_path
+    gui.gtk_breadcrumbs_enabled = False
+
+    gui._write_gtk_breadcrumb("enter sample")
+
+    assert not (tmp_path / "agent-workspace-crash.log").exists()
+
+
 def test_gtk_record_agent_interrupt_sets_circle_icon(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     task_dir = tmp_path / "tasks" / "sample"
     task_dir.mkdir(parents=True)
@@ -2011,6 +2038,45 @@ def test_gtk_task_init_command_uses_task_check_layout(tmp_path: Path) -> None:
 
     private_command = gtk_task_init_command(tmp_path, task_path, privacy="private")
     assert private_command == command + ["--privacy", "private"]
+
+
+def test_gtk_add_task_starts_task_init_in_background(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    gui = WorkspaceGtkGui.__new__(WorkspaceGtkGui)
+    gui.workspace = tmp_path
+    gui.task_init_running = False
+    gui.selected_task = None
+    status_messages: list[str] = []
+    threads: list[object] = []
+    run_calls: list[object] = []
+    gui._prompt_task_name = lambda: gtk_ui_module.NewTaskRequest("sample-task", "public")  # type: ignore[method-assign]
+    gui._tr = lambda key: key  # type: ignore[method-assign]
+    gui._show_error = lambda message: (_ for _ in ()).throw(AssertionError(message))  # type: ignore[method-assign]
+    gui._set_status_message = lambda message: status_messages.append(message)  # type: ignore[method-assign]
+    gui.refresh_tasks = lambda: (_ for _ in ()).throw(AssertionError("refresh should wait for worker"))  # type: ignore[method-assign]
+
+    class FakeThread:
+        def __init__(self, *, target: object, daemon: bool) -> None:
+            self.target = target
+            self.daemon = daemon
+            threads.append(self)
+
+        def start(self) -> None:
+            return None
+
+    def fake_run(*_args: object, **_kwargs: object) -> subprocess.CompletedProcess[str]:
+        run_calls.append(object())
+        return subprocess.CompletedProcess([], 0, "", "")
+
+    monkeypatch.setattr(gtk_ui_module.threading, "Thread", FakeThread)
+    monkeypatch.setattr(gtk_ui_module.subprocess, "run", fake_run)
+
+    gui.add_task()
+
+    assert gui.task_init_running is True
+    assert len(threads) == 1
+    assert getattr(threads[0], "daemon") is True
+    assert run_calls == []
+    assert status_messages == ["Creating task sample-task..."]
 
 
 def test_gtk_task_actions_signature_tracks_file_mtime(tmp_path: Path) -> None:
@@ -3445,6 +3511,7 @@ def test_gtk_translates_agent_and_manual_labels() -> None:
     assert GTK_TRANSLATIONS["ru"]["limited_bash_tail_tokens"] == "Бюджет конца Bash, токены"
     assert GTK_TRANSLATIONS["ru"]["limited_bash_heartbeat_seconds"] == "Интервал heartbeat Bash, секунды"
     assert GTK_TRANSLATIONS["ru"]["limited_bash_heartbeat_tokens"] == "Бюджет heartbeat Bash, токены"
+    assert GTK_TRANSLATIONS["ru"]["settings_gtk_breadcrumbs_enable"] == "Писать GTK breadcrumbs в crash log"
     assert GTK_TRANSLATIONS["ru"]["ok"] == "ОК"
     assert GTK_TRANSLATIONS["ru"]["ai_debug_tab"] == "ИИ дебаг"
     assert GTK_TRANSLATIONS["ru"]["ai_debug_column_tool"] == "Инструмент"

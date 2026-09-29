@@ -36,7 +36,11 @@ story blocks, and reviewer prose.
    `diff_report_init_comments`, or `diff_report_compose_findings` when
    available. Otherwise run `python -m agent_tools.tools.diff_report` from the
    workspace root.
-   Draw.io editing support is included by default. Pass MCP
+   Use PlantUML as the default format for AI-authored diagrams because it owns
+   layout and repeatable SVG rendering. Use draw.io only when the user
+   explicitly wants to manually edit the diagram from the report or continue
+   polishing it in diagrams.net. Draw.io editing support is included by
+   default for reports that contain writable draw.io artifacts. Pass MCP
    `enable_drawio_editing=false` or CLI `--disable-drawio-editing` only for
    public/static artifacts that should not probe the local feedback server.
 5. Verify the generated HTML contains the expected title, files, and comment

@@ -17,6 +17,7 @@ from agent_tools.agent_workspace.components.harness_adapter.src.claude_adapter i
 from agent_tools.agent_workspace.components.harness_adapter.src.codex_adapter import CodexHookEvent
 from agent_tools.agent_workspace.components.harness_adapter.src.codex_adapter import CodexHookRegistry
 from agent_tools.agent_workspace.components.harness_adapter.src.codex_adapter import handle_command_hook as handle_codex_hook
+from agent_tools.agent_workspace.components.harness_adapter.src import policy as harness_policy
 from agent_tools.agent_workspace.components.harness_adapter.api import AgentType
 from agent_tools.agent_workspace.components.harness_adapter.api import HarnessStatusEvent
 from agent_tools.agent_workspace.components.harness_adapter.api import clear_harness_debug_events
@@ -292,13 +293,56 @@ def test_harness_adapter_session_start_injects_workspace_system_prompt(tmp_path:
     assert "Use Sonnet steering." not in output["systemMessage"]
 
 
-def test_harness_adapter_workspace_system_prompt_prefers_matching_default_model(
+def test_harness_adapter_session_start_degrades_when_adapter_db_is_locked(
+    tmp_path: Path,
+    monkeypatch: MonkeyPatch,
+) -> None:
+    task_dir = _task(tmp_path)
+    registry = CodexHookRegistry()
+    register_codex_adapter(registry)
+
+    def locked_schema(_task_dir: Path) -> None:
+        raise sqlite3.OperationalError("database is locked")
+
+    monkeypatch.setattr(harness_policy, "_ensure_adapter_schema", locked_schema)
+
+    result = _codex(registry, task_dir, CodexHookEvent.SESSION_START)
+
+    assert result.exit_code == 0
+    output = json.loads(result.stdout)
+    assert "Agent Workspace session started." in output["systemMessage"]
+
+
+def test_harness_adapter_prompt_schema_check_stays_out_of_hot_path(
+    tmp_path: Path,
+    monkeypatch: MonkeyPatch,
+) -> None:
+    task_dir = _task(tmp_path)
+    registry = CodexHookRegistry()
+    register_codex_adapter(registry)
+    original_ensure = harness_policy._ensure_adapter_schema
+    schema_checks = 0
+
+    def counting_ensure(task_dir: Path) -> None:
+        nonlocal schema_checks
+        schema_checks += 1
+        original_ensure(task_dir)
+
+    monkeypatch.setattr(harness_policy, "_ensure_adapter_schema", counting_ensure)
+
+    result = _codex(registry, task_dir, CodexHookEvent.USER_PROMPT_SUBMIT)
+
+    assert result.exit_code == 0
+    assert schema_checks == 1
+
+
+def test_harness_adapter_workspace_system_prompt_ignores_default_model_without_runtime_model(
     tmp_path: Path,
     monkeypatch: MonkeyPatch,
 ) -> None:
     task_dir = _task(tmp_path)
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
-    monkeypatch.setenv("AGENT_TOOLS_AGENT_MODEL", "gpt-5.5")
+    monkeypatch.delenv("AGENT_TOOLS_AGENT_MODEL", raising=False)
     save_agent_workspace_settings(
         {
             "default_codex_model": "gpt-6-astra",
@@ -316,16 +360,16 @@ def test_harness_adapter_workspace_system_prompt_prefers_matching_default_model(
     assert result.exit_code == 0
     output = json.loads(result.stdout)
     assert "Prefer short, concrete answers." in output["systemMessage"]
-    assert "Use GPT 6 steering." in output["systemMessage"]
+    assert "Use GPT 6 steering." not in output["systemMessage"]
 
 
-def test_harness_adapter_workspace_system_prompt_uses_single_model_prompt_fallback(
+def test_harness_adapter_workspace_system_prompt_does_not_use_single_model_prompt_fallback(
     tmp_path: Path,
     monkeypatch: MonkeyPatch,
 ) -> None:
     task_dir = _task(tmp_path)
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
-    monkeypatch.setenv("AGENT_TOOLS_AGENT_MODEL", "gpt-5.5")
+    monkeypatch.delenv("AGENT_TOOLS_AGENT_MODEL", raising=False)
     save_agent_workspace_settings(
         {
             "default_codex_model": "gpt-5.5",
@@ -343,7 +387,7 @@ def test_harness_adapter_workspace_system_prompt_uses_single_model_prompt_fallba
     assert result.exit_code == 0
     output = json.loads(result.stdout)
     assert "Prefer short, concrete answers." in output["systemMessage"]
-    assert "Use GPT 6 steering." in output["systemMessage"]
+    assert "Use GPT 6 steering." not in output["systemMessage"]
 
 
 def test_harness_adapter_compacted_session_start_injects_workspace_system_prompt(
@@ -1009,6 +1053,26 @@ def test_limited_bash_log_cleanup_preserves_active_parallel_runs(tmp_path: Path)
 
     assert active_base.is_dir()
     assert current_base.is_dir()
+
+
+def test_limited_bash_log_cleanup_drops_stale_active_markers(tmp_path: Path) -> None:
+    log_dir = tmp_path / "logs"
+    active_dir = log_dir / ".active"
+    stale_base = log_dir / "limited_bash_2026_01_01_00_00_00_999_stale"
+    live_base = log_dir / "limited_bash_2026_01_01_00_00_01_1_live"
+    stale_base.mkdir(parents=True)
+    live_base.mkdir()
+    active_dir.mkdir()
+    (stale_base / "limited_bash.stdout.log").write_text("stale", encoding="utf-8")
+    (live_base / "limited_bash.stdout.log").write_text("live", encoding="utf-8")
+    (active_dir / stale_base.name).write_text("pid=999999999\nstarted_at=1.0\n", encoding="utf-8")
+    _mark_log_base_active(live_base / "limited_bash")
+
+    _cleanup_limited_bash_logs(log_dir, keep_latest_completed=False)
+
+    assert not stale_base.exists()
+    assert not (active_dir / stale_base.name).exists()
+    assert live_base.is_dir()
 
 
 def test_limited_bash_runs_command_in_requested_cwd(

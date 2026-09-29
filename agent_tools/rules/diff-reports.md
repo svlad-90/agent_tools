@@ -31,11 +31,15 @@ directories.
    `ambiguous` and `not_found` results manually before rendering the final
    report.
 7. Reports may embed diagrams and logs through the top-level `diagrams` and
-   `logs` objects in the comments JSON. Keep task-owned PlantUML sources and
-   rendered adjacent SVG files under `report/puml/`, and keep task-owned
-   runtime logs under the task's `report/` tree.
-   Draw.io diagrams that should be editable from the HTML report must keep both
-   source `.drawio` and rendered `.svg` artifacts under the same task's
+   `logs` objects in the comments JSON. Use PlantUML as the default diagram
+   format for AI-authored report diagrams because it owns layout, routing, and
+   repeatable SVG rendering. Keep task-owned PlantUML sources and rendered
+   adjacent SVG files under `report/puml/`, and keep task-owned runtime logs
+   under the task's `report/` tree.
+   Use draw.io only when the user explicitly needs to manually edit the diagram
+   from the HTML report or continue polishing it in diagrams.net. Draw.io
+   diagrams that should be editable from the HTML report must keep both source
+   `.drawio` and rendered `.svg` artifacts under the same task's
    `report/drawio/` tree. Generated reports include draw.io editing support by
    default and show Edit controls dynamically only when the local feedback
    server is running and the opened diagram has writable draw.io artifact
