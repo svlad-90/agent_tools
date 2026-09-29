@@ -64,6 +64,16 @@ def html_header(title: str) -> str:
   <script>
     (function () {{
       try {{
+        const platform = (
+          navigator.userAgentData && navigator.userAgentData.platform
+            ? navigator.userAgentData.platform
+            : navigator.platform || navigator.userAgent || ""
+        );
+        document.documentElement.classList.toggle("is-windows", /win/i.test(platform));
+      }} catch (error) {{
+        // Ignore platform detection failures in restricted file viewers.
+      }}
+      try {{
         const key = "codex-diff-report-theme";
         const stored = localStorage.getItem(key);
         const fallback = window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";

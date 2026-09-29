@@ -17,6 +17,21 @@ def theme_script() -> str:
   let activeTextScale = 1;
   let textScaleRaf = 0;
 
+  function detectWindowsPlatform() {
+    const platform = (
+      navigator.userAgentData && navigator.userAgentData.platform
+        ? navigator.userAgentData.platform
+        : navigator.platform || navigator.userAgent || ""
+    );
+    return /win/i.test(platform);
+  }
+
+  function platformTextScale() {
+    const value = window.getComputedStyle(root).getPropertyValue("--platform-text-scale");
+    const parsed = Number(value);
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : 1;
+  }
+
   function currentTheme() {
     return root.dataset.theme === "dark" ? "dark" : "light";
   }
@@ -58,7 +73,7 @@ def theme_script() -> str:
     const nextScale = normalizeTextScale(scale);
     activeTextScale = nextScale;
     if (textScaleReset) {
-      textScaleReset.textContent = Math.round(nextScale * 100) + "%";
+      textScaleReset.textContent = Math.round(nextScale * platformTextScale() * 100) + "%";
     }
     for (const button of textScaleButtons) {
       const step = Number(button.dataset.textScaleStep || 0);
@@ -98,6 +113,7 @@ def theme_script() -> str:
     }
   }
 
+  root.classList.toggle("is-windows", detectWindowsPlatform());
   applyTheme(currentTheme(), false);
   applyTextScale(currentTextScale(), false);
 

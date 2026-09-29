@@ -29,6 +29,7 @@ def render_diff(
     diff_lines = list(iter_diff_lines(diff_text))
     if file_order is not None:
         diff_lines = _sort_diff_lines_by_file_order(diff_lines, file_order)
+    diff_lines = _coalesce_repeated_file_blocks(diff_lines)
     _validate_inline_comment_targets(diff_lines, comments)
     parts: list[str] = []
     current_file: str | None = None
@@ -171,6 +172,33 @@ def _sort_diff_lines_by_file_order(diff_lines: list[DiffLine], file_order: list[
     for _, _, block in sorted(blocks, key=lambda item: (item[0], item[1])):
         sorted_lines.extend(block)
     return sorted_lines
+
+
+def _coalesce_repeated_file_blocks(diff_lines: list[DiffLine]) -> list[DiffLine]:
+    prefix: list[DiffLine] = []
+    file_order: list[str] = []
+    blocks_by_file: dict[str, list[DiffLine]] = {}
+    current_file: str | None = None
+
+    for line in diff_lines:
+        if line.kind == "file":
+            current_file = line.file_path
+            if current_file is None:
+                prefix.append(line)
+                continue
+            if current_file not in blocks_by_file:
+                blocks_by_file[current_file] = [line]
+                file_order.append(current_file)
+            continue
+        if current_file is None:
+            prefix.append(line)
+            continue
+        blocks_by_file[current_file].append(line)
+
+    coalesced = list(prefix)
+    for file_path in file_order:
+        coalesced.extend(blocks_by_file[file_path])
+    return coalesced
 
 
 def _validate_inline_comment_targets(diff_lines: list[DiffLine], comments: ReviewComments) -> None:

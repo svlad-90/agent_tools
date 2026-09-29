@@ -9,6 +9,7 @@ from agent_tools.tools.diff_report.diff_parse import (
     is_diff_metadata,
     iter_diff_lines,
 )
+from agent_tools.tools.diff_report.diff_source import diff_files
 
 
 class DiffParseTests(unittest.TestCase):
@@ -125,6 +126,23 @@ class DiffParseTests(unittest.TestCase):
                 self.assertTrue(is_diff_metadata(line))
 
         self.assertFalse(is_diff_metadata(" context()"))
+
+    def test_diff_files_deduplicates_repeated_file_sections(self) -> None:
+        diff_text = textwrap.dedent(
+            """\
+            diff --git a/app.py b/app.py
+            @@ -1 +1 @@
+            +one
+            diff --git a/lib.py b/lib.py
+            @@ -1 +1 @@
+            +lib
+            diff --git a/app.py b/app.py
+            @@ -10 +10 @@
+            +two
+            """
+        )
+
+        self.assertEqual(["app.py", "lib.py"], diff_files(diff_text))
 
     def test_diff_line_is_frozen_value_object(self) -> None:
         line = DiffLine(kind="context", raw=" keep()", file_path="app.py", old_line=1, new_line=1)

@@ -48,27 +48,19 @@ def load_diff_source(
 def diff_stats(diff_text: str) -> DiffStats:
     lines_added = 0
     lines_deleted = 0
-    files_changed = 0
-    files_added = 0
-    files_deleted = 0
-    files_renamed = 0
+    file_metadata: dict[str, set[str]] = {}
+    current_file: str | None = None
     current_metadata: set[str] = set()
 
     def close_file() -> None:
-        nonlocal files_added, files_deleted, files_renamed
-        if not current_metadata:
+        if current_file is None:
             return
-        if "renamed" in current_metadata:
-            files_renamed += 1
-        elif "added" in current_metadata:
-            files_added += 1
-        elif "deleted" in current_metadata:
-            files_deleted += 1
+        file_metadata.setdefault(current_file, set()).update(current_metadata)
 
     for line in diff_text.splitlines():
         if line.startswith("diff --git "):
             close_file()
-            files_changed += 1
+            current_file = file_from_diff_header(line)
             current_metadata = set()
             continue
         if line.startswith("new file mode "):
@@ -82,8 +74,11 @@ def diff_stats(diff_text: str) -> DiffStats:
         elif line.startswith("-") and not line.startswith("---"):
             lines_deleted += 1
     close_file()
+    files_added = sum(1 for metadata in file_metadata.values() if "added" in metadata and "renamed" not in metadata)
+    files_deleted = sum(1 for metadata in file_metadata.values() if "deleted" in metadata and "renamed" not in metadata)
+    files_renamed = sum(1 for metadata in file_metadata.values() if "renamed" in metadata)
     return DiffStats(
-        files_changed=files_changed,
+        files_changed=len(file_metadata),
         files_added=files_added,
         files_deleted=files_deleted,
         files_renamed=files_renamed,
@@ -94,9 +89,13 @@ def diff_stats(diff_text: str) -> DiffStats:
 
 def diff_files(diff_text: str) -> list[str]:
     files: list[str] = []
+    seen: set[str] = set()
     for line in diff_text.splitlines():
         if line.startswith("diff --git "):
-            files.append(file_from_diff_header(line))
+            file_path = file_from_diff_header(line)
+            if file_path not in seen:
+                files.append(file_path)
+                seen.add(file_path)
     return files
 
 

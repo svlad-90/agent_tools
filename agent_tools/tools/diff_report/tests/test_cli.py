@@ -417,7 +417,8 @@ class CliTests(unittest.TestCase):
         self.assertEqual(f"{output_path}\n", stdout.getvalue())
         self.assertIn("<h1>CLI report</h1>", html)
         self.assertIn("CLI note", html)
-        self.assertIn("diagram feedback", html)
+        self.assertIn("data-feedback-capability='diagram-feedback'", html)
+        self.assertIn("Diagram feedback available", html)
 
     def test_disable_drawio_editing_omits_feedback_runtime(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

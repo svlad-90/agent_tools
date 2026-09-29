@@ -97,8 +97,13 @@ def feedback_script() -> str:
   }
 
   function hideFeedbackStatus() {
-    for (const badge of document.querySelectorAll("[data-feedback-capability='diagram-feedback']")) {
-      badge.remove();
+    for (const status of document.querySelectorAll("[data-feedback-capability='diagram-feedback']")) {
+      const group = status.closest(".feedback-status-group");
+      if (group) {
+        group.remove();
+      } else {
+        status.remove();
+      }
     }
   }
 
@@ -113,20 +118,25 @@ def feedback_script() -> str:
       hideFeedbackStatus();
       return;
     }
-    const launcher = document.querySelector(".settings-launcher");
-    if (!launcher) {
+    const settingsMenu = document.querySelector(".settings-menu");
+    if (!settingsMenu) {
       return;
     }
-    let badge = document.querySelector("[data-feedback-capability='diagram-feedback']");
-    if (!badge) {
-      badge = document.createElement("button");
-      badge.type = "button";
-      badge.className = "feedback-status";
-      badge.dataset.feedbackCapability = "diagram-feedback";
-      launcher.insertAdjacentElement("beforebegin", badge);
+    let status = document.querySelector("[data-feedback-capability='diagram-feedback']");
+    if (!status) {
+      const group = document.createElement("div");
+      group.className = "settings-group feedback-status-group";
+      const label = document.createElement("div");
+      label.className = "settings-label";
+      label.textContent = "Feedback server";
+      status = document.createElement("div");
+      status.className = "feedback-status";
+      status.dataset.feedbackCapability = "diagram-feedback";
+      group.append(label, status);
+      settingsMenu.append(group);
     }
-    badge.textContent = "diagram feedback";
-    badge.title = `Diff report feedback server is available on port ${result.port}: ${diagramCapabilities.join(", ")}`;
+    status.textContent = "Diagram feedback available";
+    status.title = `Diff report feedback server is available on port ${result.port}: ${diagramCapabilities.join(", ")}`;
   }
 
   function updateEditButton() {

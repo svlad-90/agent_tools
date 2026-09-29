@@ -119,6 +119,49 @@ class RenderDiffTests(unittest.TestCase):
         self.assertLess(html.index("yocto/a.txt"), html.index("yocto/b.txt"))
         self.assertLess(html.index("yocto/b.txt"), html.index("layers/x.txt"))
 
+    def test_render_diff_coalesces_repeated_file_blocks(self) -> None:
+        comments = ReviewComments(
+            summary="",
+            diagrams={},
+            logs={},
+            story=[],
+            file_comments={"src/app.py": "File note"},
+            file_diagrams={},
+            file_logs={},
+            file_diagram_focus={},
+            file_log_focus={},
+            file_diagram_notes={},
+            inline_comments={},
+        )
+        diff_text = "\n".join(
+            [
+                "diff --git a/src/app.py b/src/app.py",
+                "--- a/src/app.py",
+                "+++ b/src/app.py",
+                "@@ -1 +1 @@",
+                "+first",
+                "diff --git a/src/other.py b/src/other.py",
+                "--- a/src/other.py",
+                "+++ b/src/other.py",
+                "@@ -1 +1 @@",
+                "+other",
+                "diff --git a/src/app.py b/src/app.py",
+                "--- a/src/app.py",
+                "+++ b/src/app.py",
+                "@@ -10 +10 @@",
+                "+second",
+                "",
+            ]
+        )
+
+        html = render_diff(diff_text, comments, file_order=["src/app.py", "src/other.py"])
+
+        self.assertEqual(1, html.count('<article class="file" id="src-app.py"'))
+        self.assertEqual(1, html.count("<strong>File review note:</strong> File note"))
+        self.assertIn("@@ -1 +1 @@", html)
+        self.assertIn("@@ -10 +10 @@", html)
+        self.assertLess(html.index("src/app.py"), html.index("src/other.py"))
+
     def test_render_diff_rejects_inline_comment_without_rendered_target_line(self) -> None:
         comments = ReviewComments(
             summary="",

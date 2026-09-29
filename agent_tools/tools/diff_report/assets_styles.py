@@ -24,8 +24,8 @@ def stylesheet() -> str:
       --border: #b8c0ca;
       --text: #1f1f1f;
       --muted: #616161;
-      --font-stack: Arial, "Liberation Sans", "Segoe UI", sans-serif;
-      --code-font-stack: Consolas, "Liberation Mono", "Courier New", monospace;
+      --font-stack: "Segoe UI", Arial, "Liberation Sans", sans-serif;
+      --code-font-stack: "Cascadia Mono", Consolas, "Liberation Mono", "Courier New", monospace;
       --link: #007acc;
       --button-bg: #ffffff;
       --button-hover-bg: #e5f1fb;
@@ -114,10 +114,12 @@ def stylesheet() -> str:
       --story-offset: 0px;
       --story-nav-height: 76px;
       --text-scale: 1;
+      --platform-text-scale: 1;
+      --platform-code-scale: 1;
       --screen-body-font: 18px;
       --screen-code-font: 15px;
-      --scaled-body-font: calc(var(--screen-body-font) * var(--text-scale));
-      --scaled-code-font: calc(var(--screen-code-font) * var(--text-scale));
+      --scaled-body-font: calc(var(--screen-body-font) * var(--text-scale) * var(--platform-text-scale));
+      --scaled-code-font: calc(var(--screen-code-font) * var(--text-scale) * var(--platform-code-scale));
       --diff-num-width: 64px;
       --comment-gutter-width: 112px;
       --content-width: 1260px;
@@ -146,8 +148,8 @@ def stylesheet() -> str:
       --border: #3c3c3c;
       --text: #d4d4d4;
       --muted: #858585;
-      --font-stack: Arial, "Liberation Sans", "Segoe UI", sans-serif;
-      --code-font-stack: Consolas, "Liberation Mono", "Courier New", monospace;
+      --font-stack: "Segoe UI", Arial, "Liberation Sans", sans-serif;
+      --code-font-stack: "Cascadia Mono", Consolas, "Liberation Mono", "Courier New", monospace;
       --link: #3794ff;
       --button-bg: #2d2d30;
       --button-hover-bg: #094771;
@@ -222,6 +224,7 @@ def stylesheet() -> str:
     }
     * { box-sizing: border-box; }
     html { scrollbar-gutter: stable; }
+    html.is-windows { --platform-text-scale: 1.7; --platform-code-scale: 1.7; --nav-width: 370px; --brand-height: 168px; --brand-scale: .74; --brand-mark-size: 136px; --brand-title-size: 68px; --brand-gap: 12px; --review-nav-top: calc(var(--page-gutter) + var(--brand-height) + 8px); --story-nav-height: 56px; }
     body { margin: 0; padding-bottom: var(--story-nav-height); background: var(--bg); color: var(--text); font: var(--scaled-body-font)/1.52 var(--font-stack); font-size-adjust: .52; }
     body.story-nav-hidden { --story-nav-height: 0px; --floating-bottom-gap: 24px; }
     main { width: calc(100% - var(--nav-width) - (var(--page-gutter) * 3)); max-width: calc(100% - var(--nav-width) - (var(--page-gutter) * 3)); min-width: 0; margin: var(--page-gutter) var(--page-gutter) calc(16px + var(--story-nav-height)) calc(var(--nav-width) + (var(--page-gutter) * 2)); }
@@ -235,11 +238,9 @@ def stylesheet() -> str:
     .report-brand-subtitle { color: var(--muted); font-size: var(--brand-subtitle-size); white-space: nowrap; }
     body.has-diagram-open .report-brand { z-index: 9; }
     .settings-launcher { position: fixed; right: max(8px, calc(var(--floating-content-gutter) - var(--floating-control-size) - var(--floating-control-gap))); bottom: calc(var(--story-nav-height) + var(--floating-bottom-gap)); z-index: 32; width: auto; opacity: 1; visibility: visible; pointer-events: auto; transform: translateY(0) scale(1); transition: opacity .18s ease, transform .18s ease, visibility 0s linear .18s, border-color .12s ease, box-shadow .12s ease; }
-    .feedback-status { position: fixed; right: max(8px, calc(var(--floating-content-gutter) - var(--floating-control-size) - var(--floating-control-gap))); bottom: calc(var(--story-nav-height) + var(--floating-bottom-gap) + var(--floating-control-size) + 10px); z-index: 32; max-width: 180px; padding: 7px 10px; border: 1px solid var(--border); border-radius: 999px; background: var(--button-bg); color: var(--link); box-shadow: 0 10px 28px var(--shadow); cursor: default; font: 800 12px/1.2 var(--font-stack); }
     body.has-plantuml-editor-open .settings-launcher,
-    body.has-plantuml-editor-open .feedback-status,
     body.has-drawio-editor-open .settings-launcher,
-    body.has-drawio-editor-open .feedback-status { opacity: 0; visibility: hidden; pointer-events: none; transform: translateY(8px) scale(.96); }
+    body.has-drawio-editor-open .settings-launcher { opacity: 0; visibility: hidden; pointer-events: none; transform: translateY(8px) scale(.96); }
     .settings-toggle { display: inline-flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; width: var(--floating-control-size); height: var(--floating-control-size); padding: 0; border: 1px solid var(--border); border-radius: 999px; background: var(--button-bg); color: var(--link); box-shadow: 0 10px 28px var(--shadow); cursor: pointer; font: 800 18px/1 var(--code-font-stack); }
     .settings-toggle span, .settings-toggle::before, .settings-toggle::after { content: ""; display: block; width: 18px; height: 2px; border-radius: 99px; background: currentColor; }
     .settings-toggle:hover { border-color: var(--link); box-shadow: 0 12px 32px rgba(9,105,218,.22); }
@@ -258,6 +259,7 @@ def stylesheet() -> str:
     .settings-option { display: inline-flex; align-items: center; justify-content: center; min-width: 0; height: 34px; padding: 0 10px; border: 1px solid var(--border); border-radius: 6px; background: var(--button-bg); color: var(--text); cursor: pointer; font: 700 15px/1 var(--font-stack); }
     .settings-option:hover { border-color: var(--link); color: var(--link); }
     .settings-option.is-active { border-color: var(--link); background: var(--settings-active-bg); color: var(--settings-active-text); box-shadow: inset 3px 0 0 var(--link); }
+    .feedback-status { min-height: 34px; padding: 9px 10px; border: 1px solid color-mix(in srgb, var(--link) 34%, var(--border)); border-radius: 6px; background: color-mix(in srgb, var(--button-hover-bg) 58%, var(--panel)); color: var(--link); font: 800 13px/1.2 var(--font-stack); }
     .settings-scale-controls { display: grid; grid-template-columns: 40px minmax(0, 1fr) 40px; gap: 8px; align-items: center; }
     .settings-scale-value { display: inline-flex; align-items: center; justify-content: center; min-width: 0; height: 34px; border: 1px solid var(--border); border-radius: 6px; background: var(--button-bg); color: var(--text); font: 700 14px/1 var(--code-font-stack); }
     .settings-scale-button { display: inline-flex; align-items: center; justify-content: center; width: 40px; height: 34px; padding: 0; border: 1px solid var(--border); border-radius: 6px; background: var(--button-bg); color: var(--link); cursor: pointer; font: 800 18px/1 var(--code-font-stack); }
@@ -677,23 +679,23 @@ def stylesheet() -> str:
     .review-nav-children .review-nav-children { border-left-color: color-mix(in srgb, var(--comment-border) 38%, transparent); }
     .review-nav-node { min-width: 0; }
     .review-nav-node:not(.is-open) > .review-nav-comments { display: none; }
-    .review-nav-file:not(.is-current) > .review-nav-comments { display: none; }
     .review-nav-row { position: relative; display: grid; grid-template-columns: minmax(0, 1fr); align-items: baseline; min-width: 0; margin: 1px 0; padding: 3px 6px 3px 8px; border-radius: 4px; font-weight: 700; line-height: 1.18; }
     .review-nav-row:hover { background: color-mix(in srgb, var(--button-hover-bg) 44%, transparent); }
-    .review-nav-dir > .review-nav-row { position: relative; margin: 5px 0 2px 0; padding: 2px 4px 2px 8px; background: color-mix(in srgb, var(--panel) 91%, var(--comment-bg)); color: color-mix(in srgb, var(--text) 62%, var(--muted)); font-size: .78em; font-weight: 760; letter-spacing: 0; text-transform: none; box-shadow: inset 2px 0 0 color-mix(in srgb, var(--comment-border) 38%, transparent), 0 0 0 1px color-mix(in srgb, var(--comment-border) 10%, transparent); }
+    .review-nav-dir > .review-nav-row { position: relative; margin: 5px 0 2px 0; padding: 3px 5px 3px 8px; background: color-mix(in srgb, var(--panel) 91%, var(--comment-bg)); color: color-mix(in srgb, var(--text) 62%, var(--muted)); font-size: .9em; font-weight: 760; letter-spacing: 0; text-transform: none; box-shadow: inset 2px 0 0 color-mix(in srgb, var(--comment-border) 38%, transparent), 0 0 0 1px color-mix(in srgb, var(--comment-border) 10%, transparent); }
     .review-nav-dir > .review-nav-row:hover { background: color-mix(in srgb, var(--panel) 86%, var(--comment-bg)); }
     .review-nav-dir > .review-nav-row::before { content: ""; position: absolute; left: -12px; top: 50%; width: 12px; border-top: 1px solid color-mix(in srgb, var(--comment-border) 38%, transparent); transform: translateY(-.5px); }
     .review-nav-tree > .review-nav-dir > .review-nav-row::before { display: none; }
     .review-nav-dir > .review-nav-row .review-nav-label { font-weight: 780; }
     .review-nav-dir > .review-nav-row .review-nav-label::after { content: "/"; margin-left: 2px; color: color-mix(in srgb, var(--muted) 70%, transparent); }
-    .review-nav-tree > .review-nav-dir > .review-nav-row { margin-top: 10px; color: color-mix(in srgb, var(--text) 80%, var(--muted)); font-size: .86em; font-weight: 820; }
-    .review-nav-dir .review-nav-dir > .review-nav-row { color: color-mix(in srgb, var(--text) 58%, var(--muted)); font-size: .76em; font-weight: 740; }
-    .review-nav-dir.is-current-path > .review-nav-row { background: color-mix(in srgb, var(--comment-bg) 16%, var(--panel)); color: color-mix(in srgb, var(--text) 76%, var(--muted)); box-shadow: inset 4px 0 0 var(--comment-border), 0 0 0 1px color-mix(in srgb, var(--comment-border) 24%, transparent); }
-    .review-nav-file > .review-nav-row { margin: 2px 0; padding: 4px 7px 4px 9px; background: transparent; cursor: pointer; box-shadow: inset 2px 0 0 color-mix(in srgb, var(--comment-border) 28%, transparent), 0 0 0 1px color-mix(in srgb, var(--comment-border) 8%, transparent); font-size: .88em; font-weight: 400; }
+    .review-nav-tree > .review-nav-dir > .review-nav-row { margin-top: 10px; color: color-mix(in srgb, var(--text) 80%, var(--muted)); font-size: .96em; font-weight: 820; }
+    .review-nav-dir .review-nav-dir > .review-nav-row { color: color-mix(in srgb, var(--text) 58%, var(--muted)); font-size: .9em; font-weight: 740; }
+    .review-nav-dir.is-current-path > .review-nav-row { background: color-mix(in srgb, var(--comment-bg) 28%, var(--panel)); color: color-mix(in srgb, var(--text) 88%, var(--muted)); box-shadow: inset 3px 0 0 color-mix(in srgb, var(--comment-border) 72%, transparent), 0 0 0 1px color-mix(in srgb, var(--comment-border) 18%, transparent); }
+    .review-nav-file > .review-nav-row { margin: 2px 0; padding: 5px 7px 5px 9px; background: transparent; cursor: pointer; box-shadow: inset 2px 0 0 color-mix(in srgb, var(--comment-border) 28%, transparent), 0 0 0 1px color-mix(in srgb, var(--comment-border) 8%, transparent); font-size: 1em; font-weight: 400; }
     .review-nav-file > .review-nav-row::before { content: ""; position: absolute; left: -12px; top: 50%; width: 12px; border-top: 1px solid color-mix(in srgb, var(--comment-border) 38%, transparent); transform: translateY(-.5px); }
     .review-nav-file-with-comments > .review-nav-row { box-shadow: inset 2px 0 0 color-mix(in srgb, var(--comment-border) 28%, transparent), 0 0 0 1px color-mix(in srgb, var(--comment-border) 8%, transparent); }
     .review-nav-file-with-comments > .review-nav-row:hover { background: color-mix(in srgb, var(--button-hover-bg) 68%, transparent); box-shadow: inset 2px 0 0 color-mix(in srgb, var(--comment-border) 56%, transparent); }
-    .review-nav-file.is-current > .review-nav-row { margin: 3px 0 4px; padding: 6px 7px 6px 10px; background: color-mix(in srgb, var(--comment-bg) 42%, var(--panel)); color: var(--text); box-shadow: inset 4px 0 0 var(--comment-border), 0 0 0 1px color-mix(in srgb, var(--comment-border) 24%, transparent); }
+    .review-nav-file.is-current > .review-nav-row { background: color-mix(in srgb, var(--comment-bg) 42%, var(--panel)); color: var(--text); box-shadow: inset 4px 0 0 var(--comment-border), 0 0 0 1px color-mix(in srgb, var(--comment-border) 24%, transparent); }
+    .review-nav-file.is-current.is-current-comment-file > .review-nav-row { background: color-mix(in srgb, var(--comment-bg) 34%, var(--panel)); box-shadow: inset 4px 0 0 var(--comment-border), 0 0 0 1px color-mix(in srgb, var(--comment-border) 22%, transparent); }
     .review-nav-file > .review-nav-row .review-nav-label { font-weight: 400; }
     .review-nav-file.is-current > .review-nav-row a { color: var(--text); text-decoration: none; font-weight: 400; }
     .review-nav-file.is-current > .review-nav-row .review-nav-label { color: inherit; }
@@ -701,7 +703,7 @@ def stylesheet() -> str:
     .review-nav a:hover { color: var(--text); text-decoration: none; }
     .review-nav-label { min-width: 0; font-weight: 700; white-space: normal; overflow-wrap: anywhere; word-break: normal; hyphens: none; }
     .review-nav-comments { display: block; margin: 3px 0 2px 18px; padding: 0; list-style: none; }
-    .review-nav-comments a { display: grid; grid-template-columns: 3.2em minmax(0, 1fr); gap: 6px; align-items: center; padding: 4px 4px; border-radius: 4px; background: transparent; color: color-mix(in srgb, var(--text) 82%, var(--muted)); font-size: .78em; line-height: 1.25; overflow-wrap: anywhere; }
+    .review-nav-comments a { display: grid; grid-template-columns: 3.2em minmax(0, 1fr); gap: 6px; align-items: center; padding: 5px 4px; border-radius: 4px; background: transparent; color: color-mix(in srgb, var(--text) 82%, var(--muted)); font-size: .92em; line-height: 1.3; overflow-wrap: anywhere; }
     .review-nav-comments a:hover { background: var(--button-hover-bg); color: var(--text); text-decoration: none; }
     .review-nav-comments a.is-current-comment { background: color-mix(in srgb, var(--comment-bg) 72%, var(--button-hover-bg)); color: var(--text); box-shadow: inset 3px 0 0 var(--comment-border), 0 0 0 1px color-mix(in srgb, var(--comment-border) 34%, transparent); text-decoration: none; }
     .review-nav-comments a.is-current-comment .review-nav-line { color: var(--comment-border); font-weight: 800; }
@@ -745,6 +747,17 @@ def stylesheet() -> str:
     .story-details { min-width: 0; max-width: 100%; margin-top: 7px; border: 1px solid var(--border); border-radius: 6px; background: var(--panel-subtle); }
     .story-details-title { padding: 7px 8px; font-size: var(--scaled-code-font); font-weight: 700; }
     .story-details div:not(.story-details-title) { padding: 0 8px 8px; color: var(--muted); font-size: var(--scaled-code-font); line-height: 1.35; white-space: pre-line; overflow-wrap: anywhere; }
+    html.is-windows .story { padding: 6px 12px; }
+    html.is-windows .story h2 { margin-bottom: 3px; font-size: 15px; line-height: 1.1; }
+    html.is-windows .story-step-strip { grid-template-columns: 26px minmax(0, 1fr) 26px; gap: 4px; }
+    html.is-windows .story-page-button { min-height: 32px; font-size: 17px; }
+    html.is-windows .story-steps { grid-template-rows: minmax(36px, 1fr); grid-auto-columns: var(--story-step-column-width, 260px); gap: 4px; }
+    html.is-windows .story-step { grid-template-columns: 28px minmax(0, 1fr); gap: 5px; min-height: 34px; padding: 4px 8px; }
+    html.is-windows .story-step-index { font-size: 13px; line-height: 1.15; }
+    html.is-windows .story-step-text strong { font-size: 14px; line-height: 1.08; }
+    html.is-windows .story-details { margin-top: 4px; }
+    html.is-windows .story-details-title { padding: 4px 8px; font-size: 14px; line-height: 1.12; }
+    html.is-windows .story-details div:not(.story-details-title) { padding: 0 8px 6px; font-size: 14px; line-height: 1.16; }
     .asset-inventory { width: min(100%, var(--content-width)); max-width: 100%; min-width: 0; margin-right: auto; margin-left: auto; background: var(--panel); border: 1px solid var(--border); border-radius: 8px; margin-bottom: 16px; }
     .asset-inventory summary { display: flex; align-items: center; gap: 10px; padding: 14px 20px; font-size: 20px; font-weight: 700; line-height: 1.2; cursor: pointer; user-select: none; }
     .asset-inventory summary:hover { color: var(--link); background: var(--button-hover-bg); }
@@ -883,6 +896,11 @@ def stylesheet() -> str:
     .diagram-story-nav .story-slide-toggle.is-open { border-color: var(--stat-del); background: radial-gradient(circle at 35% 28%, color-mix(in srgb, var(--del-bg) 55%, white) 0 22%, transparent 23%), linear-gradient(145deg, color-mix(in srgb, var(--del-bg) 74%, var(--button-bg)), color-mix(in srgb, var(--button-bg) 60%, var(--stat-del))); color: var(--stat-del); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--stat-del) 30%, transparent), 0 8px 20px color-mix(in srgb, var(--stat-del) 24%, transparent); }
     .diagram-story-nav .story-slide-toggle.is-open::before { width: 18px; height: 18px; margin-left: 0; border: 0; background: linear-gradient(45deg, transparent calc(50% - 2px), currentColor calc(50% - 2px) calc(50% + 2px), transparent calc(50% + 2px)), linear-gradient(-45deg, transparent calc(50% - 2px), currentColor calc(50% - 2px) calc(50% + 2px), transparent calc(50% + 2px)); filter: drop-shadow(0 1px 0 rgba(0,0,0,.18)); }
     .diagram-story-nav .story-nav-hide { position: absolute; right: max(16px, calc(env(safe-area-inset-right) + 16px)); top: 12px; width: 50px; height: 50px; padding: 0; border-radius: 999px; font-size: 28px; line-height: 1; transform: none; box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--story-step-active-border) 18%, transparent); }
+    html.is-windows .diagram-story-nav { grid-template-columns: minmax(0, 210px) 42px minmax(0, 210px); gap: 10px; padding-top: 6px; padding-bottom: calc(6px + env(safe-area-inset-bottom)); }
+    html.is-windows .diagram-story-nav button { height: 38px; padding: 0 12px; font: 800 17px/1.02 var(--font-stack); }
+    html.is-windows .diagram-story-nav .story-slide-toggle { width: 38px; }
+    html.is-windows .diagram-story-nav .story-nav-hide { top: 6px; width: 38px; height: 38px; font-size: 0; }
+    html.is-windows .diagram-story-nav .story-nav-hide::before { content: ""; width: 18px; height: 18px; background: linear-gradient(45deg, transparent calc(50% - 2px), currentColor calc(50% - 2px) calc(50% + 2px), transparent calc(50% + 2px)), linear-gradient(-45deg, transparent calc(50% - 2px), currentColor calc(50% - 2px) calc(50% + 2px), transparent calc(50% + 2px)); filter: drop-shadow(0 1px 0 rgba(0,0,0,.18)); }
     .diagram-story-nav button:disabled, .diagram-story-nav button[aria-disabled="true"] { opacity: .48; cursor: default; border-color: var(--border); color: var(--muted); background: var(--button-bg); box-shadow: none; }
     .diagram-code-overlay { position: fixed; inset: 0; z-index: 1002; background: var(--overlay-bg); box-sizing: border-box; }
     .diagram-code-popover { position: fixed; left: 50vw; top: 50vh; transform: translate(-50%, -50%); width: min(1120px, calc(100vw - 32px)); height: min(86vh, calc(100vh - 32px)); margin: 0; border: 1px solid var(--border); border-radius: 8px; background: var(--panel); box-shadow: 0 12px 32px var(--shadow); overflow: hidden; display: flex; flex-direction: column; }
