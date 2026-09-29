@@ -1630,8 +1630,9 @@ def test_workspace_mcp_diff_report_renders_and_composes_reports(tmp_path: Path) 
     assert rendered["result"]["isError"] is False
     assert rendered["result"]["structuredContent"]["output"] == str(tmp_path / "report.html")
     rendered_html = (tmp_path / "report.html").read_text(encoding="utf-8")
-    assert "MCP note" in rendered_html
-    assert "diagram feedback" in rendered_html
+    assert rendered_html.find("MCP note") >= 0
+    assert rendered_html.find("data-feedback-capability='diagram-feedback'") >= 0
+    assert rendered_html.find("Diagram feedback available") >= 0
     assert initialized["result"]["isError"] is False
     template = json.loads((tmp_path / "template.json").read_text(encoding="utf-8"))
     assert template["inline"] == []
@@ -1640,9 +1641,9 @@ def test_workspace_mcp_diff_report_renders_and_composes_reports(tmp_path: Path) 
     assert composed["result"]["structuredContent"]["diagnostics"] == []
     assert "Generated from MCP findings" in (tmp_path / "composed.json").read_text(encoding="utf-8")
     assert (tmp_path / "compose-report.json").exists()
-    assert "Composed report" in (tmp_path / "composed.html").read_text(encoding="utf-8")
+    assert (tmp_path / "composed.html").read_text(encoding="utf-8").find("Composed report") >= 0
     assert dashboard["result"]["isError"] is False
-    assert "Dashboard" in (tmp_path / "dashboard.html").read_text(encoding="utf-8")
+    assert (tmp_path / "dashboard.html").read_text(encoding="utf-8").find("Dashboard") >= 0
     assert diff_path.exists()
 
 
