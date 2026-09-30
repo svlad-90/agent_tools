@@ -34,6 +34,7 @@ HEARTBEAT_NOTICE_TOKEN_LIMIT = 300
 MIN_HEARTBEAT_DETAIL_TOKENS = 80
 ACTIVE_LOG_DIR = ".active"
 KEEP_COMPLETED_LOG_RUNS = 8
+ACTIVE_LOG_MARKER_GRACE_SECONDS = 24 * 60 * 60
 
 
 @dataclass(frozen=True)
@@ -891,10 +892,16 @@ def _active_log_bases(log_dir: Path) -> set[str]:
 
 def _active_log_marker_is_live(path: Path) -> bool:
     values = _read_key_value_file(path)
+    run_dir = path.parent.parent / path.name
+    if not run_dir.is_dir():
+        return False
     try:
         pid = int(values["pid"])
+        started_at = float(values["started_at"])
     except (KeyError, ValueError):
         return False
+    if time.time() - started_at <= ACTIVE_LOG_MARKER_GRACE_SECONDS:
+        return True
     if pid <= 0:
         return False
     try:
@@ -903,7 +910,37 @@ def _active_log_marker_is_live(path: Path) -> bool:
         return True
     except OSError:
         return False
+    process_started_at = _process_started_at(pid)
+    if process_started_at is not None and abs(process_started_at - started_at) > 5.0:
+        return False
     return True
+
+
+def _process_started_at(pid: int) -> float | None:
+    try:
+        stat_text = Path(f"/proc/{pid}/stat").read_text(encoding="utf-8")
+        system_stat = Path("/proc/stat").read_text(encoding="utf-8")
+        ticks_per_second = os.sysconf("SC_CLK_TCK")
+    except (OSError, ValueError):
+        return None
+    fields = stat_text.rsplit(") ", 1)
+    if len(fields) != 2:
+        return None
+    try:
+        process_start_ticks = int(fields[1].split()[19])
+    except (IndexError, ValueError):
+        return None
+    boot_time = None
+    for line in system_stat.splitlines():
+        if line.startswith("btime "):
+            try:
+                boot_time = float(line.split()[1])
+            except (IndexError, ValueError):
+                return None
+            break
+    if boot_time is None:
+        return None
+    return boot_time + (process_start_ticks / float(ticks_per_second))
 
 
 def _recent_completed_log_runs(log_dir: Path, active: set[str]) -> set[str]:
