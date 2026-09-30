@@ -355,6 +355,7 @@ def set_slot(
     content: str,
     *,
     updated_at: str | None = None,
+    compile_dictionary: bool = False,
 ) -> TaskContextSlot:
     task_dir = task_dir.resolve()
     if not task_dir.is_dir():
@@ -373,7 +374,8 @@ def set_slot(
             "ON CONFLICT(category) DO UPDATE SET content = excluded.content, updated_at = excluded.updated_at",
             (slot.category, slot.content, slot.updated_at),
         )
-        _compile_dictionary(connection)
+        if compile_dictionary:
+            _compile_dictionary(connection)
     return slot
 
 
@@ -1847,7 +1849,13 @@ def query_command(args: argparse.Namespace) -> int:
 
 
 def slot_command(args: argparse.Namespace) -> int:
-    slot = set_slot(args.task, args.category, args.content or "", updated_at=args.updated_at)
+    slot = set_slot(
+        args.task,
+        args.category,
+        args.content or "",
+        updated_at=args.updated_at,
+        compile_dictionary=args.compile_dictionary,
+    )
     print(render_slots([slot], format_name=args.format, task_dir=args.task))
     return 0
 
@@ -1997,6 +2005,11 @@ def main(argv: Sequence[str] | None = None) -> int:
     slot_parser.add_argument("--category", choices=SLOT_CATEGORIES, required=True)
     slot_parser.add_argument("--content", default="")
     slot_parser.add_argument("--updated-at")
+    slot_parser.add_argument(
+        "--compile-dictionary",
+        action="store_true",
+        help="Recompile task dictionary aliases before rendering this slot.",
+    )
     slot_parser.add_argument("--format", choices=("text", "markdown", "json", "agent"), default="markdown")
     slot_parser.set_defaults(func=slot_command)
 

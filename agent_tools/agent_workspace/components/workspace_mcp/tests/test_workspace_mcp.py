@@ -2043,6 +2043,31 @@ def test_workspace_mcp_task_context_set_slot_can_render_updated_slot(tmp_path: P
     assert "Render this updated slot." in text
 
 
+def test_workspace_mcp_task_context_set_slot_can_compile_dictionary(tmp_path: Path) -> None:
+    task_dir = tmp_path / "tasks" / "sample"
+    task_dir.mkdir(parents=True)
+    server = build_workspace_mcp_server(tmp_path)
+    repeated = "drivers/firmware/scmi/scmi.c"
+
+    response = _mcp_call(
+        server,
+        "task_context_set_slot",
+        {
+            "task": "tasks/sample",
+            "category": "findings",
+            "content": f"{repeated} starts. {repeated} validates. {repeated} remains active.",
+            "format": "agent",
+            "render": True,
+            "compile_dictionary": True,
+        },
+    )
+
+    assert response["result"]["isError"] is False
+    text = response["result"]["content"][0]["text"]
+    assert "## Task Dictionary" in text
+    assert "§00 starts" in text
+
+
 def test_workspace_mcp_task_context_dictionary_and_migrate(tmp_path: Path) -> None:
     task_dir = tmp_path / "tasks" / "sample"
     task_dir.mkdir(parents=True)

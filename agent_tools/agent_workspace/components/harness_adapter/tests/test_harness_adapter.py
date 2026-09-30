@@ -470,6 +470,41 @@ def test_harness_adapter_precompact_logs_pending_codex_checkpoint_when_journal_i
     assert events[-1].outcome == "pending"
 
 
+def test_harness_adapter_precompact_refreshes_dictionary_once_per_context_fingerprint(
+    tmp_path: Path,
+    monkeypatch: MonkeyPatch,
+) -> None:
+    task_dir = _task(tmp_path)
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
+    save_agent_workspace_settings(
+        {
+            "inject_task_context_prompt": True,
+            "task_dictionary_auto_discovery": True,
+        }
+    )
+    calls: list[Path] = []
+    registry = CodexHookRegistry()
+    register_codex_adapter(registry)
+
+    def fake_compile_dictionary(path: Path) -> int:
+        calls.append(path)
+        return 0
+
+    monkeypatch.setattr(harness_policy, "compile_dictionary", fake_compile_dictionary)
+
+    result = _codex(registry, task_dir, CodexHookEvent.PRE_COMPACT)
+    second_result = _codex(registry, task_dir, CodexHookEvent.PRE_COMPACT)
+    set_slot(task_dir, "findings", "Context changed after first compact.")
+    third_result = _codex(registry, task_dir, CodexHookEvent.PRE_COMPACT)
+    events = load_harness_debug_events(task_dir, session_id="s1")
+
+    assert result.exit_code == 0
+    assert second_result.exit_code == 0
+    assert third_result.exit_code == 0
+    assert calls == [task_dir, task_dir]
+    assert any(event.message == "PreCompact checkpoint passed; task dictionary refreshed." for event in events)
+
+
 def test_harness_adapter_loads_latest_matching_event_from_debug_tail(tmp_path: Path) -> None:
     task_dir = _task(tmp_path)
     other_task = tmp_path / "tasks" / "other"
@@ -922,10 +957,12 @@ def test_limited_bash_blocks_large_output_and_keeps_log(
     assert result.log_base.with_suffix(".stderr.log").exists()
     captured = capsys.readouterr()
     captured_output = captured.out + captured.err
-    assert "--- limited_bash: output head budget reached ---" in captured_output
+    assert "--- limited_bash: output limit reached ---" in captured_output
+    assert "The command is still running, but the visible output was capped." in captured_output
+    assert "limited_bash will exit with code 2 because output was truncated" in captured_output
     assert "--- limited_bash: final overflow summary ---" in captured_output
     assert "Configured limit: 5 estimated tokens." in captured_output
-    assert "Live stdout log:" in captured_output
+    assert "Full live logs:" in captured_output
     assert "Full logs:" in captured_output
 
 
@@ -957,7 +994,7 @@ def test_limited_bash_overflow_keeps_head_and_tail_preview(
     assert result.log_base.with_suffix(".stdout.log").read_text(encoding="utf-8") == "\n".join(str(i) for i in range(1, 31)) + "\n"
     captured = capsys.readouterr()
     captured_output = captured.out + captured.err
-    assert "Live stdout log:" in captured_output
+    assert "Full live logs:" in captured_output
     assert "STDOUT LAST 20 LINES:" in captured_output
     assert "30\n" in captured_output
 
