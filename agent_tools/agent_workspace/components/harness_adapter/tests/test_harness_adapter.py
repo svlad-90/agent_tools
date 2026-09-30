@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 import shlex
 import sqlite3
@@ -18,6 +19,7 @@ from agent_tools.agent_workspace.components.harness_adapter.src.codex_adapter im
 from agent_tools.agent_workspace.components.harness_adapter.src.codex_adapter import CodexHookRegistry
 from agent_tools.agent_workspace.components.harness_adapter.src.codex_adapter import handle_command_hook as handle_codex_hook
 from agent_tools.agent_workspace.components.harness_adapter.src import policy as harness_policy
+from agent_tools.agent_workspace.components.harness_adapter.src import limited_bash as limited_bash_src
 from agent_tools.agent_workspace.components.harness_adapter.api import AgentType
 from agent_tools.agent_workspace.components.harness_adapter.api import HarnessStatusEvent
 from agent_tools.agent_workspace.components.harness_adapter.api import clear_harness_debug_events
@@ -1073,6 +1075,56 @@ def test_limited_bash_log_cleanup_drops_stale_active_markers(tmp_path: Path) -> 
     assert not stale_base.exists()
     assert not (active_dir / stale_base.name).exists()
     assert live_base.is_dir()
+
+
+def test_limited_bash_log_cleanup_drops_marker_without_run_dir(tmp_path: Path) -> None:
+    log_dir = tmp_path / "logs"
+    active_dir = log_dir / ".active"
+    stale_name = "limited_bash_2026_01_01_00_00_00_2_stale"
+    active_dir.mkdir(parents=True)
+    (active_dir / stale_name).write_text(f"pid={os.getpid()}\nstarted_at={time.time():.6f}\n", encoding="utf-8")
+
+    _cleanup_limited_bash_logs(log_dir, keep_latest_completed=False)
+
+    assert not (active_dir / stale_name).exists()
+
+
+def test_limited_bash_log_cleanup_drops_reused_pid_marker(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    log_dir = tmp_path / "logs"
+    active_dir = log_dir / ".active"
+    run_dir = log_dir / "limited_bash_2026_01_01_00_00_00_2_stale"
+    run_dir.mkdir(parents=True)
+    active_dir.mkdir()
+    (run_dir / "limited_bash.stdout.log").write_text("stale", encoding="utf-8")
+    (active_dir / run_dir.name).write_text(f"pid={os.getpid()}\nstarted_at=1.0\n", encoding="utf-8")
+    monkeypatch.setattr(limited_bash_src, "_process_started_at", lambda _pid: 1000.0)
+
+    _cleanup_limited_bash_logs(log_dir, keep_latest_completed=False)
+
+    assert not run_dir.exists()
+    assert not (active_dir / run_dir.name).exists()
+
+
+def test_limited_bash_log_cleanup_preserves_recent_marker_with_reused_pid(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    log_dir = tmp_path / "logs"
+    active_dir = log_dir / ".active"
+    run_dir = log_dir / "limited_bash_2026_01_01_00_00_00_2_recent"
+    run_dir.mkdir(parents=True)
+    active_dir.mkdir()
+    (run_dir / "limited_bash.stdout.log").write_text("recent", encoding="utf-8")
+    (active_dir / run_dir.name).write_text(f"pid={os.getpid()}\nstarted_at={time.time():.6f}\n", encoding="utf-8")
+    monkeypatch.setattr(limited_bash_src, "_process_started_at", lambda _pid: 1.0)
+
+    _cleanup_limited_bash_logs(log_dir, keep_latest_completed=False)
+
+    assert run_dir.is_dir()
+    assert (active_dir / run_dir.name).is_file()
 
 
 def test_limited_bash_runs_command_in_requested_cwd(
