@@ -591,15 +591,15 @@ def _head_limit_message(
     log_base: Path,
 ) -> str:
     return (
-        "\n--- limited_bash: output head budget reached ---\n"
-        "Collecting tail buffers for the final summary.\n"
-        f"Head shown: stdout ~{limit.stdout_head_tokens} tokens, "
-        f"stderr ~{limit.stderr_head_tokens} tokens.\n"
-        f"Reserved for completion: tail ~{limit.tail_tokens} tokens, "
-        f"service ~{limit.service_tokens} tokens.\n"
-        f"Live stdout log: {log_base}.stdout.log\n"
-        f"Live stderr log: {log_base}.stderr.log\n"
-        "--- end limited_bash ---\n"
+        "\n--- limited_bash: output limit reached ---\n"
+        "The command is still running, but the visible output was capped.\n\n"
+        "Full live logs:\n"
+        f"  stdout: {log_base}.stdout.log\n"
+        f"  stderr: {log_base}.stderr.log\n\n"
+        "Only short progress updates will be printed here until the command finishes.\n"
+        "limited_bash will exit with code 2 because output was truncated; the command's\n"
+        "real exit code will appear in the final summary.\n"
+        "--- end notice ---\n"
     )
 
 
