@@ -128,6 +128,7 @@ def _task_context_set_slot(context: ToolContext, arguments: JsonObject) -> ToolR
         string_arg(arguments, "category"),
         string_arg(arguments, "content", ""),
         updated_at=optional_string_arg(arguments, "updated_at"),
+        compile_dictionary=bool_arg(arguments, "compile_dictionary", False),
     )
     if bool_arg(arguments, "render", False):
         return _render_slots_result([slot], string_arg(arguments, "format", "markdown"), task_dir)
@@ -369,6 +370,11 @@ def _set_slot_input_schema() -> JsonObject:
             "render": {
                 "type": "boolean",
                 "description": "Render the updated slot content instead of returning a compact confirmation.",
+                "default": False,
+            },
+            "compile_dictionary": {
+                "type": "boolean",
+                "description": "Recompile task dictionary aliases before returning. Default keeps slot updates fast.",
                 "default": False,
             },
         },

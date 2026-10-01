@@ -15,12 +15,15 @@ from uuid import uuid4
 from agent_tools.agent_workspace.components.agent_status.api import AGENT_PROMPT_MARKER
 from agent_tools.agent_workspace.components.agent_status.api import AGENT_RUNNING_READY_MARKER
 from agent_tools.agent_workspace.components.agent_status.api import AGENT_TOOL_MARKER
+from agent_tools.agent_workspace.components.settings.api import TASK_CONTEXT_PROMPT_INJECTION_DEFAULT
 from agent_tools.agent_workspace.components.settings.api import load_agent_workspace_settings
 from agent_tools.agent_workspace.components.settings.api import system_prompt_for_model
+from agent_tools.tools.task_context import DICTIONARY_AUTO_DISCOVERY_DEFAULT
 from agent_tools.paf_workspace.task_check import check_task
 from agent_tools.paf_workspace.task_check import render_text
 from agent_tools.tools.repo_guard.repositories import validate_repo_registry
 from agent_tools.tools.task_context import agent_visible_slots
+from agent_tools.tools.task_context import compile_dictionary
 from agent_tools.tools.task_context import database_path
 from agent_tools.tools.task_context import ensure_database
 from agent_tools.tools.task_context import load_slots
@@ -453,7 +456,22 @@ def _handle_pre_compact(
         )
         return None
 
-    _emit(task_dir, agent_type, session_id, HarnessStatusEvent.COMPACT_CHECKPOINT, AGENT_TOOL_MARKER, "PreCompact checkpoint passed.", hook_event=AgentHookEvent.PRE_COMPACT, outcome="allowed")
+    dictionary_refreshed = _refresh_task_dictionary_for_compact(task_dir, agent_type, session_id)
+    message = (
+        "PreCompact checkpoint passed; task dictionary refreshed."
+        if dictionary_refreshed
+        else "PreCompact checkpoint passed."
+    )
+    _emit(
+        task_dir,
+        agent_type,
+        session_id,
+        HarnessStatusEvent.COMPACT_CHECKPOINT,
+        AGENT_TOOL_MARKER,
+        message,
+        hook_event=AgentHookEvent.PRE_COMPACT,
+        outcome="allowed",
+    )
     return None
 
 
@@ -586,6 +604,46 @@ def _task_context_fingerprint(task_dir: Path) -> str:
     return hashlib.sha256(encoded).hexdigest()
 
 
+def _refresh_task_dictionary_for_compact(
+    task_dir: Path,
+    agent_type: AgentType,
+    session_id: str | None,
+) -> bool:
+    settings = load_agent_workspace_settings()
+    if not _settings_bool(settings, "inject_task_context_prompt", TASK_CONTEXT_PROMPT_INJECTION_DEFAULT):
+        return False
+    if not _settings_bool(settings, "task_dictionary_auto_discovery", DICTIONARY_AUTO_DISCOVERY_DEFAULT):
+        return False
+
+    try:
+        _ensure_adapter_schema(task_dir)
+        fingerprint = _task_context_fingerprint(task_dir)
+        if _load_dictionary_compile_fingerprint(task_dir) == fingerprint:
+            return False
+        compile_dictionary(task_dir)
+        _store_dictionary_compile_fingerprint(task_dir, fingerprint)
+    except sqlite3.Error as exc:
+        if not _sqlite_database_is_busy(exc):
+            raise
+        _emit(
+            task_dir,
+            agent_type,
+            session_id,
+            HarnessStatusEvent.HOOK_OBSERVED,
+            AGENT_TOOL_MARKER,
+            "PreCompact dictionary refresh skipped; task context database is busy.",
+            hook_event=AgentHookEvent.PRE_COMPACT,
+            outcome="dictionary-busy",
+        )
+        return False
+    return True
+
+
+def _settings_bool(settings: dict[str, Any], key: str, default: bool) -> bool:
+    value = settings.get(key)
+    return value if isinstance(value, bool) else default
+
+
 def _refresh_task_context_update_flag(task_dir: Path, agent_type: AgentType, session_id: str | None) -> None:
     state = _load_adapter_state(task_dir, agent_type, session_id)
     prompt_at = state.get("last_user_prompt_at")
@@ -623,6 +681,15 @@ def _ensure_adapter_schema(task_dir: Path) -> None:
                     "ALTER TABLE harness_adapter_state "
                     "ADD COLUMN context_fingerprint_at_prompt TEXT NOT NULL DEFAULT ''"
                 )
+            connection.execute(
+                """
+                CREATE TABLE IF NOT EXISTS harness_dictionary_compile_state (
+                    state_key TEXT PRIMARY KEY,
+                    context_fingerprint TEXT NOT NULL DEFAULT '',
+                    compiled_at TEXT NOT NULL DEFAULT ''
+                )
+                """
+            )
     except sqlite3.Error as exc:
         if not _sqlite_database_is_busy(exc):
             raise
@@ -678,6 +745,31 @@ def _load_adapter_state(
         "context_fingerprint_at_prompt": str(row[5] or ""),
         "updated_at": row[6],
     }
+
+
+def _load_dictionary_compile_fingerprint(task_dir: Path) -> str:
+    _ensure_adapter_schema(task_dir)
+    with sqlite3.connect(database_path(task_dir), timeout=10) as connection:
+        row = connection.execute(
+            "SELECT context_fingerprint FROM harness_dictionary_compile_state WHERE state_key = ?",
+            ("default",),
+        ).fetchone()
+    return str(row[0]) if row is not None else ""
+
+
+def _store_dictionary_compile_fingerprint(task_dir: Path, fingerprint: str) -> None:
+    _ensure_adapter_schema(task_dir)
+    with sqlite3.connect(database_path(task_dir), timeout=10) as connection:
+        connection.execute(
+            """
+            INSERT INTO harness_dictionary_compile_state (state_key, context_fingerprint, compiled_at)
+            VALUES (?, ?, ?)
+            ON CONFLICT(state_key) DO UPDATE SET
+                context_fingerprint = excluded.context_fingerprint,
+                compiled_at = excluded.compiled_at
+            """,
+            ("default", fingerprint, _now()),
+        )
 
 
 def _update_adapter_state(

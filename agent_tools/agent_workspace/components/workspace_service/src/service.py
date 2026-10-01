@@ -4,6 +4,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from agent_tools.tools.task_context import compile_dictionary
+
 from ...artifacts.api import artifact_relative_label
 from ...artifacts.api import artifact_updated_label
 from ...artifacts.api import task_artifact_entries
@@ -78,6 +80,8 @@ class AgentWorkspaceService:
     ) -> dict[str, Any]:
         task = self.task(task_name)
         filters = filters or TaskContextFilters()
+        if encoded:
+            compile_dictionary(task.path)
         slots = load_task_context_slots(task.path)
         visible_slots = [slot for slot in slots if slot.category != "goal"]
         markdown = render_task_context_slots(

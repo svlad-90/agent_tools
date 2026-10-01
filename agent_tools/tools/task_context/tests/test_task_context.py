@@ -17,6 +17,7 @@ from agent_tools.tools.task_context import TaskDictionaryPolicy
 from agent_tools.tools.task_context import add_entry
 from agent_tools.tools.task_context import add_dictionary_terms
 from agent_tools.tools.task_context import compact_context
+from agent_tools.tools.task_context import compile_dictionary
 from agent_tools.tools.task_context import dictionary_token
 from agent_tools.tools.task_context import edit_entries
 from agent_tools.tools.task_context import filter_entries
@@ -951,6 +952,20 @@ def test_compact_agent_context_excludes_legacy_slot(tmp_path: Path, capsys: obje
     assert "| Legacy" not in compact_output
 
 
+def test_set_slot_leaves_dictionary_compile_to_explicit_call(tmp_path: Path) -> None:
+    repeated = "drivers/firmware/scmi/scmi.c"
+
+    set_slot(
+        tmp_path,
+        "findings",
+        f"{repeated} starts. {repeated} validates. {repeated} remains active.",
+    )
+
+    assert load_dictionary(tmp_path) == []
+    assert compile_dictionary(tmp_path) == 1
+    assert load_dictionary(tmp_path)[0].value == repeated
+
+
 def test_slot_agent_format_encodes_content_and_renders_dictionary(tmp_path: Path, capsys: object) -> None:
     repeated = "drivers/firmware/scmi/scmi.c"
     assert (
@@ -963,6 +978,7 @@ def test_slot_agent_format_encodes_content_and_renders_dictionary(tmp_path: Path
                 "findings",
                 "--content",
                 f"{repeated} starts. {repeated} validates. {repeated} remains active.",
+                "--compile-dictionary",
                 "--format",
                 "agent",
             ]
