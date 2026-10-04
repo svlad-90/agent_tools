@@ -568,8 +568,7 @@ class WorkspaceGtkGui:
         self.task_view.connect("row-activated", lambda *_: self.open_task())
         self.task_view.add_events(Gdk.EventMask.BUTTON_PRESS_MASK)
         self.task_view.connect("button-press-event", self._on_task_view_button_press)
-        task_scroll = Gtk.ScrolledWindow()
-        task_scroll.set_overlay_scrolling(False)
+        task_scroll = _new_scrolled_window()
         task_scroll.set_min_content_width(360)
         task_scroll.add(self.task_view)
         main.pack1(task_scroll, resize=False, shrink=False)
@@ -678,8 +677,7 @@ class WorkspaceGtkGui:
         self.artifact_view.connect("row-activated", self._on_artifact_row_activated)
         self.artifact_view.add_events(Gdk.EventMask.BUTTON_PRESS_MASK)
         self.artifact_view.connect("button-press-event", self._on_artifact_view_button_press)
-        scrolled = Gtk.ScrolledWindow()
-        scrolled.set_overlay_scrolling(False)
+        scrolled = _new_scrolled_window()
         scrolled.add(self.artifact_view)
         page.pack_start(scrolled, True, True, 0)
         self.artifacts_page = page
@@ -711,9 +709,8 @@ class WorkspaceGtkGui:
         controls_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=3)
         controls_box.set_border_width(0)
         self.actions_controls_box = controls_box
-        controls_scrolled = Gtk.ScrolledWindow()
+        controls_scrolled = _new_scrolled_window()
         controls_scrolled.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
-        controls_scrolled.set_overlay_scrolling(False)
         controls_scrolled.add(controls_box)
         actions_pane.pack1(controls_scrolled, resize=False, shrink=True)
         actions_pane.connect("notify::position", self._on_actions_pane_position_changed)
@@ -5280,7 +5277,7 @@ class WorkspaceGtkGui:
         terminal.connect("child-exited", self._on_terminal_child_exited)
         terminal.connect("unrealize", self._remove_codex_terminal_window_filter)
         terminal.connect("destroy", self._remove_codex_terminal_window_filter)
-        scrolled = Gtk.ScrolledWindow()
+        scrolled = _new_scrolled_window()
         scrolled.get_style_context().add_class("terminal-page")
         terminal_child: Gtk.Widget = terminal
         terminal_mouse: CodexTerminalMouseStateMachine | None = None
@@ -7166,9 +7163,15 @@ def _context_entry_reference_at_iter(buffer: Gtk.TextBuffer, cursor_iter: Gtk.Te
     return None
 
 
-def _scrolled(widget: Gtk.Widget) -> Gtk.ScrolledWindow:
+def _new_scrolled_window() -> Gtk.ScrolledWindow:
     scrolled = Gtk.ScrolledWindow()
     scrolled.set_overlay_scrolling(False)
+    scrolled.set_kinetic_scrolling(False)
+    return scrolled
+
+
+def _scrolled(widget: Gtk.Widget) -> Gtk.ScrolledWindow:
+    scrolled = _new_scrolled_window()
     scrolled.add(widget)
     return scrolled
 
