@@ -100,6 +100,45 @@ class DiffReportBehaviorTests(unittest.TestCase):
         self.assertIn('href="#deep-path-tests-test_app.py">test_app.py</a>', html)
         self.assertIn("review-nav-node review-nav-file", html)
 
+    def test_diff_report_labels_renamed_and_deleted_files(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            diff_path = root / "change.patch"
+            output = root / "report.html"
+            diff_path.write_text(
+                textwrap.dedent(
+                    """\
+                    diff --git a/old-name.bb b/new-name.bb
+                    similarity index 100%
+                    rename from old-name.bb
+                    rename to new-name.bb
+                    diff --git a/removed.patch b/removed.patch
+                    deleted file mode 100644
+                    index 1111111..0000000
+                    --- a/removed.patch
+                    +++ /dev/null
+                    @@ -1 +0,0 @@
+                    -removed
+                    """
+                ),
+                encoding="utf-8",
+            )
+
+            generate_report(
+                output_path=output,
+                title="Rename/delete report",
+                diff_file=diff_path,
+            )
+
+            html = output.read_text(encoding="utf-8")
+
+        self.assertIn('href="#new-name.bb">new-name.bb</a>', html)
+        self.assertIn('class="file-status file-status-renamed"', html)
+        self.assertIn("renamed from old-name.bb", html)
+        self.assertIn('<div class="file-header">new-name.bb ', html)
+        self.assertIn('<div class="file-header">removed.patch ', html)
+        self.assertIn('class="file-status file-status-deleted"', html)
+
     def test_diff_report_orders_diff_body_like_sidebar_tree(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)

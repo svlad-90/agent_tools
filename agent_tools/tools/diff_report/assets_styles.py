@@ -697,6 +697,10 @@ def stylesheet() -> str:
     .review-nav-file.is-current > .review-nav-row { background: color-mix(in srgb, var(--comment-bg) 42%, var(--panel)); color: var(--text); box-shadow: inset 4px 0 0 var(--comment-border), 0 0 0 1px color-mix(in srgb, var(--comment-border) 24%, transparent); }
     .review-nav-file.is-current.is-current-comment-file > .review-nav-row { background: color-mix(in srgb, var(--comment-bg) 34%, var(--panel)); box-shadow: inset 4px 0 0 var(--comment-border), 0 0 0 1px color-mix(in srgb, var(--comment-border) 22%, transparent); }
     .review-nav-file > .review-nav-row .review-nav-label { font-weight: 400; }
+    .file-status { display: inline-flex; align-items: center; min-height: 20px; margin-left: 8px; padding: 2px 7px; border: 1px solid var(--meta-border); border-radius: 999px; color: var(--meta-label); background: var(--button-bg); font: 800 11px/1 var(--code-font-stack); text-transform: uppercase; vertical-align: middle; white-space: nowrap; }
+    .file-status-added { color: var(--stat-add); border-color: color-mix(in srgb, var(--stat-add) 70%, var(--meta-border)); background: color-mix(in srgb, var(--add-bg) 72%, var(--panel)); }
+    .file-status-deleted { color: var(--stat-del); border-color: color-mix(in srgb, var(--stat-del) 72%, var(--meta-border)); background: color-mix(in srgb, var(--del-bg) 70%, var(--panel)); }
+    .file-status-renamed { color: var(--link); border-color: color-mix(in srgb, var(--link) 62%, var(--meta-border)); background: color-mix(in srgb, var(--button-hover-bg) 72%, var(--panel)); }
     .review-nav-file.is-current > .review-nav-row a { color: var(--text); text-decoration: none; font-weight: 400; }
     .review-nav-file.is-current > .review-nav-row .review-nav-label { color: inherit; }
     .review-nav a { color: var(--text); text-decoration: none; }
@@ -771,6 +775,7 @@ def stylesheet() -> str:
     .code-target-flash-overlay { position: absolute; z-index: 5; pointer-events: none; border: 3px solid rgba(9,105,218,.92); border-radius: 6px; box-shadow: 0 0 0 2px rgba(9,105,218,.22); animation: code-target-overlay-flash .46s ease-out; }
     .file, .file-comment, .review-comment, tr[id] { scroll-margin-top: calc(var(--story-offset) + 72px); }
     .file-header { margin: -1px -1px 0; padding: 10px 13px; border-bottom: 1px solid var(--border); background: var(--header-bg); font-weight: 700; position: sticky; top: calc(var(--story-offset) - 2px); z-index: 6; box-shadow: 0 1px 0 var(--border); }
+    .file-header-detail { margin-left: 8px; color: var(--muted); font: 500 12px/1.3 var(--code-font-stack); overflow-wrap: anywhere; }
     .file-comment { min-width: 0; max-width: calc(100% - 24px); margin: 6px 12px 6px; padding: 8px 12px; border-left: 4px solid var(--comment-border); background: var(--comment-bg); border-radius: 6px; overflow-wrap: anywhere; }
     table.diff { width: 100%; border-collapse: collapse; table-layout: fixed; font-family: var(--code-font-stack); font-size: var(--scaled-code-font); line-height: 1.5; }
     .diff td { vertical-align: top; border: 0; padding: 0; }

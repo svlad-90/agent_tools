@@ -5,6 +5,7 @@ import unittest
 
 from agent_tools.tools.diff_report.diff_parse import (
     DiffLine,
+    file_diff_metadata,
     file_from_diff_header,
     is_diff_metadata,
     iter_diff_lines,
@@ -143,6 +144,38 @@ class DiffParseTests(unittest.TestCase):
         )
 
         self.assertEqual(["app.py", "lib.py"], diff_files(diff_text))
+
+    def test_file_diff_metadata_tracks_added_deleted_and_renamed_files(self) -> None:
+        diff_text = textwrap.dedent(
+            """\
+            diff --git a/old.py b/new.py
+            similarity index 100%
+            rename from old.py
+            rename to new.py
+            diff --git a/removed.py b/removed.py
+            deleted file mode 100644
+            index 1111111..0000000
+            --- a/removed.py
+            +++ /dev/null
+            @@ -1 +0,0 @@
+            -gone
+            diff --git a/added.py b/added.py
+            new file mode 100644
+            index 0000000..2222222
+            --- /dev/null
+            +++ b/added.py
+            @@ -0,0 +1 @@
+            +new
+            """
+        )
+
+        metadata = file_diff_metadata(diff_text)
+
+        self.assertEqual("renamed", metadata["new.py"].status)
+        self.assertEqual("old.py", metadata["new.py"].old_path)
+        self.assertEqual("new.py", metadata["new.py"].new_path)
+        self.assertEqual("deleted", metadata["removed.py"].status)
+        self.assertEqual("added", metadata["added.py"].status)
 
     def test_diff_line_is_frozen_value_object(self) -> None:
         line = DiffLine(kind="context", raw=" keep()", file_path="app.py", old_line=1, new_line=1)

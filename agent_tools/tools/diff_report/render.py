@@ -8,6 +8,7 @@ from typing import Any
 from .assets import copy_selection_script, diagram_script, feedback_script, html_header, story_script, theme_script
 from .assets_plantuml_svg import plantuml_preview_svg
 from .diff_source import diff_files, diff_stats
+from .diff_parse import FileDiffMetadata, file_diff_metadata
 from .html_utils import anchor as _anchor
 from .html_utils import comment_anchor as _comment_anchor
 from .html_utils import esc as _esc
@@ -38,6 +39,7 @@ def render_html_report(
     subject = source.subject or commit_subject
     stats = diff_stats(source.diff_text)
     diff_file_order = diff_files(source.diff_text)
+    metadata_by_file = file_diff_metadata(source.diff_text)
     tree_file_order = _tree_file_order(diff_file_order)
     parts: list[str] = []
     parts.append(html_header(title))
@@ -66,7 +68,7 @@ def render_html_report(
     if comments.story:
         parts.append(_render_story_section(comments))
     if comment_count or diff_file_order:
-        parts.append(_render_comments_index(comments, diff_file_order, comment_count))
+        parts.append(_render_comments_index(comments, diff_file_order, comment_count, metadata_by_file))
     parts.append(
         render_diff(
             source.diff_text,
@@ -178,6 +180,7 @@ def _render_comments_index(
     comments: ReviewComments,
     diff_file_order: list[str],
     comment_count: int,
+    metadata_by_file: dict[str, FileDiffMetadata] | None = None,
 ) -> str:
     title = "Review Comments" if comment_count else "Files Changed"
     parts = [
@@ -235,6 +238,7 @@ def _render_comments_index(
                 file_path = item_value
                 filename = file_path.rsplit("/", 1)[-1]
                 file_comments = comments_by_file[file_path]
+                file_status = _render_file_status(metadata_by_file.get(file_path) if metadata_by_file else None)
                 if file_comments:
                     parts.append(
                         f'{" " * (8 + depth * 2)}'
@@ -244,7 +248,8 @@ def _render_comments_index(
                     parts.append(f'{" " * (8 + depth * 2)}<li class="review-nav-node review-nav-file">\n')
                 parts.append(
                     f'{" " * (10 + depth * 2)}<div class="review-nav-row">'
-                    f'<a class="review-nav-label" href="#{_anchor(file_path)}">{_esc(filename)}</a></div>\n'
+                    f'<a class="review-nav-label" href="#{_anchor(file_path)}">{_esc(filename)}</a>'
+                    f'{file_status}</div>\n'
                 )
                 if file_comments:
                     parts.append(
@@ -268,6 +273,23 @@ def _render_comments_index(
     parts.append('    <div class="review-nav-resizer" aria-hidden="true"></div>\n')
     parts.append("  </section>\n")
     return "".join(parts)
+
+
+def _render_file_status(metadata: FileDiffMetadata | None) -> str:
+    if metadata is None or metadata.status == "modified":
+        return ""
+    label = {
+        "added": "added",
+        "deleted": "deleted",
+        "renamed": "renamed",
+    }.get(metadata.status, metadata.status)
+    title = label
+    if metadata.status == "renamed" and metadata.old_path:
+        title = f"renamed from {metadata.old_path}"
+    return (
+        f' <span class="file-status file-status-{_esc(metadata.status)}"'
+        f' title="{_esc(title)}">{_esc(label)}</span>'
+    )
 
 
 def _tree_file_order(file_paths: list[str]) -> list[str]:
