@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 
-from .diff_parse import DiffLine, iter_diff_lines
+from .diff_parse import DiffLine, FileDiffMetadata, file_diff_metadata, iter_diff_lines
 from .html_utils import anchor, comment_anchor, esc, format_text, line_anchor
 from .models import DiffReportError, InlineComment, ReviewComments, VocabularyTerm
 from .render_state import (
@@ -27,6 +27,7 @@ def render_diff(
     file_comment_assets = render_file_comment_assets or _empty_file_comment_assets
     inline_comment_assets = render_inline_comment_assets or _empty_inline_comment_assets
     diff_lines = list(iter_diff_lines(diff_text))
+    metadata_by_file = file_diff_metadata(diff_text)
     if file_order is not None:
         diff_lines = _sort_diff_lines_by_file_order(diff_lines, file_order)
     diff_lines = _coalesce_repeated_file_blocks(diff_lines)
@@ -57,7 +58,7 @@ def render_diff(
                 f'  <article class="file" id="{anchor(current_file)}" '
                 f'data-file="{esc(current_file)}">\n'
             )
-            parts.append(f'    <div class="file-header">{esc(current_file)}</div>\n')
+            parts.append(_render_file_header(current_file, metadata_by_file.get(current_file)))
             if current_file in comments.file_comments:
                 parts.append(
                     f'    <div class="file-comment"><strong>File review note:</strong> '
@@ -144,6 +145,24 @@ def render_diff(
 
     close_file()
     return "".join(parts)
+
+
+def _render_file_header(file_path: str, metadata: FileDiffMetadata | None) -> str:
+    if metadata is None or metadata.status == "modified":
+        return f'    <div class="file-header">{esc(file_path)}</div>\n'
+    status_label = {
+        "added": "added",
+        "deleted": "deleted",
+        "renamed": "renamed",
+    }.get(metadata.status, metadata.status)
+    detail = ""
+    if metadata.status == "renamed" and metadata.old_path:
+        detail = f' <span class="file-header-detail">from {esc(metadata.old_path)}</span>'
+    return (
+        '    <div class="file-header">'
+        f'{esc(file_path)} <span class="file-status file-status-{esc(metadata.status)}">'
+        f'{esc(status_label)}</span>{detail}</div>\n'
+    )
 
 
 def _sort_diff_lines_by_file_order(diff_lines: list[DiffLine], file_order: list[str]) -> list[DiffLine]:

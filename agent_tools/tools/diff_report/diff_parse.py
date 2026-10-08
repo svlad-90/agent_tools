@@ -18,6 +18,14 @@ class DiffLine:
     content: str | None = None
 
 
+@dataclass(frozen=True)
+class FileDiffMetadata:
+    file_path: str
+    status: str
+    old_path: str | None = None
+    new_path: str | None = None
+
+
 def iter_diff_lines(diff_text: str) -> Iterator[DiffLine]:
     current_file: str | None = None
     old_no: int | None = None
@@ -113,6 +121,48 @@ def file_from_diff_header(line: str) -> str:
     if not match:
         return line
     return match.group(2)
+
+
+def file_diff_metadata(diff_text: str) -> dict[str, FileDiffMetadata]:
+    metadata_by_file: dict[str, FileDiffMetadata] = {}
+    current_file: str | None = None
+    status = "modified"
+    old_path: str | None = None
+    new_path: str | None = None
+
+    def close_file() -> None:
+        if current_file is None:
+            return
+        metadata_by_file[current_file] = FileDiffMetadata(
+            file_path=current_file,
+            status=status,
+            old_path=old_path,
+            new_path=new_path,
+        )
+
+    for line in diff_text.splitlines():
+        if line.startswith("diff --git "):
+            close_file()
+            current_file = file_from_diff_header(line)
+            status = "modified"
+            old_path = None
+            new_path = None
+            continue
+        if current_file is None:
+            continue
+        if line.startswith("new file mode "):
+            status = "added"
+        elif line.startswith("deleted file mode "):
+            status = "deleted"
+        elif line.startswith("rename from "):
+            status = "renamed"
+            old_path = line.removeprefix("rename from ")
+        elif line.startswith("rename to "):
+            status = "renamed"
+            new_path = line.removeprefix("rename to ")
+
+    close_file()
+    return metadata_by_file
 
 
 def is_diff_metadata(line: str) -> bool:
