@@ -13,6 +13,7 @@ import time
 import unittest
 import urllib.request
 from pathlib import Path
+from unittest import mock
 
 from agent_tools.tools.diff_report.cli import main
 from agent_tools.tools.diff_report.core import generate_report
@@ -27,6 +28,22 @@ def _browser() -> str | None:
         if path:
             return path
     return None
+
+
+class BrowserHarnessTests(unittest.TestCase):
+    def test_wait_for_debug_port_tolerates_an_initially_empty_file(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            profile_dir = Path(temp_dir)
+            port_file = profile_dir / "DevToolsActivePort"
+            port_file.touch()
+
+            def publish_port(_delay: float) -> None:
+                port_file.write_text("9222\n/devtools/browser/test\n", encoding="utf-8")
+
+            with mock.patch.object(time, "sleep", side_effect=publish_port):
+                port = _wait_for_debug_port(profile_dir)
+
+        self.assertEqual(9222, port)
 
 
 @unittest.skipUnless(_browser(), "Chrome-compatible browser is not available")
@@ -1209,9 +1226,14 @@ def _wait_for_debug_port(profile_dir: Path) -> int:
     deadline = time.monotonic() + 15
     while time.monotonic() < deadline:
         if port_file.is_file():
-            return int(port_file.read_text(encoding="utf-8").splitlines()[0])
+            try:
+                lines = port_file.read_text(encoding="utf-8").splitlines()
+                if lines and lines[0].strip():
+                    return int(lines[0])
+            except (OSError, ValueError):
+                pass
         time.sleep(0.05)
-    raise RuntimeError("Chrome DevTools port file was not created")
+    raise RuntimeError("Chrome DevTools port file was not ready")
 
 
 def _browser_json(port: int, path: str) -> object:
