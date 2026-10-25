@@ -22,6 +22,7 @@ class validate_agent_tools_repo(EnvironmentTask):
             self.param("AGENT_TOOLS_VALIDATE_REPO", "") or self.config_string("repo", "."),
             container_alias,
         )
+        paf_root = self.container_workspace_path(str(self.path_param("PAF_ROOT")), container_alias)
         task_dir_param = self.param("AGENT_TOOLS_VALIDATE_TASK_DIR", "") or self.config_string("task_dir", "")
         task_dir = self.container_workspace_path(task_dir_param, container_alias) if task_dir_param else ""
         scope = self.param("AGENT_TOOLS_VALIDATE_SCOPE", "") or self.config_string("scope", "all")
@@ -41,12 +42,14 @@ class validate_agent_tools_repo(EnvironmentTask):
 
         self.assertion(scope in ("all", "changed"), "AGENT_TOOLS_VALIDATE_SCOPE must be 'all' or 'changed'")
         self.assertion(repo, "Missing Agent Tools repo path")
+        self.assertion(paf_root, "Missing PAF root path")
 
         self.docker_subprocess_must_succeed(
             container_alias,
             runtime.agent_tools_repo_validation_command(
                 runtime.AgentToolsRepoValidation(
                     repo=repo,
+                    paf_root=paf_root,
                     task_dir=task_dir,
                     scope=str(scope),
                     base_ref=str(base_ref),

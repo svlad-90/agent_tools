@@ -51,6 +51,7 @@ requires:
       network: host
       capabilities:
         - workspace_tools
+        - cpp_source_analysis
         - agent_workspace_tests
     moulin-act:
       image: moulin-act:22.04

@@ -9,6 +9,7 @@ class AgentToolsRepoValidation:
     def __init__(
         self,
         repo: str,
+        paf_root: str,
         task_dir: str = "",
         scope: str = "all",
         base_ref: str = "HEAD",
@@ -16,6 +17,7 @@ class AgentToolsRepoValidation:
         require_real_gtk: bool = True,
     ) -> None:
         self.repo = repo
+        self.paf_root = paf_root
         self.task_dir = task_dir
         self.scope = scope
         self.base_ref = base_ref
@@ -25,6 +27,7 @@ class AgentToolsRepoValidation:
 
 def agent_tools_repo_validation_command(config: AgentToolsRepoValidation) -> str:
     repo = _quote(config.repo)
+    paf_root = _quote(config.paf_root)
     task_dir = _quote(config.task_dir)
     scope = _quote(config.scope)
     base_ref = _quote(config.base_ref)
@@ -34,6 +37,7 @@ def agent_tools_repo_validation_command(config: AgentToolsRepoValidation) -> str
 set -euo pipefail
 export PYTHONUNBUFFERED=1
 REPO={repo}
+PAF_ROOT={paf_root}
 TASK_DIR={task_dir}
 SCOPE={scope}
 BASE_REF={base_ref}
@@ -41,7 +45,7 @@ REQUIRE_REAL_GTK={require_real_gtk}
 PYTEST_TARGETS=({pytest_targets})
 
 cd "$REPO"
-export PYTHONPATH="$REPO:$REPO/agent_tools"
+export PYTHONPATH="$PAF_ROOT:$REPO/agent_tools:$REPO"
 git config --global --add safe.directory "$REPO"
 
 echo "Agent Tools repo validation: repo=$REPO scope=$SCOPE"
