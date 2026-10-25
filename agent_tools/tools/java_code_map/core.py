@@ -148,7 +148,11 @@ def render_code_map(file_path: Path,
         "compiler": "javac",
         "diagnostics": list(parse_result.diagnostics),
         "semantic": payload.get("semantic", False),
-        "confidence": payload.get("confidence", "javac-validated-structural"),
+        "confidence": (
+            payload.get("confidence", "jdt-ast+javac")
+            if ast_payload is not None
+            else _structural_confidence(parse_result, payload)
+        ),
         "ast_backend": payload.get("ast_backend", "tree-sitter"),
     })
     if json_output:
@@ -863,6 +867,13 @@ def _analysis_payload(ast_payload: dict[str, Any], parse_result: ParseCheckResul
     }
 
 
+def _structural_confidence(parse_result: ParseCheckResult,
+                           payload: dict[str, Any]) -> str:
+    if _javac_validated(parse_result):
+        return "javac-validated-structural"
+    return str(payload.get("confidence", "structural-only"))
+
+
 def _render_analysis_payload(file_path: Path,
                              payload: dict[str, Any],
                              parse_result: ParseCheckResult,
@@ -875,7 +886,7 @@ def _render_analysis_payload(file_path: Path,
         "compiler": "javac",
         "diagnostics": list(parse_result.diagnostics),
         "semantic": payload.get("semantic", False),
-        "confidence": payload.get("confidence", "javac-validated-structural"),
+        "confidence": _structural_confidence(parse_result, payload),
         "ast_backend": payload.get("ast_backend", "tree-sitter"),
     })
     if json_output:

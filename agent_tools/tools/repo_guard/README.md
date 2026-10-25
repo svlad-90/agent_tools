@@ -30,6 +30,12 @@ provided, it also installs or updates hooks for the repositories listed in that
 task's `repo-registry` slot. `pre-push` accepts normal Git pre-push stdin, runs
 non-heavy checks, and requires current receipts for heavy checks.
 
+For repositories below `tasks/<task>/`, `repo_guard` infers the owning task
+when `--task-dir` is omitted. Policy preview, validation, and pre-push therefore
+use the same task-local policy and receipt scope. Command checks receive the
+resolved task through `AGENT_TOOLS_TASK_DIR` and `PAF_TASK_DIR`, so PAF-backed
+checks can write their logs without separate environment setup.
+
 ## Policy
 
 Workspace policy lives under:

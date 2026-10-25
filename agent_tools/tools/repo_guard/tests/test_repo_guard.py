@@ -6,6 +6,7 @@ import subprocess
 import sys
 from pathlib import Path
 
+import pytest
 import yaml
 
 from agent_tools.tools.repo_guard import main
@@ -206,6 +207,104 @@ def test_validate_include_heavy_records_receipt_used_by_pre_push(tmp_path: Path)
     assert validate_result.status == "pass"
     assert pre_push_result.status == "pass"
     assert pre_push_result.checks[0].receipt_path is not None
+
+
+def test_validation_task_scope_is_inferred_by_pre_push(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace = tmp_path / "workspace"
+    task_dir = workspace / "tasks" / "sample-task"
+    repo = task_dir / "dev" / "repo"
+    repo.parent.mkdir(parents=True)
+    _init_repo(repo)
+    (repo / "tracked.txt").write_text("ok\n", encoding="utf-8")
+    commit = _commit(repo)
+    (task_dir / "TASK_GUARD.yaml").write_text("version: 1\nchecks: []\n", encoding="utf-8")
+    root = _policy_root(tmp_path)
+    (root / "workspace-policy.yaml").write_text(
+        yaml.safe_dump(
+            {
+                "version": 1,
+                "checks": [
+                    {
+                        "id": "runtime-matrix",
+                        "backend": "command",
+                        "cost": "heavy",
+                        "command": [sys.executable, "-c", "raise SystemExit(0)"],
+                    }
+                ],
+            },
+            sort_keys=False,
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("AGENT_TOOLS_WORKSPACE_ROOT", str(workspace))
+    stdin_text = f"refs/heads/topic {commit} refs/heads/topic {'0' * 40}\n"
+
+    validate_result = validate(
+        repo,
+        task_dir=task_dir,
+        include_heavy=True,
+        policy_root=root,
+    )
+    pre_push_result = pre_push(
+        repo,
+        remote_name="origin",
+        remote_url="git@github.com:fork/repo.git",
+        stdin_text=stdin_text,
+        policy_root=root,
+    )
+
+    assert validate_result.context.task_dir == task_dir
+    assert pre_push_result.context.task_dir == task_dir
+    assert validate_result.policy_hash == pre_push_result.policy_hash
+    assert pre_push_result.status == "pass"
+
+
+def test_command_check_receives_inferred_task_environment(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace = tmp_path / "workspace"
+    task_dir = workspace / "tasks" / "sample-task"
+    repo = task_dir / "dev" / "repo"
+    repo.parent.mkdir(parents=True)
+    _init_repo(repo)
+    (repo / "tracked.txt").write_text("ok\n", encoding="utf-8")
+    _commit(repo)
+    (task_dir / "TASK_GUARD.yaml").write_text("version: 1\nchecks: []\n", encoding="utf-8")
+    root = _policy_root(tmp_path)
+    assertion = (
+        "import os; "
+        f"expected={str(task_dir)!r}; "
+        "raise SystemExit(0 if "
+        "os.environ.get('AGENT_TOOLS_TASK_DIR') == expected and "
+        "os.environ.get('PAF_TASK_DIR') == expected else 1)"
+    )
+    (root / "workspace-policy.yaml").write_text(
+        yaml.safe_dump(
+            {
+                "version": 1,
+                "checks": [
+                    {
+                        "id": "task-environment",
+                        "backend": "command",
+                        "cost": "heavy",
+                        "command": [sys.executable, "-c", assertion],
+                    }
+                ],
+            },
+            sort_keys=False,
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("AGENT_TOOLS_WORKSPACE_ROOT", str(workspace))
+
+    result = validate(repo, include_heavy=True, policy_root=root)
+
+    assert result.context.task_dir == task_dir
+    assert result.status == "pass"
 
 
 def test_pre_push_dry_run_uses_current_branch_upstream_range(tmp_path: Path) -> None:

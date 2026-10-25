@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import importlib.util
+import os
 import subprocess
 import sys
 import time
@@ -290,9 +291,16 @@ def _run_command_backend(
 ) -> CheckResult:
     start = time.monotonic()
     cwd = _command_cwd(context, check)
+    environment = os.environ.copy()
+    environment["AGENT_TOOLS_WORKSPACE_ROOT"] = str(context.workspace)
+    if context.task_dir is not None:
+        task_dir = str(context.task_dir)
+        environment["AGENT_TOOLS_TASK_DIR"] = task_dir
+        environment["PAF_TASK_DIR"] = task_dir
     completed = subprocess.run(
         list(command),
         cwd=cwd,
+        env=environment,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         text=True,

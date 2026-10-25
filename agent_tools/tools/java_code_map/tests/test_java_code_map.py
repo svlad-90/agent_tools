@@ -228,9 +228,10 @@ class JavaCodeMapTests(unittest.TestCase):
                 "        return amount + 1;\n",
                 JavaCompileContext(),
             )
+            updated_source = source.read_text(encoding="utf-8")
 
         self.assertTrue(result.changed)
-        self.assertIn("return amount + 1;", source.read_text(encoding="utf-8"))
+        self.assertIn("return amount + 1;", updated_source)
 
     def test_imports_add_and_batch_preview(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
