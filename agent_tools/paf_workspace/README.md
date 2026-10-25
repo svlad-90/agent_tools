@@ -3,7 +3,7 @@
 This directory contains workspace-owned PAF automation assets. PAF itself is
 kept as an external framework and is fetched by `run-paf.sh` when needed.
 The default checked-out PAF revision is
-`2e5b13953804e66a32f22b82882e15faee63a1ea`, the current workspace-validated
+`d3e2d3fa8c6699b0d4c4bb3f0d5451d0ace8a097`, the current workspace-validated
 baseline with workspace-wide Docker mount and environment defaults for PAF
 containers. Override it with `PAF_REF` only when a task intentionally
 validates a different PAF revision.
