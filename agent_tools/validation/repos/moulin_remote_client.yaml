@@ -1,0 +1,31 @@
+version: 1
+repo:
+  id: moulin_remote_client
+  names:
+    - moulin_remote_client
+  github_repos:
+    - github.com/svlad-90/moulin_remote_client
+  allow_forks: true
+  characteristic_files:
+    - moulin_remote_client.py
+    - .github/workflows/tests.yml
+checks:
+  - id: moulin-remote-client-actions
+    description: Run the repository GitHub Actions checks locally in the act runner image.
+    level: repo
+    backend: command
+    cost: heavy
+    required: true
+    cwd: "{workspace}"
+    command:
+      - "{workspace}/agent_tools/paf_workspace/run-paf.sh"
+      - "{workspace}/agent_tools/paf_workspace/domains/environments/scenarios/moulin-act.xml"
+      - validate
+      - --yaml-config
+      - "{workspace}/agent_tools/paf_workspace/domains/environments/profiles/moulin-act.yaml"
+      - --parameter
+      - "MOULIN_REPO_ROOT={repo}"
+      - --parameter
+      - "PUSH_GUARD_REPO={repo}"
+      - --parameter
+      - "PUSH_GUARD_SOURCE=moulin_remote_client GitHub Actions via act"

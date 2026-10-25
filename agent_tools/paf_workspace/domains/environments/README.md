@@ -36,8 +36,9 @@ Environment entries:
 - `agent-workspace-tests` provides a GUI-capable test image for Agent
   Workspace. It includes Python pytest, Tk, GTK, and VTE bindings so the
   Agent Workspace core test suite can run without remembering host packages.
-- `moulin-act` provides the `ubuntu-22.04` act runner image used by Moulin's
-  build workflow.
+- `moulin-act` provides the `ubuntu-22.04` act runner image used by Moulin and
+  Moulin Remote Client workflows. PAF invokes it through the `agent-tools-act`
+  driver container, so `act` does not need to be installed on the host.
 - `minecraft-paper` provides a Java 21 and Gradle 9 environment for validating
   Minecraft Paper/Purpur plugin repositories and future headless server smoke
   checks.
