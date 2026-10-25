@@ -21,6 +21,7 @@ from .models import CheckResult
 from .models import GuardContext
 from .models import GuardRunResult
 from .policy import load_policy
+from .policy import resolve_task_dir
 from .policy import workspace_root_from_env
 from .receipts import has_passing_check_receipt
 from .receipts import write_check_receipt
@@ -38,12 +39,14 @@ def validate(
     policy_root: Path | None = None,
 ) -> GuardRunResult:
     repo = repo_root(repo_path)
+    workspace = workspace_root_from_env()
+    task_dir = resolve_task_dir(repo, task_dir=task_dir, workspace=workspace)
     commits = validation_commits(repo)
     paths = set(changed_paths(repo, commits))
     paths.update(changed_paths(repo))
     context = GuardContext(
         repo=repo,
-        workspace=workspace_root_from_env(),
+        workspace=workspace,
         mode="validate",
         remote_name=None,
         remote_url=None,
@@ -65,10 +68,12 @@ def pre_push(
     policy_root: Path | None = None,
 ) -> GuardRunResult:
     repo = repo_root(repo_path)
+    workspace = workspace_root_from_env()
+    task_dir = resolve_task_dir(repo, task_dir=task_dir, workspace=workspace)
     commits = pushed_commits(stdin_text, repo)
     context = GuardContext(
         repo=repo,
-        workspace=workspace_root_from_env(),
+        workspace=workspace,
         mode="pre-push",
         remote_name=remote_name,
         remote_url=remote_url,
@@ -168,6 +173,17 @@ def _receipt_required_result(
             returncode=0,
             receipt_path=receipt,
         )
+    command = [
+        "python3",
+        "-m",
+        "agent_tools.tools.repo_guard",
+        "validate",
+        "--repo",
+        str(context.repo),
+    ]
+    if context.task_dir is not None:
+        command.extend(("--task-dir", str(context.task_dir)))
+    command.append("--include-heavy")
     return CheckResult(
         check_id=check.check_id,
         status="fail",
@@ -176,15 +192,7 @@ def _receipt_required_result(
         cost=check.cost,
         required=check.required,
         summary="heavy check requires a current validation receipt",
-        command=(
-            "python3",
-            "-m",
-            "agent_tools.tools.repo_guard",
-            "validate",
-            "--repo",
-            str(context.repo),
-            "--include-heavy",
-        ),
+        command=tuple(command),
         cwd=str(context.repo),
         stdout_tail="",
         stderr_tail=(
