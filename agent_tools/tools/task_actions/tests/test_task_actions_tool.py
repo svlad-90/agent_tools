@@ -12,6 +12,14 @@ from agent_tools.tools.task_actions import show_action
 from agent_tools.tools.task_actions import update_action
 
 
+WORKSPACE_ACTION_IDS = [
+    "workspace:validate",
+    "workspace:validate-push",
+    "workspace:task-check",
+    "workspace:install-repo-hooks",
+]
+
+
 def test_task_actions_tool_lists_shows_and_runs_with_bindings(tmp_path: Path) -> None:
     task = tmp_path / "tasks" / "sample"
     task.mkdir(parents=True)
@@ -59,7 +67,7 @@ def test_task_actions_tool_lists_shows_and_runs_with_bindings(tmp_path: Path) ->
     result = run_action(task, "echo", {"profile": "release"})
 
     assert listing["errors"] == []
-    assert listing["actions"][0]["id"] == "echo"
+    assert [action["id"] for action in listing["actions"]] == [*WORKSPACE_ACTION_IDS, "echo"]
     assert shown["action"]["parameters"][0]["name"] == "profile"
     assert result["returncode"] == 0
     assert result["stdout"] == "release\nrelease-flag\n"
@@ -92,7 +100,7 @@ def test_task_actions_tool_adds_updates_and_deletes_action(tmp_path: Path) -> No
     assert updated["action"]["env"] == {"MODE": "release"}
     assert run["stdout"] == "new\n"
     assert deleted["deleted"] == {"id": "build", "actions": 1, "shortcuts": 0}
-    assert list_actions(task)["actions"] == []
+    assert [action["id"] for action in list_actions(task)["actions"]] == WORKSPACE_ACTION_IDS
 
 
 def test_task_actions_tool_delete_removes_shortcuts_for_action(tmp_path: Path) -> None:
