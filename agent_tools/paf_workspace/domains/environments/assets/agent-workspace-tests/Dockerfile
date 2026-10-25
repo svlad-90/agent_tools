@@ -21,9 +21,18 @@ RUN apt-get update \
 		xvfb \
 	&& rm -rf /var/lib/apt/lists/*
 
+RUN apt-get update \
+	&& apt-get install -y --no-install-recommends \
+		clang \
+		libclang-dev \
+		python3-clang \
+	&& rm -rf /var/lib/apt/lists/*
+
 RUN python3 -m venv --system-site-packages "${VIRTUAL_ENV}" \
 	&& pip3 install --upgrade \
+		coloredlogs \
 		jsonschema \
+		paramiko \
 		pytest \
 		PyYAML \
 		tiktoken \

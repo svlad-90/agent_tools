@@ -6,6 +6,9 @@ import xml.etree.ElementTree as ET
 import jsonschema
 import yaml
 
+from paf_workspace.domains.agent_tools_repo_validation.lib.runtime import AgentToolsRepoValidation
+from paf_workspace.domains.agent_tools_repo_validation.lib.runtime import agent_tools_repo_validation_command
+
 
 AGENT_TOOLS_ROOT = Path(__file__).resolve().parents[2]
 DOMAIN = AGENT_TOOLS_ROOT / "paf_workspace/domains/agent_tools_repo_validation"
@@ -40,3 +43,12 @@ def test_agent_tools_repo_validation_scenario_runs_repo_checks_before_push_guard
 
     scenario_names = {item.attrib["name"] for item in scenario.findall(".//scenario")}
     assert {"check-only", "ensure-only", "validate", "push-guard"} <= scenario_names
+
+
+def test_agent_tools_repo_validation_adds_configured_paf_checkout_to_pythonpath() -> None:
+    command = agent_tools_repo_validation_command(
+        AgentToolsRepoValidation(repo="/workspace/repo", paf_root="/workspace/runtime/paf")
+    )
+
+    assert "PAF_ROOT=/workspace/runtime/paf" in command
+    assert 'export PYTHONPATH="$PAF_ROOT:$REPO/agent_tools:$REPO"' in command

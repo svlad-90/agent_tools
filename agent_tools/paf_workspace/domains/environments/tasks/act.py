@@ -125,7 +125,11 @@ class check_moulin_act_tools(EnvironmentTask):
         if self.bool_param("SKIP_MOULIN_ACT_TOOLS_CHECK"):
             logger.info("Skip Moulin act tools check: SKIP_MOULIN_ACT_TOOLS_CHECK is enabled")
             return
-        self.host_command_check("act --version")
+        self.docker_tools_check(
+            self.environment_string("agent_tools_act", "container", "agent-tools-act-workspace"),
+            runtime.AGENT_TOOLS_ACT_TOOL_CHECK_COMMAND,
+            "MOULIN_ACT_DRIVER_TOOLS_CHECK_TIMEOUT_SEC",
+        )
         self.docker_tools_check(
             self.environment_string("moulin_act", "container", "moulin-act-workspace"),
             runtime.ACT_RUNNER_TOOL_CHECK_COMMAND,
@@ -154,9 +158,9 @@ class validate_moulin_act(EnvironmentTask):
             Path(self.substitute_parameters(repo_root)).is_dir(),
             f"Moulin checkout does not exist: {repo_root}",
         )
-        self.subprocess_must_succeed(
+        self.docker_subprocess_must_succeed(
+            self.environment_string("agent_tools_act", "container", "agent-tools-act-workspace"),
             runtime.moulin_act_validate_command(run),
-            shell=True,
             timeout=int(self.param("MOULIN_ACT_TIMEOUT_SEC", "0") or "0"),
             communication_mode=CommunicationMode.PIPE_OUTPUT,
             interaction_mode=InteractionMode.IGNORE_INPUT,

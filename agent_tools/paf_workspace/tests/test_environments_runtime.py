@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from paf_workspace.domains.environments.lib.runtime import cpp_code_map_check_command
+from paf_workspace.domains.environments.lib.runtime import MoulinActRun
+from paf_workspace.domains.environments.lib.runtime import moulin_act_validate_command
 from paf_workspace.domains.environments.lib.runtime import workspace_tool_baseline_check_command
 
 
@@ -71,3 +73,16 @@ def test_juce_development_capability_adds_gui_audio_checks() -> None:
     assert "pkg-config --modversion gtk+-x11-3.0" in command
     assert "pkg-config --modversion libcurl" in command
     assert "xvfb-run --help" in command
+
+
+def test_moulin_act_command_runs_build_job_in_selected_runner() -> None:
+    command = moulin_act_validate_command(
+        MoulinActRun(
+            repo_root="/workspace/moulin_remote_client",
+            runner_image="moulin-act:22.04",
+        )
+    )
+
+    assert "cd /workspace/moulin_remote_client" in command
+    assert "act pull_request -j build" in command
+    assert "ubuntu-22.04=moulin-act:22.04" in command

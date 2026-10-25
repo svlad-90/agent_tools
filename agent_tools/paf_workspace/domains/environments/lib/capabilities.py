@@ -92,8 +92,14 @@ CAPABILITY_REQUIREMENTS: dict[str, CapabilityRequirement] = {
             "python3-tk",
             "xvfb",
         ),
+        pip_packages=(
+            "coloredlogs",
+            "paramiko",
+        ),
         python_imports=(
+            "coloredlogs",
             "gi",
+            "paramiko",
             "tkinter",
         ),
         commands=(
