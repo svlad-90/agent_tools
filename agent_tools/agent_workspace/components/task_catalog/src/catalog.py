@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
+import sys
 
 from agent_tools.paf_workspace.task_check import check_task
 from agent_tools.paf_workspace.task_check import render_text
@@ -19,6 +20,15 @@ from ...markdown.api import rough_token_count
 
 TASK_CONTEXT_BUDGET = 8_000
 TASKS_DIR_NAME = "tasks"
+_WINDOWS_RESERVED_TASK_NAMES = {
+    "CON",
+    "PRN",
+    "AUX",
+    "NUL",
+    *(f"COM{index}" for index in range(1, 10)),
+    *(f"LPT{index}" for index in range(1, 10)),
+}
+_WINDOWS_INVALID_TASK_NAME_CHARS = frozenset('<>:"/\\|?*')
 
 
 @dataclass(frozen=True)
@@ -76,6 +86,55 @@ def run_task_check(task: TaskSummary, workspace: Path, *, issues_only: bool = Fa
     if issues_only:
         return render_text(task.path, checks, issues_only=True)
     return render_text(task.path, checks, errors_only=True)
+
+
+def task_path_for_name(workspace: Path, task_name: str) -> Path | None:
+    if not _valid_task_name(task_name):
+        return None
+    task_path = (workspace / TASKS_DIR_NAME / task_name).resolve()
+    tasks_root = (workspace / TASKS_DIR_NAME).resolve()
+    try:
+        task_path.relative_to(tasks_root)
+    except ValueError:
+        return None
+    return task_path
+
+
+def _valid_task_name(task_name: str) -> bool:
+    if not task_name or task_name.startswith(".") or task_name[-1] in {" ", "."}:
+        return False
+    if any(character in _WINDOWS_INVALID_TASK_NAME_CHARS for character in task_name):
+        return False
+    if any(ord(character) < 32 for character in task_name):
+        return False
+    try:
+        name_units = len(task_name.encode("utf-16-le")) // 2
+    except UnicodeEncodeError:
+        return False
+    if name_units > 255:
+        return False
+    stem = task_name.split(".", 1)[0].upper()
+    return stem not in _WINDOWS_RESERVED_TASK_NAMES
+
+
+def task_init_command(
+    workspace: Path,
+    task_path: Path,
+    *,
+    privacy: str = "public",
+) -> list[str]:
+    command = [
+        sys.executable or "python3",
+        "-m",
+        "agent_tools.paf_workspace.task_check",
+        str(task_path),
+        "--workspace",
+        str(workspace),
+        "--init-layout",
+    ]
+    if privacy != "public":
+        command.extend(["--privacy", privacy])
+    return command
 
 
 def _actualize_task_for_gui(task_dir: Path, workspace: Path) -> None:

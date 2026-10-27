@@ -2,6 +2,41 @@ from __future__ import annotations
 
 import agent_tools.agent_workspace.components.task_catalog.src.catalog as catalog_module
 from agent_tools.agent_workspace.components.test_support.src.helpers import *
+from agent_tools.agent_workspace.components.task_catalog.api import task_init_command
+from agent_tools.agent_workspace.components.task_catalog.api import task_path_for_name
+
+
+def test_task_catalog_validates_new_task_path(tmp_path: Path) -> None:
+    assert task_path_for_name(tmp_path, "sample-task") == tmp_path / "tasks" / "sample-task"
+    assert task_path_for_name(tmp_path, "") is None
+    assert task_path_for_name(tmp_path, "..") is None
+    assert task_path_for_name(tmp_path, "../outside") is None
+    assert task_path_for_name(tmp_path, "nested/task") is None
+    assert task_path_for_name(tmp_path, ".hidden") is None
+    assert task_path_for_name(tmp_path, "CON") is None
+    assert task_path_for_name(tmp_path, "nul.txt") is None
+    assert task_path_for_name(tmp_path, "task:name") is None
+    assert task_path_for_name(tmp_path, "task ") is None
+    assert task_path_for_name(tmp_path, "task.") is None
+    assert task_path_for_name(tmp_path, "task\x00name") is None
+    assert task_path_for_name(tmp_path, "x" * 256) is None
+    assert task_path_for_name(tmp_path, "task-\ud800") is None
+
+
+def test_task_catalog_builds_private_init_command(tmp_path: Path) -> None:
+    task_path = tmp_path / "tasks" / "sample-task"
+
+    command = task_init_command(tmp_path, task_path, privacy="private")
+
+    assert command[:3] == [sys.executable, "-m", "agent_tools.paf_workspace.task_check"]
+    assert command[3:] == [
+        str(task_path),
+        "--workspace",
+        str(tmp_path),
+        "--init-layout",
+        "--privacy",
+        "private",
+    ]
 
 
 def test_discover_tasks_reports_description_context_and_budget(tmp_path: Path) -> None:
