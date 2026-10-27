@@ -979,7 +979,12 @@ class WorkspaceGtkGui:
                 self.workspace,
                 self.default_agent,
             )
-            self._switch_task_agent(task, agent, start_if_changed=True)
+            if not any(
+                session.kind == "shell" and not session.exited
+                for session in self._current_task_terminal_sessions(task)
+            ):
+                self.new_console(task=task)
+            self._switch_task_agent(task, agent, start_if_changed=True, activate=False)
             session = self._running_agent_session(task)
             if session is not None:
                 self._open_task_restore_waiting_session_id = session.session_id
@@ -5071,7 +5076,14 @@ class WorkspaceGtkGui:
             claude_effort=self.default_claude_effort,
         )
 
-    def _switch_task_agent(self, task: TaskSummary, agent: str, *, start_if_changed: bool) -> None:
+    def _switch_task_agent(
+        self,
+        task: TaskSummary,
+        agent: str,
+        *,
+        start_if_changed: bool,
+        activate: bool = True,
+    ) -> None:
         agent = normalize_agent(agent)
         current = self._running_agent_session(task)
         decision = ai_agent_switch_decision(
@@ -5083,7 +5095,8 @@ class WorkspaceGtkGui:
         if decision.action == "activate_current":
             save_task_agent_session(task, agent)
             self._invalidate_task_session_marker_cache(task)
-            self._activate_terminal(current.session_id)
+            if activate:
+                self._activate_terminal(current.session_id)
             self._update_codex_button_state()
             return
         if decision.action == "keep_current":
@@ -5142,8 +5155,9 @@ class WorkspaceGtkGui:
             model=launch.model_settings.model,
         )
         for session in self._current_task_terminal_sessions(task):
-            if session.kind == agent:
-                self._activate_terminal(session.session_id)
+            if session.kind == agent and not session.exited:
+                if activate:
+                    self._activate_terminal(session.session_id)
                 self._update_codex_button_state()
                 return
         self._start_terminal(
@@ -5448,8 +5462,7 @@ class WorkspaceGtkGui:
             )
         self._renumber_terminal_tabs(task)
         if self.selected_task is not None and self.selected_task.path == task.path:
-            self._show_terminal_tab(session)
-        self._activate_terminal(session_id)
+            self._activate_terminal(session_id)
         return session_id
 
     def _on_terminal_spawn_ready(self, terminal: Vte.Terminal, *args: object) -> None:
