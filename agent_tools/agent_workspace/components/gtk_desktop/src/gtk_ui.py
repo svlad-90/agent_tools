@@ -252,6 +252,8 @@ _X11_PASSIVE_POINTER_EVENT_TYPES = {
 
 AGENT_RESTORE_OUTPUT_CHECK_MS = 1000
 AGENT_RESTORE_OUTPUT_CHECK_WINDOW_SECONDS = 12.0
+AGENT_SESSION_RECONCILIATION_MAX_ATTEMPTS = 3
+AGENT_SESSION_RECONCILIATION_RETRY_SECONDS = 1.0
 TASK_CONTEXT_DEFAULT_STATUS_FILTER = ("active",)
 
 
@@ -301,6 +303,10 @@ class TerminalSession:
     permission_signature: str | None = None
     ignored_permission_signature: str | None = None
     task_command_send_pending: bool = False
+    started_at: float = 0.0
+    session_reconciliation_pending: bool = False
+    session_reconciliation_attempted: bool = False
+    session_reconciled: bool = False
 
 
 @dataclass(frozen=True)
@@ -5317,6 +5323,7 @@ class WorkspaceGtkGui:
             terminal_mouse=terminal_mouse,
             busy=session_is_agent(session_kind=kind),
             run_id=run_id if session_is_agent(session_kind=kind) else None,
+            started_at=time.time(),
         )
         self.terminal_sessions[session_id] = session
         terminal.spawn_async(
@@ -6207,13 +6214,81 @@ class WorkspaceGtkGui:
             return False
         if time.monotonic() > until:
             return False
-        if hasattr(self, "tasks") and hasattr(self, "workspace"):
-            task = self._task_for_path(session.task_path)
-            reconcile_task_agent_run_session(task, self.workspace, session.kind, session.run_id)
-        if agent_output_reports_missing_session(_terminal_text_tail(session.terminal)):
+        output = _terminal_text_tail(session.terminal)
+        if agent_output_reports_missing_session(output):
             self._handle_agent_restore_failed(session)
             return False
+        if output.strip() and hasattr(self, "tasks") and hasattr(self, "workspace"):
+            self._start_agent_session_reconciliation(session)
         return True
+
+    def _start_agent_session_reconciliation(self, session: TerminalSession) -> None:
+        if (
+            session.run_id is None
+            or session.session_reconciliation_pending
+            or session.session_reconciliation_attempted
+            or session.session_reconciled
+        ):
+            return
+        session.session_reconciliation_pending = True
+        task = self._task_for_path(session.task_path)
+        worker = threading.Thread(
+            target=self._reconcile_agent_session_in_background,
+            args=(session.session_id, task, session.kind, session.run_id, session.started_at),
+            daemon=True,
+        )
+        worker.start()
+
+    def _reconcile_agent_session_in_background(
+        self,
+        terminal_session_id: int,
+        task: TaskSummary,
+        agent: str,
+        run_id: str,
+        started_at: float,
+    ) -> None:
+        resolved = False
+        try:
+            for attempt in range(AGENT_SESSION_RECONCILIATION_MAX_ATTEMPTS):
+                resolved = reconcile_task_agent_run_session(
+                    task,
+                    self.workspace,
+                    agent,
+                    run_id,
+                    started_after=started_at,
+                ) is not None
+                if resolved:
+                    break
+                if attempt + 1 < AGENT_SESSION_RECONCILIATION_MAX_ATTEMPTS:
+                    time.sleep(AGENT_SESSION_RECONCILIATION_RETRY_SECONDS)
+        except Exception as exc:  # pragma: no cover - defensive UI background path
+            log_agent_workspace_exception(
+                self.workspace,
+                "gtk-agent-session-reconciliation",
+                type(exc),
+                exc,
+                exc.__traceback__,
+            )
+        GLib.idle_add(
+            self._run_gtk_breadcrumb,
+            "finish-agent-session-reconciliation",
+            self._finish_agent_session_reconciliation,
+            terminal_session_id,
+            resolved,
+        )
+
+    def _finish_agent_session_reconciliation(self, session_id: int, resolved: bool) -> bool:
+        session = self.terminal_sessions.get(session_id)
+        if session is None:
+            return False
+        session.session_reconciliation_pending = False
+        session.session_reconciliation_attempted = True
+        session.session_reconciled = resolved
+        if resolved:
+            task = self._task_for_path(session.task_path)
+            self._invalidate_task_session_marker_cache(task)
+            self._update_codex_button_state()
+        return False
 
     def _terminal_context_menu(self, terminal: Vte.Terminal) -> Gtk.Menu:
         menu = Gtk.Menu()

@@ -3774,3 +3774,112 @@ def test_gtk_agent_restore_output_check_ignores_permission_prompt(tmp_path: Path
 
     assert session.busy
     assert not session.permission_pending
+
+
+def test_gtk_agent_session_reconciliation_runs_outside_gtk_thread(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    task = tmp_path / "tasks" / "sample-task"
+    task.mkdir(parents=True)
+    summary = discover_tasks_with_context(task, tmp_path)
+    session = TerminalSession(
+        1,
+        summary.path,
+        "codex",
+        FakeGtkTextTerminal(""),
+        FakeFrame(),
+        run_id="run-1",
+        started_at=123.0,
+    )
+    gui = WorkspaceGtkGui.__new__(WorkspaceGtkGui)
+    gui.workspace = tmp_path
+    gui.terminal_sessions = {session.session_id: session}
+    gui._task_for_path = lambda _task_path: summary  # type: ignore[method-assign]
+    gui._run_gtk_breadcrumb = lambda _label, callback, *args: callback(*args)  # type: ignore[method-assign]
+    invalidated: list[TaskSummary] = []
+    gui._invalidate_task_session_marker_cache = lambda task=None: invalidated.append(task)  # type: ignore[method-assign]
+    gui._update_codex_button_state = lambda: None  # type: ignore[method-assign]
+    calls: list[tuple[str, str, float | None]] = []
+
+    class ImmediateThread:
+        def __init__(self, *, target: object, args: tuple[object, ...], daemon: bool) -> None:
+            self.target = target
+            self.args = args
+            self.daemon = daemon
+
+        def start(self) -> None:
+            self.target(*self.args)
+
+    def reconcile(
+        _task: TaskSummary,
+        _workspace: Path,
+        agent: str,
+        run_id: str,
+        *,
+        started_after: float | None = None,
+    ) -> str:
+        calls.append((agent, run_id, started_after))
+        return "019feba2-e25e-76e1-9468-aa399758268f"
+
+    monkeypatch.setattr(gtk_ui_module.threading, "Thread", ImmediateThread)
+    monkeypatch.setattr(gtk_ui_module.GLib, "idle_add", lambda callback, *args: callback(*args))
+    monkeypatch.setattr(gtk_ui_module, "reconcile_task_agent_run_session", reconcile)
+
+    gui._start_agent_session_reconciliation(session)
+
+    assert calls == [("codex", "run-1", 123.0)]
+    assert not session.session_reconciliation_pending
+    assert session.session_reconciliation_attempted
+    assert session.session_reconciled
+    assert invalidated == [summary]
+
+
+def test_gtk_agent_session_reconciliation_bounds_failed_scans(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    task = tmp_path / "tasks" / "sample-task"
+    task.mkdir(parents=True)
+    summary = discover_tasks_with_context(task, tmp_path)
+    session = TerminalSession(
+        1,
+        summary.path,
+        "codex",
+        FakeGtkTextTerminal("Codex ready"),
+        FakeFrame(),
+        run_id="run-1",
+        started_at=123.0,
+    )
+    gui = WorkspaceGtkGui.__new__(WorkspaceGtkGui)
+    gui.workspace = tmp_path
+    gui.tasks = [summary]
+    gui.terminal_sessions = {session.session_id: session}
+    gui._task_for_path = lambda _task_path: summary  # type: ignore[method-assign]
+    gui._run_gtk_breadcrumb = lambda _label, callback, *args: callback(*args)  # type: ignore[method-assign]
+    calls: list[str] = []
+
+    class ImmediateThread:
+        def __init__(self, *, target: object, args: tuple[object, ...], daemon: bool) -> None:
+            self.target = target
+            self.args = args
+            self.daemon = daemon
+
+        def start(self) -> None:
+            self.target(*self.args)
+
+    def reconcile(*_args: object, **_kwargs: object) -> None:
+        calls.append("scan")
+        return None
+
+    monkeypatch.setattr(gtk_ui_module.threading, "Thread", ImmediateThread)
+    monkeypatch.setattr(gtk_ui_module.GLib, "idle_add", lambda callback, *args: callback(*args))
+    monkeypatch.setattr(gtk_ui_module, "reconcile_task_agent_run_session", reconcile)
+    monkeypatch.setattr(gtk_ui_module.time, "sleep", lambda _seconds: None)
+
+    assert gui._check_agent_restore_output(session.session_id, time.monotonic() + 10)
+    assert gui._check_agent_restore_output(session.session_id, time.monotonic() + 10)
+
+    assert calls == ["scan"] * gtk_ui_module.AGENT_SESSION_RECONCILIATION_MAX_ATTEMPTS
+    assert session.session_reconciliation_attempted
+    assert not session.session_reconciled

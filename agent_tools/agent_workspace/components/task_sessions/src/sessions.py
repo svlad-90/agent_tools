@@ -186,19 +186,38 @@ def reconcile_task_agent_run_session(
     run_id: str | None,
     *,
     home: Path | None = None,
+    started_after: float | None = None,
 ) -> str | None:
     if not run_id:
         return None
     existing = load_task_agent_run_session_id(task, run_id)
     if existing is not None:
         return existing
-    session_id = find_task_agent_session_id(task, workspace, agent, home=home)
-    if session_id is None:
-        normalized_agent = normalize_agent(agent)
-        if normalized_agent == "codex":
-            session_id = find_latest_codex_session_id(task, workspace, home=home)
-        elif normalized_agent == "claude":
-            session_id = find_latest_claude_session_id(task, workspace, home=home)
+    normalized_agent = normalize_agent(agent)
+    session_id = load_task_agent_session(task, normalized_agent).session_id
+    excluded_session_id: str | None = None
+    if (
+        session_id is not None
+        and normalized_agent == "codex"
+        and _codex_session_resume_is_locked(session_id, home=home)
+    ):
+        excluded_session_id = session_id
+        session_id = None
+    if session_id is None and normalized_agent == "codex":
+        session_id = find_latest_codex_session_id(
+            task,
+            workspace,
+            home=home,
+            modified_after=started_after,
+            excluded_session_id=excluded_session_id,
+        )
+    elif session_id is None and normalized_agent == "claude":
+        session_id = find_latest_claude_session_id(
+            task,
+            workspace,
+            home=home,
+            modified_after=started_after,
+        )
     if session_id is None or session_id == run_id:
         return None
     save_task_agent_session(task, agent, session_id=session_id)
@@ -343,9 +362,20 @@ def find_task_agent_session_id(
     return None
 
 
-def find_latest_codex_session_id(task: TaskSummary, workspace: Path, home: Path | None = None) -> str | None:
+def find_latest_codex_session_id(
+    task: TaskSummary,
+    workspace: Path,
+    home: Path | None = None,
+    *,
+    modified_after: float | None = None,
+    excluded_session_id: str | None = None,
+) -> str | None:
     cached_session_id = load_task_agent_session(task, "codex").session_id
-    if cached_session_id is not None:
+    if (
+        cached_session_id is not None
+        and cached_session_id != excluded_session_id
+        and modified_after is None
+    ):
         return cached_session_id
     sessions_dir = (home or Path.home()) / ".codex" / "sessions"
     if not sessions_dir.is_dir():
@@ -356,16 +386,14 @@ def find_latest_codex_session_id(task: TaskSummary, workspace: Path, home: Path 
         f"Task directory: {task.path}."
     )
     try:
-        session_files = sorted(
-            sessions_dir.rglob("*.jsonl"),
-            key=lambda path: path.stat().st_mtime,
-            reverse=True,
-        )
+        session_files = _recent_session_files(sessions_dir, modified_after=modified_after)
     except OSError:
         return None
     for session_file in session_files:
         match = CODEX_SESSION_ID_RE.search(session_file.name)
         if match is None:
+            continue
+        if match.group(1) == excluded_session_id:
             continue
         try:
             with session_file.open("r", encoding="utf-8", errors="replace") as stream:
@@ -376,7 +404,13 @@ def find_latest_codex_session_id(task: TaskSummary, workspace: Path, home: Path 
     return None
 
 
-def find_latest_claude_session_id(task: TaskSummary, workspace: Path, home: Path | None = None) -> str | None:
+def find_latest_claude_session_id(
+    task: TaskSummary,
+    workspace: Path,
+    home: Path | None = None,
+    *,
+    modified_after: float | None = None,
+) -> str | None:
     cached_session_id = load_task_agent_session(task, "claude").session_id
     if cached_session_id is not None:
         return cached_session_id
@@ -386,11 +420,7 @@ def find_latest_claude_session_id(task: TaskSummary, workspace: Path, home: Path
     task_marker = f"workspace task `{task.name}`"
     task_path_marker = f"Task directory: {task.path}"
     try:
-        session_files = sorted(
-            projects_dir.rglob("*.jsonl"),
-            key=lambda path: path.stat().st_mtime,
-            reverse=True,
-        )
+        session_files = _recent_session_files(projects_dir, modified_after=modified_after)
     except OSError:
         return None
     for session_file in session_files:
@@ -405,6 +435,20 @@ def find_latest_claude_session_id(task: TaskSummary, workspace: Path, home: Path
         except OSError:
             continue
     return None
+
+
+def _recent_session_files(root: Path, *, modified_after: float | None) -> list[Path]:
+    session_files: list[tuple[float, Path]] = []
+    for path in root.rglob("*.jsonl"):
+        try:
+            modified_at = path.stat().st_mtime
+        except OSError:
+            continue
+        if modified_after is not None and modified_at < modified_after:
+            continue
+        session_files.append((modified_at, path))
+    session_files.sort(key=lambda item: item[0], reverse=True)
+    return [path for _, path in session_files]
 
 
 def task_agent_session_markers(

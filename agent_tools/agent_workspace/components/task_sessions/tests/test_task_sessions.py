@@ -24,6 +24,106 @@ def test_reconcile_task_agent_run_session_persists_real_session_mapping(tmp_path
     assert load_task_agent_session(summary, "codex").session_id == session_id
 
 
+def test_reconcile_task_agent_run_session_scans_once_and_ignores_older_sessions(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace = tmp_path
+    task = workspace / "tasks" / "sample-task"
+    task.mkdir(parents=True)
+    summary = discover_tasks_with_context(task, workspace)
+    save_task_agent_session(summary, "codex")
+    calls: list[float | None] = []
+
+    def find_latest(
+        _task: TaskSummary,
+        _workspace: Path,
+        home: Path | None = None,
+        *,
+        modified_after: float | None = None,
+        excluded_session_id: str | None = None,
+    ) -> None:
+        _ = home
+        _ = excluded_session_id
+        calls.append(modified_after)
+        return None
+
+    monkeypatch.setattr(
+        "agent_tools.agent_workspace.components.task_sessions.src.sessions.find_latest_codex_session_id",
+        find_latest,
+    )
+
+    assert reconcile_task_agent_run_session(
+        summary,
+        workspace,
+        "codex",
+        "run-1",
+        started_after=123.0,
+    ) is None
+    assert calls == [123.0]
+
+
+def test_reconcile_task_agent_run_session_replaces_locked_cached_session(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace = tmp_path
+    task = workspace / "tasks" / "sample-task"
+    sessions = workspace / ".codex" / "sessions"
+    sessions.mkdir(parents=True)
+    task.mkdir(parents=True)
+    summary = discover_tasks_with_context(task, workspace)
+    old_id = "019feba2-e25e-76e1-9468-aa399758268f"
+    new_id = "019feba2-e25e-76e1-9468-aa3997582690"
+    save_task_agent_session(summary, "codex", session_id=old_id)
+    prompt = ai_agent_task_context_prompt(summary, workspace)
+    old_file = sessions / f"rollout-old-{old_id}.jsonl"
+    new_file = sessions / f"rollout-new-{new_id}.jsonl"
+    old_file.write_text(json.dumps({"message": {"content": prompt}}), encoding="utf-8")
+    new_file.write_text(json.dumps({"message": {"content": prompt}}), encoding="utf-8")
+    os.utime(old_file, (250.0, 250.0))
+    os.utime(new_file, (200.0, 200.0))
+    monkeypatch.setattr(
+        "agent_tools.agent_workspace.components.task_sessions.src.sessions._codex_session_resume_is_locked",
+        lambda _session_id, *, home=None: True,
+    )
+
+    assert reconcile_task_agent_run_session(
+        summary,
+        workspace,
+        "codex",
+        "run-1",
+        home=workspace,
+        started_after=150.0,
+    ) == new_id
+    assert load_task_agent_run_session_id(summary, "run-1") == new_id
+
+
+def test_find_latest_codex_session_id_filters_sessions_before_current_launch(tmp_path: Path) -> None:
+    workspace = tmp_path
+    task = workspace / "tasks" / "sample-task"
+    sessions = workspace / ".codex" / "sessions"
+    sessions.mkdir(parents=True)
+    task.mkdir(parents=True)
+    summary = discover_tasks_with_context(task, workspace)
+    prompt = ai_agent_task_context_prompt(summary, workspace)
+    old_id = "019feba2-e25e-76e1-9468-aa399758268f"
+    new_id = "019feba2-e25e-76e1-9468-aa3997582690"
+    old_file = sessions / f"rollout-old-{old_id}.jsonl"
+    new_file = sessions / f"rollout-new-{new_id}.jsonl"
+    old_file.write_text(json.dumps({"message": {"content": prompt}}), encoding="utf-8")
+    new_file.write_text(json.dumps({"message": {"content": prompt}}), encoding="utf-8")
+    os.utime(old_file, (100.0, 100.0))
+    os.utime(new_file, (200.0, 200.0))
+
+    assert find_latest_codex_session_id(
+        summary,
+        workspace,
+        home=workspace,
+        modified_after=150.0,
+    ) == new_id
+
+
 def test_save_task_agent_run_session_id_rejects_invalid_session_id(tmp_path: Path) -> None:
     task = tmp_path / "tasks" / "sample-task"
     task.mkdir(parents=True)
