@@ -1,7 +1,124 @@
 from __future__ import annotations
 
+import subprocess
+
+import pytest
+
 from agent_tools.agent_workspace.components.test_support.src.helpers import *
 from agent_tools.agent_workspace.components.harness_adapter.src.commands import handle_codex_adapter_hook
+from agent_tools.agent_workspace.components.workspace_service.src import service as service_module
+
+
+def test_agent_workspace_service_creates_task_without_catalog_refresh(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    service = AgentWorkspaceService(tmp_path)
+    run_calls: list[list[str]] = []
+
+    def fake_run(command: list[str], **_kwargs: object) -> subprocess.CompletedProcess[str]:
+        run_calls.append(command)
+        ensure_task_context_database(Path(command[3]))
+        return subprocess.CompletedProcess(command, 0, "", "")
+
+    monkeypatch.setattr(service_module.subprocess, "run", fake_run)
+    monkeypatch.setattr(
+        service_module,
+        "discover_tasks",
+        lambda _workspace: (_ for _ in ()).throw(AssertionError("full refresh should not run")),
+    )
+
+    result = service.create_task(" new-task ", privacy="private")
+
+    assert result["task"]["name"] == "new-task"
+    assert result["task"]["path"] == str(tmp_path / "tasks" / "new-task")
+    assert run_calls[0][-2:] == ["--privacy", "private"]
+    assert not list((tmp_path / "tasks").glob(".agent-workspace-create-*"))
+
+
+def test_agent_workspace_service_cleans_failed_task_reservation(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    service = AgentWorkspaceService(tmp_path)
+    task_path = tmp_path / "tasks" / "broken-task"
+
+    def fail_run(command: list[str], **_kwargs: object) -> subprocess.CompletedProcess[str]:
+        (Path(command[3]) / "partial.txt").write_text("partial", encoding="utf-8")
+        return subprocess.CompletedProcess(command, 2, "", "init failed")
+
+    monkeypatch.setattr(service_module.subprocess, "run", fail_run)
+
+    with pytest.raises(RuntimeError, match="init failed"):
+        service.create_task("broken-task")
+
+    assert not task_path.exists()
+
+
+def test_agent_workspace_service_does_not_delete_replaced_task_on_failure(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    service = AgentWorkspaceService(tmp_path)
+    task_path = tmp_path / "tasks" / "raced-task"
+
+    def create_target_then_fail(
+        command: list[str],
+        **_kwargs: object,
+    ) -> subprocess.CompletedProcess[str]:
+        task_path.mkdir()
+        (task_path / "other-owner.txt").write_text("keep", encoding="utf-8")
+        return subprocess.CompletedProcess(command, 2, "", "init failed")
+
+    monkeypatch.setattr(service_module.subprocess, "run", create_target_then_fail)
+
+    with pytest.raises(RuntimeError, match="init failed"):
+        service.create_task("raced-task")
+
+    assert (task_path / "other-owner.txt").read_text(encoding="utf-8") == "keep"
+
+
+def test_agent_workspace_service_bounds_task_initialization_time(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    service = AgentWorkspaceService(tmp_path)
+    seen_timeout: list[object] = []
+
+    def time_out(command: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+        seen_timeout.append(kwargs["timeout"])
+        raise subprocess.TimeoutExpired(command, kwargs["timeout"])
+
+    monkeypatch.setattr(service_module.subprocess, "run", time_out)
+
+    with pytest.raises(subprocess.TimeoutExpired):
+        service.create_task("slow-task")
+
+    assert seen_timeout == [service_module.TASK_CREATION_TIMEOUT_SECONDS]
+    assert not (tmp_path / "tasks" / "slow-task").exists()
+
+
+def test_agent_workspace_service_ignores_staging_cleanup_after_publication(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    service = AgentWorkspaceService(tmp_path)
+
+    def fake_run(command: list[str], **_kwargs: object) -> subprocess.CompletedProcess[str]:
+        ensure_task_context_database(Path(command[3]))
+        return subprocess.CompletedProcess(command, 0, "", "")
+
+    monkeypatch.setattr(service_module.subprocess, "run", fake_run)
+    monkeypatch.setattr(
+        service_module.shutil,
+        "rmtree",
+        lambda _path: (_ for _ in ()).throw(OSError("cleanup failed")),
+    )
+
+    result = service.create_task("published-task")
+
+    assert result["task"]["name"] == "published-task"
+    assert (tmp_path / "tasks" / "published-task" / "TASK_CONTEXT.sqlite3").is_file()
 
 
 def test_agent_workspace_service_returns_headless_task_snapshot(tmp_path: Path) -> None:

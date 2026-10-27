@@ -2,9 +2,14 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
+import shutil
+import subprocess
+import threading
 from typing import Any
+from uuid import uuid4
 
 from agent_tools.tools.task_context import compile_dictionary
+from agent_tools.tools.task_context import DATABASE_FILENAME as TASK_CONTEXT_DATABASE_FILE
 
 from ...artifacts.api import artifact_relative_label
 from ...artifacts.api import artifact_updated_label
@@ -17,6 +22,8 @@ from ...task_actions.api import load_task_actions_config
 from ...task_catalog.api import TaskSummary
 from ...task_catalog.api import discover_tasks
 from ...task_catalog.api import run_task_check
+from ...task_catalog.api import task_init_command
+from ...task_catalog.api import task_path_for_name
 from ...task_context.api import load_task_context_slots
 from ...task_context.api import render_task_context_slots
 from ...task_context.api import slot_dictionary_data
@@ -25,6 +32,7 @@ from ...task_context.api import task_goal_slot_markdown
 
 DEFAULT_CONTEXT_SEVERITY = ("mid", "high", "critical")
 DEFAULT_CONTEXT_STATUS = ("active",)
+TASK_CREATION_TIMEOUT_SECONDS = 30
 
 
 @dataclass(frozen=True)
@@ -42,9 +50,65 @@ class AgentWorkspaceService:
 
     def __init__(self, workspace: Path) -> None:
         self.workspace = workspace.resolve()
+        self._task_creation_lock = threading.Lock()
 
     def tasks(self) -> list[dict[str, Any]]:
         return [task_summary_data(task) for task in discover_tasks(self.workspace)]
+
+    def create_task(self, task_name: str, *, privacy: str = "public") -> dict[str, Any]:
+        task_name = task_name.strip()
+        if privacy not in {"public", "private"}:
+            raise ValueError(f"invalid task privacy: {privacy}")
+        task_path = task_path_for_name(self.workspace, task_name)
+        if task_path is None:
+            raise ValueError(f"invalid task name: {task_name}")
+        with self._task_creation_lock:
+            tasks_root = task_path.parent
+            tasks_root.mkdir(parents=True, exist_ok=True)
+            if task_path.exists():
+                raise ValueError(f"task already exists: {task_name}")
+            staging_path = tasks_root / f".agent-workspace-create-{uuid4().hex}"
+            staging_path.mkdir()
+            try:
+                result = subprocess.run(
+                    task_init_command(self.workspace, staging_path, privacy=privacy),
+                    cwd=self.workspace,
+                    text=True,
+                    capture_output=True,
+                    check=False,
+                    timeout=TASK_CREATION_TIMEOUT_SECONDS,
+                )
+                if result.returncode != 0:
+                    message = (result.stderr or result.stdout or "task init failed").strip()
+                    raise RuntimeError(message)
+                if not (staging_path / TASK_CONTEXT_DATABASE_FILE).is_file():
+                    raise RuntimeError("task init did not create the context database")
+                try:
+                    task_path.mkdir()
+                except FileExistsError:
+                    raise ValueError(f"task already exists: {task_name}") from None
+                try:
+                    children = sorted(
+                        staging_path.iterdir(),
+                        key=lambda child: (child.name == TASK_CONTEXT_DATABASE_FILE, child.name),
+                    )
+                    for child in children:
+                        child.rename(task_path / child.name)
+                except Exception as error:
+                    raise RuntimeError(
+                        f"task layout publication failed; partial task remains at {task_path}"
+                    ) from error
+                try:
+                    if staging_path.exists():
+                        shutil.rmtree(staging_path)
+                except OSError:
+                    pass
+            except Exception:
+                if staging_path.exists():
+                    shutil.rmtree(staging_path)
+                raise
+        task = TaskSummary(task_path.name, task_path, True, True, 0, 0, False)
+        return {"task": task_summary_data(task)}
 
     def task(self, task_name: str) -> TaskSummary:
         for task in discover_tasks(self.workspace):
