@@ -1,6 +1,25 @@
 from __future__ import annotations
 
 from agent_tools.agent_workspace.components.test_support.src.helpers import *
+from agent_tools.agent_workspace.components.task_context.api import load_task_context_slots
+from agent_tools.agent_workspace.components.task_context.api import set_task_context_slot
+
+
+def test_task_context_public_api_sets_singleton_slot(tmp_path: Path) -> None:
+    task = tmp_path / "tasks" / "sample-task"
+    task.mkdir(parents=True)
+
+    written = set_task_context_slot(
+        task,
+        "goal",
+        "  Build browser workspace parity.  ",
+        updated_at="2026-10-27T12:00:00+00:00",
+    )
+    slots = load_task_context_slots(task, ("goal",))
+
+    assert written.category == "goal"
+    assert written.content == "Build browser workspace parity."
+    assert slots == [written]
 
 
 def test_task_context_component_cards_markdown_renders_console_cards() -> None:

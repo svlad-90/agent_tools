@@ -9,6 +9,7 @@ from agent_tools.tools.task_context import load_dictionary as load_task_context_
 from agent_tools.tools.task_context import load_slots as load_task_context_slots
 from agent_tools.tools.task_context import render_entries as render_task_context_entries
 from agent_tools.tools.task_context import render_slots as render_task_context_slots
+from agent_tools.tools.task_context import set_slot as set_task_context_slot
 
 
 def task_goal_slot_markdown(task_dir: Path) -> str:
@@ -130,6 +131,7 @@ __all__ = [
     "load_task_context_dictionary",
     "load_task_context_slots",
     "render_task_context_slots",
+    "set_task_context_slot",
     "slot_dictionary_data",
     "task_context_details_markdown",
     "task_goal_slot_markdown",

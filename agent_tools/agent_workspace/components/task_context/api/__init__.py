@@ -11,6 +11,7 @@ from ..src.context import encoded_context_entries_markdown
 from ..src.context import load_task_context_dictionary
 from ..src.context import load_task_context_slots
 from ..src.context import render_task_context_slots
+from ..src.context import set_task_context_slot
 from ..src.context import slot_dictionary_data
 from ..src.context import task_context_details_markdown
 from ..src.context import task_goal_slot_markdown
@@ -25,6 +26,7 @@ __all__ = [
     "load_task_context_dictionary",
     "load_task_context_slots",
     "render_task_context_slots",
+    "set_task_context_slot",
     "slot_dictionary_data",
     "task_context_details_markdown",
     "task_goal_slot_markdown",
