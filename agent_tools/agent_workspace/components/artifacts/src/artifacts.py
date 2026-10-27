@@ -4,9 +4,35 @@ from collections.abc import Iterator
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
+from typing import BinaryIO
+import codecs
+import ctypes
 import os
+import stat
 
 from ...task_catalog.api import TaskSummary
+
+
+_MAX_PREVIEW_BYTES = 1_000_000
+_TEXT_SUFFIXES = {
+    ".cfg",
+    ".conf",
+    ".css",
+    ".csv",
+    ".html",
+    ".ini",
+    ".js",
+    ".json",
+    ".log",
+    ".md",
+    ".py",
+    ".sh",
+    ".svg",
+    ".txt",
+    ".xml",
+    ".yaml",
+    ".yml",
+}
 
 
 @dataclass(frozen=True)
@@ -97,6 +123,125 @@ def artifact_relative_label(task: TaskSummary, path: Path) -> str:
         return str(path.relative_to(task.path))
     except ValueError:
         return str(path)
+
+
+def artifact_path_from_label(task: TaskSummary, label: str) -> Path | None:
+    if not label or Path(label).is_absolute():
+        return None
+    task_root = task.path.resolve()
+    candidate = (task_root / label).resolve()
+    try:
+        candidate.relative_to(task_root)
+    except ValueError:
+        return None
+    if not candidate.is_file() or artifact_group(task, candidate) is None:
+        return None
+    return candidate
+
+
+def artifact_text_preview(
+    task: TaskSummary,
+    label: str,
+    *,
+    max_bytes: int = 200_000,
+) -> dict[str, object]:
+    if not 1 <= max_bytes <= _MAX_PREVIEW_BYTES:
+        raise ValueError(f"max_bytes must be between 1 and {_MAX_PREVIEW_BYTES}")
+    path = artifact_path_from_label(task, label)
+    if path is None:
+        raise ValueError(f"unknown artifact: {label}")
+    with _open_verified_artifact(task, label, path) as handle:
+        file_stat = os.fstat(handle.fileno())
+        raw = handle.read(max_bytes + 1)
+    truncated = len(raw) > max_bytes
+    raw = raw[:max_bytes]
+    text_hint = path.suffix.casefold() in _TEXT_SUFFIXES
+    binary = b"\x00" in raw and not text_hint
+    if binary:
+        content = ""
+    else:
+        try:
+            decoder = codecs.getincrementaldecoder("utf-8")(errors="strict")
+            content = decoder.decode(raw, final=not truncated)
+        except UnicodeDecodeError:
+            if not text_hint:
+                content = ""
+                binary = True
+            else:
+                content = raw.decode("utf-8", errors="replace")
+    updated = file_stat.st_mtime
+    return {
+        "label": artifact_relative_label(task, path),
+        "path": str(path),
+        "group": artifact_group(task, path),
+        "size": file_stat.st_size,
+        "updated": updated,
+        "updated_label": artifact_updated_label(updated),
+        "content": content,
+        "binary": binary,
+        "truncated": truncated,
+    }
+
+
+def _open_verified_artifact(task: TaskSummary, label: str, path: Path) -> BinaryIO:
+    if os.name == "nt":
+        report_root = task.path.resolve() / "report"
+        handle = path.open("rb")
+        try:
+            opened_path = _windows_open_file_path(handle)
+            opened_path.relative_to(report_root)
+        except (OSError, ValueError):
+            handle.close()
+            raise ValueError(f"artifact escaped task directory: {label}") from None
+        return handle
+
+    parts = Path(label).parts
+    directory_flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
+    file_flags = os.O_RDONLY | os.O_NOFOLLOW
+    current_fd = os.open(task.path.resolve(), directory_flags)
+    try:
+        for part in parts[:-1]:
+            next_fd = os.open(part, directory_flags, dir_fd=current_fd)
+            os.close(current_fd)
+            current_fd = next_fd
+        file_fd = os.open(parts[-1], file_flags, dir_fd=current_fd)
+    except OSError as error:
+        raise ValueError(f"artifact path changed while opening: {label}") from error
+    finally:
+        os.close(current_fd)
+    if not stat.S_ISREG(os.fstat(file_fd).st_mode):
+        os.close(file_fd)
+        raise ValueError(f"artifact is not a regular file: {label}")
+    return os.fdopen(file_fd, "rb")
+
+
+def _windows_open_file_path(handle: BinaryIO) -> Path:
+    import msvcrt
+
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    kernel32.GetFinalPathNameByHandleW.argtypes = [
+        ctypes.c_void_p,
+        ctypes.c_wchar_p,
+        ctypes.c_uint,
+        ctypes.c_uint,
+    ]
+    kernel32.GetFinalPathNameByHandleW.restype = ctypes.c_uint
+    os_handle = msvcrt.get_osfhandle(handle.fileno())
+    size = kernel32.GetFinalPathNameByHandleW(os_handle, None, 0, 0)
+    if not size:
+        raise ctypes.WinError(ctypes.get_last_error())
+    buffer = ctypes.create_unicode_buffer(size)
+    if not kernel32.GetFinalPathNameByHandleW(os_handle, buffer, size, 0):
+        raise ctypes.WinError(ctypes.get_last_error())
+    return Path(_normalize_windows_final_path(buffer.value)).resolve()
+
+
+def _normalize_windows_final_path(value: str) -> str:
+    if value.startswith("\\\\?\\UNC\\"):
+        return "\\\\" + value[8:]
+    if value.startswith("\\\\?\\"):
+        return value[4:]
+    return value
 
 
 def artifact_updated_timestamp(path: Path) -> float:

@@ -8,8 +8,10 @@ from ..src.artifacts import artifact_delete_paths
 from ..src.artifacts import artifact_group
 from ..src.artifacts import artifact_group_folder
 from ..src.artifacts import artifact_group_sort_key
+from ..src.artifacts import artifact_path_from_label
 from ..src.artifacts import artifact_relative_label
 from ..src.artifacts import artifact_selectable_path
+from ..src.artifacts import artifact_text_preview
 from ..src.artifacts import artifact_updated_label
 from ..src.artifacts import artifact_updated_timestamp
 from ..src.artifacts import files_under
@@ -23,8 +25,10 @@ __all__ = [
     "artifact_group",
     "artifact_group_folder",
     "artifact_group_sort_key",
+    "artifact_path_from_label",
     "artifact_relative_label",
     "artifact_selectable_path",
+    "artifact_text_preview",
     "artifact_updated_label",
     "artifact_updated_timestamp",
     "files_under",
