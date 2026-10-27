@@ -32,7 +32,7 @@ class TaskSummary:
     context_over_budget: bool
 
 
-def discover_tasks(workspace: Path) -> list[TaskSummary]:
+def discover_tasks(workspace: Path, *, include_context_tokens: bool = True) -> list[TaskSummary]:
     workspace = workspace.resolve()
     tasks = []
     for path in sorted(
@@ -49,7 +49,7 @@ def discover_tasks(workspace: Path) -> list[TaskSummary]:
             continue
         _actualize_task_for_gui(path, workspace)
         description_tokens = 0
-        context_tokens = _task_context_tokens(path) if has_context else 0
+        context_tokens = _task_context_tokens(path) if has_context and include_context_tokens else 0
         tasks.append(
             TaskSummary(
                 name=path.name,

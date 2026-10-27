@@ -2299,7 +2299,13 @@ def test_gtk_refresh_tasks_selects_open_task_when_previous_is_locked(tmp_path: P
     gui._set_task_selection = lambda row_iter: selected_iters.append(row_iter)
     gui._tr = lambda key: {"tasks": "tasks"}[key]
     gui._task_is_external_active = lambda task: task.path == locked.path
-    monkeypatch.setattr(gtk_ui_module, "discover_tasks", lambda _workspace: [locked, open_task])
+    monkeypatch.setattr(
+        gtk_ui_module,
+        "discover_tasks",
+        lambda _workspace, *, include_context_tokens=True: (
+            [locked, open_task] if include_context_tokens is False else []
+        ),
+    )
 
     gui.refresh_tasks()
 
@@ -2334,7 +2340,11 @@ def test_gtk_refresh_tasks_clears_selection_when_all_tasks_locked(tmp_path: Path
     gui._set_task_selection = lambda row_iter: selected_iters.append(row_iter)
     gui._tr = lambda key: {"tasks": "tasks"}[key]
     gui._task_is_external_active = lambda _task: True
-    monkeypatch.setattr(gtk_ui_module, "discover_tasks", lambda _workspace: tasks)
+    monkeypatch.setattr(
+        gtk_ui_module,
+        "discover_tasks",
+        lambda _workspace, *, include_context_tokens=True: tasks if include_context_tokens is False else [],
+    )
 
     gui.refresh_tasks()
 

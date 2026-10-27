@@ -895,7 +895,7 @@ class WorkspaceGtkGui:
 
     def refresh_tasks(self, *_args: object) -> None:
         selected_name = self.selected_task.name if self.selected_task is not None else None
-        self.tasks = discover_tasks(self.workspace)
+        self.tasks = discover_tasks(self.workspace, include_context_tokens=False)
         self._invalidate_task_session_marker_cache()
         self._start_task_session_discovery()
         self.task_store.clear()
