@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import agent_tools.agent_workspace.components.task_catalog.src.catalog as catalog_module
 from agent_tools.agent_workspace.components.test_support.src.helpers import *
 
 
@@ -33,6 +34,26 @@ def test_discover_tasks_ignores_legacy_slot_for_context_budget(tmp_path: Path) -
     tasks = discover_tasks(tmp_path)
 
     assert len(tasks) == 1
+    assert not tasks[0].context_over_budget
+
+
+def test_discover_tasks_can_skip_context_token_budget(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    task = tmp_path / "tasks" / "sample-task"
+    task.mkdir(parents=True)
+    ensure_task_context_database(task)
+
+    def fail_context_tokens(_task_path: Path) -> int:
+        raise AssertionError("context token budget should be skipped")
+
+    monkeypatch.setattr(catalog_module, "_task_context_tokens", fail_context_tokens)
+
+    tasks = discover_tasks(tmp_path, include_context_tokens=False)
+
+    assert len(tasks) == 1
+    assert tasks[0].context_tokens == 0
     assert not tasks[0].context_over_budget
 
 

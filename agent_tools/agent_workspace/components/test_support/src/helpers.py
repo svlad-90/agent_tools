@@ -561,6 +561,10 @@ class FakeGtkTaskStore:
     def append(self, row: list[object]) -> None:
         self.rows.append(row)
 
+    def insert(self, position: int, row: list[object]) -> int:
+        self.rows.insert(position, row)
+        return position
+
     def get_iter_first(self) -> int | None:
         return 0 if self.rows else None
 

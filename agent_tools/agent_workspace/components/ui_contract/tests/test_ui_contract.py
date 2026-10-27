@@ -301,6 +301,7 @@ def test_gtk_settings_dialog_runtime_tree_matches_source_contract_ids() -> None:
         "settings.button_font_size",
         "settings.theme",
         "settings.language",
+        "settings.restore_open_tasks",
         "settings.bash_output",
         "settings.updates",
         "settings.check_updates",
@@ -319,6 +320,21 @@ def test_gtk_settings_dialog_runtime_tree_matches_source_contract_ids() -> None:
     assert runtime_nodes["settings.dialog"].children == source_nodes["settings.dialog"].children
     assert runtime_nodes["settings.tabs"].children
     assert set(runtime_nodes["settings.general"].children).issubset(set(source_nodes["settings.general"].children))
+    restore_runtime = runtime_nodes["settings.restore_open_tasks"]
+    restore_source = source_nodes["settings.restore_open_tasks"]
+    assert (restore_runtime.role, restore_runtime.label_key, restore_runtime.widget) == (
+        restore_source.role,
+        restore_source.label_key,
+        restore_source.widget,
+    )
+    general_runtime_children = runtime_nodes["settings.general"].children
+    # Gtk.Container.forall exposes the packed rows in reverse visual order.
+    assert general_runtime_children.index("settings.diff_report_feedback_enabled") < general_runtime_children.index(
+        "settings.restore_open_tasks"
+    )
+    assert general_runtime_children.index("settings.restore_open_tasks") < general_runtime_children.index(
+        "settings.language"
+    )
     assert runtime_nodes["settings.bash_output"].role == source_nodes["settings.bash_output"].role
     assert runtime_nodes["settings.profiling"].children == source_nodes["settings.profiling"].children
 
@@ -337,6 +353,7 @@ def test_settings_general_contract_matches_runtime_section_order() -> None:
         "settings.button_font_size",
         "settings.theme",
         "settings.language",
+        "settings.restore_open_tasks",
         "settings.diff_report_feedback_enabled",
         "settings.default_agent",
         "settings.system_prompt",

@@ -15,6 +15,11 @@ exists; otherwise it falls back to local terminal process state. Manual Escape
 interrupts are recorded through `harness_adapter.record_harness_status()` with
 the `○` icon and clear the local busy state.
 
+Open AI-agent tasks are persisted as workspace task paths. On the next launch,
+GTK restores them one at a time through the main loop when the corresponding
+setting is enabled, which is the default. Closing or resetting an agent terminal
+removes that task from the persisted open set.
+
 Settings includes a Profiling page for GTK runtime diagnostics. It records
 event counters for draw, size, pointer, hover, and terminal proxy events, along
 with approximate drawn area. The page can clear counters and trigger the

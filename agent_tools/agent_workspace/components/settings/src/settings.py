@@ -47,6 +47,7 @@ AGENT_WORKSPACE_DEFAULT_LIMITED_BASH_HEARTBEAT_SECONDS = 30
 AGENT_WORKSPACE_DEFAULT_LIMITED_BASH_HEARTBEAT_TOKENS = 1_000
 AGENT_WORKSPACE_DEFAULT_DIFF_REPORT_FEEDBACK_ENABLED = False
 AGENT_WORKSPACE_DEFAULT_GTK_BREADCRUMBS_ENABLED = False
+AGENT_WORKSPACE_DEFAULT_RESTORE_OPEN_TASKS = True
 AGENT_WORKSPACE_CODEX_MODEL_FALLBACKS = (
     "gpt-5.6-sol",
     "gpt-5.6-sol-wm",
@@ -106,6 +107,7 @@ class AgentWorkspaceRuntimeSettings:
     inject_task_context_prompt: bool
     diff_report_feedback_enabled: bool
     gtk_breadcrumbs_enabled: bool
+    restore_open_tasks: bool
     mcp_enabled_groups: tuple[str, ...]
     mcp_trusted: bool
     task_dictionary_auto_discovery: bool
@@ -597,6 +599,11 @@ def agent_workspace_runtime_settings(
             "gtk_breadcrumbs_enabled",
             AGENT_WORKSPACE_DEFAULT_GTK_BREADCRUMBS_ENABLED,
         ),
+        restore_open_tasks=_bool_setting(
+            settings,
+            "restore_open_tasks",
+            AGENT_WORKSPACE_DEFAULT_RESTORE_OPEN_TASKS,
+        ),
         mcp_enabled_groups=_mcp_enabled_groups_setting(settings, "mcp_enabled_groups"),
         mcp_trusted=_bool_setting(settings, "mcp_trusted", AGENT_WORKSPACE_DEFAULT_MCP_TRUSTED),
         task_dictionary_auto_discovery=_bool_setting(
@@ -734,6 +741,8 @@ def load_agent_workspace_settings(path: Path | None = None) -> dict[str, AgentWo
     inject_task_context_prompt = data.get("inject_task_context_prompt")
     diff_report_feedback_enabled = data.get("diff_report_feedback_enabled")
     gtk_breadcrumbs_enabled = data.get("gtk_breadcrumbs_enabled")
+    restore_open_tasks = data.get("restore_open_tasks")
+    open_task_paths = data.get("open_task_paths")
     task_dictionary_auto_discovery = data.get("task_dictionary_auto_discovery")
     mcp_enabled_groups = data.get("mcp_enabled_groups")
     mcp_trusted = data.get("mcp_trusted")
@@ -788,6 +797,14 @@ def load_agent_workspace_settings(path: Path | None = None) -> dict[str, AgentWo
         settings["diff_report_feedback_enabled"] = diff_report_feedback_enabled
     if isinstance(gtk_breadcrumbs_enabled, bool):
         settings["gtk_breadcrumbs_enabled"] = gtk_breadcrumbs_enabled
+    if isinstance(restore_open_tasks, bool):
+        settings["restore_open_tasks"] = restore_open_tasks
+    if isinstance(open_task_paths, list):
+        settings["open_task_paths"] = [
+            item.strip()
+            for item in open_task_paths
+            if isinstance(item, str) and item.strip()
+        ]
     if isinstance(mcp_enabled_groups, list) and all(isinstance(item, str) for item in mcp_enabled_groups):
         settings["mcp_enabled_groups"] = _valid_mcp_enabled_groups(tuple(mcp_enabled_groups))
     if isinstance(mcp_trusted, bool):

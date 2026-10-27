@@ -2079,6 +2079,72 @@ def test_gtk_add_task_starts_task_init_in_background(tmp_path: Path, monkeypatch
     assert status_messages == ["Creating task sample-task..."]
 
 
+def test_gtk_add_task_inserts_created_task_without_full_refresh(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    tasks_root = tmp_path / "tasks"
+    alpha_path = tasks_root / "alpha-task"
+    zulu_path = tasks_root / "zulu-task"
+    middle_path = tasks_root / "middle-task"
+    alpha_path.mkdir(parents=True)
+    zulu_path.mkdir(parents=True)
+    alpha = TaskSummary("alpha-task", alpha_path, True, True, 0, 0, False)
+    zulu = TaskSummary("zulu-task", zulu_path, True, True, 0, 0, False)
+    gui = WorkspaceGtkGui.__new__(WorkspaceGtkGui)
+    gui.workspace = tmp_path
+    gui.task_init_running = False
+    gui.selected_task = None
+    gui.tasks = [alpha, zulu]
+    gui.task_store = FakeGtkTaskStore([
+        ["□", "alpha-task", alpha, "", False, "", False, 0, False],
+        ["□", "zulu-task", zulu, "", False, "", False, 0, False],
+    ])
+    gui.summary_label = FakeGtkLabel()
+    gui.theme = "dark"
+    status_messages: list[str] = []
+    selected_iters: list[object | None] = []
+    run_calls: list[object] = []
+    gui._prompt_task_name = lambda: gtk_ui_module.NewTaskRequest("middle-task", "public")  # type: ignore[method-assign]
+    gui._tr = lambda key: {"tasks": "tasks"}[key] if key == "tasks" else key  # type: ignore[method-assign]
+    gui._show_error = lambda message: (_ for _ in ()).throw(AssertionError(message))  # type: ignore[method-assign]
+    gui._set_status_message = lambda message: status_messages.append(message)  # type: ignore[method-assign]
+    gui._task_agent_status = lambda _task: "□"  # type: ignore[method-assign]
+    gui._task_label = lambda task: task.name  # type: ignore[method-assign]
+    gui._set_task_selection = lambda row_iter: selected_iters.append(row_iter)  # type: ignore[method-assign]
+    gui.refresh_tasks = lambda: (_ for _ in ()).throw(AssertionError("full refresh should not run"))  # type: ignore[method-assign]
+    gui._run_gtk_breadcrumb = lambda _label, callback: callback()  # type: ignore[method-assign]
+
+    class ImmediateThread:
+        def __init__(self, *, target: object, daemon: bool) -> None:
+            self.target = target
+            self.daemon = daemon
+
+        def start(self) -> None:
+            self.target()
+
+    def fake_run(*_args: object, **_kwargs: object) -> subprocess.CompletedProcess[str]:
+        run_calls.append(object())
+        middle_path.mkdir(parents=True)
+        ensure_task_context_database(middle_path)
+        return subprocess.CompletedProcess([], 0, "", "")
+
+    monkeypatch.setattr(gtk_ui_module.threading, "Thread", ImmediateThread)
+    monkeypatch.setattr(gtk_ui_module.subprocess, "run", fake_run)
+    monkeypatch.setattr(gtk_ui_module.GLib, "idle_add", lambda callback, *args: callback(*args))
+
+    gui.add_task()
+
+    assert len(run_calls) == 1
+    assert gui.task_init_running is False
+    assert [task.name for task in gui.tasks] == ["alpha-task", "middle-task", "zulu-task"]
+    assert [row[1] for row in gui.task_store.rows] == ["alpha-task", "middle-task", "zulu-task"]
+    assert gui.task_store.rows[1][2].path == middle_path
+    assert gui.summary_label.text == "3 tasks"
+    assert selected_iters == [1]
+    assert status_messages == ["Creating task middle-task...", ""]
+
+
 def test_gtk_task_actions_signature_tracks_file_mtime(tmp_path: Path) -> None:
     task = tmp_path / "tasks" / "sample-task"
     task.mkdir(parents=True)
@@ -2299,7 +2365,13 @@ def test_gtk_refresh_tasks_selects_open_task_when_previous_is_locked(tmp_path: P
     gui._set_task_selection = lambda row_iter: selected_iters.append(row_iter)
     gui._tr = lambda key: {"tasks": "tasks"}[key]
     gui._task_is_external_active = lambda task: task.path == locked.path
-    monkeypatch.setattr(gtk_ui_module, "discover_tasks", lambda _workspace: [locked, open_task])
+    monkeypatch.setattr(
+        gtk_ui_module,
+        "discover_tasks",
+        lambda _workspace, *, include_context_tokens=True: (
+            [locked, open_task] if include_context_tokens is False else []
+        ),
+    )
 
     gui.refresh_tasks()
 
@@ -2334,7 +2406,11 @@ def test_gtk_refresh_tasks_clears_selection_when_all_tasks_locked(tmp_path: Path
     gui._set_task_selection = lambda row_iter: selected_iters.append(row_iter)
     gui._tr = lambda key: {"tasks": "tasks"}[key]
     gui._task_is_external_active = lambda _task: True
-    monkeypatch.setattr(gtk_ui_module, "discover_tasks", lambda _workspace: tasks)
+    monkeypatch.setattr(
+        gtk_ui_module,
+        "discover_tasks",
+        lambda _workspace, *, include_context_tokens=True: tasks if include_context_tokens is False else [],
+    )
 
     gui.refresh_tasks()
 
@@ -2550,6 +2626,348 @@ def test_gtk_finish_task_session_discovery_skips_after_close(tmp_path: Path) -> 
 
     assert not gui._finish_task_session_discovery(summary.path)
     assert gui.task_session_discovery.is_pending(summary)
+
+
+def test_gtk_restores_saved_open_tasks_one_at_a_time(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    alpha_path = tmp_path / "tasks" / "alpha"
+    beta_path = tmp_path / "tasks" / "beta"
+    alpha_path.mkdir(parents=True)
+    beta_path.mkdir(parents=True)
+    ensure_task_context_database(alpha_path)
+    ensure_task_context_database(beta_path)
+    alpha, beta = discover_tasks(tmp_path)
+    gui = WorkspaceGtkGui.__new__(WorkspaceGtkGui)
+    gui.workspace = tmp_path
+    gui.tasks = [alpha, beta]
+    gui.default_agent = "codex"
+    gui.restore_open_tasks = True
+    gui.open_task_paths = {beta.path, alpha.path}
+    gui._open_task_restore_queue = []
+    gui._open_task_restore_source_id = None
+    gui._open_task_restore_waiting_session_id = None
+    gui.terminal_sessions = {}
+    gui._task_for_path = lambda path: {alpha.path: alpha, beta.path: beta}[path]  # type: ignore[method-assign]
+    gui._task_is_external_active = lambda _task: False  # type: ignore[method-assign]
+    restored: list[tuple[str, str, bool]] = []
+
+    def new_console(*_args: object, task: TaskSummary | None = None) -> int:
+        assert task is not None
+        session_id = len(gui.terminal_sessions) + 1
+        gui.terminal_sessions[session_id] = TerminalSession(
+            session_id,
+            task.path,
+            "shell",
+            object(),
+            object(),
+        )
+        return session_id
+
+    def switch_task_agent(
+        task: TaskSummary,
+        agent: str,
+        *,
+        start_if_changed: bool,
+        activate: bool = True,
+    ) -> None:
+        _ = start_if_changed
+        restored.append((task.name, agent, activate))
+        session_id = len(gui.terminal_sessions) + 1
+        gui.terminal_sessions[session_id] = TerminalSession(
+            session_id,
+            task.path,
+            agent,
+            object(),
+            object(),
+        )
+
+    gui.new_console = new_console  # type: ignore[method-assign]
+    gui._switch_task_agent = switch_task_agent  # type: ignore[method-assign]
+    timeout_callbacks: list[object] = []
+
+    def timeout_add(_interval: int, callback: object) -> int:
+        timeout_callbacks.append(callback)
+        return 77
+
+    monkeypatch.setattr(gtk_ui_module.GLib, "timeout_add", timeout_add)
+
+    gui._schedule_open_task_restoration()
+
+    assert gui._open_task_restore_source_id == 77
+    assert not timeout_callbacks[0]()
+    assert restored == [("alpha", "codex", False)]
+    assert gui.terminal_sessions[1].kind == "shell"
+    assert gui.terminal_sessions[2].kind == "codex"
+    assert gui._open_task_restore_waiting_session_id == 2
+    assert len(timeout_callbacks) == 1
+
+    shell = gui.terminal_sessions[1]
+    gui._on_terminal_spawn_ready(shell.terminal, 100, shell.session_id)
+
+    assert gui._open_task_restore_waiting_session_id == 2
+    assert len(timeout_callbacks) == 1
+
+    first = gui.terminal_sessions[2]
+    gui._on_terminal_spawn_ready(first.terminal, 101, first.session_id)
+
+    assert first.child_pid == 101
+    assert gui._open_task_restore_waiting_session_id is None
+    assert len(timeout_callbacks) == 2
+    assert not timeout_callbacks[1]()
+    assert restored == [("alpha", "codex", False), ("beta", "codex", False)]
+    assert gui.terminal_sessions[3].kind == "shell"
+    assert gui.terminal_sessions[4].kind == "codex"
+    assert gui._open_task_restore_waiting_session_id == 4
+
+    second = gui.terminal_sessions[4]
+    gui._on_terminal_spawn_ready(second.terminal, 102, second.session_id)
+
+    assert second.child_pid == 102
+    assert gui._open_task_restore_waiting_session_id is None
+    assert len(timeout_callbacks) == 2
+    assert gui._open_task_restore_source_id is None
+
+
+def test_gtk_closing_waiting_terminal_continues_open_task_restoration(tmp_path: Path) -> None:
+    task_path = tmp_path / "tasks" / "sample-task"
+    task_path.mkdir(parents=True)
+    summary = discover_tasks_with_context(task_path, tmp_path)
+    session = TerminalSession(1, summary.path, "codex", object(), FakeFrame())
+    gui = WorkspaceGtkGui.__new__(WorkspaceGtkGui)
+    gui._closing = False
+    gui._open_task_restore_waiting_session_id = session.session_id
+    gui._open_task_restore_queue = [tmp_path / "tasks" / "next-task"]
+    gui._open_task_restore_source_id = None
+    scheduled: list[bool] = []
+    gui._schedule_next_open_task_restoration = lambda: scheduled.append(True)  # type: ignore[method-assign]
+
+    gui._finish_open_task_restore_wait(session)
+
+    assert gui._open_task_restore_waiting_session_id is None
+    assert scheduled == [True]
+
+
+def test_gtk_restore_adds_shell_when_agent_started_before_callback(tmp_path: Path) -> None:
+    task_path = tmp_path / "tasks" / "sample-task"
+    task_path.mkdir(parents=True)
+    summary = discover_tasks_with_context(task_path, tmp_path)
+    agent = TerminalSession(1, summary.path, "codex", object(), object())
+    gui = WorkspaceGtkGui.__new__(WorkspaceGtkGui)
+    gui.workspace = tmp_path
+    gui.default_agent = "codex"
+    gui._open_task_restore_queue = [summary.path]
+    gui._open_task_restore_source_id = 77
+    gui._open_task_restore_waiting_session_id = None
+    gui.terminal_sessions = {agent.session_id: agent}
+    gui._task_for_path = lambda _path: summary  # type: ignore[method-assign]
+    gui._task_is_external_active = lambda _task: False  # type: ignore[method-assign]
+    switches: list[bool] = []
+    gui._switch_task_agent = lambda *_args, activate=True, **_kwargs: switches.append(activate)  # type: ignore[method-assign]
+    started_shells: list[TaskSummary] = []
+    gui.new_console = lambda *_args, task=None: started_shells.append(task) or 2  # type: ignore[method-assign]
+
+    assert not gui._restore_next_open_task()
+
+    assert started_shells == [summary]
+    assert switches == [False]
+    assert gui._open_task_restore_waiting_session_id == agent.session_id
+
+
+def test_gtk_switch_task_agent_can_keep_background_agent_hidden(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    task_path = tmp_path / "tasks" / "sample-task"
+    task_path.mkdir(parents=True)
+    summary = discover_tasks_with_context(task_path, tmp_path)
+    agent = TerminalSession(1, summary.path, "codex", object(), object())
+    gui = WorkspaceGtkGui.__new__(WorkspaceGtkGui)
+    gui.terminal_sessions = {agent.session_id: agent}
+    gui._invalidate_task_session_marker_cache = lambda _task: None  # type: ignore[method-assign]
+    gui._update_codex_button_state = lambda: None  # type: ignore[method-assign]
+    activated: list[int] = []
+    gui._activate_terminal = activated.append  # type: ignore[method-assign]
+    monkeypatch.setattr(gtk_ui_module, "save_task_agent_session", lambda *_args: None)
+
+    gui._switch_task_agent(summary, "codex", start_if_changed=True, activate=False)
+
+    assert activated == []
+
+
+def test_gtk_switch_task_agent_restarts_exited_background_agent(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    task_path = tmp_path / "tasks" / "sample-task"
+    task_path.mkdir(parents=True)
+    summary = discover_tasks_with_context(task_path, tmp_path)
+    exited_agent = TerminalSession(1, summary.path, "codex", object(), object(), exited=True)
+    gui = WorkspaceGtkGui.__new__(WorkspaceGtkGui)
+    gui.workspace = tmp_path
+    gui.terminal_sessions = {exited_agent.session_id: exited_agent}
+    gui.default_codex_model = ""
+    gui.default_codex_reasoning = ""
+    gui.default_claude_model = ""
+    gui.default_claude_effort = ""
+    gui.language = "en"
+    gui.inject_task_context_prompt = False
+    gui.system_prompt = ""
+    gui.model_system_prompts = {}
+    gui.codex_animations_enabled = False
+    gui.claude_animations_enabled = False
+    gui.mcp_enabled_groups = []
+    gui.mcp_trusted = False
+    gui.limited_bash_output_tokens = 1
+    gui.limited_bash_head_tokens = 1
+    gui.limited_bash_tail_tokens = 1
+    gui.limited_bash_heartbeat_seconds = 1
+    gui.limited_bash_heartbeat_tokens = 1
+    gui._ensure_agent_installed = lambda _agent: True  # type: ignore[method-assign]
+    gui._update_codex_button_state = lambda: None  # type: ignore[method-assign]
+    activated: list[int] = []
+    gui._activate_terminal = activated.append  # type: ignore[method-assign]
+    started: list[str] = []
+    gui._start_terminal = lambda **kwargs: started.append(kwargs["kind"]) or 2  # type: ignore[method-assign]
+    launch = type(
+        "Launch",
+        (),
+        {
+            "command": ["codex"],
+            "session_state": object(),
+            "model_settings": type("ModelSettings", (), {"model": ""})(),
+        },
+    )()
+    monkeypatch.setattr(gtk_ui_module, "prepare_ai_agent_launch_command", lambda *_args, **_kwargs: launch)
+    monkeypatch.setattr(gtk_ui_module, "ai_agent_environment", lambda *_args, **_kwargs: {})
+    monkeypatch.setattr(gtk_ui_module, "new_agent_session_id", lambda: "run-1")
+
+    gui._switch_task_agent(summary, "codex", start_if_changed=True, activate=False)
+
+    assert started == ["codex"]
+    assert activated == []
+
+
+def test_gtk_start_terminal_does_not_activate_background_task(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    selected_path = tmp_path / "tasks" / "selected"
+    background_path = tmp_path / "tasks" / "background"
+    selected_path.mkdir(parents=True)
+    background_path.mkdir(parents=True)
+    ensure_task_context_database(selected_path)
+    ensure_task_context_database(background_path)
+    tasks = {task.name: task for task in discover_tasks(tmp_path)}
+
+    class FakeStyleContext:
+        def add_class(self, _name: str) -> None:
+            return
+
+    class FakeScrolledWindow:
+        def get_style_context(self) -> FakeStyleContext:
+            return FakeStyleContext()
+
+        def add(self, _child: object) -> None:
+            return
+
+    class FakeTerminal:
+        def set_scrollback_lines(self, _lines: int) -> None:
+            return
+
+        def add_events(self, _events: object) -> None:
+            return
+
+        def connect(self, _signal: str, _callback: object) -> None:
+            return
+
+        def spawn_async(self, *_args: object) -> None:
+            return
+
+    terminals: list[FakeTerminal] = []
+
+    def terminal_factory() -> FakeTerminal:
+        terminal = FakeTerminal()
+        terminals.append(terminal)
+        return terminal
+
+    monkeypatch.setattr(gtk_ui_module.Vte, "Terminal", terminal_factory)
+    monkeypatch.setattr(gtk_ui_module, "_new_scrolled_window", FakeScrolledWindow)
+    gui = WorkspaceGtkGui.__new__(WorkspaceGtkGui)
+    gui.next_terminal_id = 1
+    gui.terminal_sessions = {}
+    gui.selected_task = tasks["selected"]
+    gui._configure_terminal_rendering = lambda _terminal: None  # type: ignore[method-assign]
+    gui._apply_terminal_theme = lambda _terminal: None  # type: ignore[method-assign]
+    gui._profile_widget = lambda *_args: None  # type: ignore[method-assign]
+    gui._renumber_terminal_tabs = lambda _task: None  # type: ignore[method-assign]
+    activated: list[int] = []
+    gui._activate_terminal = activated.append  # type: ignore[method-assign]
+
+    background_id = gui._start_terminal(
+        tasks["background"],
+        ["/bin/true"],
+        background_path,
+        {},
+        "shell",
+    )
+    selected_id = gui._start_terminal(
+        tasks["selected"],
+        ["/bin/true"],
+        selected_path,
+        {},
+        "shell",
+    )
+
+    assert terminals
+    assert background_id in gui.terminal_sessions
+    assert selected_id in gui.terminal_sessions
+    assert activated == [selected_id]
+
+
+def test_gtk_close_task_sessions_releases_open_task_restore_wait(tmp_path: Path) -> None:
+    task_path = tmp_path / "tasks" / "sample-task"
+    task_path.mkdir(parents=True)
+    summary = discover_tasks_with_context(task_path, tmp_path)
+    page = FakeFrame()
+    session = TerminalSession(1, summary.path, "codex", object(), page)
+    gui = WorkspaceGtkGui.__new__(WorkspaceGtkGui)
+    gui.terminal_sessions = {session.session_id: session}
+    gui.console_notebook = type("Notebook", (), {"page_num": lambda self, _page: -1})()
+    released: list[TerminalSession] = []
+    gui._finish_open_task_restore_wait = lambda value: released.append(value)  # type: ignore[method-assign]
+    gui._forget_open_task_if_closed = lambda _task: None  # type: ignore[method-assign]
+    gui._update_codex_button_state = lambda: None  # type: ignore[method-assign]
+
+    gui._close_sessions_for_task(summary)
+
+    assert released == [session]
+    assert page.destroyed
+    assert gui.terminal_sessions == {}
+
+
+def test_gtk_open_task_tracking_persists_agent_terminal_state(tmp_path: Path) -> None:
+    task_path = tmp_path / "tasks" / "sample-task"
+    task_path.mkdir(parents=True)
+    summary = discover_tasks_with_context(task_path, tmp_path)
+    gui = WorkspaceGtkGui.__new__(WorkspaceGtkGui)
+    gui._closing = False
+    gui.open_task_paths = set()
+    gui.terminal_sessions = {}
+    saves: list[set[Path]] = []
+    gui._save_settings = lambda: saves.append(set(gui.open_task_paths))  # type: ignore[method-assign]
+
+    gui._remember_open_task(summary)
+
+    assert gui.open_task_paths == {summary.path}
+    session = TerminalSession(1, summary.path, "codex", object(), object(), run_id="run-1")
+    gui.terminal_sessions[session.session_id] = session
+    gui._forget_open_task_if_closed(summary)
+    assert gui.open_task_paths == {summary.path}
+
+    session.exited = True
+    gui._forget_open_task_if_closed(summary)
+
+    assert gui.open_task_paths == set()
+    assert saves == [{summary.path}, set()]
 
 
 def test_gtk_terminal_context_menu_reference_released_on_deactivate() -> None:
@@ -3512,6 +3930,7 @@ def test_gtk_translates_agent_and_manual_labels() -> None:
     assert GTK_TRANSLATIONS["ru"]["limited_bash_heartbeat_seconds"] == "Интервал heartbeat Bash, секунды"
     assert GTK_TRANSLATIONS["ru"]["limited_bash_heartbeat_tokens"] == "Бюджет heartbeat Bash, токены"
     assert GTK_TRANSLATIONS["ru"]["settings_gtk_breadcrumbs_enable"] == "Писать GTK breadcrumbs в crash log"
+    assert GTK_TRANSLATIONS["ru"]["settings_restore_open_tasks_enabled"] == "Да, восстанавливать"
     assert GTK_TRANSLATIONS["ru"]["ok"] == "ОК"
     assert GTK_TRANSLATIONS["ru"]["ai_debug_tab"] == "ИИ дебаг"
     assert GTK_TRANSLATIONS["ru"]["ai_debug_column_tool"] == "Инструмент"
@@ -3698,3 +4117,112 @@ def test_gtk_agent_restore_output_check_ignores_permission_prompt(tmp_path: Path
 
     assert session.busy
     assert not session.permission_pending
+
+
+def test_gtk_agent_session_reconciliation_runs_outside_gtk_thread(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    task = tmp_path / "tasks" / "sample-task"
+    task.mkdir(parents=True)
+    summary = discover_tasks_with_context(task, tmp_path)
+    session = TerminalSession(
+        1,
+        summary.path,
+        "codex",
+        FakeGtkTextTerminal(""),
+        FakeFrame(),
+        run_id="run-1",
+        started_at=123.0,
+    )
+    gui = WorkspaceGtkGui.__new__(WorkspaceGtkGui)
+    gui.workspace = tmp_path
+    gui.terminal_sessions = {session.session_id: session}
+    gui._task_for_path = lambda _task_path: summary  # type: ignore[method-assign]
+    gui._run_gtk_breadcrumb = lambda _label, callback, *args: callback(*args)  # type: ignore[method-assign]
+    invalidated: list[TaskSummary] = []
+    gui._invalidate_task_session_marker_cache = lambda task=None: invalidated.append(task)  # type: ignore[method-assign]
+    gui._update_codex_button_state = lambda: None  # type: ignore[method-assign]
+    calls: list[tuple[str, str, float | None]] = []
+
+    class ImmediateThread:
+        def __init__(self, *, target: object, args: tuple[object, ...], daemon: bool) -> None:
+            self.target = target
+            self.args = args
+            self.daemon = daemon
+
+        def start(self) -> None:
+            self.target(*self.args)
+
+    def reconcile(
+        _task: TaskSummary,
+        _workspace: Path,
+        agent: str,
+        run_id: str,
+        *,
+        started_after: float | None = None,
+    ) -> str:
+        calls.append((agent, run_id, started_after))
+        return "019feba2-e25e-76e1-9468-aa399758268f"
+
+    monkeypatch.setattr(gtk_ui_module.threading, "Thread", ImmediateThread)
+    monkeypatch.setattr(gtk_ui_module.GLib, "idle_add", lambda callback, *args: callback(*args))
+    monkeypatch.setattr(gtk_ui_module, "reconcile_task_agent_run_session", reconcile)
+
+    gui._start_agent_session_reconciliation(session)
+
+    assert calls == [("codex", "run-1", 123.0)]
+    assert not session.session_reconciliation_pending
+    assert session.session_reconciliation_attempted
+    assert session.session_reconciled
+    assert invalidated == [summary]
+
+
+def test_gtk_agent_session_reconciliation_bounds_failed_scans(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    task = tmp_path / "tasks" / "sample-task"
+    task.mkdir(parents=True)
+    summary = discover_tasks_with_context(task, tmp_path)
+    session = TerminalSession(
+        1,
+        summary.path,
+        "codex",
+        FakeGtkTextTerminal("Codex ready"),
+        FakeFrame(),
+        run_id="run-1",
+        started_at=123.0,
+    )
+    gui = WorkspaceGtkGui.__new__(WorkspaceGtkGui)
+    gui.workspace = tmp_path
+    gui.tasks = [summary]
+    gui.terminal_sessions = {session.session_id: session}
+    gui._task_for_path = lambda _task_path: summary  # type: ignore[method-assign]
+    gui._run_gtk_breadcrumb = lambda _label, callback, *args: callback(*args)  # type: ignore[method-assign]
+    calls: list[str] = []
+
+    class ImmediateThread:
+        def __init__(self, *, target: object, args: tuple[object, ...], daemon: bool) -> None:
+            self.target = target
+            self.args = args
+            self.daemon = daemon
+
+        def start(self) -> None:
+            self.target(*self.args)
+
+    def reconcile(*_args: object, **_kwargs: object) -> None:
+        calls.append("scan")
+        return None
+
+    monkeypatch.setattr(gtk_ui_module.threading, "Thread", ImmediateThread)
+    monkeypatch.setattr(gtk_ui_module.GLib, "idle_add", lambda callback, *args: callback(*args))
+    monkeypatch.setattr(gtk_ui_module, "reconcile_task_agent_run_session", reconcile)
+    monkeypatch.setattr(gtk_ui_module.time, "sleep", lambda _seconds: None)
+
+    assert gui._check_agent_restore_output(session.session_id, time.monotonic() + 10)
+    assert gui._check_agent_restore_output(session.session_id, time.monotonic() + 10)
+
+    assert calls == ["scan"] * gtk_ui_module.AGENT_SESSION_RECONCILIATION_MAX_ATTEMPTS
+    assert session.session_reconciliation_attempted
+    assert not session.session_reconciled

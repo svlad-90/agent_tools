@@ -50,6 +50,7 @@ def gtk_settings_ui_tree() -> UiTree:
                     "settings.button_font_size",
                     "settings.theme",
                     "settings.language",
+                    "settings.restore_open_tasks",
                     "settings.diff_report_feedback_enabled",
                     "settings.default_agent",
                     "settings.system_prompt",
@@ -70,6 +71,12 @@ def gtk_settings_ui_tree() -> UiTree:
             _spin("settings.button_font_size", "button_font_size", 8, 28, 1),
             UiNode("settings.theme", "field", label_key="theme", widget="select"),
             UiNode("settings.language", "field", label_key="language", widget="select"),
+            UiNode(
+                "settings.restore_open_tasks",
+                "field",
+                label_key="settings_restore_open_tasks",
+                widget="checkbox",
+            ),
             UiNode(
                 "settings.diff_report_feedback_enabled",
                 "field",
