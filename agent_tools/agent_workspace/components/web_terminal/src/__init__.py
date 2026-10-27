@@ -1,0 +1,1 @@
+"""Browser terminal implementation."""
