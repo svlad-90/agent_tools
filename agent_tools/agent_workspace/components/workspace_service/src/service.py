@@ -26,6 +26,7 @@ from ...task_catalog.api import task_init_command
 from ...task_catalog.api import task_path_for_name
 from ...task_context.api import load_task_context_slots
 from ...task_context.api import render_task_context_slots
+from ...task_context.api import set_task_context_slot
 from ...task_context.api import slot_dictionary_data
 from ...task_context.api import task_goal_slot_markdown
 
@@ -143,6 +144,15 @@ class AgentWorkspaceService:
         encoded: bool = False,
     ) -> dict[str, Any]:
         task = self.task(task_name)
+        return self._task_context(task, filters=filters, encoded=encoded)
+
+    def _task_context(
+        self,
+        task: TaskSummary,
+        *,
+        filters: TaskContextFilters | None = None,
+        encoded: bool = False,
+    ) -> dict[str, Any]:
         filters = filters or TaskContextFilters()
         if encoded:
             compile_dictionary(task.path)
@@ -158,6 +168,19 @@ class AgentWorkspaceService:
             "markdown": markdown,
             "dictionary": slot_dictionary_data(task.path, markdown) if encoded else [],
             "available_labels": [],
+        }
+
+    def save_task_context_slot(
+        self,
+        task_name: str,
+        category: str,
+        content: str,
+    ) -> dict[str, Any]:
+        task = self.task(task_name)
+        slot = set_task_context_slot(task.path, category, content)
+        return {
+            "slot": slot.to_json(),
+            "context": self._task_context(task),
         }
 
     def task_actions(self, task_name: str) -> dict[str, Any]:

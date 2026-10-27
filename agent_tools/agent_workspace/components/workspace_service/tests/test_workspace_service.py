@@ -216,3 +216,21 @@ def test_agent_workspace_service_renders_encoded_context_cards(tmp_path: Path) -
     assert context["dictionary"][0]["value"] == "drivers/firmware/scmi/scmi.c"
     assert context["entries"][0]["category"] == "findings"
     assert "§00 records active context" in context["markdown"]
+
+
+def test_agent_workspace_service_updates_single_context_slot(tmp_path: Path) -> None:
+    task = tmp_path / "tasks" / "sample-task"
+    task.mkdir(parents=True)
+    set_slot(task, "findings", "Old finding")
+    service = AgentWorkspaceService(tmp_path)
+
+    result = service.save_task_context_slot(
+        "sample-task",
+        "findings",
+        "  Browser mutation is transactional.  ",
+    )
+
+    assert result["slot"]["category"] == "findings"
+    assert result["slot"]["content"] == "Browser mutation is transactional."
+    assert result["context"]["entries"] == [result["slot"]]
+    assert "Browser mutation is transactional." in result["context"]["markdown"]
