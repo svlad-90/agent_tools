@@ -2079,6 +2079,72 @@ def test_gtk_add_task_starts_task_init_in_background(tmp_path: Path, monkeypatch
     assert status_messages == ["Creating task sample-task..."]
 
 
+def test_gtk_add_task_inserts_created_task_without_full_refresh(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    tasks_root = tmp_path / "tasks"
+    alpha_path = tasks_root / "alpha-task"
+    zulu_path = tasks_root / "zulu-task"
+    middle_path = tasks_root / "middle-task"
+    alpha_path.mkdir(parents=True)
+    zulu_path.mkdir(parents=True)
+    alpha = TaskSummary("alpha-task", alpha_path, True, True, 0, 0, False)
+    zulu = TaskSummary("zulu-task", zulu_path, True, True, 0, 0, False)
+    gui = WorkspaceGtkGui.__new__(WorkspaceGtkGui)
+    gui.workspace = tmp_path
+    gui.task_init_running = False
+    gui.selected_task = None
+    gui.tasks = [alpha, zulu]
+    gui.task_store = FakeGtkTaskStore([
+        ["□", "alpha-task", alpha, "", False, "", False, 0, False],
+        ["□", "zulu-task", zulu, "", False, "", False, 0, False],
+    ])
+    gui.summary_label = FakeGtkLabel()
+    gui.theme = "dark"
+    status_messages: list[str] = []
+    selected_iters: list[object | None] = []
+    run_calls: list[object] = []
+    gui._prompt_task_name = lambda: gtk_ui_module.NewTaskRequest("middle-task", "public")  # type: ignore[method-assign]
+    gui._tr = lambda key: {"tasks": "tasks"}[key] if key == "tasks" else key  # type: ignore[method-assign]
+    gui._show_error = lambda message: (_ for _ in ()).throw(AssertionError(message))  # type: ignore[method-assign]
+    gui._set_status_message = lambda message: status_messages.append(message)  # type: ignore[method-assign]
+    gui._task_agent_status = lambda _task: "□"  # type: ignore[method-assign]
+    gui._task_label = lambda task: task.name  # type: ignore[method-assign]
+    gui._set_task_selection = lambda row_iter: selected_iters.append(row_iter)  # type: ignore[method-assign]
+    gui.refresh_tasks = lambda: (_ for _ in ()).throw(AssertionError("full refresh should not run"))  # type: ignore[method-assign]
+    gui._run_gtk_breadcrumb = lambda _label, callback: callback()  # type: ignore[method-assign]
+
+    class ImmediateThread:
+        def __init__(self, *, target: object, daemon: bool) -> None:
+            self.target = target
+            self.daemon = daemon
+
+        def start(self) -> None:
+            self.target()
+
+    def fake_run(*_args: object, **_kwargs: object) -> subprocess.CompletedProcess[str]:
+        run_calls.append(object())
+        middle_path.mkdir(parents=True)
+        ensure_task_context_database(middle_path)
+        return subprocess.CompletedProcess([], 0, "", "")
+
+    monkeypatch.setattr(gtk_ui_module.threading, "Thread", ImmediateThread)
+    monkeypatch.setattr(gtk_ui_module.subprocess, "run", fake_run)
+    monkeypatch.setattr(gtk_ui_module.GLib, "idle_add", lambda callback, *args: callback(*args))
+
+    gui.add_task()
+
+    assert len(run_calls) == 1
+    assert gui.task_init_running is False
+    assert [task.name for task in gui.tasks] == ["alpha-task", "middle-task", "zulu-task"]
+    assert [row[1] for row in gui.task_store.rows] == ["alpha-task", "middle-task", "zulu-task"]
+    assert gui.task_store.rows[1][2].path == middle_path
+    assert gui.summary_label.text == "3 tasks"
+    assert selected_iters == [1]
+    assert status_messages == ["Creating task middle-task...", ""]
+
+
 def test_gtk_task_actions_signature_tracks_file_mtime(tmp_path: Path) -> None:
     task = tmp_path / "tasks" / "sample-task"
     task.mkdir(parents=True)

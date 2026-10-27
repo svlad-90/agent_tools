@@ -900,12 +900,26 @@ class WorkspaceGtkGui:
         self._start_task_session_discovery()
         self.task_store.clear()
         for task in self.tasks:
-            self.task_store.append(
-                [self._task_agent_status(task), self._task_label(task), task, *_task_row_style(False, False, False, self.theme)]
-            )
+            self.task_store.append(self._task_store_row(task))
         self._refresh_task_row_styles()
         self.summary_label.set_text(f"{len(self.tasks)} {self._tr('tasks')}")
         self._set_task_selection(self._selectable_task_iter(selected_name))
+
+    def _task_store_row(self, task: TaskSummary) -> list[object]:
+        return [
+            self._task_agent_status(task),
+            self._task_label(task),
+            task,
+            *_task_row_style(False, False, False, self.theme),
+        ]
+
+    def _insert_task_summary(self, task: TaskSummary) -> object:
+        insert_at = 0
+        task_key = task.name.casefold()
+        while insert_at < len(self.tasks) and self.tasks[insert_at].name.casefold() < task_key:
+            insert_at += 1
+        self.tasks.insert(insert_at, task)
+        return self.task_store.insert(insert_at, self._task_store_row(task))
 
     def _on_task_selected(self, selection: Gtk.TreeSelection) -> None:
         if self._updating_task_selection:
@@ -1914,9 +1928,11 @@ class WorkspaceGtkGui:
                     self._set_status_message("")
                     self._show_error((result.stderr or result.stdout or "task init failed").strip())
                     return False
-                self.selected_task = TaskSummary(task_path.name, task_path, False, False, 0, 0, False)
+                new_task = TaskSummary(task_path.name, task_path, True, True, 0, 0, False)
+                row_iter = self._insert_task_summary(new_task)
+                self.summary_label.set_text(f"{len(self.tasks)} {self._tr('tasks')}")
                 self._set_status_message("")
-                self.refresh_tasks()
+                self._set_task_selection(row_iter)
                 return False
 
             GLib.idle_add(self._run_gtk_breadcrumb, "task-init-result", apply_result)
