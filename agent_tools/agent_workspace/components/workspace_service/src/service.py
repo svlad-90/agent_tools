@@ -12,6 +12,7 @@ from agent_tools.tools.task_context import compile_dictionary
 from agent_tools.tools.task_context import DATABASE_FILENAME as TASK_CONTEXT_DATABASE_FILE
 
 from ...artifacts.api import artifact_relative_label
+from ...artifacts.api import artifact_text_preview
 from ...artifacts.api import artifact_updated_label
 from ...artifacts.api import task_artifact_entries
 from ...commands.api import task_action_command
@@ -203,6 +204,9 @@ class AgentWorkspaceService:
             }
             for entry in task_artifact_entries(task)
         ]
+
+    def artifact_content(self, task_name: str, label: str) -> dict[str, object]:
+        return artifact_text_preview(self.task(task_name), label)
 
     def ai_debug_events(self, task_name: str, *, session_id: str | None = None) -> list[dict[str, Any]]:
         task = self.task(task_name)

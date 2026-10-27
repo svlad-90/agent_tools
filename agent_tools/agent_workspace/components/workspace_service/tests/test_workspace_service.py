@@ -174,6 +174,22 @@ def test_agent_workspace_service_returns_headless_task_snapshot(tmp_path: Path) 
     assert "python" in service.task_action_command("sample-task", "smoke")
 
 
+def test_agent_workspace_service_returns_bounded_artifact_content(tmp_path: Path) -> None:
+    task = tmp_path / "tasks" / "sample-task"
+    artifact = task / "report" / "notes.md"
+    artifact.parent.mkdir(parents=True)
+    artifact.write_text("browser preview", encoding="utf-8")
+    set_slot(task, "goal", "Artifact preview task")
+    service = AgentWorkspaceService(tmp_path)
+
+    preview = service.artifact_content("sample-task", "report/notes.md")
+
+    assert preview["content"] == "browser preview"
+    assert preview["label"] == "report/notes.md"
+    with pytest.raises(ValueError, match="unknown artifact"):
+        service.artifact_content("sample-task", "../outside.txt")
+
+
 def test_agent_workspace_service_renders_encoded_context_cards(tmp_path: Path) -> None:
     task = tmp_path / "tasks" / "sample-task"
     task.mkdir(parents=True)
