@@ -146,6 +146,7 @@ def test_agent_workspace_runtime_settings_disables_agent_animations_by_default()
     assert settings.limited_bash_heartbeat_seconds == AGENT_WORKSPACE_DEFAULT_LIMITED_BASH_HEARTBEAT_SECONDS
     assert settings.limited_bash_heartbeat_tokens == AGENT_WORKSPACE_DEFAULT_LIMITED_BASH_HEARTBEAT_TOKENS
     assert settings.diff_report_feedback_enabled is False
+    assert settings.restore_open_tasks is True
     assert settings.mcp_enabled_groups == tuple(group_id for group_id, _label in workspace_mcp_tool_groups())
     assert workspace_mcp_enabled_groups_for_runtime(settings.mcp_enabled_groups) is None
     assert settings.mcp_trusted is False
@@ -223,6 +224,7 @@ def test_agent_workspace_runtime_settings_normalizes_ui_defaults() -> None:
             },
             "inject_task_context_prompt": False,
             "diff_report_feedback_enabled": True,
+            "restore_open_tasks": False,
             "gtk_breadcrumbs_enabled": True,
             "mcp_enabled_groups": ["search", "unknown", "validation"],
             "mcp_trusted": True,
@@ -264,6 +266,7 @@ def test_agent_workspace_runtime_settings_normalizes_ui_defaults() -> None:
     }
     assert settings.inject_task_context_prompt is False
     assert settings.diff_report_feedback_enabled is True
+    assert settings.restore_open_tasks is False
     assert settings.gtk_breadcrumbs_enabled is True
     assert settings.mcp_enabled_groups == (
         "search",
@@ -331,6 +334,7 @@ def test_agent_workspace_runtime_settings_falls_back_for_invalid_values() -> Non
     assert settings.inject_task_context_prompt is True
     assert settings.diff_report_feedback_enabled is False
     assert settings.gtk_breadcrumbs_enabled is False
+    assert settings.restore_open_tasks is True
     assert settings.task_dictionary_auto_discovery is True
     assert settings.task_dictionary_min_occurrences == 1
     assert settings.task_dictionary_min_saving == 0
@@ -457,6 +461,24 @@ def test_agent_workspace_settings_clamp_bad_font_size(tmp_path: Path) -> None:
     assert load_agent_workspace_settings(settings_path) == {
         "text_font_size": 28,
         "button_font_size": 8,
+    }
+
+
+def test_agent_workspace_settings_load_open_task_restoration_state(tmp_path: Path) -> None:
+    settings_path = tmp_path / "settings.json"
+    settings_path.write_text(
+        json.dumps(
+            {
+                "restore_open_tasks": False,
+                "open_task_paths": [" /workspace/tasks/one ", 42, ""],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    assert load_agent_workspace_settings(settings_path) == {
+        "restore_open_tasks": False,
+        "open_task_paths": ["/workspace/tasks/one"],
     }
 
 

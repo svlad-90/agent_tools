@@ -2628,6 +2628,142 @@ def test_gtk_finish_task_session_discovery_skips_after_close(tmp_path: Path) -> 
     assert gui.task_session_discovery.is_pending(summary)
 
 
+def test_gtk_restores_saved_open_tasks_one_at_a_time(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    alpha_path = tmp_path / "tasks" / "alpha"
+    beta_path = tmp_path / "tasks" / "beta"
+    alpha_path.mkdir(parents=True)
+    beta_path.mkdir(parents=True)
+    ensure_task_context_database(alpha_path)
+    ensure_task_context_database(beta_path)
+    alpha, beta = discover_tasks(tmp_path)
+    gui = WorkspaceGtkGui.__new__(WorkspaceGtkGui)
+    gui.workspace = tmp_path
+    gui.tasks = [alpha, beta]
+    gui.default_agent = "codex"
+    gui.restore_open_tasks = True
+    gui.open_task_paths = {beta.path, alpha.path}
+    gui._open_task_restore_queue = []
+    gui._open_task_restore_source_id = None
+    gui._open_task_restore_waiting_session_id = None
+    gui.terminal_sessions = {}
+    gui._task_for_path = lambda path: {alpha.path: alpha, beta.path: beta}[path]  # type: ignore[method-assign]
+    gui._task_is_external_active = lambda _task: False  # type: ignore[method-assign]
+    restored: list[tuple[str, str]] = []
+
+    def switch_task_agent(task: TaskSummary, agent: str, *, start_if_changed: bool) -> None:
+        _ = start_if_changed
+        restored.append((task.name, agent))
+        session_id = len(gui.terminal_sessions) + 1
+        gui.terminal_sessions[session_id] = TerminalSession(
+            session_id,
+            task.path,
+            agent,
+            object(),
+            object(),
+        )
+
+    gui._switch_task_agent = switch_task_agent  # type: ignore[method-assign]
+    timeout_callbacks: list[object] = []
+
+    def timeout_add(_interval: int, callback: object) -> int:
+        timeout_callbacks.append(callback)
+        return 77
+
+    monkeypatch.setattr(gtk_ui_module.GLib, "timeout_add", timeout_add)
+
+    gui._schedule_open_task_restoration()
+
+    assert gui._open_task_restore_source_id == 77
+    assert not timeout_callbacks[0]()
+    assert restored == [("alpha", "codex")]
+    assert gui._open_task_restore_waiting_session_id == 1
+    assert len(timeout_callbacks) == 1
+
+    first = gui.terminal_sessions[1]
+    gui._on_terminal_spawn_ready(first.terminal, 101, first.session_id)
+
+    assert first.child_pid == 101
+    assert gui._open_task_restore_waiting_session_id is None
+    assert len(timeout_callbacks) == 2
+    assert not timeout_callbacks[1]()
+    assert restored == [("alpha", "codex"), ("beta", "codex")]
+    assert gui._open_task_restore_waiting_session_id == 2
+
+    second = gui.terminal_sessions[2]
+    gui._on_terminal_spawn_ready(second.terminal, 102, second.session_id)
+
+    assert second.child_pid == 102
+    assert gui._open_task_restore_waiting_session_id is None
+    assert len(timeout_callbacks) == 2
+    assert gui._open_task_restore_source_id is None
+
+
+def test_gtk_closing_waiting_terminal_continues_open_task_restoration(tmp_path: Path) -> None:
+    task_path = tmp_path / "tasks" / "sample-task"
+    task_path.mkdir(parents=True)
+    summary = discover_tasks_with_context(task_path, tmp_path)
+    session = TerminalSession(1, summary.path, "codex", object(), FakeFrame())
+    gui = WorkspaceGtkGui.__new__(WorkspaceGtkGui)
+    gui._closing = False
+    gui._open_task_restore_waiting_session_id = session.session_id
+    gui._open_task_restore_queue = [tmp_path / "tasks" / "next-task"]
+    gui._open_task_restore_source_id = None
+    scheduled: list[bool] = []
+    gui._schedule_next_open_task_restoration = lambda: scheduled.append(True)  # type: ignore[method-assign]
+
+    gui._finish_open_task_restore_wait(session)
+
+    assert gui._open_task_restore_waiting_session_id is None
+    assert scheduled == [True]
+
+
+def test_gtk_close_task_sessions_releases_open_task_restore_wait(tmp_path: Path) -> None:
+    task_path = tmp_path / "tasks" / "sample-task"
+    task_path.mkdir(parents=True)
+    summary = discover_tasks_with_context(task_path, tmp_path)
+    page = FakeFrame()
+    session = TerminalSession(1, summary.path, "codex", object(), page)
+    gui = WorkspaceGtkGui.__new__(WorkspaceGtkGui)
+    gui.terminal_sessions = {session.session_id: session}
+    gui.console_notebook = type("Notebook", (), {"page_num": lambda self, _page: -1})()
+    released: list[TerminalSession] = []
+    gui._finish_open_task_restore_wait = lambda value: released.append(value)  # type: ignore[method-assign]
+    gui._forget_open_task_if_closed = lambda _task: None  # type: ignore[method-assign]
+    gui._update_codex_button_state = lambda: None  # type: ignore[method-assign]
+
+    gui._close_sessions_for_task(summary)
+
+    assert released == [session]
+    assert page.destroyed
+    assert gui.terminal_sessions == {}
+
+
+def test_gtk_open_task_tracking_persists_agent_terminal_state(tmp_path: Path) -> None:
+    task_path = tmp_path / "tasks" / "sample-task"
+    task_path.mkdir(parents=True)
+    summary = discover_tasks_with_context(task_path, tmp_path)
+    gui = WorkspaceGtkGui.__new__(WorkspaceGtkGui)
+    gui._closing = False
+    gui.open_task_paths = set()
+    gui.terminal_sessions = {}
+    saves: list[set[Path]] = []
+    gui._save_settings = lambda: saves.append(set(gui.open_task_paths))  # type: ignore[method-assign]
+
+    gui._remember_open_task(summary)
+
+    assert gui.open_task_paths == {summary.path}
+    session = TerminalSession(1, summary.path, "codex", object(), object(), run_id="run-1")
+    gui.terminal_sessions[session.session_id] = session
+    gui._forget_open_task_if_closed(summary)
+    assert gui.open_task_paths == {summary.path}
+
+    session.exited = True
+    gui._forget_open_task_if_closed(summary)
+
+    assert gui.open_task_paths == set()
+    assert saves == [{summary.path}, set()]
+
+
 def test_gtk_terminal_context_menu_reference_released_on_deactivate() -> None:
     class FakeMenu:
         def __init__(self) -> None:
@@ -3588,6 +3724,7 @@ def test_gtk_translates_agent_and_manual_labels() -> None:
     assert GTK_TRANSLATIONS["ru"]["limited_bash_heartbeat_seconds"] == "Интервал heartbeat Bash, секунды"
     assert GTK_TRANSLATIONS["ru"]["limited_bash_heartbeat_tokens"] == "Бюджет heartbeat Bash, токены"
     assert GTK_TRANSLATIONS["ru"]["settings_gtk_breadcrumbs_enable"] == "Писать GTK breadcrumbs в crash log"
+    assert GTK_TRANSLATIONS["ru"]["settings_restore_open_tasks_enabled"] == "Да, восстанавливать"
     assert GTK_TRANSLATIONS["ru"]["ok"] == "ОК"
     assert GTK_TRANSLATIONS["ru"]["ai_debug_tab"] == "ИИ дебаг"
     assert GTK_TRANSLATIONS["ru"]["ai_debug_column_tool"] == "Инструмент"

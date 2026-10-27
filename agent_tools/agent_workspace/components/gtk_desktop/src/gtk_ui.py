@@ -370,7 +370,8 @@ class WorkspaceGtkGui:
         self.workspace_ipc_server: WorkspaceIpcServer | None = None
         self.diff_report_feedback_server: DiffReportFeedbackServerHandle | None = None
         self.active_main_page: Gtk.Widget | None = None
-        settings = agent_workspace_runtime_settings(load_agent_workspace_settings(), default_font_size=13)
+        raw_settings = load_agent_workspace_settings()
+        settings = agent_workspace_runtime_settings(raw_settings, default_font_size=13)
         self.text_font_size = settings.text_font_size
         self.button_font_size = settings.button_font_size
         self.theme = settings.theme
@@ -392,6 +393,7 @@ class WorkspaceGtkGui:
         self.inject_task_context_prompt = settings.inject_task_context_prompt
         self.diff_report_feedback_enabled = settings.diff_report_feedback_enabled
         self.gtk_breadcrumbs_enabled = settings.gtk_breadcrumbs_enabled
+        self.restore_open_tasks = settings.restore_open_tasks
         self.mcp_enabled_groups = settings.mcp_enabled_groups
         self.mcp_trusted = settings.mcp_trusted
         self.task_dictionary_auto_discovery = settings.task_dictionary_auto_discovery
@@ -405,7 +407,19 @@ class WorkspaceGtkGui:
         self.main_split_ratio = settings.main_split_ratio
         self.details_split_ratio = settings.details_split_ratio
         self.actions_split_ratio = settings.actions_split_ratio
-        raw_settings = load_agent_workspace_settings()
+        tasks_root = (self.workspace / "tasks").resolve()
+        saved_open_task_paths = raw_settings.get("open_task_paths")
+        restored_open_task_paths = {
+            path
+            for value in saved_open_task_paths
+            if isinstance(value, str)
+            for path in (Path(value).resolve(),)
+            if path.parent == tasks_root
+        } if isinstance(saved_open_task_paths, list) else set()
+        self.open_task_paths = restored_open_task_paths if self.restore_open_tasks else set()
+        self._open_task_restore_queue: list[Path] = []
+        self._open_task_restore_source_id: int | None = None
+        self._open_task_restore_waiting_session_id: int | None = None
         recent_workspaces = raw_settings.get("recent_workspaces")
         self.recent_workspaces = [
             item for item in recent_workspaces if isinstance(item, str)
@@ -484,6 +498,7 @@ class WorkspaceGtkGui:
         self._build_ui()
         self._apply_css()
         self.refresh_tasks()
+        self._schedule_open_task_restoration()
         self.ai_debug_refresh_source_id = GLib.timeout_add_seconds(
             1,
             self._run_gtk_breadcrumb,
@@ -926,6 +941,75 @@ class WorkspaceGtkGui:
             insert_at += 1
         self.tasks.insert(insert_at, task)
         return self.task_store.insert(insert_at, self._task_store_row(task))
+
+    def _schedule_open_task_restoration(self) -> None:
+        if not self.restore_open_tasks:
+            return
+        known_tasks = {task.path: task for task in self.tasks}
+        self._open_task_restore_queue = [
+            path
+            for path in sorted(self.open_task_paths, key=lambda item: item.name.casefold())
+            if path in known_tasks
+        ]
+        self._schedule_next_open_task_restoration()
+
+    def _schedule_next_open_task_restoration(self) -> None:
+        if (
+            getattr(self, "_closing", False)
+            or
+            not self._open_task_restore_queue
+            or self._open_task_restore_source_id is not None
+            or self._open_task_restore_waiting_session_id is not None
+        ):
+            return
+        self._open_task_restore_source_id = GLib.timeout_add(
+            150,
+            self._restore_next_open_task,
+        )
+
+    def _restore_next_open_task(self) -> bool:
+        self._open_task_restore_source_id = None
+        while self._open_task_restore_queue:
+            task_path = self._open_task_restore_queue.pop(0)
+            task = self._task_for_path(task_path)
+            if self._task_is_external_active(task):
+                continue
+            agent = task_agent_selection_with_resumable_fallback(
+                task,
+                self.workspace,
+                self.default_agent,
+            )
+            self._switch_task_agent(task, agent, start_if_changed=True)
+            session = self._running_agent_session(task)
+            if session is not None:
+                self._open_task_restore_waiting_session_id = session.session_id
+                return False
+        return False
+
+    def _remember_open_task(self, task: TaskSummary) -> None:
+        open_task_paths = getattr(self, "open_task_paths", None)
+        if open_task_paths is None or task.path in open_task_paths:
+            return
+        open_task_paths.add(task.path)
+        self._save_settings()
+
+    def _forget_open_task_if_closed(self, task: TaskSummary) -> None:
+        if getattr(self, "_closing", False):
+            return
+        open_task_paths = getattr(self, "open_task_paths", None)
+        if open_task_paths is None:
+            return
+        if any(
+            session.task_path == task.path
+            and session_is_agent(session_kind=session.kind)
+            and not session.exited
+            for session in self.terminal_sessions.values()
+        ):
+            return
+        if task.path not in open_task_paths:
+            return
+        open_task_paths.discard(task.path)
+        self._save_settings()
 
     def _on_task_selected(self, selection: Gtk.TreeSelection) -> None:
         if self._updating_task_selection:
@@ -2071,7 +2155,9 @@ class WorkspaceGtkGui:
                     run_id=session.run_id,
                     agent=session.kind,
                 )
+            self._finish_open_task_restore_wait(session)
             session.page.destroy()
+        self._forget_open_task_if_closed(task)
         self._update_codex_button_state()
 
     def _register_detail_view(self, view: Gtk.TextView, filename: str) -> None:
@@ -2781,6 +2867,15 @@ class WorkspaceGtkGui:
             widget_kind="checkbox",
         )
         diff_report_feedback_check.set_active(self.diff_report_feedback_enabled)
+        restore_open_tasks_check = Gtk.CheckButton(label=self._tr("settings_restore_open_tasks_enabled"))
+        mark_gtk_widget(
+            restore_open_tasks_check,
+            "settings.restore_open_tasks",
+            "field",
+            label_key="settings_restore_open_tasks",
+            widget_kind="checkbox",
+        )
+        restore_open_tasks_check.set_active(self.restore_open_tasks)
         default_agent_combo = Gtk.ComboBoxText()
         mark_gtk_widget(
             default_agent_combo,
@@ -3460,6 +3555,7 @@ class WorkspaceGtkGui:
                 (self._tr("button_font_size"), button_size),
                 (self._tr("theme"), theme_combo),
                 (self._tr("language"), language_combo),
+                (self._tr("settings_restore_open_tasks"), restore_open_tasks_check),
                 ("Diff report feedback", diff_report_feedback_check),
             ],
         )
@@ -3581,6 +3677,7 @@ class WorkspaceGtkGui:
             self.theme = theme_combo.get_active_text() or self.theme
             self.language = language_combo.get_active_text() or self.language
             self.diff_report_feedback_enabled = diff_report_feedback_check.get_active()
+            self.restore_open_tasks = restore_open_tasks_check.get_active()
             self.gtk_breadcrumbs_enabled = gtk_breadcrumbs.get_active()
             self.default_agent = normalize_agent(default_agent_combo.get_active_text())
             if codex_available:
@@ -5341,6 +5438,7 @@ class WorkspaceGtkGui:
         )
         if session.run_id is not None:
             save_task_active_agent_run(task, kind, session.run_id)
+            self._remember_open_task(task)
         if session_is_agent(session_kind=kind):
             GLib.timeout_add(
                 AGENT_RESTORE_OUTPUT_CHECK_MS,
@@ -5363,7 +5461,14 @@ class WorkspaceGtkGui:
         for value in callback_values:
             if isinstance(value, int):
                 session.child_pid = value
-                return
+                break
+        self._finish_open_task_restore_wait(session)
+
+    def _finish_open_task_restore_wait(self, session: TerminalSession) -> None:
+        if session.session_id != getattr(self, "_open_task_restore_waiting_session_id", None):
+            return
+        self._open_task_restore_waiting_session_id = None
+        self._schedule_next_open_task_restoration()
 
     def _on_terminal_child_exited(self, terminal: Vte.Terminal, _status: int) -> None:
         session = self._session_for_terminal(terminal)
@@ -5381,6 +5486,8 @@ class WorkspaceGtkGui:
                 run_id=session.run_id,
                 agent=session.kind,
             )
+            self._forget_open_task_if_closed(self._task_for_path(session.task_path))
+        self._finish_open_task_restore_wait(session)
         self._update_codex_button_state()
         self._refresh_task_row_style_for_task(session.task_path)
 
@@ -5784,6 +5891,8 @@ class WorkspaceGtkGui:
                 run_id=session.run_id,
                 agent=session.kind,
             )
+            self._forget_open_task_if_closed(task)
+        self._finish_open_task_restore_wait(session)
         session.page.destroy()
         if ensure_default and self.selected_task is not None and self.selected_task.path == task.path:
             self._ensure_default_console_for_selected_task()
@@ -7068,6 +7177,11 @@ class WorkspaceGtkGui:
         if source_id is not None:
             GLib.source_remove(source_id)
             self._initial_pane_layout_source_id = None
+        source_id = getattr(self, "_open_task_restore_source_id", None)
+        if source_id is not None:
+            GLib.source_remove(source_id)
+            self._open_task_restore_source_id = None
+        self._open_task_restore_waiting_session_id = None
         source_id = getattr(self, "ai_debug_refresh_source_id", None)
         if source_id is not None:
             GLib.source_remove(source_id)
@@ -7115,6 +7229,8 @@ class WorkspaceGtkGui:
                 "inject_task_context_prompt": self.inject_task_context_prompt,
                 "diff_report_feedback_enabled": getattr(self, "diff_report_feedback_enabled", False),
                 "gtk_breadcrumbs_enabled": getattr(self, "gtk_breadcrumbs_enabled", False),
+                "restore_open_tasks": getattr(self, "restore_open_tasks", True),
+                "open_task_paths": sorted(str(path) for path in getattr(self, "open_task_paths", set())),
                 "mcp_enabled_groups": list(mcp_enabled_groups),
                 "mcp_trusted": self.mcp_trusted,
                 "task_dictionary_auto_discovery": self.task_dictionary_auto_discovery,

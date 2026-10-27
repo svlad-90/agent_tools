@@ -9,6 +9,7 @@ such as JSON parsing, CLI model discovery, and value sanitizers stay in `src`.
 Runtime settings include:
 
 - theme, language, font sizes, and window geometry;
+- automatic restoration of AI-agent tasks that were open before restart, enabled by default;
 - the default agent and per-agent model/reasoning defaults;
 - separate animation toggles for Codex and Claude Code, disabled by default;
 - Bash output guard budgets: 2000 head tokens, 2000 tail tokens, a 30-second
