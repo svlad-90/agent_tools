@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import os
 from pathlib import Path
 import shutil
 import subprocess
@@ -30,6 +31,9 @@ from ...task_context.api import render_task_context_slots
 from ...task_context.api import set_task_context_slot
 from ...task_context.api import slot_dictionary_data
 from ...task_context.api import task_goal_slot_markdown
+from ...web_terminal.api import WebTerminalManager
+from ...web_terminal.api import shell_command
+from ...web_terminal.api import shell_environment
 
 
 DEFAULT_CONTEXT_SEVERITY = ("mid", "high", "critical")
@@ -53,6 +57,9 @@ class AgentWorkspaceService:
     def __init__(self, workspace: Path) -> None:
         self.workspace = workspace.resolve()
         self._task_creation_lock = threading.Lock()
+        self._terminals = WebTerminalManager()
+        self._terminal_lifecycle_lock = threading.Lock()
+        self._terminal_lifecycle_state = "running"
 
     def tasks(self) -> list[dict[str, Any]]:
         return [task_summary_data(task) for task in discover_tasks(self.workspace)]
@@ -225,6 +232,64 @@ class AgentWorkspaceService:
             if action.action_id == action_id:
                 return task_action_command(action)
         raise KeyError(f"unknown task action: {action_id}")
+
+    def terminal_sessions(self, task_name: str) -> list[dict[str, Any]]:
+        self.task(task_name)
+        return [session.to_json() for session in self._terminals.sessions(task_name)]
+
+    def all_terminal_sessions(self) -> list[dict[str, Any]]:
+        return [session.to_json() for session in self._terminals.sessions()]
+
+    def start_shell_terminal(self, task_name: str) -> dict[str, Any]:
+        task = self.task(task_name)
+        with self._terminal_lifecycle_lock:
+            if self._terminal_lifecycle_state != "running":
+                raise RuntimeError("terminal service is shut down")
+            session = self._terminals.start(
+                task_name=task.name,
+                task_path=task.path,
+                command=shell_command(),
+                cwd=task.path,
+                env=shell_environment(dict(os.environ), task.name),
+                kind="shell",
+            )
+            sessions = [item.to_json() for item in self._terminals.sessions(task.name)]
+        return {"session": session.to_json(), "sessions": sessions}
+
+    def send_terminal_input(self, session_id: str, data: str) -> dict[str, Any]:
+        self._terminals.send(session_id, data)
+        return self.terminal_output(session_id)
+
+    def resize_terminal(self, session_id: str, *, rows: int, columns: int) -> dict[str, Any]:
+        return self._terminals.resize(session_id, rows=rows, columns=columns)
+
+    def terminal_output(self, session_id: str, *, offset: int = 0) -> dict[str, Any]:
+        return self._terminals.output(session_id, offset=offset)
+
+    def close_terminal(self, session_id: str) -> dict[str, Any]:
+        with self._terminal_lifecycle_lock:
+            session = self._terminals.session(session_id)
+            closed = self._terminals.close(session_id)
+        session_data = session.to_json()
+        session_data["exited"] = True
+        return {"closed": closed, "session": session_data}
+
+    def shutdown(self) -> None:
+        failures: list[Exception] = []
+        with self._terminal_lifecycle_lock:
+            if self._terminal_lifecycle_state == "shut-down":
+                return
+            self._terminal_lifecycle_state = "shutting-down"
+            for session in self._terminals.sessions():
+                try:
+                    self._terminals.close(session.session_id)
+                except KeyError:
+                    continue
+                except Exception as error:
+                    failures.append(error)
+            self._terminal_lifecycle_state = "shutdown-failed" if failures else "shut-down"
+        if failures:
+            raise RuntimeError("failed to close all terminal sessions") from failures[0]
 
 
 def task_summary_data(task: TaskSummary) -> dict[str, Any]:

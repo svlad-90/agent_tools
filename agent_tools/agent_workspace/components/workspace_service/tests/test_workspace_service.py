@@ -7,6 +7,7 @@ import pytest
 from agent_tools.agent_workspace.components.test_support.src.helpers import *
 from agent_tools.agent_workspace.components.harness_adapter.src.commands import handle_codex_adapter_hook
 from agent_tools.agent_workspace.components.workspace_service.src import service as service_module
+from agent_tools.agent_workspace.components.web_terminal.api import WebTerminalSession
 
 
 def test_agent_workspace_service_creates_task_without_catalog_refresh(
@@ -250,3 +251,105 @@ def test_agent_workspace_service_updates_single_context_slot(tmp_path: Path) -> 
     assert result["slot"]["content"] == "Browser mutation is transactional."
     assert result["context"]["entries"] == [result["slot"]]
     assert "Browser mutation is transactional." in result["context"]["markdown"]
+
+
+def test_agent_workspace_service_manages_shell_terminal_sessions(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    task = tmp_path / "tasks" / "sample-task"
+    task.mkdir(parents=True)
+    set_slot(task, "goal", "Terminal service task")
+    terminal = WebTerminalSession(
+        session_id="terminal-1",
+        task_name="sample-task",
+        task_path=task,
+        kind="shell",
+        command=("fake-shell",),
+        cwd=task,
+        exited=False,
+        run_id=None,
+        terminal_mode="pty",
+        encoding="utf-8",
+    )
+
+    class FakeTerminalManager:
+        def __init__(self) -> None:
+            self.started: dict[str, object] | None = None
+            self.sent: tuple[str, str] | None = None
+            self.resized: tuple[str, int, int] | None = None
+            self.closed: list[str] = []
+            self.active = True
+            self.close_failures = 0
+
+        def start(self, **kwargs: object) -> WebTerminalSession:
+            self.started = kwargs
+            return terminal
+
+        def sessions(self, task_name: str | None = None) -> list[WebTerminalSession]:
+            return [terminal] if self.active and task_name in {None, "sample-task"} else []
+
+        def session(self, session_id: str) -> WebTerminalSession:
+            assert session_id == "terminal-1"
+            return terminal
+
+        def send(self, session_id: str, data: str) -> None:
+            self.sent = (session_id, data)
+
+        def resize(self, session_id: str, *, rows: int, columns: int) -> dict[str, object]:
+            self.resized = (session_id, rows, columns)
+            return {"id": session_id, "rows": rows, "columns": columns, "resized": True}
+
+        def output(self, session_id: str, *, offset: int = 0) -> dict[str, object]:
+            return {"id": session_id, "offset": offset + 4, "text": "test", "exited": False}
+
+        def close(self, session_id: str) -> bool:
+            if self.close_failures:
+                self.close_failures -= 1
+                raise RuntimeError("close failed")
+            self.closed.append(session_id)
+            self.active = False
+            return True
+
+    manager = FakeTerminalManager()
+    service = AgentWorkspaceService(tmp_path)
+    service._terminals = manager  # type: ignore[assignment]
+    monkeypatch.setattr(service_module, "shell_command", lambda: ["fake-shell"])
+    monkeypatch.setattr(
+        service_module,
+        "shell_environment",
+        lambda env, task_name: {**env, "TERMINAL_TASK": task_name},
+    )
+
+    started = service.start_shell_terminal("sample-task")
+    listed = service.all_terminal_sessions()
+    sent = service.send_terminal_input("terminal-1", "input")
+    resized = service.resize_terminal("terminal-1", rows=24, columns=80)
+    closed = service.close_terminal("terminal-1")
+
+    assert started["session"]["id"] == "terminal-1"
+    assert started["sessions"] == listed
+    assert manager.started is not None
+    assert manager.started["cwd"] == task
+    assert manager.started["env"]["TERMINAL_TASK"] == "sample-task"  # type: ignore[index]
+    assert manager.sent == ("terminal-1", "input")
+    assert sent["text"] == "test"
+    assert resized == {"id": "terminal-1", "rows": 24, "columns": 80, "resized": True}
+    assert manager.resized == ("terminal-1", 24, 80)
+    assert closed["closed"] is True
+    assert closed["session"]["exited"] is True
+    assert manager.closed == ["terminal-1"]
+
+    manager.active = True
+    manager.close_failures = 1
+    with pytest.raises(RuntimeError, match="failed to close all terminal sessions"):
+        service.shutdown()
+    with pytest.raises(RuntimeError, match="terminal service is shut down"):
+        service.start_shell_terminal("sample-task")
+
+    service.shutdown()
+    service.shutdown()
+
+    assert manager.closed == ["terminal-1", "terminal-1"]
+    with pytest.raises(RuntimeError, match="terminal service is shut down"):
+        service.start_shell_terminal("sample-task")
