@@ -55,3 +55,34 @@ def test_agent_workspace_web_server_exposes_settings_ui_contract(tmp_path: Path)
     node_ids = {node["id"] for node in data["nodes"]}
     assert "settings.limited_bash_head_tokens" in node_ids
     assert "settings.limited_bash_heartbeat_tokens" in node_ids
+
+
+def test_agent_workspace_web_server_closes_workspace_service(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    server = _create_web_server_or_skip(tmp_path)
+    closed: list[bool] = []
+    monkeypatch.setattr(server.workspace_service, "shutdown", lambda: closed.append(True))
+
+    server.server_close()
+    server.server_close()
+
+    assert closed == [True, True]
+
+
+def test_agent_workspace_web_server_closes_socket_when_service_shutdown_fails(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    server = _create_web_server_or_skip(tmp_path)
+
+    def fail_shutdown() -> None:
+        raise RuntimeError("shutdown failed")
+
+    monkeypatch.setattr(server.workspace_service, "shutdown", fail_shutdown)
+
+    with pytest.raises(RuntimeError, match="shutdown failed"):
+        server.server_close()
+
+    assert server.socket.fileno() == -1

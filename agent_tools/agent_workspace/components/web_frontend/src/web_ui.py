@@ -67,7 +67,24 @@ def create_server(workspace: Path, host: str, port: int) -> ThreadingHTTPServer:
     class Handler(AgentWorkspaceWebHandler):
         workspace_service = service
 
-    return ThreadingHTTPServer((host, port), Handler)
+    return _AgentWorkspaceWebServer((host, port), Handler, service)
+
+
+class _AgentWorkspaceWebServer(ThreadingHTTPServer):
+    def __init__(
+        self,
+        server_address: tuple[str, int],
+        handler_class: type[BaseHTTPRequestHandler],
+        workspace_service: AgentWorkspaceService,
+    ) -> None:
+        self.workspace_service = workspace_service
+        super().__init__(server_address, handler_class)
+
+    def server_close(self) -> None:
+        try:
+            self.workspace_service.shutdown()
+        finally:
+            super().server_close()
 
 
 class AgentWorkspaceWebHandler(BaseHTTPRequestHandler):
