@@ -4,6 +4,7 @@ import argparse
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler
 from http.server import ThreadingHTTPServer
+import ipaddress
 import json
 from pathlib import Path
 import sqlite3
@@ -118,8 +119,17 @@ class AgentWorkspaceWebHandler(BaseHTTPRequestHandler):
             and path_parts[3] == "context-slot"
             else None
         )
-        if not is_task_creation and context_task_name is None:
+        terminal_task_name = (
+            path_parts[2]
+            if len(path_parts) == 4
+            and path_parts[:2] == ["api", "tasks"]
+            and path_parts[3] == "terminals"
+            else None
+        )
+        if not is_task_creation and context_task_name is None and terminal_task_name is None:
             self._send_error(HTTPStatus.NOT_FOUND, "not found")
+            return
+        if terminal_task_name is not None and not self._allow_loopback_terminal_request():
             return
         content_types = self.headers.get_all("Content-Type", failobj=[])
         if len(content_types) != 1 or self.headers.get_content_type() != "application/json":
@@ -141,7 +151,33 @@ class AgentWorkspaceWebHandler(BaseHTTPRequestHandler):
         if context_task_name is not None:
             self._handle_context_slot_update(context_task_name, parse_qs(parsed.query), body)
             return
+        if terminal_task_name is not None:
+            self._handle_shell_terminal_start(terminal_task_name)
+            return
         self._handle_task_creation(body)
+
+    def do_DELETE(self) -> None:  # noqa: N802
+        parsed = urlparse(self.path)
+        parts = [unquote(part) for part in parsed.path.split("/") if part]
+        if len(parts) != 4 or parts[:2] != ["api", "tasks"] or parts[3] != "terminals":
+            self._send_error(HTTPStatus.NOT_FOUND, "not found")
+            return
+        if not self._allow_loopback_terminal_request():
+            return
+        session_id = _query_value(parse_qs(parsed.query), "id")
+        if not session_id:
+            self._send_error(HTTPStatus.BAD_REQUEST, "missing terminal id")
+            return
+        try:
+            result = self.workspace_service.close_terminal(parts[2], session_id)
+        except KeyError as error:
+            self._send_error(HTTPStatus.NOT_FOUND, str(error))
+            return
+        except (OSError, RuntimeError) as error:
+            self.log_error("terminal close failed: %s", error)
+            self._send_error(HTTPStatus.INTERNAL_SERVER_ERROR, "terminal close failed")
+            return
+        self._send_json(result)
 
     def _handle_task_creation(self, body: dict[str, Any]) -> None:
         name = body.get("name")
@@ -166,6 +202,28 @@ class AgentWorkspaceWebHandler(BaseHTTPRequestHandler):
             self._send_error(HTTPStatus.INTERNAL_SERVER_ERROR, "task creation failed")
             return
         self._send_json(created, status=HTTPStatus.CREATED)
+
+    def _handle_shell_terminal_start(self, task_name: str) -> None:
+        try:
+            result = self.workspace_service.start_shell_terminal(task_name)
+        except KeyError as error:
+            self._send_error(HTTPStatus.NOT_FOUND, str(error))
+            return
+        except (OSError, RuntimeError) as error:
+            self.log_error("terminal start failed: %s", error)
+            self._send_error(HTTPStatus.INTERNAL_SERVER_ERROR, "terminal start failed")
+            return
+        try:
+            self._send_json(result, status=HTTPStatus.CREATED)
+        except Exception:
+            session = result.get("session")
+            session_id = session.get("id") if isinstance(session, dict) else None
+            if isinstance(session_id, str):
+                try:
+                    self.workspace_service.close_terminal(task_name, session_id)
+                except Exception as cleanup_error:
+                    self.log_error("terminal cleanup after response failure failed: %s", cleanup_error)
+            raise
 
     def _handle_context_slot_update(
         self,
@@ -249,6 +307,33 @@ class AgentWorkspaceWebHandler(BaseHTTPRequestHandler):
                     return
                 self._send_json(artifact)
                 return
+            if endpoint == "terminals":
+                if len(parts) != 4:
+                    self._send_error(HTTPStatus.NOT_FOUND, "unknown endpoint")
+                    return
+                if not self._allow_loopback_terminal_request():
+                    return
+                self._send_json({"sessions": self.workspace_service.terminal_sessions(task_name)})
+                return
+            if endpoint == "terminal-output":
+                if len(parts) != 4:
+                    self._send_error(HTTPStatus.NOT_FOUND, "unknown endpoint")
+                    return
+                if not self._allow_loopback_terminal_request():
+                    return
+                session_id = _query_value(query, "id")
+                if not session_id:
+                    self._send_error(HTTPStatus.BAD_REQUEST, "missing terminal id")
+                    return
+                offset = _query_nonnegative_int(query, "offset")
+                self._send_json(
+                    self.workspace_service.terminal_output(
+                        task_name,
+                        session_id,
+                        offset=offset,
+                    )
+                )
+                return
             if endpoint == "task-check-command":
                 self._send_json({"command": self.workspace_service.task_check_command(task_name)})
                 return
@@ -266,6 +351,14 @@ class AgentWorkspaceWebHandler(BaseHTTPRequestHandler):
             self._send_error(HTTPStatus.BAD_REQUEST, str(error))
             return
         self._send_error(HTTPStatus.NOT_FOUND, "unknown endpoint")
+
+    def _allow_loopback_terminal_request(self) -> bool:
+        host_values = self.headers.get_all("Host", failobj=[])
+        peer_host = self.client_address[0]
+        if len(host_values) == 1 and _is_loopback_host(peer_host) and _is_loopback_authority(host_values[0]):
+            return True
+        self._send_error(HTTPStatus.FORBIDDEN, "terminal API is available only from loopback")
+        return False
 
     def _send_json(self, value: Any, status: HTTPStatus = HTTPStatus.OK) -> None:
         body = json.dumps(value, ensure_ascii=True).encode("utf-8")
@@ -334,6 +427,30 @@ def _context_filters(query: dict[str, list[str]]) -> TaskContextFilters:
     )
 
 
+def _is_loopback_authority(value: str) -> bool:
+    try:
+        parsed = urlparse(f"//{value}")
+        hostname = parsed.hostname
+    except ValueError:
+        return False
+    if hostname is None or parsed.path or parsed.query or parsed.fragment:
+        return False
+    return _is_loopback_host(hostname)
+
+
+def _is_loopback_host(value: str) -> bool:
+    normalized = value.rstrip(".").casefold()
+    if normalized == "localhost":
+        return True
+    try:
+        address = ipaddress.ip_address(normalized)
+    except ValueError:
+        return False
+    if isinstance(address, ipaddress.IPv6Address) and address.ipv4_mapped is not None:
+        address = address.ipv4_mapped
+    return address.is_loopback
+
+
 def _query_tuple(query: dict[str, list[str]], key: str) -> tuple[str, ...]:
     values: list[str] = []
     for raw_value in query.get(key, []):
@@ -352,6 +469,15 @@ def _query_value(query: dict[str, list[str]], key: str) -> str | None:
 def _query_bool(query: dict[str, list[str]], key: str) -> bool:
     value = _query_value(query, key)
     return value is not None and value.casefold() not in {"0", "false", "no", "off"}
+
+
+def _query_nonnegative_int(query: dict[str, list[str]], key: str) -> int:
+    value = _query_value(query, key)
+    if value is None:
+        return 0
+    if not value or len(value) > 20 or not value.isascii() or not value.isdigit():
+        raise ValueError(f"invalid {key}")
+    return int(value)
 
 
 _INDEX_HTML = r"""<!doctype html>

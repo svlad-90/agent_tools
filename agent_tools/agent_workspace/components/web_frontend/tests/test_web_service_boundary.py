@@ -1,12 +1,15 @@
 from __future__ import annotations
 
+from email.message import Message
 import json
+from http import HTTPStatus
 from pathlib import Path
 import socket
 import sqlite3
 import subprocess
 import sys
 import threading
+import time
 from urllib.error import HTTPError
 from urllib.parse import quote
 from urllib.request import Request
@@ -15,6 +18,7 @@ from urllib.request import urlopen
 import pytest
 
 from agent_tools.agent_workspace.components.web_frontend.api import create_server
+from agent_tools.agent_workspace.components.web_frontend.src.web_ui import AgentWorkspaceWebHandler
 from agent_tools.agent_workspace.components.web_frontend.src.web_ui import MAX_JSON_BODY_BYTES
 from agent_tools.agent_workspace.components.web_frontend.src import web_ui as web_ui_module
 from agent_tools.agent_workspace.components.workspace_service.src import service as service_module
@@ -577,3 +581,127 @@ def test_agent_workspace_web_artifact_api_rejects_invalid_path(
 
     assert raised.value.code == (404 if query.startswith("/extra") else 400)
     assert message in data["error"]
+
+
+def test_agent_workspace_web_terminal_lifecycle_api(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    task = tmp_path / "tasks" / "sample-task"
+    task.mkdir(parents=True)
+    set_slot(task, "goal", "Terminal HTTP task")
+    monkeypatch.setattr(
+        service_module,
+        "shell_command",
+        lambda: [
+            sys.executable,
+            "-u",
+            "-c",
+            "import time; print('terminal-ready', flush=True); time.sleep(30)",
+        ],
+    )
+    monkeypatch.setattr(service_module, "shell_environment", lambda env, _task_name: env)
+
+    server = _create_server_or_skip(tmp_path)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        host, port = server.server_address
+        base_url = f"http://{host}:{port}/api/tasks/sample-task"
+        forbidden_request = Request(
+            f"{base_url}/terminals",
+            data=b"{}",
+            headers={"Content-Type": "application/json", "Host": "attacker.example"},
+            method="POST",
+        )
+        with pytest.raises(HTTPError) as raised:
+            urlopen(forbidden_request, timeout=5)
+        assert raised.value.code == 403
+
+        start_request = Request(
+            f"{base_url}/terminals",
+            data=b"{}",
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        with urlopen(start_request, timeout=5) as response:
+            assert response.status == 201
+            started = json.loads(response.read().decode("utf-8"))
+        session_id = started["session"]["id"]
+
+        with urlopen(f"{base_url}/terminals", timeout=5) as response:
+            listed = json.loads(response.read().decode("utf-8"))
+        assert [session["id"] for session in listed["sessions"]] == [session_id]
+
+        output: dict[str, object] = {}
+        for _attempt in range(50):
+            with urlopen(
+                f"{base_url}/terminal-output?id={quote(session_id)}&offset=0",
+                timeout=5,
+            ) as response:
+                output = json.loads(response.read().decode("utf-8"))
+            if "terminal-ready" in str(output["text"]):
+                break
+            time.sleep(0.05)
+        assert "terminal-ready" in str(output["text"])
+
+        with pytest.raises(HTTPError) as raised:
+            urlopen(
+                f"{base_url}/terminal-output?id={quote(session_id)}&offset=not-a-number",
+                timeout=5,
+            )
+        assert raised.value.code == 400
+
+        close_request = Request(
+            f"{base_url}/terminals?id={quote(session_id)}",
+            method="DELETE",
+        )
+        with urlopen(close_request, timeout=5) as response:
+            closed = json.loads(response.read().decode("utf-8"))
+    finally:
+        server.shutdown()
+        thread.join(timeout=5)
+        server.server_close()
+
+    assert closed["closed"] is True
+    assert closed["session"]["exited"] is True
+
+
+def test_agent_workspace_web_terminal_start_closes_session_when_response_fails() -> None:
+    class FakeService:
+        def __init__(self) -> None:
+            self.closed: list[tuple[str, str]] = []
+
+        def start_shell_terminal(self, task_name: str) -> dict[str, object]:
+            return {"session": {"id": "terminal-1", "task": task_name}, "sessions": []}
+
+        def close_terminal(self, task_name: str, session_id: str) -> dict[str, object]:
+            self.closed.append((task_name, session_id))
+            return {"closed": True}
+
+    service = FakeService()
+    handler = object.__new__(AgentWorkspaceWebHandler)
+    handler.workspace_service = service  # type: ignore[assignment]
+    handler.log_error = lambda *_args: None  # type: ignore[method-assign]
+
+    def fail_response(_value: object, *, status: HTTPStatus = HTTPStatus.OK) -> None:
+        raise BrokenPipeError(status)
+
+    handler._send_json = fail_response  # type: ignore[method-assign]
+
+    with pytest.raises(BrokenPipeError):
+        handler._handle_shell_terminal_start("sample-task")
+
+    assert service.closed == [("sample-task", "terminal-1")]
+
+
+def test_agent_workspace_web_terminal_api_rejects_non_loopback_peer() -> None:
+    handler = object.__new__(AgentWorkspaceWebHandler)
+    handler.headers = Message()
+    handler.headers["Host"] = "localhost:8765"
+    handler.client_address = ("192.0.2.10", 50000)
+    errors: list[tuple[HTTPStatus, str]] = []
+    handler._send_error = lambda status, message: errors.append((status, message))  # type: ignore[method-assign]
+
+    assert handler._allow_loopback_terminal_request() is False
+    assert errors == [(HTTPStatus.FORBIDDEN, "terminal API is available only from loopback")]
