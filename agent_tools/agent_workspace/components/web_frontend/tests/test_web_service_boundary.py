@@ -8,6 +8,7 @@ import subprocess
 import sys
 import threading
 from urllib.error import HTTPError
+from urllib.parse import quote
 from urllib.request import Request
 from urllib.request import urlopen
 
@@ -509,3 +510,70 @@ def test_agent_workspace_web_context_api_returns_encoded_slot_dictionary(tmp_pat
     assert data["dictionary"][0]["value"] == repeated
     assert "## Task Dictionary" in data["markdown"]
     assert "§00 appears" in data["markdown"]
+
+
+def test_agent_workspace_web_artifact_api_returns_bounded_preview(tmp_path: Path) -> None:
+    task = tmp_path / "tasks" / "sample-task"
+    report = task / "report"
+    report.mkdir(parents=True)
+    set_slot(task, "goal", "Agent Workspace web service goal.")
+    (report / "notes.md").write_text("artifact preview", encoding="utf-8")
+
+    server = _create_server_or_skip(tmp_path)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        host, port = server.server_address
+        label = quote("report/notes.md", safe="")
+        with urlopen(
+            f"http://{host}:{port}/api/tasks/sample-task/artifact?path={label}",
+            timeout=5,
+        ) as response:
+            data = json.loads(response.read().decode("utf-8"))
+    finally:
+        server.shutdown()
+        thread.join(timeout=5)
+        server.server_close()
+
+    assert data["label"] == "report/notes.md"
+    assert data["content"] == "artifact preview"
+    assert data["binary"] is False
+    assert data["truncated"] is False
+
+
+@pytest.mark.parametrize(
+    ("query", "message"),
+    [
+        ("", "missing artifact path"),
+        (f"?path={quote('../outside.txt', safe='')}", "unknown artifact"),
+        ("/extra?path=report%2Fnotes.md", "unknown endpoint"),
+    ],
+)
+def test_agent_workspace_web_artifact_api_rejects_invalid_path(
+    tmp_path: Path,
+    query: str,
+    message: str,
+) -> None:
+    task = tmp_path / "tasks" / "sample-task"
+    task.mkdir(parents=True)
+    set_slot(task, "goal", "Agent Workspace web service goal.")
+    (tmp_path / "outside.txt").write_text("outside", encoding="utf-8")
+
+    server = _create_server_or_skip(tmp_path)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        host, port = server.server_address
+        with pytest.raises(HTTPError) as raised:
+            urlopen(
+                f"http://{host}:{port}/api/tasks/sample-task/artifact{query}",
+                timeout=5,
+            )
+        data = json.loads(raised.value.read().decode("utf-8"))
+    finally:
+        server.shutdown()
+        thread.join(timeout=5)
+        server.server_close()
+
+    assert raised.value.code == (404 if query.startswith("/extra") else 400)
+    assert message in data["error"]

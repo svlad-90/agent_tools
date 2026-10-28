@@ -216,6 +216,22 @@ class AgentWorkspaceWebHandler(BaseHTTPRequestHandler):
             if endpoint == "artifacts":
                 self._send_json({"artifacts": self.workspace_service.task_artifacts(task_name)})
                 return
+            if endpoint == "artifact":
+                if len(parts) != 4:
+                    self._send_error(HTTPStatus.NOT_FOUND, "unknown endpoint")
+                    return
+                label = _query_value(query, "path")
+                if not label:
+                    self._send_error(HTTPStatus.BAD_REQUEST, "missing artifact path")
+                    return
+                try:
+                    artifact = self.workspace_service.artifact_content(task_name, label)
+                except OSError as error:
+                    self.log_error("artifact preview failed: %s", error)
+                    self._send_error(HTTPStatus.INTERNAL_SERVER_ERROR, "artifact preview failed")
+                    return
+                self._send_json(artifact)
+                return
             if endpoint == "task-check-command":
                 self._send_json({"command": self.workspace_service.task_check_command(task_name)})
                 return
