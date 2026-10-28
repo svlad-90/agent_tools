@@ -32,6 +32,7 @@ from ...task_context.api import set_task_context_slot
 from ...task_context.api import slot_dictionary_data
 from ...task_context.api import task_goal_slot_markdown
 from ...web_terminal.api import WebTerminalManager
+from ...web_terminal.api import WebTerminalSession
 from ...web_terminal.api import shell_command
 from ...web_terminal.api import shell_environment
 
@@ -256,19 +257,29 @@ class AgentWorkspaceService:
             sessions = [item.to_json() for item in self._terminals.sessions(task.name)]
         return {"session": session.to_json(), "sessions": sessions}
 
-    def send_terminal_input(self, session_id: str, data: str) -> dict[str, Any]:
+    def send_terminal_input(self, task_name: str, session_id: str, data: str) -> dict[str, Any]:
+        self._task_terminal_session(task_name, session_id)
         self._terminals.send(session_id, data)
-        return self.terminal_output(session_id)
+        return {"id": session_id, "accepted": True}
 
-    def resize_terminal(self, session_id: str, *, rows: int, columns: int) -> dict[str, Any]:
+    def resize_terminal(
+        self,
+        task_name: str,
+        session_id: str,
+        *,
+        rows: int,
+        columns: int,
+    ) -> dict[str, Any]:
+        self._task_terminal_session(task_name, session_id)
         return self._terminals.resize(session_id, rows=rows, columns=columns)
 
-    def terminal_output(self, session_id: str, *, offset: int = 0) -> dict[str, Any]:
+    def terminal_output(self, task_name: str, session_id: str, *, offset: int = 0) -> dict[str, Any]:
+        self._task_terminal_session(task_name, session_id)
         return self._terminals.output(session_id, offset=offset)
 
-    def close_terminal(self, session_id: str) -> dict[str, Any]:
+    def close_terminal(self, task_name: str, session_id: str) -> dict[str, Any]:
         with self._terminal_lifecycle_lock:
-            session = self._terminals.session(session_id)
+            session = self._task_terminal_session(task_name, session_id)
             closed = self._terminals.close(session_id)
         session_data = session.to_json()
         session_data["exited"] = True
@@ -290,6 +301,13 @@ class AgentWorkspaceService:
             self._terminal_lifecycle_state = "shutdown-failed" if failures else "shut-down"
         if failures:
             raise RuntimeError("failed to close all terminal sessions") from failures[0]
+
+    def _task_terminal_session(self, task_name: str, session_id: str) -> WebTerminalSession:
+        task = self.task(task_name)
+        session = self._terminals.session(session_id)
+        if session.task_name != task.name:
+            raise KeyError(f"unknown terminal session for task {task.name}: {session_id}")
+        return session
 
 
 def task_summary_data(task: TaskSummary) -> dict[str, Any]:

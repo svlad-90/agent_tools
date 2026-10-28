@@ -260,6 +260,9 @@ def test_agent_workspace_service_manages_shell_terminal_sessions(
     task = tmp_path / "tasks" / "sample-task"
     task.mkdir(parents=True)
     set_slot(task, "goal", "Terminal service task")
+    other_task = tmp_path / "tasks" / "other-task"
+    other_task.mkdir()
+    set_slot(other_task, "goal", "Other terminal task")
     terminal = WebTerminalSession(
         session_id="terminal-1",
         task_name="sample-task",
@@ -281,6 +284,8 @@ def test_agent_workspace_service_manages_shell_terminal_sessions(
             self.closed: list[str] = []
             self.active = True
             self.close_failures = 0
+            self.output_calls = 0
+            self.close_during_send = False
 
         def start(self, **kwargs: object) -> WebTerminalSession:
             self.started = kwargs
@@ -291,16 +296,21 @@ def test_agent_workspace_service_manages_shell_terminal_sessions(
 
         def session(self, session_id: str) -> WebTerminalSession:
             assert session_id == "terminal-1"
+            if not self.active:
+                raise KeyError(f"unknown terminal session: {session_id}")
             return terminal
 
         def send(self, session_id: str, data: str) -> None:
             self.sent = (session_id, data)
+            if self.close_during_send:
+                self.active = False
 
         def resize(self, session_id: str, *, rows: int, columns: int) -> dict[str, object]:
             self.resized = (session_id, rows, columns)
             return {"id": session_id, "rows": rows, "columns": columns, "resized": True}
 
         def output(self, session_id: str, *, offset: int = 0) -> dict[str, object]:
+            self.output_calls += 1
             return {"id": session_id, "offset": offset + 4, "text": "test", "exited": False}
 
         def close(self, session_id: str) -> bool:
@@ -323,9 +333,13 @@ def test_agent_workspace_service_manages_shell_terminal_sessions(
 
     started = service.start_shell_terminal("sample-task")
     listed = service.all_terminal_sessions()
-    sent = service.send_terminal_input("terminal-1", "input")
-    resized = service.resize_terminal("terminal-1", rows=24, columns=80)
-    closed = service.close_terminal("terminal-1")
+    with pytest.raises(KeyError, match="unknown terminal session for task other-task"):
+        service.terminal_output("other-task", "terminal-1")
+    manager.close_during_send = True
+    sent = service.send_terminal_input("sample-task", "terminal-1", "input")
+    manager.active = True
+    resized = service.resize_terminal("sample-task", "terminal-1", rows=24, columns=80)
+    closed = service.close_terminal("sample-task", "terminal-1")
 
     assert started["session"]["id"] == "terminal-1"
     assert started["sessions"] == listed
@@ -333,7 +347,8 @@ def test_agent_workspace_service_manages_shell_terminal_sessions(
     assert manager.started["cwd"] == task
     assert manager.started["env"]["TERMINAL_TASK"] == "sample-task"  # type: ignore[index]
     assert manager.sent == ("terminal-1", "input")
-    assert sent["text"] == "test"
+    assert sent == {"id": "terminal-1", "accepted": True}
+    assert manager.output_calls == 0
     assert resized == {"id": "terminal-1", "rows": 24, "columns": 80, "resized": True}
     assert manager.resized == ("terminal-1", 24, 80)
     assert closed["closed"] is True
