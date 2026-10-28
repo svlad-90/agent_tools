@@ -6,6 +6,7 @@ from http.server import BaseHTTPRequestHandler
 from http.server import ThreadingHTTPServer
 import json
 from pathlib import Path
+import subprocess
 import sys
 from typing import Any
 from urllib.parse import parse_qs
@@ -19,6 +20,14 @@ from ...harness_adapter.api import clear_harness_debug_events
 from ...workspace_service.api import AgentWorkspaceService
 from ...workspace_service.api import TaskContextFilters
 from .ui_contract import web_settings_ui_tree
+
+
+MAX_JSON_BODY_BYTES = 64 * 1024
+REQUEST_BODY_TIMEOUT_SECONDS = 5
+
+
+class _RequestBodyTooLarge(ValueError):
+    pass
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -80,6 +89,51 @@ class AgentWorkspaceWebHandler(BaseHTTPRequestHandler):
             return
         self._send_error(HTTPStatus.NOT_FOUND, "not found")
 
+    def do_POST(self) -> None:  # noqa: N802
+        parsed = urlparse(self.path)
+        if parsed.path != "/api/tasks":
+            self._send_error(HTTPStatus.NOT_FOUND, "not found")
+            return
+        content_types = self.headers.get_all("Content-Type", failobj=[])
+        if len(content_types) != 1 or self.headers.get_content_type() != "application/json":
+            self._send_error(HTTPStatus.UNSUPPORTED_MEDIA_TYPE, "Content-Type must be application/json")
+            return
+        try:
+            body = self._read_json_body()
+        except _RequestBodyTooLarge as error:
+            self._send_error(HTTPStatus.REQUEST_ENTITY_TOO_LARGE, str(error))
+            return
+        except TimeoutError:
+            self.close_connection = True
+            self._send_error(HTTPStatus.REQUEST_TIMEOUT, "request body timed out")
+            return
+        except (json.JSONDecodeError, UnicodeDecodeError, ValueError) as error:
+            self._send_error(HTTPStatus.BAD_REQUEST, str(error))
+            return
+
+        name = body.get("name")
+        if not isinstance(name, str) or not name.strip():
+            self._send_error(HTTPStatus.BAD_REQUEST, "missing task name")
+            return
+        privacy = body.get("privacy", "public")
+        if not isinstance(privacy, str):
+            self._send_error(HTTPStatus.BAD_REQUEST, "task privacy must be a string")
+            return
+        try:
+            created = self.workspace_service.create_task(name, privacy=privacy)
+        except ValueError as error:
+            self._send_error(HTTPStatus.BAD_REQUEST, str(error))
+            return
+        except subprocess.TimeoutExpired as error:
+            self.log_error("task creation timed out: %s", error)
+            self._send_error(HTTPStatus.GATEWAY_TIMEOUT, "task creation timed out")
+            return
+        except (OSError, RuntimeError) as error:
+            self.log_error("task creation failed: %s", error)
+            self._send_error(HTTPStatus.INTERNAL_SERVER_ERROR, "task creation failed")
+            return
+        self._send_json(created, status=HTTPStatus.CREATED)
+
     def log_message(self, format: str, *args: object) -> None:
         print(f"{self.address_string()} - {format % args}", file=sys.stderr)
 
@@ -137,7 +191,7 @@ class AgentWorkspaceWebHandler(BaseHTTPRequestHandler):
         self._send_error(HTTPStatus.NOT_FOUND, "unknown endpoint")
 
     def _send_json(self, value: Any, status: HTTPStatus = HTTPStatus.OK) -> None:
-        body = json.dumps(value, ensure_ascii=False).encode("utf-8")
+        body = json.dumps(value, ensure_ascii=True).encode("utf-8")
         self.send_response(status)
         self.send_header("Content-Type", "application/json; charset=utf-8")
         self.send_header("Content-Length", str(len(body)))
@@ -154,6 +208,40 @@ class AgentWorkspaceWebHandler(BaseHTTPRequestHandler):
 
     def _send_error(self, status: HTTPStatus, message: str) -> None:
         self._send_json({"error": message}, status=status)
+
+    def _read_json_body(self) -> dict[str, Any]:
+        if self.headers.get_all("Transfer-Encoding", failobj=[]):
+            raise ValueError("Transfer-Encoding is not supported")
+        raw_lengths = self.headers.get_all("Content-Length", failobj=[])
+        if not raw_lengths:
+            raise ValueError("missing Content-Length")
+        if len(raw_lengths) != 1:
+            raise ValueError("multiple Content-Length headers")
+        raw_length = raw_lengths[0]
+        if not raw_length or not raw_length.isascii() or not raw_length.isdigit():
+            raise ValueError("invalid Content-Length")
+        if len(raw_length) > 1 and raw_length.startswith("0"):
+            raise ValueError("invalid Content-Length")
+        maximum_length = str(MAX_JSON_BODY_BYTES)
+        if len(raw_length) > len(maximum_length) or (
+            len(raw_length) == len(maximum_length) and raw_length > maximum_length
+        ):
+            raise _RequestBodyTooLarge(f"JSON body exceeds {MAX_JSON_BODY_BYTES} bytes")
+        length = int(raw_length)
+        previous_timeout = self.connection.gettimeout()
+        self.connection.settimeout(REQUEST_BODY_TIMEOUT_SECONDS)
+        try:
+            raw_bytes = self.rfile.read(length)
+        finally:
+            self.connection.settimeout(previous_timeout)
+        if len(raw_bytes) != length:
+            self.close_connection = True
+            raise ValueError("incomplete request body")
+        raw_body = raw_bytes.decode("utf-8")
+        value = json.loads(raw_body)
+        if not isinstance(value, dict):
+            raise ValueError("JSON body must be an object")
+        return value
 
 
 def _context_filters(query: dict[str, list[str]]) -> TaskContextFilters:
