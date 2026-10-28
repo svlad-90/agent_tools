@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 import socket
+import sqlite3
 import subprocess
 import sys
 import threading
@@ -320,6 +321,143 @@ def test_agent_workspace_web_context_api_returns_slots(tmp_path: Path) -> None:
     assert data["entries"][0]["content"] == "Run web service smoke."
     assert data["markdown"].startswith("```text\n+---")
     assert "| Validation" in data["markdown"]
+
+
+def test_agent_workspace_web_context_slot_api_updates_one_slot(tmp_path: Path) -> None:
+    task = tmp_path / "tasks" / "sample-task"
+    task.mkdir(parents=True)
+    set_slot(task, "goal", "Agent Workspace web service goal.")
+
+    server = _create_server_or_skip(tmp_path)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        host, port = server.server_address
+        request = Request(
+            f"http://{host}:{port}/api/tasks/sample-task/context-slot?category=findings",
+            data=json.dumps({"content": "Saved through the web API."}).encode("utf-8"),
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        with urlopen(request, timeout=5) as response:
+            data = json.loads(response.read().decode("utf-8"))
+    finally:
+        server.shutdown()
+        thread.join(timeout=5)
+        server.server_close()
+
+    assert data["slot"]["category"] == "findings"
+    assert data["slot"]["content"] == "Saved through the web API."
+    assert data["context"]["entries"][0]["content"] == "Saved through the web API."
+
+
+@pytest.mark.parametrize(
+    ("task_name", "query", "payload", "status", "error"),
+    [
+        ("sample-task", "", {"content": "text"}, 400, "missing category"),
+        (
+            "sample-task",
+            "?category=findings",
+            {"content": ["not", "text"]},
+            400,
+            "context content must be a string",
+        ),
+        ("missing-task", "?category=findings", {"content": "text"}, 404, "unknown task"),
+    ],
+)
+def test_agent_workspace_web_context_slot_api_rejects_invalid_request(
+    tmp_path: Path,
+    task_name: str,
+    query: str,
+    payload: object,
+    status: int,
+    error: str,
+) -> None:
+    task = tmp_path / "tasks" / "sample-task"
+    task.mkdir(parents=True)
+    set_slot(task, "goal", "Agent Workspace web service goal.")
+
+    server = _create_server_or_skip(tmp_path)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        host, port = server.server_address
+        request = Request(
+            f"http://{host}:{port}/api/tasks/{task_name}/context-slot{query}",
+            data=json.dumps(payload).encode("utf-8"),
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        with pytest.raises(HTTPError) as raised:
+            urlopen(request, timeout=5)
+        data = json.loads(raised.value.read().decode("utf-8"))
+    finally:
+        server.shutdown()
+        thread.join(timeout=5)
+        server.server_close()
+
+    assert raised.value.code == status
+    assert error in data["error"]
+
+
+def test_agent_workspace_web_context_slot_api_rejects_unknown_route_before_body(
+    tmp_path: Path,
+) -> None:
+    server = _create_server_or_skip(tmp_path)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        host, port = server.server_address
+        request = Request(
+            f"http://{host}:{port}/api/tasks/sample-task/extra/context-slot",
+            data=b"not-json",
+            method="POST",
+        )
+        with pytest.raises(HTTPError) as raised:
+            urlopen(request, timeout=5)
+        data = json.loads(raised.value.read().decode("utf-8"))
+    finally:
+        server.shutdown()
+        thread.join(timeout=5)
+        server.server_close()
+
+    assert raised.value.code == 404
+    assert data == {"error": "not found"}
+
+
+def test_agent_workspace_web_context_slot_api_reports_database_failure(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    task = tmp_path / "tasks" / "sample-task"
+    task.mkdir(parents=True)
+    set_slot(task, "goal", "Agent Workspace web service goal.")
+
+    def fail_slot_update(*_args: object, **_kwargs: object) -> object:
+        raise sqlite3.OperationalError("database is locked")
+
+    monkeypatch.setattr(service_module, "set_task_context_slot", fail_slot_update)
+    server = _create_server_or_skip(tmp_path)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        host, port = server.server_address
+        request = Request(
+            f"http://{host}:{port}/api/tasks/sample-task/context-slot?category=findings",
+            data=json.dumps({"content": "text"}).encode("utf-8"),
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        with pytest.raises(HTTPError) as raised:
+            urlopen(request, timeout=5)
+        data = json.loads(raised.value.read().decode("utf-8"))
+    finally:
+        server.shutdown()
+        thread.join(timeout=5)
+        server.server_close()
+
+    assert raised.value.code == 500
+    assert data == {"error": "context slot update failed"}
 
 
 def test_agent_workspace_web_context_api_returns_encoded_slot_markdown(tmp_path: Path) -> None:

@@ -6,6 +6,7 @@ from http.server import BaseHTTPRequestHandler
 from http.server import ThreadingHTTPServer
 import json
 from pathlib import Path
+import sqlite3
 import subprocess
 import sys
 from typing import Any
@@ -91,7 +92,16 @@ class AgentWorkspaceWebHandler(BaseHTTPRequestHandler):
 
     def do_POST(self) -> None:  # noqa: N802
         parsed = urlparse(self.path)
-        if parsed.path != "/api/tasks":
+        is_task_creation = parsed.path == "/api/tasks"
+        path_parts = [unquote(part) for part in parsed.path.split("/") if part]
+        context_task_name = (
+            path_parts[2]
+            if len(path_parts) == 4
+            and path_parts[:2] == ["api", "tasks"]
+            and path_parts[3] == "context-slot"
+            else None
+        )
+        if not is_task_creation and context_task_name is None:
             self._send_error(HTTPStatus.NOT_FOUND, "not found")
             return
         content_types = self.headers.get_all("Content-Type", failobj=[])
@@ -111,6 +121,12 @@ class AgentWorkspaceWebHandler(BaseHTTPRequestHandler):
             self._send_error(HTTPStatus.BAD_REQUEST, str(error))
             return
 
+        if context_task_name is not None:
+            self._handle_context_slot_update(context_task_name, parse_qs(parsed.query), body)
+            return
+        self._handle_task_creation(body)
+
+    def _handle_task_creation(self, body: dict[str, Any]) -> None:
         name = body.get("name")
         if not isinstance(name, str) or not name.strip():
             self._send_error(HTTPStatus.BAD_REQUEST, "missing task name")
@@ -133,6 +149,34 @@ class AgentWorkspaceWebHandler(BaseHTTPRequestHandler):
             self._send_error(HTTPStatus.INTERNAL_SERVER_ERROR, "task creation failed")
             return
         self._send_json(created, status=HTTPStatus.CREATED)
+
+    def _handle_context_slot_update(
+        self,
+        task_name: str,
+        query: dict[str, list[str]],
+        body: dict[str, Any],
+    ) -> None:
+        category = _query_value(query, "category")
+        if not category:
+            self._send_error(HTTPStatus.BAD_REQUEST, "missing category")
+            return
+        content = body.get("content")
+        if not isinstance(content, str):
+            self._send_error(HTTPStatus.BAD_REQUEST, "context content must be a string")
+            return
+        try:
+            result = self.workspace_service.save_task_context_slot(task_name, category, content)
+        except KeyError as error:
+            self._send_error(HTTPStatus.NOT_FOUND, str(error))
+            return
+        except ValueError as error:
+            self._send_error(HTTPStatus.BAD_REQUEST, str(error))
+            return
+        except (OSError, RuntimeError, sqlite3.Error) as error:
+            self.log_error("context slot update failed: %s", error)
+            self._send_error(HTTPStatus.INTERNAL_SERVER_ERROR, "context slot update failed")
+            return
+        self._send_json(result)
 
     def log_message(self, format: str, *args: object) -> None:
         print(f"{self.address_string()} - {format % args}", file=sys.stderr)
