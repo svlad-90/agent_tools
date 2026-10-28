@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import hashlib
 import os
 from pathlib import Path
 import shutil
@@ -61,6 +62,8 @@ class AgentWorkspaceService:
         self._terminals = WebTerminalManager()
         self._terminal_lifecycle_lock = threading.Lock()
         self._terminal_lifecycle_state = "running"
+        self._terminal_input_lock = threading.Lock()
+        self._terminal_input_state: dict[str, tuple[int, bytes, dict[str, Any]]] = {}
 
     def tasks(self) -> list[dict[str, Any]]:
         return [task_summary_data(task) for task in discover_tasks(self.workspace)]
@@ -257,10 +260,39 @@ class AgentWorkspaceService:
             sessions = [item.to_json() for item in self._terminals.sessions(task.name)]
         return {"session": session.to_json(), "sessions": sessions}
 
-    def send_terminal_input(self, task_name: str, session_id: str, data: str) -> dict[str, Any]:
-        self._task_terminal_session(task_name, session_id)
-        self._terminals.send(session_id, data)
-        return {"id": session_id, "accepted": True}
+    def send_terminal_input(
+        self,
+        task_name: str,
+        session_id: str,
+        data: str,
+        *,
+        sequence: int,
+    ) -> dict[str, Any]:
+        if isinstance(sequence, bool) or not isinstance(sequence, int) or not 1 <= sequence <= 2**63 - 1:
+            raise ValueError("terminal input sequence must be a positive 64-bit integer")
+        with self._terminal_input_lock:
+            session = self._task_terminal_session(task_name, session_id)
+            data_digest = hashlib.sha256(
+                data.encode(session.encoding, errors="replace")
+            ).digest()
+            previous = self._terminal_input_state.get(session_id)
+            if previous is not None:
+                previous_sequence, previous_digest, receipt = previous
+                if sequence == previous_sequence:
+                    if previous_digest != data_digest:
+                        raise ValueError("terminal input sequence was reused with different data")
+                    return dict(receipt)
+                if sequence < previous_sequence:
+                    raise ValueError("terminal input sequence is stale")
+                expected_sequence = previous_sequence + 1
+            else:
+                expected_sequence = 1
+            if sequence != expected_sequence:
+                raise ValueError(f"expected terminal input sequence {expected_sequence}")
+            self._terminals.send(session_id, data)
+            receipt = {"id": session_id, "sequence": sequence, "accepted": True}
+            self._terminal_input_state[session_id] = (sequence, data_digest, receipt)
+            return dict(receipt)
 
     def resize_terminal(
         self,
@@ -281,6 +313,8 @@ class AgentWorkspaceService:
         with self._terminal_lifecycle_lock:
             session = self._task_terminal_session(task_name, session_id)
             closed = self._terminals.close(session_id)
+        with self._terminal_input_lock:
+            self._terminal_input_state.pop(session_id, None)
         session_data = session.to_json()
         session_data["exited"] = True
         return {"closed": closed, "session": session_data}
@@ -299,6 +333,13 @@ class AgentWorkspaceService:
                 except Exception as error:
                     failures.append(error)
             self._terminal_lifecycle_state = "shutdown-failed" if failures else "shut-down"
+        with self._terminal_input_lock:
+            active_ids = {session.session_id for session in self._terminals.sessions()}
+            self._terminal_input_state = {
+                session_id: state
+                for session_id, state in self._terminal_input_state.items()
+                if session_id in active_ids
+            }
         if failures:
             raise RuntimeError("failed to close all terminal sessions") from failures[0]
 

@@ -279,7 +279,7 @@ def test_agent_workspace_service_manages_shell_terminal_sessions(
     class FakeTerminalManager:
         def __init__(self) -> None:
             self.started: dict[str, object] | None = None
-            self.sent: tuple[str, str] | None = None
+            self.sent: list[tuple[str, str]] = []
             self.resized: tuple[str, int, int] | None = None
             self.closed: list[str] = []
             self.active = True
@@ -301,7 +301,7 @@ def test_agent_workspace_service_manages_shell_terminal_sessions(
             return terminal
 
         def send(self, session_id: str, data: str) -> None:
-            self.sent = (session_id, data)
+            self.sent.append((session_id, data))
             if self.close_during_send:
                 self.active = False
 
@@ -336,8 +336,17 @@ def test_agent_workspace_service_manages_shell_terminal_sessions(
     with pytest.raises(KeyError, match="unknown terminal session for task other-task"):
         service.terminal_output("other-task", "terminal-1")
     manager.close_during_send = True
-    sent = service.send_terminal_input("sample-task", "terminal-1", "input")
+    sent = service.send_terminal_input("sample-task", "terminal-1", "input", sequence=1)
     manager.active = True
+    retried = service.send_terminal_input("sample-task", "terminal-1", "input", sequence=1)
+    with pytest.raises(ValueError, match="reused with different data"):
+        service.send_terminal_input("sample-task", "terminal-1", "different", sequence=1)
+    with pytest.raises(ValueError, match="expected terminal input sequence 2"):
+        service.send_terminal_input("sample-task", "terminal-1", "future", sequence=3)
+    manager.close_during_send = False
+    second = service.send_terminal_input("sample-task", "terminal-1", "second", sequence=2)
+    with pytest.raises(ValueError, match="sequence is stale"):
+        service.send_terminal_input("sample-task", "terminal-1", "input", sequence=1)
     resized = service.resize_terminal("sample-task", "terminal-1", rows=24, columns=80)
     closed = service.close_terminal("sample-task", "terminal-1")
 
@@ -346,8 +355,10 @@ def test_agent_workspace_service_manages_shell_terminal_sessions(
     assert manager.started is not None
     assert manager.started["cwd"] == task
     assert manager.started["env"]["TERMINAL_TASK"] == "sample-task"  # type: ignore[index]
-    assert manager.sent == ("terminal-1", "input")
-    assert sent == {"id": "terminal-1", "accepted": True}
+    assert manager.sent == [("terminal-1", "input"), ("terminal-1", "second")]
+    assert sent == {"id": "terminal-1", "sequence": 1, "accepted": True}
+    assert retried == sent
+    assert second == {"id": "terminal-1", "sequence": 2, "accepted": True}
     assert manager.output_calls == 0
     assert resized == {"id": "terminal-1", "rows": 24, "columns": 80, "resized": True}
     assert manager.resized == ("terminal-1", 24, 80)

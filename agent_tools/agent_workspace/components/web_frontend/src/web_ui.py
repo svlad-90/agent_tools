@@ -126,10 +126,21 @@ class AgentWorkspaceWebHandler(BaseHTTPRequestHandler):
             and path_parts[3] == "terminals"
             else None
         )
-        if not is_task_creation and context_task_name is None and terminal_task_name is None:
+        terminal_update = path_parts[3] if len(path_parts) == 4 and path_parts[:2] == ["api", "tasks"] else None
+        terminal_update_task_name = (
+            path_parts[2] if terminal_update in {"terminal-input", "terminal-resize"} else None
+        )
+        if (
+            not is_task_creation
+            and context_task_name is None
+            and terminal_task_name is None
+            and terminal_update_task_name is None
+        ):
             self._send_error(HTTPStatus.NOT_FOUND, "not found")
             return
-        if terminal_task_name is not None and not self._allow_loopback_terminal_request():
+        if (
+            terminal_task_name is not None or terminal_update_task_name is not None
+        ) and not self._allow_loopback_terminal_request():
             return
         content_types = self.headers.get_all("Content-Type", failobj=[])
         if len(content_types) != 1 or self.headers.get_content_type() != "application/json":
@@ -153,6 +164,9 @@ class AgentWorkspaceWebHandler(BaseHTTPRequestHandler):
             return
         if terminal_task_name is not None:
             self._handle_shell_terminal_start(terminal_task_name)
+            return
+        if terminal_update_task_name is not None and terminal_update is not None:
+            self._handle_terminal_update(terminal_update_task_name, terminal_update, body)
             return
         self._handle_task_creation(body)
 
@@ -224,6 +238,68 @@ class AgentWorkspaceWebHandler(BaseHTTPRequestHandler):
                 except Exception as cleanup_error:
                     self.log_error("terminal cleanup after response failure failed: %s", cleanup_error)
             raise
+
+    def _handle_terminal_update(
+        self,
+        task_name: str,
+        endpoint: str,
+        body: dict[str, Any],
+    ) -> None:
+        session_id = body.get("id")
+        if not isinstance(session_id, str) or not session_id:
+            self._send_error(HTTPStatus.BAD_REQUEST, "missing terminal id")
+            return
+        try:
+            if endpoint == "terminal-input":
+                data = body.get("data")
+                if not isinstance(data, str):
+                    self._send_error(HTTPStatus.BAD_REQUEST, "terminal input must be a string")
+                    return
+                sequence = body.get("sequence")
+                if (
+                    not isinstance(sequence, int)
+                    or isinstance(sequence, bool)
+                    or not 1 <= sequence <= 2**63 - 1
+                ):
+                    self._send_error(
+                        HTTPStatus.BAD_REQUEST,
+                        "terminal input sequence must be a positive 64-bit integer",
+                    )
+                    return
+                result = self.workspace_service.send_terminal_input(
+                    task_name,
+                    session_id,
+                    data,
+                    sequence=sequence,
+                )
+            else:
+                rows = body.get("rows")
+                columns = body.get("columns")
+                if (
+                    not isinstance(rows, int)
+                    or isinstance(rows, bool)
+                    or not isinstance(columns, int)
+                    or isinstance(columns, bool)
+                ):
+                    self._send_error(HTTPStatus.BAD_REQUEST, "terminal size must use integer rows and columns")
+                    return
+                result = self.workspace_service.resize_terminal(
+                    task_name,
+                    session_id,
+                    rows=rows,
+                    columns=columns,
+                )
+        except KeyError as error:
+            self._send_error(HTTPStatus.NOT_FOUND, str(error))
+            return
+        except ValueError as error:
+            self._send_error(HTTPStatus.CONFLICT, str(error))
+            return
+        except (OSError, RuntimeError) as error:
+            self.log_error("terminal update failed: %s", error)
+            self._send_error(HTTPStatus.INTERNAL_SERVER_ERROR, "terminal update failed")
+            return
+        self._send_json(result)
 
     def _handle_context_slot_update(
         self,

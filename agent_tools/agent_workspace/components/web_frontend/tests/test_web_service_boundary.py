@@ -597,7 +597,10 @@ def test_agent_workspace_web_terminal_lifecycle_api(
             sys.executable,
             "-u",
             "-c",
-            "import time; print('terminal-ready', flush=True); time.sleep(30)",
+            (
+                "import time; print('terminal-ready', flush=True); "
+                "line = input(); print('terminal-echo:' + line, flush=True); time.sleep(30)"
+            ),
         ],
     )
     monkeypatch.setattr(service_module, "shell_environment", lambda env, _task_name: env)
@@ -644,6 +647,44 @@ def test_agent_workspace_web_terminal_lifecycle_api(
                 break
             time.sleep(0.05)
         assert "terminal-ready" in str(output["text"])
+        output_offset = int(output["offset"])
+
+        resize_request = Request(
+            f"{base_url}/terminal-resize",
+            data=json.dumps({"id": session_id, "rows": 32, "columns": 100}).encode("utf-8"),
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        with urlopen(resize_request, timeout=5) as response:
+            resized = json.loads(response.read().decode("utf-8"))
+        assert resized["rows"] == 32
+        assert resized["columns"] == 100
+
+        input_request = Request(
+            f"{base_url}/terminal-input",
+            data=json.dumps({"id": session_id, "data": "hello\n", "sequence": 1}).encode("utf-8"),
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        with urlopen(input_request, timeout=5) as response:
+            accepted = json.loads(response.read().decode("utf-8"))
+        assert accepted == {"id": session_id, "sequence": 1, "accepted": True}
+
+        with urlopen(input_request, timeout=5) as response:
+            retried = json.loads(response.read().decode("utf-8"))
+        assert retried == accepted
+
+        echoed: dict[str, object] = {}
+        for _attempt in range(50):
+            with urlopen(
+                f"{base_url}/terminal-output?id={quote(session_id)}&offset={output_offset}",
+                timeout=5,
+            ) as response:
+                echoed = json.loads(response.read().decode("utf-8"))
+            if "terminal-echo:hello" in str(echoed["text"]):
+                break
+            time.sleep(0.05)
+        assert "terminal-echo:hello" in str(echoed["text"])
 
         with pytest.raises(HTTPError) as raised:
             urlopen(
@@ -693,6 +734,40 @@ def test_agent_workspace_web_terminal_start_closes_session_when_response_fails()
         handler._handle_shell_terminal_start("sample-task")
 
     assert service.closed == [("sample-task", "terminal-1")]
+
+
+@pytest.mark.parametrize(
+    ("endpoint", "body", "message"),
+    [
+        ("terminal-input", {"data": "x", "sequence": 1}, "missing terminal id"),
+        ("terminal-input", {"id": "t1", "data": [], "sequence": 1}, "input must be a string"),
+        ("terminal-input", {"id": "t1", "data": "x", "sequence": True}, "positive 64-bit integer"),
+        ("terminal-input", {"id": "t1", "data": "x", "sequence": 0}, "positive 64-bit integer"),
+        ("terminal-resize", {"id": "t1", "rows": True, "columns": 80}, "integer rows"),
+        ("terminal-resize", {"id": "t1", "rows": 24, "columns": "80"}, "integer rows"),
+    ],
+)
+def test_agent_workspace_web_terminal_update_rejects_invalid_payload(
+    endpoint: str,
+    body: dict[str, object],
+    message: str,
+) -> None:
+    class FakeService:
+        def send_terminal_input(self, *_args: object, **_kwargs: object) -> object:
+            raise AssertionError("service must not receive invalid input")
+
+        def resize_terminal(self, *_args: object, **_kwargs: object) -> object:
+            raise AssertionError("service must not receive invalid size")
+
+    handler = object.__new__(AgentWorkspaceWebHandler)
+    handler.workspace_service = FakeService()  # type: ignore[assignment]
+    errors: list[tuple[HTTPStatus, str]] = []
+    handler._send_error = lambda status, text: errors.append((status, text))  # type: ignore[method-assign]
+
+    handler._handle_terminal_update("sample-task", endpoint, body)
+
+    assert errors[0][0] == HTTPStatus.BAD_REQUEST
+    assert message in errors[0][1]
 
 
 def test_agent_workspace_web_terminal_api_rejects_non_loopback_peer() -> None:
