@@ -53,7 +53,7 @@ jobs:
             bootstrap: apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y ca-certificates python3 python3-venv
           - distro: fedora-latest
             image: fedora:latest
-            bootstrap: dnf install -y ca-certificates python3 python3-pip
+            bootstrap: dnf install -y ca-certificates gcc python3 python3-devel python3-pip
           - distro: archlinux-latest
             image: archlinux:latest
             bootstrap: pacman -Sy --noconfirm ca-certificates python
@@ -200,7 +200,7 @@ jobs:
           - target: fedora-dnf
             package_manager: dnf
             expected_prefix: "Would run: sudo dnf install -y"
-            expected_tokens: "git graphviz plantuml python3 python3-pip docker python3-gobject gtk3 vte291 desktop-file-utils"
+            expected_tokens: "gcc python3-devel git graphviz plantuml python3 python3-pip docker python3-gobject gtk3 vte291 desktop-file-utils"
           - target: arch-pacman
             package_manager: pacman
             expected_prefix: "Would run: sudo pacman -Sy --noconfirm --needed"

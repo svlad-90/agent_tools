@@ -30,6 +30,7 @@ DNF_GUI_PACKAGES = (
     "vte291",
     "desktop-file-utils",
 )
+DNF_PYTHON_BUILD_PACKAGES = ("gcc", "python3-devel")
 PACMAN_GUI_PACKAGES = (
     "python-gobject",
     "gtk3",
@@ -337,6 +338,8 @@ def _detect_package_manager(requested: str) -> str | None:
 
 def _selected_system_packages(manager: str, args: argparse.Namespace) -> tuple[str, ...]:
     packages: list[str] = []
+    if manager == "dnf":
+        packages.extend(DNF_PYTHON_BUILD_PACKAGES)
     if args.system_tools:
         packages.extend(_workspace_system_packages(manager))
     if args.docker:
