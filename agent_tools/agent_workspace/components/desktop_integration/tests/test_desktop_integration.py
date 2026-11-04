@@ -155,6 +155,22 @@ def test_install_agent_tools_default_launchers_use_workspace_relative_venv() -> 
     assert '"%WORKSPACE_ROOT%agent_tools\\.venv\\Scripts\\python.exe"' in windows
 
 
+def test_install_agent_tools_dnf_profiles_include_python_build_compiler() -> None:
+    installer_path = _workspace_root() / "install-agent-tools.py"
+    spec = importlib.util.spec_from_file_location("install_agent_tools_test", installer_path)
+    assert spec is not None
+    assert spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    args = argparse.Namespace(system_tools=False, docker=False, gui=True)
+
+    packages = module._selected_system_packages("dnf", args)
+
+    assert "gcc" in packages
+    assert "python3-devel" in packages
+    assert "python3-gobject" in packages
+
+
 def test_install_agent_tools_linux_auto_desktop_venv_uses_system_site_packages(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
