@@ -33,7 +33,8 @@ These rules apply to every repository under the workspace root.
    pushing so the user can stop or correct the push.
 
    When an AI agent was used to write code for a commit, include an
-   `Assisted-by` trailer after the other contribution trailers:
+   `Assisted-by` trailer after the other contribution trailers unless the
+   user explicitly asks to omit it for that commit or repository:
 
    ```text
    Assisted-by: Codex:gpt-5 <specialized-tool>
@@ -42,6 +43,10 @@ These rules apply to every repository under the workspace root.
    Use the current agent and model name, and list only specialized analysis
    tools that materially assisted the contribution. Do not list basic
    development tools such as `git`, compilers, build systems, or editors.
+
+   An explicit user request to omit `Assisted-by` overrides this default unless
+   a repository-specific policy requires the trailer. Do not add or retain the
+   trailer when the opt-out applies.
 
    For Zephyr pull requests that used AI assistance, the same `Assisted-by`
    trailer is required in the contribution metadata.
