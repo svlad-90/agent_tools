@@ -5410,8 +5410,6 @@ class WorkspaceGtkGui:
         terminal.connect("child-exited", self._on_terminal_child_exited)
         terminal.connect("unrealize", self._remove_codex_terminal_window_filter)
         terminal.connect("destroy", self._remove_codex_terminal_window_filter)
-        scrolled = _new_scrolled_window()
-        scrolled.get_style_context().add_class("terminal-page")
         terminal_child: Gtk.Widget = terminal
         terminal_mouse: CodexTerminalMouseStateMachine | None = None
         if kind in {"codex", "claude"}:
@@ -5421,16 +5419,16 @@ class WorkspaceGtkGui:
                 profile_area=f"{kind}-terminal-mouse",
             )
             terminal_child = terminal_mouse.widget
-        scrolled.add(terminal_child)
+        page = _new_terminal_page(terminal, terminal_child)
         if terminal_mouse is not None:
             self._profile_widget(f"terminal-proxy-{kind}-{session_id}", terminal_child)
-        self._profile_widget(f"terminal-page-{kind}-{session_id}", scrolled)
+        self._profile_widget(f"terminal-page-{kind}-{session_id}", page)
         session = TerminalSession(
             session_id=session_id,
             task_path=task.path,
             kind=kind,
             terminal=terminal,
-            page=scrolled,
+            page=page,
             terminal_mouse=terminal_mouse,
             busy=session_is_agent(session_kind=kind),
             run_id=run_id if session_is_agent(session_kind=kind) else None,
@@ -7032,10 +7030,10 @@ class WorkspaceGtkGui:
         notebook.console-notebook:hover,
         notebook.console-notebook:prelight,
         notebook.console-notebook:focus,
-        scrolledwindow.terminal-page,
-        scrolledwindow.terminal-page:hover,
-        scrolledwindow.terminal-page:prelight,
-        scrolledwindow.terminal-page:focus,
+        box.terminal-page,
+        box.terminal-page:hover,
+        box.terminal-page:prelight,
+        box.terminal-page:focus,
         vte,
         vte:hover,
         vte:prelight,
@@ -7388,6 +7386,18 @@ def _new_scrolled_window() -> Gtk.ScrolledWindow:
     scrolled.set_overlay_scrolling(False)
     scrolled.set_kinetic_scrolling(False)
     return scrolled
+
+
+def _new_terminal_page(terminal: Vte.Terminal, terminal_child: Gtk.Widget) -> Gtk.Box:
+    page = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=0)
+    page.get_style_context().add_class("terminal-page")
+    scrollbar = Gtk.Scrollbar(
+        orientation=Gtk.Orientation.VERTICAL,
+        adjustment=terminal.get_vadjustment(),
+    )
+    page.pack_start(terminal_child, True, True, 0)
+    page.pack_start(scrollbar, False, True, 0)
+    return page
 
 
 def _scrolled(widget: Gtk.Widget) -> Gtk.ScrolledWindow:
