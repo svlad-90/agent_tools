@@ -2858,17 +2858,6 @@ def test_gtk_start_terminal_does_not_activate_background_task(
     ensure_task_context_database(background_path)
     tasks = {task.name: task for task in discover_tasks(tmp_path)}
 
-    class FakeStyleContext:
-        def add_class(self, _name: str) -> None:
-            return
-
-    class FakeScrolledWindow:
-        def get_style_context(self) -> FakeStyleContext:
-            return FakeStyleContext()
-
-        def add(self, _child: object) -> None:
-            return
-
     class FakeTerminal:
         def set_scrollback_lines(self, _lines: int) -> None:
             return
@@ -2890,7 +2879,7 @@ def test_gtk_start_terminal_does_not_activate_background_task(
         return terminal
 
     monkeypatch.setattr(gtk_ui_module.Vte, "Terminal", terminal_factory)
-    monkeypatch.setattr(gtk_ui_module, "_new_scrolled_window", FakeScrolledWindow)
+    monkeypatch.setattr(gtk_ui_module, "_new_terminal_page", lambda _terminal, child: child)
     gui = WorkspaceGtkGui.__new__(WorkspaceGtkGui)
     gui.next_terminal_id = 1
     gui.terminal_sessions = {}
@@ -2921,6 +2910,55 @@ def test_gtk_start_terminal_does_not_activate_background_task(
     assert background_id in gui.terminal_sessions
     assert selected_id in gui.terminal_sessions
     assert activated == [selected_id]
+
+
+def test_gtk_terminal_page_uses_vte_adjustment_without_scrolled_window(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class FakeStyleContext:
+        def __init__(self) -> None:
+            self.classes: list[str] = []
+
+        def add_class(self, name: str) -> None:
+            self.classes.append(name)
+
+    class FakeBox:
+        def __init__(self, *, orientation: object, spacing: int) -> None:
+            self.orientation = orientation
+            self.spacing = spacing
+            self.style_context = FakeStyleContext()
+            self.children: list[tuple[object, bool, bool, int]] = []
+
+        def get_style_context(self) -> FakeStyleContext:
+            return self.style_context
+
+        def pack_start(self, child: object, expand: bool, fill: bool, padding: int) -> None:
+            self.children.append((child, expand, fill, padding))
+
+    class FakeScrollbar:
+        def __init__(self, *, orientation: object, adjustment: object) -> None:
+            self.orientation = orientation
+            self.adjustment = adjustment
+
+    adjustment = object()
+    terminal = type("Terminal", (), {"get_vadjustment": lambda self: adjustment})()
+    terminal_child = object()
+    monkeypatch.setattr(gtk_ui_module.Gtk, "Box", FakeBox)
+    monkeypatch.setattr(gtk_ui_module.Gtk, "Scrollbar", FakeScrollbar)
+
+    page = gtk_ui_module._new_terminal_page(terminal, terminal_child)
+
+    assert page.orientation == Gtk.Orientation.HORIZONTAL
+    assert page.spacing == 0
+    assert page.style_context.classes == ["terminal-page"]
+    scrollbar = page.children[1][0]
+    assert isinstance(scrollbar, FakeScrollbar)
+    assert scrollbar.orientation == Gtk.Orientation.VERTICAL
+    assert scrollbar.adjustment is adjustment
+    assert page.children == [
+        (terminal_child, True, True, 0),
+        (scrollbar, False, True, 0),
+    ]
 
 
 def test_gtk_close_task_sessions_releases_open_task_restore_wait(tmp_path: Path) -> None:
