@@ -69,6 +69,10 @@ def iter_diff_lines(diff_text: str) -> Iterator[DiffLine]:
             yield DiffLine(kind="header", raw=raw_line, file_path=current_file)
             continue
 
+        if raw_line == "\\ No newline at end of file":
+            yield DiffLine(kind="metadata", raw=raw_line, file_path=current_file)
+            continue
+
         if raw_line.startswith("+") and not raw_line.startswith("+++"):
             if new_remaining <= 0:
                 continue
