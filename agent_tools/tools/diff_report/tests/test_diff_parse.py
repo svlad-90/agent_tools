@@ -65,6 +65,31 @@ class DiffParseTests(unittest.TestCase):
         self.assertEqual("header", lines[1].kind)
         self.assertEqual("custom header", lines[1].raw)
 
+    def test_iter_diff_lines_does_not_consume_no_newline_marker(self) -> None:
+        diff_text = (
+            textwrap.dedent(
+                """\
+                diff --git a/header.h b/header.h
+                index 1111111..2222222 100644
+                --- a/header.h
+                +++ b/header.h
+                @@ -1 +1 @@
+                -#endif
+                """
+            )
+            + "\\ No newline at end of file\n"
+            + "+#endif\n"
+        )
+
+        lines = list(iter_diff_lines(diff_text))
+
+        self.assertEqual(
+            ["file", "metadata", "metadata", "metadata", "hunk", "delete", "metadata", "add"],
+            [line.kind for line in lines],
+        )
+        self.assertEqual("#endif", lines[-1].content)
+        self.assertEqual(1, lines[-1].new_line)
+
     def test_iter_diff_lines_ignores_format_patch_footer_after_hunk(self) -> None:
         diff_text = (
             textwrap.dedent(
